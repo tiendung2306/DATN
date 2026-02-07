@@ -30,7 +30,16 @@ The following tasks have been successfully completed:
     *   Created `users` and `messages` tables automatically on startup.
     *   Implemented gRPC client connection and tested via a `Ping` call to the sidecar.
 
-## 3. Current Progress & Next Steps
+## 3. Technical Decisions & Knowledge
+
+*   **Cross-platform Compatibility:**
+    *   Used `modernc.org/sqlite` (CGO-free) to ensure the backend compiles and runs on Windows, Linux, and macOS without requiring a C compiler.
+    *   Implemented OS-aware binary path discovery in `ProcessManager` using `runtime.GOOS`.
+    *   Used `filepath.Join` for all path manipulations to handle different path separators (`\` vs `/`).
+*   **Sidecar Lifecycle:** The Go application acts as the supervisor, using `context.Context` to ensure the Rust engine is terminated when the Go process exits.
+*   **Networking Strategy:** Decided on `go-libp2p` for decentralized communication, which inherently supports cross-platform network abstraction.
+
+## 4. Current Progress & Next Steps
 
 Phần "1. SYSTEM ARCHITECTURE & SETUP" đã hoàn tất về mặt hạ tầng cốt lõi.
 

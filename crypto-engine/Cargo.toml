@@ -5,13 +5,16 @@ edition = "2021" # Changed to 2021 as it's common for newer Rust projects.
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-tonic = "0.11"
-prost = "0.12"
-prost-types = "0.12"
-openmls = "0.15" # Check for the latest stable version if issues arise
-futures-util = "0.3" # Added for async operations, might be needed by tonic/tokio
+tonic = "0.14.3"
+prost = "0.14.3"
+prost-types = "0.14.3"
+openmls = "0.8.0"
+futures-util = "0.3"
+clap = { version = "4.4", features = ["derive"] }
+chrono = "0.4"
+tonic-prost = "0.14.3"
 
 [build-dependencies]
-tonic-build = "0.11"
-prost-build = "0.12"
+tonic-prost-build = "0.14.3"
+prost-build = "0.14.3"
 

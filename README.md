@@ -139,25 +139,72 @@ graph TD
 
 ## 5. DEVELOPER COMMANDS
 
-### Generate Protobufs:
+
+
+### 5.1. Generate Protobufs (Go)
+
+
+
+Run this from the project root:
 
 ```bash
-protoc --go_out=. --go-grpc_out=. proto/mls_service.proto
-# (Rust build.rs handles the tonic generation automatically)
+
+protoc --go_out=./backend --go-grpc_out=./backend --proto_path=./proto mls_service.proto
+
 ```
 
-### Run Dev Mode:
+
+
+### 5.2. Running in Development
+
+
+
+Since the system uses a Sidecar pattern, you must build the Rust engine first.
+
+
+
+**Step 1: Build Rust Engine**
 
 ```bash
-wails dev
+
+cd crypto-engine
+
+cargo build
+
 ```
 
-### Build Production:
+
+
+**Step 2: Run Go Backend**
 
 ```bash
-# 1. Build Rust binary
+
+cd backend
+
+go run .
+
+```
+
+
+
+*Note: The Go backend will automatically find the Rust binary in `../crypto-engine/target/debug/`.*
+
+
+
+### 5.3. Build Production
+
+
+
+```bash
+
+# 1. Build Rust binary (Release mode)
+
 cd crypto-engine && cargo build --release
 
-# 2. Build Go app (embeds frontend)
+
+
+# 2. Build Go app (via Wails - requires Wails CLI installed)
+
 cd .. && wails build
+
 ```
