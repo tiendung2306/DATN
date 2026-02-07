@@ -6,39 +6,39 @@ This document serves as a short-term memory for the AI Agent, providing a snapsh
 
 The project is a **Secure Private P2P Communication System**, a graduation thesis focusing on a serverless, zero-trust internal communication platform using a **Pure P2P architecture** and the **MLS (Messaging Layer Security)** protocol. It employs a **Local-First, Sidecar Architecture** with a **Go host application (Wails)** managing a **headless Rust cryptographic engine** via gRPC over localhost.
 
-## 2. Completed Tasks (as per PROJECT_PLAN.md - Section 1.1)
+## 2. Completed Tasks (as per PROJECT_PLAN.md - Section 1.1 to 1.4)
 
-The following initial setup tasks have been successfully completed:
+The following tasks have been successfully completed:
 
-*   **Monorepo Structure & Protobuf Definition:**
-    *   Created the main project directories: `/proto`, `/backend`, `/crypto-engine`, `/frontend`.
-    *   Defined `mls_service.proto` in the `/proto` directory, including initial services (`MLSCryptoService`) and methods (`GenerateIdentity`, `ExportIdentity`, `ImportIdentity`, `Ping`).
-    *   Added `option go_package = "backend/mls_service";` to `mls_service.proto` for correct Go code generation.
-    *   Configured `protoc` to generate Go code and Rust code (via `build.rs`).
-    *   Installed `protoc-gen-go` and `protoc-gen-go-grpc`.
+*   **Project Infrastructure:**
 
-*   **Rust Crypto Engine Initial Setup (`crypto-engine`):**
-    *   Initialized a Rust binary project.
-    *   Updated `Cargo.toml` with necessary dependencies (`tokio`, `tonic`, `prost`, `openmls`, `futures-util`) and `build-dependencies` (`tonic-build`, `prost-build`).
-    *   Created `build.rs` for `tonic-build` to generate Rust gRPC service code from `mls_service.proto`.
-    *   Created a placeholder `src/main.rs`.
+    *   Initialized Git repository and configured remote origin.
 
-*   **Go Backend Initial Setup (`backend`):**
-    *   Initialized a Go module.
-    *   Added required Go dependencies (`google.golang.org/grpc`, `google.golang.org/protobuf`).
-    *   Generated Go Protobuf and gRPC service code from `mls_service.proto` into `backend/mls_service`.
-    *   Created a placeholder `main.go`.
+    *   Created a comprehensive root `.gitignore` covering Go, Rust, Node.js, and Wails.
+
+*   **Monorepo Structure & Protobuf Definition (1.1):**
+
+ ... (Done)
+*   **Rust gRPC Server Implementation (1.2):** ... (Done)
+*   **Go Process Manager (Sidecar Logic) (1.3):**
+    *   Implemented `ProcessManager` in `backend/process.go`.
+    *   Added logic to find a free port and spawn the Rust binary.
+    *   Captured Rust stdout/stderr and integrated them into Go's structured logging.
+*   **Database & Logging Setup (1.4):**
+    *   Initialized `log/slog` for structured logging in the backend.
+    *   Set up SQLite with `modernc.org/sqlite` (CGO-free).
+    *   Created `users` and `messages` tables automatically on startup.
+    *   Implemented gRPC client connection and tested via a `Ping` call to the sidecar.
 
 ## 3. Current Progress & Next Steps
 
-All tasks related to "1.1. Monorepo Structure & Protobuf Definition" from `PROJECT_PLAN.md` are complete.
+Phần "1. SYSTEM ARCHITECTURE & SETUP" đã hoàn tất về mặt hạ tầng cốt lõi.
 
-The immediate next step, as per `PROJECT_PLAN.md`, is **"1.2. Rust gRPC Server Implementation"**:
+Bước tiếp theo theo `PROJECT_PLAN.md` là **"2. P2P NETWORKING LAYER"**:
 
-*   **Context:** Headless binary, listens on CLI-provided port.
-*   **Task:** Implement `main.rs` to parse a `--port` flag.
-*   **Task:** Implement a basic Tonic gRPC server listening on `127.0.0.1:{port}`.
-*   **Task:** Implement a dummy `Ping` method to verify connectivity.
+*   **2.1. Libp2p Host Configuration:** Thiết lập host libp2p với TCP/QUIC, Noise, Yamux.
+*   **2.2. Discovery Mechanism:** Triển khai mDNS và Kademlia DHT.
+*   **2.3. GossipSub Implementation:** Triển khai cơ chế PubSub cho các topic chat.
 
 ---
-**AI Agent:** Please proceed with the tasks outlined in "1.2. Rust gRPC Server Implementation" using `PROJECT_PLAN.md` and `AGENT.md` as primary guidance.
+**AI Agent:** Please proceed with the tasks outlined in "2. P2P NETWORKING LAYER" using `PROJECT_PLAN.md` and `AGENT.md` as primary guidance.
