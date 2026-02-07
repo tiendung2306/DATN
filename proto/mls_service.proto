@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package mls_service;
+
+option go_package = "backend/mls_service";
+
+// MLSCryptoService provides cryptographic operations using OpenMLS.
+service MLSCryptoService {
+  // Generates a new identity for the user.
+  rpc GenerateIdentity(GenerateIdentityRequest) returns (GenerateIdentityResponse);
+
+  // Exports the current identity, typically for backup or migration.
+  rpc ExportIdentity(ExportIdentityRequest) returns (ExportIdentityResponse);
+
+  // Imports an identity from previously exported data.
+  rpc ImportIdentity(ImportIdentityRequest) returns (ImportIdentityResponse);
+
+  // A simple ping method to check service connectivity.
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// Message for generating a new identity.
+message GenerateIdentityRequest {
+  // Add relevant fields for identity generation if any, e.g., username.
+}
+
+message GenerateIdentityResponse {
+  bytes key_package = 1; // The generated KeyPackage in bytes
+  // Potentially other identity-related information
+}
+
+// Message for exporting an identity.
+message ExportIdentityRequest {
+  bytes key_package = 1; // The KeyPackage to export
+  string passphrase = 2; // Passphrase to encrypt the exported data
+}
+
+message ExportIdentityResponse {
+  bytes encrypted_backup_data = 1; // Encrypted identity data
+}
+
+// Message for importing an identity.
+message ImportIdentityRequest {
+  bytes encrypted_backup_data = 1; // Encrypted identity data
+  string passphrase = 2; // Passphrase to decrypt the data
+}
+
+message ImportIdentityResponse {
+  bytes key_package = 1; // The imported KeyPackage in bytes
+  // Potentially other identity-related information
+}
+
+// A generic message type for MLS messages (e.g., handshake, application messages).
+message MlsMessage {
+  bytes data = 1; // Raw MLS message bytes
+  // Additional metadata can be added here if needed
+}
+
+// A message type for KeyPackage (public identity information).
+message KeyPackage {
+  bytes data = 1; // Raw KeyPackage bytes
+  // Additional metadata can be added here if needed
+}
+
+// Ping Request and Response
+message PingRequest {}
+message PingResponse {
+  string message = 1;
+  int64 timestamp = 2;
+}
