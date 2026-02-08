@@ -7,7 +7,7 @@ services:
       - node1_db:/data
     networks:
       p2p_net:
-        ipv4_address: 172.18.0.11
+        ipv4_address: 10.20.30.11
 
   node2:
     build: .
@@ -21,7 +21,7 @@ services:
       - node1
     networks:
       p2p_net:
-        ipv4_address: 172.18.0.12
+        ipv4_address: 10.20.30.12
 
   node3:
     build: .
@@ -35,14 +35,14 @@ services:
       - node1
     networks:
       p2p_net:
-        ipv4_address: 172.18.0.13
+        ipv4_address: 10.20.30.13
 
 networks:
   p2p_net:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.18.0.0/16
+        - subnet: 10.20.30.0/24
 
 volumes:
   shared_data:

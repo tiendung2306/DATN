@@ -50,19 +50,34 @@ func (pm *ProcessManager) StartCryptoEngine() (int, error) {
 	}
 	pm.port = port
 
-	// Determine binary path (looking in crypto-engine/target/debug)
+	// Determine binary name
 	executable := "crypto-engine"
 	if runtime.GOOS == "windows" {
 		executable += ".exe"
 	}
 
-	// For development, we look into the Rust build directory
+	// Strategy to find the binary:
+	// 1. Same directory as the backend (Docker/Production)
+	// 2. Dev path: ../crypto-engine/target/debug/ (Cargo default)
+	// 3. Dev path: ../crypto-engine/target/release/ (Cargo release)
+	
 	cwd, _ := os.Getwd()
-	binPath := filepath.Join(cwd, "..", "crypto-engine", "target", "debug", executable)
+	possiblePaths := []string{
+		filepath.Join(cwd, executable),
+		filepath.Join(cwd, "..", "crypto-engine", "target", "debug", executable),
+		filepath.Join(cwd, "..", "crypto-engine", "target", "release", executable),
+	}
 
-	// Fallback check if binary exists
-	if _, err := os.Stat(binPath); os.IsNotExist(err) {
-		return 0, fmt.Errorf("crypto-engine binary not found at %s. Please run 'cargo build' in crypto-engine directory", binPath)
+	var binPath string
+	for _, p := range possiblePaths {
+		if _, err := os.Stat(p); err == nil {
+			binPath = p
+			break
+		}
+	}
+
+	if binPath == "" {
+		return 0, fmt.Errorf("crypto-engine binary not found. Searched in: %v. Please build the rust project.", possiblePaths)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
