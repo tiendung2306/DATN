@@ -1,0 +1,51 @@
+services:
+  node1:
+    build: .
+    command: ["node1"]
+    volumes:
+      - shared_data:/shared
+      - node1_db:/data
+    networks:
+      p2p_net:
+        ipv4_address: 172.18.0.11
+
+  node2:
+    build: .
+    command: ["node2"]
+    environment:
+      - USE_BOOTSTRAP=true  # Set to false to test pure mDNS
+    volumes:
+      - shared_data:/shared
+      - node2_db:/data
+    depends_on:
+      - node1
+    networks:
+      p2p_net:
+        ipv4_address: 172.18.0.12
+
+  node3:
+    build: .
+    command: ["node3"]
+    environment:
+      - USE_BOOTSTRAP=true  # Set to false to test pure mDNS
+    volumes:
+      - shared_data:/shared
+      - node3_db:/data
+    depends_on:
+      - node1
+    networks:
+      p2p_net:
+        ipv4_address: 172.18.0.13
+
+networks:
+  p2p_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+
+volumes:
+  shared_data:
+  node1_db:
+  node2_db:
+  node3_db:

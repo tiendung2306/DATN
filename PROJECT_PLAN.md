@@ -45,19 +45,21 @@
 
 ---
 
-## 2. P2P NETWORKING LAYER (Weeks 3-5)
+## 2. P2P NETWORKING LAYER (Weeks 3-5) [COMPLETED]
 
 **Goal:** Enable decentralized node discovery and communication using Go-libp2p.
 
-### 2.1. Libp2p Host Configuration
+### 2.1. Libp2p Host Configuration [Done]
 - **Task:** Configure `libp2p.New` with TCP/QUIC, Noise, Yamux, AutoNAT.
+- **Implementation Note:** Added persistent `PeerID` storage in SQLite (`system_config` table) to ensure stable identity across restarts.
 
-### 2.2. Discovery Mechanism
+### 2.2. Discovery Mechanism [Done]
 - **Task:** Implement mDNS discovery service.
 - **Task:** Implement Kademlia DHT (`dht.New`) in server mode.
 - **Task:** Implement "Bootstrap" logic to connect to static IPs.
+- **Implementation Note:** Implemented a "Hybrid Discovery" model. Fixed Windows mDNS noise issues by binding to specific interfaces and implementing a 2-layer log filter. Added a Shared Volume Bootstrap mechanism for robust Docker testing.
 
-### 2.3. GossipSub Implementation
+### 2.3. GossipSub Implementation [Done]
 - **Task:** Initialize GossipSub (`pubsub.NewGossipSub`).
 - **Task:** Define global topic `"/org/chat/global"`.
 - **Task:** Implement Subscription handler (Receive -> Log -> Store Pending -> Emit to UI).

@@ -47,6 +47,10 @@ func (d *Database) createTables() error {
 			mls_message BLOB,
 			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
+		`CREATE TABLE IF NOT EXISTS system_config (
+			key TEXT PRIMARY KEY,
+			value BLOB
+		);`,
 	}
 
 	for _, q := range queries {

@@ -193,18 +193,33 @@ go run .
 
 ### 5.3. Build Production
 
-
-
 ```bash
-
 # 1. Build Rust binary (Release mode)
-
 cd crypto-engine && cargo build --release
 
-
-
 # 2. Build Go app (via Wails - requires Wails CLI installed)
-
 cd .. && wails build
-
 ```
+
+### 5.4. Testing P2P Network (Docker)
+
+We use Docker Compose to simulate a real P2P network with multiple nodes.
+
+```bash
+# Start a 3-node network (1 Bootstrap + 2 Peers)
+docker-compose up --build
+```
+
+**Test Scenarios:**
+*   **Default:** Nodes connect via a generated Bootstrap file (Simulates Invitation).
+*   **Pure mDNS:** Edit `docker-compose.yml`, set `USE_BOOTSTRAP=false` for nodes to test local discovery.
+
+### 5.5. CLI Flags
+
+The backend accepts the following flags for testing/server usage:
+*   `--headless`: Run without GUI.
+*   `--db <path>`: Path to SQLite database.
+*   `--bootstrap <addr>`: Connect to a specific peer on startup.
+*   `--write-bootstrap <path>`: Write own multiaddr to a file (for automation).
+*   `--p2p-port <port>`: Specific port for P2P traffic.
+
