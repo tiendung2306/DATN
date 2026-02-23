@@ -99,7 +99,7 @@ func (pm *ProcessManager) StartCryptoEngine() (int, error) {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			slog.Error("Rust Engine", "err", scanner.Text())
+			slog.Warn("Rust Engine", "msg", scanner.Text())
 		}
 	}()
 
@@ -110,6 +110,14 @@ func (pm *ProcessManager) StartCryptoEngine() (int, error) {
 
 	pm.cmd = cmd
 	slog.Info("Crypto Engine started", "port", port, "path", binPath)
+
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			slog.Warn("Crypto Engine exited", "error", err)
+		} else {
+			slog.Info("Crypto Engine exited cleanly")
+		}
+	}()
 
 	return port, nil
 }

@@ -1,6 +1,8 @@
 package p2p
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -17,13 +19,15 @@ func GetOrCreateIdentity(database *db.Database) (crypto.PrivKey, error) {
 	var privKeyBytes []byte
 	err := database.Conn.QueryRow("SELECT value FROM system_config WHERE key = ?", Libp2pPrivKeyConfigKey).Scan(&privKeyBytes)
 
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to query identity from db: %w", err)
+	}
+
 	if err == nil {
-		// Key exists, unmarshal it
 		privKey, err := crypto.UnmarshalPrivateKey(privKeyBytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to unmarshal private key: %w", err)
 		}
-		
 		peerID, _ := peer.IDFromPrivateKey(privKey)
 		slog.Info("Loaded existing P2P identity", "peerID", peerID.String())
 		return privKey, nil

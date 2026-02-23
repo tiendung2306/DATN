@@ -19,17 +19,17 @@ import (
 )
 
 type P2PNode struct {
-	Host    host.Host
-	DHT     *dht.IpfsDHT
-	PubSub  *pubsub.PubSub
-	service *mdnsService
+	Host        host.Host
+	DHT         *dht.IpfsDHT
+	PubSub      *pubsub.PubSub
+	mdnsService mdns.Service
 }
 
-type mdnsService struct {
+type mdnsNotifee struct {
 	h host.Host
 }
 
-func (m *mdnsService) HandlePeerFound(pi peer.AddrInfo) {
+func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	slog.Info("mDNS found peer", "peer", pi.ID.String())
 	if err := m.h.Connect(context.Background(), pi); err != nil {
 		slog.Warn("Failed to connect to mDNS peer", "peer", pi.ID.String(), "error", err)
@@ -81,12 +81,11 @@ func NewP2PNode(ctx context.Context, privKey crypto.PrivKey, listenPort int) (*P
 	}
 
 	// 4. Initialize mDNS
-	mService := &mdnsService{h: h}
-	node.service = mService
-	ser := mdns.NewMdnsService(h, "secure-p2p-discovery", mService)
+	ser := mdns.NewMdnsService(h, "secure-p2p-discovery", &mdnsNotifee{h: h})
 	if err := ser.Start(); err != nil {
 		slog.Warn("mDNS failed to start. Local discovery might be limited.", "error", err)
 	} else {
+		node.mdnsService = ser
 		slog.Info("mDNS service started successfully", "interface", bestIP)
 	}
 
@@ -113,6 +112,12 @@ func (n *P2PNode) ConnectToPeer(ctx context.Context, addrStr string) error {
 }
 
 func (n *P2PNode) Close() error {
+	if n.mdnsService != nil {
+		n.mdnsService.Close()
+	}
+	if err := n.DHT.Close(); err != nil {
+		slog.Warn("Failed to close DHT", "error", err)
+	}
 	return n.Host.Close()
 }
 
