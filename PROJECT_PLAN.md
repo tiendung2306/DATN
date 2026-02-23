@@ -68,19 +68,63 @@
 
 ## 3. IDENTITY & ADMIN ONBOARDING (Weeks 6-7)
 
-**Goal:** Implement the "Root of Trust" PKI to restrict network access.
+**Goal:** Implement the "Root of Trust" PKI to restrict network access. No node may join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
 
-### 3.1. Admin Tools (Go-based)
-- **Task:** Implement `SignIdentity` logic using `root.pem`.
-- **Task:** Generate `InvitationToken` (Protobuf/JSON).
+### CRITICAL DESIGN RULES FOR THIS PHASE
+- **No CSR on the wire:** MLS Private Key is generated on the user's machine and NEVER leaves it.
+- **Admin tool is separate logic:** Root Admin Private Key MUST NOT exist in the regular client code path. It is stored encrypted in the Admin's own SQLite, protected by a passphrase.
+- **Token must bind both identity layers:** `InvitationToken` MUST contain both `PeerID` (Libp2p layer) AND `PublicKey` (MLS layer). Missing either enables spoofing attacks.
+- **Token Replay defense:** Auth handshake MUST verify `token.PeerID == stream.Conn().RemotePeer()`. The Noise Protocol cryptographically proves PeerID ownership, making replay impossible.
 
-### 3.2. User Identity (Go <-> Rust)
-- **Task:** Rust: Implement `GenerateIdentity` (OpenMLS).
-- **Task:** Go: Display Public Key -> Verify `InvitationToken` -> Store Identity locally.
+### 3.1. Proto & Rust: Implement `GenerateIdentity` [Step 1 & 2]
+- **Task:** Update `GenerateIdentityRequest` to include `display_name: string`.
+- **Task:** Update `GenerateIdentityResponse` to return `public_key: bytes`, `signing_key_private: bytes`, `credential: bytes`.
+- **Task:** Re-run `protoc` to regenerate Go bindings.
+- **Task:** Add `openmls_rust_crypto`, `openmls_traits`, `serde` to `crypto-engine/Cargo.toml`.
+- **Task:** Create `crypto-engine/src/mls.rs` implementing `generate_identity(display_name)`.
+- **Task:** Wire up handler in `crypto-engine/src/main.rs`.
 
-### 3.3. Network Gating (ConnectionGater)
-- **Task:** Implement `ConnectionGater` interface.
-- **Logic:** Handshake to exchange Signed Tokens. Drop connection if signature is invalid.
+### 3.2. Database Schema Expansion [Step 3]
+- **Task:** Add `mls_identity` table: `(display_name, public_key, signing_key_private, credential)`.
+- **Task:** Add `auth_bundle` table: `(display_name, public_key, token_issued_at, token_expires_at, token_signature, bootstrap_addr, root_public_key)`.
+- **Task:** Add DB methods: `SaveMLSIdentity`, `GetMLSIdentity`, `HasMLSIdentity`, `SaveAuthBundle`, `GetAuthBundle`, `HasAuthBundle`, `SaveEncryptedAdminKey`, `GetEncryptedAdminKey`, `HasAdminKey`.
+
+### 3.3. Admin PKI Package [Step 4]
+- **Task:** Create `backend/admin/token.go`:
+  - `InvitationToken` struct: `{ Version, DisplayName, PeerID, PublicKey, IssuedAt, ExpiresAt, Signature }`.
+  - `InvitationBundle` struct: `{ Token, BootstrapAddr, RootPublicKey }`.
+  - `VerifyTokenSignature(token, rootPubKey) bool`.
+  - `SerializeBundle / DeserializeBundle`.
+- **Task:** Create `backend/admin/admin.go`:
+  - `SetupAdminKey(db, passphrase)`: Generate Ed25519 root keypair, encrypt private key (Argon2id + AES-256-GCM), store in DB.
+  - `UnlockAdminKey(db, passphrase)`: Decrypt and return private key.
+  - `CreateInvitationBundle(privKey, displayName, peerID, pubKeyHex, bootstrapAddr)`: Sign token + package bundle.
+
+### 3.4. App States & Onboarding Flow [Step 5]
+- **Task:** Create `backend/app_state.go` with `AppState` enum: `Uninitialized`, `AwaitingBundle`, `Authorized`, `AdminReady`.
+- **Task:** Implement `DetermineAppState(db)`.
+- **Task:** Create `backend/p2p/auth.go`:
+  - `OnboardNewUser(ctx, db, mlsClient, displayName)`: Call Rust `GenerateIdentity`, store in DB.
+  - `ImportInvitationBundle(db, bundleJSON)`: Validate all fields + binding checks, store in DB.
+  - `GetPublicKeyForDisplay(db)`: Return PeerID + MLS PubKey hex for the user to send to Admin.
+
+### 3.5. Connection Gating & Auth Protocol [Step 6]
+- **Task:** Create `backend/p2p/gater.go`:
+  - `AuthGater` struct implementing `network.ConnectionGater`.
+  - Maintains `verifiedPeers sync.Map` and `bootstrapPeers sync.Map` (temporary allow during handshake).
+- **Task:** Create `backend/p2p/auth_protocol.go` (Protocol: `/app/auth/1.0.0`):
+  - `HandleStream`: Exchange tokens, verify signature, verify expiry, **verify `token.PeerID == stream.Conn().RemotePeer()`**, add to `verifiedPeers` or disconnect.
+  - `InitiateHandshake(ctx, peerID)`: Proactively open auth stream to a newly discovered peer.
+- **Task:** Update `backend/p2p/host.go`: pass `AuthGater` to `libp2p.New`, register stream handler, trigger handshake in `mdnsNotifee.HandlePeerFound`.
+
+### 3.6. Integration [Step 7]
+- **Task:** Update `backend/main.go` to use `DetermineAppState` and branch startup accordingly.
+- **Task:** Pass `bundle.Token` and `bundle.RootPublicKey` into `NewP2PNode`.
+- **Validation:**
+  - Node A (Admin) + Node B (Alice with valid bundle): connect successfully ✅
+  - Node C (no bundle): rejected by `ConnectionGater` ✅
+  - Node D (expired token): rejected during auth handshake ✅
+  - Eve replaying Alice's token: rejected because `token.PeerID != stream.Conn().RemotePeer()` ✅
 
 ---
 

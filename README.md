@@ -63,8 +63,35 @@ graph TD
 *   **Single Active Device:** A user account is valid on only ONE device at a time. Login on a new device triggers a signed `KILL_SESSION` broadcast.
 *   **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
 *   **Offline Handling:** Messages to offline peers must be stored in the DHT (Neighborhood Storage) encrypted.
+*   **PKI Rules (CRITICAL):**
+    *   MLS Private Key is generated ON the user's machine and NEVER leaves it (not even encrypted over the network).
+    *   Root Admin Private Key MUST NOT be embedded in the client binary. It lives only in the Admin's encrypted local storage.
+    *   `InvitationToken` MUST bind BOTH `PeerID` (network layer) AND `MLS PublicKey` (app layer). Binding only one enables spoofing attacks.
+    *   Auth handshake MUST verify `token.PeerID == stream.Conn().RemotePeer()` to prevent Token Replay Attacks. The Noise Protocol proves PeerID ownership cryptographically.
 
 ## 3. DATA FLOW WORKFLOWS
+
+### 3.0. Identity Onboarding (CSR Flow — First Launch)
+
+This is a standard PKI Certificate Signing Request flow. The MLS Private Key is generated locally and never leaves the user's machine.
+
+**Step A — New User (Alice):**
+1.  **App starts:** `GetOrCreateLibp2pIdentity()` → `PeerID_Alice` (from Phase 2).
+2.  **Rust:** `GenerateIdentity(display_name)` → `MLS_PrivKey` (saved locally) + `MLS_PubKey`.
+3.  **App displays** `PeerID_Alice` + `MLS_PubKey` (hex) → Alice copies and sends to Admin via Zalo/email.
+4.  **App enters** `StateAwaitingBundle` — P2P networking does NOT start yet.
+
+**Step B — Admin (creates bundle on their machine):**
+1.  Admin receives `PeerID_Alice` + `MLS_PubKey_Alice` out-of-band.
+2.  Admin creates token: `{ PeerID_Alice, MLS_PubKey_Alice, DisplayName, IssuedAt, ExpiresAt }`.
+3.  Admin signs token with `root_private_key` (stored encrypted on Admin's machine only).
+4.  Admin packages `InvitationBundle`: `{ signed_token, bootstrap_addr, root_public_key }`.
+5.  Admin sends `invitation_alice.bundle` to Alice via Zalo/email.
+
+**Step C — Alice imports bundle:**
+1.  Alice imports the `.bundle` file.
+2.  App verifies: (a) Admin signature valid, (b) `token.PeerID == myPeerID`, (c) `token.PublicKey == myMLSPubKey`, (d) token not expired.
+3.  Bundle saved to SQLite → App enters `StateAuthorized` → P2P starts → connects to `bootstrap_addr`.
 
 ### 3.1. Startup & IPC Connection
 
@@ -112,29 +139,41 @@ graph TD
 
 ```
 /
-├── backend/            # Go Code (Wails App)
-│   ├── app.go          # Wails lifecycle
-│   ├── process.go      # Rust sidecar manager
-│   ├── p2p/            # Libp2p logic (Host, DHT, Gossip)
-│   ├── db/             # SQLite logic
-│   └── main.go         # Entry point
+├── backend/                    # Go Code (Wails App)
+│   ├── main.go                 # Entry point — startup with AppState branching
+│   ├── app_state.go            # AppState enum: Uninitialized/AwaitingBundle/Authorized/AdminReady
+│   ├── process.go              # Rust sidecar manager
+│   ├── admin/                  # Admin PKI package
+│   │   ├── token.go            # InvitationToken, InvitationBundle structs + Sign/Verify/Serialize
+│   │   └── admin.go            # SetupAdminKey, UnlockAdminKey, CreateInvitationBundle
+│   ├── p2p/                    # Libp2p logic
+│   │   ├── host.go             # Libp2p Host, DHT, GossipSub, mDNS
+│   │   ├── identity.go         # Libp2p PeerID persistence
+│   │   ├── pubsub.go           # GossipSub ChatRoom
+│   │   ├── auth.go             # OnboardNewUser, ImportInvitationBundle, GetPublicKeyForDisplay
+│   │   ├── gater.go            # AuthGater implementing network.ConnectionGater
+│   │   └── auth_protocol.go    # /app/auth/1.0.0 stream handler + handshake logic
+│   ├── db/                     # SQLite logic
+│   │   └── db.go               # Tables: system_config, mls_identity, auth_bundle, messages
+│   └── mls_service/            # Auto-generated gRPC bindings (do not edit)
 │
-├── crypto-engine/      # Rust Code
+├── crypto-engine/              # Rust Code (Stateless gRPC Sidecar)
 │   ├── src/
-│   │   ├── main.rs     # CLI parsing & gRPC Server setup
-│   │   └── mls.rs      # OpenMLS logic implementation
+│   │   ├── main.rs             # CLI parsing & gRPC Server setup
+│   │   └── mls.rs              # OpenMLS logic: generate_identity, export/import
 │   └── Cargo.toml
 │
-├── frontend/           # React Code
+├── frontend/                   # React Code
 │   ├── src/
-│   │   ├── components/ # Chat UI, Login UI
-│   │   └── wailsjs/    # Auto-generated bindings
+│   │   ├── components/         # Chat UI, Login UI, Admin Panel UI
+│   │   └── wailsjs/            # Auto-generated Wails bindings
 │
-├── proto/              # Shared Protocol Buffers
+├── proto/                      # Shared Protocol Buffers
 │   └── mls_service.proto
 │
-├── PROJECT_PLAN.md     # Detailed execution roadmap
-└── README.md           # This file
+├── PROJECT_PLAN.md             # Detailed execution roadmap
+├── CURRENT_STATE.md            # AI Agent short-term memory (current progress + decisions)
+└── README.md                   # This file
 ```
 
 ## 5. DEVELOPER COMMANDS
