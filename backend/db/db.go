@@ -164,12 +164,19 @@ func (d *Database) HasConfig(key string) (bool, error) {
 // ── mls_identity ─────────────────────────────────────────────────────────────
 
 // SaveMLSIdentity persists the local MLS identity (overwrites if exists).
+// credential may be empty at key-generation time (Admin assigns it later via
+// UpdateMLSDisplayName). We normalise nil → []byte{} to satisfy the NOT NULL
+// constraint; proto3 zero-value bytes fields deserialise as nil in Go.
 func (d *Database) SaveMLSIdentity(id *MLSIdentity) error {
+	credential := id.Credential
+	if credential == nil {
+		credential = []byte{}
+	}
 	_, err := d.Conn.Exec(
 		`INSERT OR REPLACE INTO mls_identity
 		 (id, display_name, public_key, signing_key_private, credential)
 		 VALUES (1, ?, ?, ?, ?)`,
-		id.DisplayName, id.PublicKey, id.SigningKeyPrivate, id.Credential,
+		id.DisplayName, id.PublicKey, id.SigningKeyPrivate, credential,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveMLSIdentity: %w", err)
