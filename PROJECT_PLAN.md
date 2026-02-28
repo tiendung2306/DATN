@@ -66,65 +66,54 @@
 
 ---
 
-## 3. IDENTITY & ADMIN ONBOARDING (Weeks 6-7)
+## 3. IDENTITY & ADMIN ONBOARDING (Weeks 6-7) [COMPLETED ✅]
 
 **Goal:** Implement the "Root of Trust" PKI to restrict network access. No node may join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
 
-### CRITICAL DESIGN RULES FOR THIS PHASE
+### CRITICAL DESIGN RULES (Finalized)
 - **No CSR on the wire:** MLS Private Key is generated on the user's machine and NEVER leaves it.
-- **Admin tool is separate logic:** Root Admin Private Key MUST NOT exist in the regular client code path. It is stored encrypted in the Admin's own SQLite, protected by a passphrase.
-- **Token must bind both identity layers:** `InvitationToken` MUST contain both `PeerID` (Libp2p layer) AND `PublicKey` (MLS layer). Missing either enables spoofing attacks.
-- **Token Replay defense:** Auth handshake MUST verify `token.PeerID == stream.Conn().RemotePeer()`. The Noise Protocol cryptographically proves PeerID ownership, making replay impossible.
+- **Admin assigns display names:** User only generates a key pair (`--setup`). The display name (`DisplayName` in token) is assigned by Admin when creating the bundle — the user does NOT set their own name.
+- **Admin tool is separate logic:** Root Admin Private Key MUST NOT exist in the regular client code path. Stored encrypted (Argon2id + AES-256-GCM) in Admin's own SQLite only.
+- **Token must bind both identity layers:** `InvitationToken` MUST contain both `PeerID` (Libp2p layer) AND `PublicKey` (MLS layer).
+- **Token Replay defense:** Auth handshake MUST verify `token.PeerID == stream.Conn().RemotePeer()`. Noise Protocol cryptographically proves PeerID ownership.
+- **bootstrap_addr must include PeerID:** Format MUST be `/ip4/IP/tcp/PORT/p2p/PEERID`. Without PeerID, Noise cannot authenticate the bootstrap node's identity.
 
-### 3.1. Proto & Rust: Implement `GenerateIdentity` [Step 1 & 2]
-- **Task:** Update `GenerateIdentityRequest` to include `display_name: string`.
-- **Task:** Update `GenerateIdentityResponse` to return `public_key: bytes`, `signing_key_private: bytes`, `credential: bytes`.
-- **Task:** Re-run `protoc` to regenerate Go bindings.
-- **Task:** Add `openmls_rust_crypto`, `openmls_traits`, `serde` to `crypto-engine/Cargo.toml`.
-- **Task:** Create `crypto-engine/src/mls.rs` implementing `generate_identity(display_name)`.
-- **Task:** Wire up handler in `crypto-engine/src/main.rs`.
+### 3.1. Proto & Rust: Implement `GenerateIdentity` ✅
+- `GenerateIdentityRequest.display_name` field exists in proto but is **ignored** by Rust handler.
+- `GenerateIdentityResponse` returns `public_key`, `signing_key_private`, `credential` (empty bytes at generation time).
+- `generate_identity()` in Rust takes no `display_name` parameter. Credential is empty `Vec::new()`.
+- Go updates `mls_identity.credential` after bundle import via `UpdateMLSDisplayName()`.
 
-### 3.2. Database Schema Expansion [Step 3]
-- **Task:** Add `mls_identity` table: `(display_name, public_key, signing_key_private, credential)`.
-- **Task:** Add `auth_bundle` table: `(display_name, public_key, token_issued_at, token_expires_at, token_signature, bootstrap_addr, root_public_key)`.
-- **Task:** Add DB methods: `SaveMLSIdentity`, `GetMLSIdentity`, `HasMLSIdentity`, `SaveAuthBundle`, `GetAuthBundle`, `HasAuthBundle`, `SaveEncryptedAdminKey`, `GetEncryptedAdminKey`, `HasAdminKey`.
+### 3.2. Database Schema Expansion ✅
+- `mls_identity` table: `(id, display_name, public_key, signing_key_private, credential, created_at)`.
+- `auth_bundle` table: `(id, display_name, peer_id, public_key, token_issued_at, token_expires_at, token_signature, bootstrap_addr, root_public_key, imported_at)`. — Note: `peer_id` column added.
+- `system_config` table (pre-existing): stores `libp2p_priv_key` and `admin_root_private_key`.
+- Methods: `SaveMLSIdentity`, `GetMLSIdentity`, `HasMLSIdentity`, `UpdateMLSDisplayName`, `SaveAuthBundle`, `GetAuthBundle`, `HasAuthBundle`, `SetConfig`, `GetConfig`, `HasConfig`.
 
-### 3.3. Admin PKI Package [Step 4]
-- **Task:** Create `backend/admin/token.go`:
-  - `InvitationToken` struct: `{ Version, DisplayName, PeerID, PublicKey, IssuedAt, ExpiresAt, Signature }`.
-  - `InvitationBundle` struct: `{ Token, BootstrapAddr, RootPublicKey }`.
-  - `VerifyTokenSignature(token, rootPubKey) bool`.
-  - `SerializeBundle / DeserializeBundle`.
-- **Task:** Create `backend/admin/admin.go`:
-  - `SetupAdminKey(db, passphrase)`: Generate Ed25519 root keypair, encrypt private key (Argon2id + AES-256-GCM), store in DB.
-  - `UnlockAdminKey(db, passphrase)`: Decrypt and return private key.
-  - `CreateInvitationBundle(privKey, displayName, peerID, pubKeyHex, bootstrapAddr)`: Sign token + package bundle.
+### 3.3. Admin PKI Package ✅
+- `backend/admin/token.go`: `InvitationToken`, `InvitationBundle`, `SignToken`, `VerifyToken`, `SerializeBundle`, `DeserializeBundle`.
+- `backend/admin/admin.go`: `SetupAdminKey`, `UnlockAdminKey`, `CreateInvitationBundle`. Encryption: Argon2id(passphrase, salt) → AES-256-GCM. Wire format: `[16B salt][12B nonce][ciphertext]`.
 
-### 3.4. App States & Onboarding Flow [Step 5]
-- **Task:** Create `backend/app_state.go` with `AppState` enum: `Uninitialized`, `AwaitingBundle`, `Authorized`, `AdminReady`.
-- **Task:** Implement `DetermineAppState(db)`.
-- **Task:** Create `backend/p2p/auth.go`:
-  - `OnboardNewUser(ctx, db, mlsClient, displayName)`: Call Rust `GenerateIdentity`, store in DB.
-  - `ImportInvitationBundle(db, bundleJSON)`: Validate all fields + binding checks, store in DB.
-  - `GetPublicKeyForDisplay(db)`: Return PeerID + MLS PubKey hex for the user to send to Admin.
+### 3.4. App States & Onboarding Flow ✅
+- `backend/app_state.go`: `StateUninitialized`, `StateAwaitingBundle`, `StateAuthorized`, `StateAdminReady`, `DetermineAppState(db)`.
+- `backend/p2p/auth.go`:
+  - `OnboardNewUser(ctx, db, mlsClient)` — no `displayName` param; credential set empty.
+  - `GetOnboardingInfo(db, privKey) *OnboardingInfo` — returns `{PeerID, PublicKeyHex}` only.
+  - `ImportInvitationBundle(db, privKey, bundleJSON)` — 4 checks + calls `UpdateMLSDisplayName`.
+  - `BuildLocalToken(bundle) *admin.InvitationToken` — reconstructs full token from stored bundle.
 
-### 3.5. Connection Gating & Auth Protocol [Step 6]
-- **Task:** Create `backend/p2p/gater.go`:
-  - `AuthGater` struct implementing `network.ConnectionGater`.
-  - Maintains `verifiedPeers sync.Map` and `bootstrapPeers sync.Map` (temporary allow during handshake).
-- **Task:** Create `backend/p2p/auth_protocol.go` (Protocol: `/app/auth/1.0.0`):
-  - `HandleStream`: Exchange tokens, verify signature, verify expiry, **verify `token.PeerID == stream.Conn().RemotePeer()`**, add to `verifiedPeers` or disconnect.
-  - `InitiateHandshake(ctx, peerID)`: Proactively open auth stream to a newly discovered peer.
-- **Task:** Update `backend/p2p/host.go`: pass `AuthGater` to `libp2p.New`, register stream handler, trigger handshake in `mdnsNotifee.HandlePeerFound`.
+### 3.5. Connection Gating & Auth Protocol ✅
+- `backend/p2p/gater.go`: `AuthGater` blacklist-based (not whitelist). New peers allowed through; blacklisted on handshake failure.
+- `backend/p2p/auth_protocol.go`: Protocol `/app/auth/1.0.0`. Wire format: `[4B uint32 length][JSON token]`. Client (outbound) sends first; Server (inbound) reads first — avoids deadlock. `authNetworkNotifee` triggers `InitiateHandshake` only for outbound connections.
+- `backend/p2p/host.go`: `NewP2PNode` signature updated with `localToken *admin.InvitationToken` and `rootPubKey []byte`. Integrates `libp2p.ConnectionGater(gater)`.
 
-### 3.6. Integration [Step 7]
-- **Task:** Update `backend/main.go` to use `DetermineAppState` and branch startup accordingly.
-- **Task:** Pass `bundle.Token` and `bundle.RootPublicKey` into `NewP2PNode`.
-- **Validation:**
-  - Node A (Admin) + Node B (Alice with valid bundle): connect successfully ✅
-  - Node C (no bundle): rejected by `ConnectionGater` ✅
-  - Node D (expired token): rejected during auth handshake ✅
-  - Eve replaying Alice's token: rejected because `token.PeerID != stream.Conn().RemotePeer()` ✅
+### 3.6. Integration ✅
+- `backend/main.go` fully rewritten: `DetermineAppState` branching, new CLI flags (`--setup`, `--admin-setup`, `--create-bundle`, `--import-bundle`), `waitForCryptoEngine` with retry loop, `runAdminSetup`, `runCreateBundle`.
+- **Validation scenarios:**
+  - Node A (Admin) + Node B (valid bundle): connect + auth ✅
+  - Node C (no bundle / `StateUninitialized`): P2P not started ✅
+  - Node D (expired token): rejected at `verifyPeerToken` ✅
+  - Eve replaying Alice's token: `token.PeerID != noise_peer` → rejected ✅
 
 ---
 
@@ -150,11 +139,17 @@
 **Goal:** Secure Identity Migration (Manual) and Offline Messaging.
 
 ### 5.1. Secure Identity Export/Import (File-based)
+- **CRITICAL DESIGN NOTE:** The `.backup` file MUST include the Libp2p private key in addition to the MLS key.
+  - **Reason:** `InvitationToken` binds `PeerID` (derived from Libp2p key) to the MLS public key. If a new device generates a new PeerID, the token becomes invalid and auth handshake fails.
+  - **Solution:** Exporting the Libp2p private key allows the new device to restore the exact same PeerID, making the existing token valid.
 - **Task:** Go UI: Prompt User for a strong Passphrase.
-- **Task:** Go Logic: Read Private Key + Cert from DB. Send to Rust `ExportIdentity(passphrase)`.
-- **Task:** Rust Logic: Serialize KeyPackage -> Encrypt with AES-GCM (Key derived from Passphrase/Argon2) -> Return bytes.
-- **Task:** Go Logic: Save bytes to a `.backup` file.
-- **Task:** Import Flow: Read file -> Send to Rust `ImportIdentity` -> Restore Keypair.
+- **Task:** Go Logic: Read BOTH private keys from DB:
+  - `libp2p_private_key` from `system_config` table
+  - `mls_signing_key` + `mls_credential` + `invitation_token` from `mls_identity` and `auth_bundle` tables
+- **Task:** Send all of the above to Rust `ExportIdentity(data, passphrase)`.
+- **Task:** Rust Logic: Serialize all fields -> Encrypt with AES-256-GCM (Key derived from Passphrase via Argon2id) -> Return `EncryptedBlob`.
+- **Task:** Go Logic: Save `EncryptedBlob` to a `.backup` file.
+- **Task:** Import Flow: Read `.backup` file -> Send to Rust `ImportIdentity(blob, passphrase)` -> Restore ALL keys -> Store in DB -> Broadcast `KILL_SESSION`.
 
 ### 5.2. Session Takeover (Single Active Device)
 - **Task:** On successful Import & Connect: Broadcast `KILL_SESSION` (Signed by User Key).

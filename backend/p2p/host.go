@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"backend/admin"
+
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -19,10 +21,11 @@ import (
 )
 
 type P2PNode struct {
-	Host        host.Host
-	DHT         *dht.IpfsDHT
-	PubSub      *pubsub.PubSub
-	mdnsService mdns.Service
+	Host         host.Host
+	DHT          *dht.IpfsDHT
+	PubSub       *pubsub.PubSub
+	AuthProtocol *AuthProtocol
+	mdnsService  mdns.Service
 }
 
 type mdnsNotifee struct {
@@ -36,39 +39,53 @@ func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
 	}
 }
 
-func NewP2PNode(ctx context.Context, privKey crypto.PrivKey, listenPort int) (*P2PNode, error) {
+// NewP2PNode creates and starts a fully-configured P2P node.
+//
+// localToken and rootPubKey are required for authenticated networks.
+// When both are provided, the node will:
+//   - Install an AuthGater to block blacklisted peers
+//   - Run the /app/auth/1.0.0 handshake on every new connection
+func NewP2PNode(
+	ctx context.Context,
+	privKey crypto.PrivKey,
+	listenPort int,
+	localToken *admin.InvitationToken,
+	rootPubKey []byte,
+) (*P2PNode, error) {
 	bestIP := GetBestLocalIP()
 	slog.Info("Selected best network interface for P2P", "ip", bestIP)
 
-	// 1. Initialize Libp2p Host
+	// 1. Initialize AuthGater (always present; blacklist is empty at start)
+	gater := NewAuthGater()
+
+	// 2. Initialize Libp2p Host
 	h, err := libp2p.New(
 		libp2p.Identity(privKey),
 		libp2p.ListenAddrStrings(
-			fmt.Sprintf("/ip4/%s/tcp/%d", bestIP, listenPort),      // TCP
-			fmt.Sprintf("/ip4/%s/udp/%d/quic-v1", bestIP, listenPort), // QUIC
+			fmt.Sprintf("/ip4/%s/tcp/%d", bestIP, listenPort),
+			fmt.Sprintf("/ip4/%s/udp/%d/quic-v1", bestIP, listenPort),
 		),
 		libp2p.DefaultTransports,
 		libp2p.DefaultSecurity,
 		libp2p.DefaultMuxers,
 		libp2p.NATPortMap(),
+		libp2p.ConnectionGater(gater),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create libp2p host: %w", err)
 	}
-
 	slog.Info("Libp2p Host started", "id", h.ID().String(), "addrs", h.Addrs())
 
-	// 2. Initialize Kademlia DHT
+	// 3. Initialize Kademlia DHT
 	kademliaDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeAuto))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DHT: %w", err)
 	}
-
 	if err := kademliaDHT.Bootstrap(ctx); err != nil {
 		return nil, fmt.Errorf("failed to bootstrap DHT: %w", err)
 	}
 
-	// 3. Initialize GossipSub
+	// 4. Initialize GossipSub
 	ps, err := pubsub.NewGossipSub(ctx, h)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GossipSub: %w", err)
@@ -80,7 +97,17 @@ func NewP2PNode(ctx context.Context, privKey crypto.PrivKey, listenPort int) (*P
 		PubSub: ps,
 	}
 
-	// 4. Initialize mDNS
+	// 5. Initialize auth protocol (when token and root key are provided)
+	if localToken != nil && len(rootPubKey) > 0 {
+		ap := NewAuthProtocol(h, gater, localToken, rootPubKey)
+		node.AuthProtocol = ap
+		h.Network().Notify(&authNetworkNotifee{ap: ap})
+		slog.Info("Auth protocol registered", "protocol", AuthProtocolID)
+	} else {
+		slog.Warn("No auth token provided — running WITHOUT peer authentication (dev mode)")
+	}
+
+	// 6. Initialize mDNS
 	ser := mdns.NewMdnsService(h, "secure-p2p-discovery", &mdnsNotifee{h: h})
 	if err := ser.Start(); err != nil {
 		slog.Warn("mDNS failed to start. Local discovery might be limited.", "error", err)

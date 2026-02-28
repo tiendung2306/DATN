@@ -18,12 +18,10 @@ Thumbs.db
 # Go
 backend/backend.exe
 backend/backend.test
-backend/*.db
-backend/*.db-journal
-backend/*.db-shm
-backend/*.db-wal
 backend/*.log
-backend/app.db
+
+# Local runtime data — databases, bundles, backups, bootstrap info
+.local/
 
 # Rust
 crypto-engine/target/

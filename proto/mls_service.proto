@@ -19,14 +19,24 @@ service MLSCryptoService {
   rpc Ping(PingRequest) returns (PingResponse);
 }
 
-// Message for generating a new identity.
+// Message for generating a new MLS identity (CSR step 1: create keypair locally).
 message GenerateIdentityRequest {
-  // Add relevant fields for identity generation if any, e.g., username.
+  string display_name = 1; // Human-readable name, also used as MLS credential identity
 }
 
 message GenerateIdentityResponse {
-  bytes key_package = 1; // The generated KeyPackage in bytes
-  // Potentially other identity-related information
+  // TLS-serialized SignatureKeyPair (includes private key).
+  // Store in DB. Pass back to Rust in Phase 4 for signing MLS messages.
+  // NEVER transmit over the network.
+  bytes signing_key_private = 1;
+
+  // Raw Ed25519 public key bytes.
+  // Included in InvitationToken for identity binding (send to Admin).
+  bytes public_key = 2;
+
+  // TLS-serialized BasicCredential containing display_name.
+  // Used in Phase 4 for MLS group membership.
+  bytes credential = 3;
 }
 
 // Message for exporting an identity.

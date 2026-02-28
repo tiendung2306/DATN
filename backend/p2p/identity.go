@@ -1,8 +1,6 @@
 package p2p
 
 import (
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -14,43 +12,41 @@ import (
 
 const Libp2pPrivKeyConfigKey = "libp2p_priv_key"
 
-// GetOrCreateIdentity retrieves the libp2p private key from the database or creates a new one.
+// GetOrCreateIdentity retrieves the persistent Libp2p private key from the
+// database or generates a new one on first run.
 func GetOrCreateIdentity(database *db.Database) (crypto.PrivKey, error) {
-	var privKeyBytes []byte
-	err := database.Conn.QueryRow("SELECT value FROM system_config WHERE key = ?", Libp2pPrivKeyConfigKey).Scan(&privKeyBytes)
-
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("failed to query identity from db: %w", err)
+	privKeyBytes, err := database.GetConfig(Libp2pPrivKeyConfigKey)
+	if err != nil && !db.IsNotFound(err) {
+		return nil, fmt.Errorf("failed to query Libp2p identity: %w", err)
 	}
 
 	if err == nil {
 		privKey, err := crypto.UnmarshalPrivateKey(privKeyBytes)
 		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal private key: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal Libp2p private key: %w", err)
 		}
 		peerID, _ := peer.IDFromPrivateKey(privKey)
-		slog.Info("Loaded existing P2P identity", "peerID", peerID.String())
+		slog.Info("Loaded existing Libp2p identity", "peerID", peerID.String())
 		return privKey, nil
 	}
 
-	// Key doesn't exist, generate a new one
-	slog.Info("Generating new P2P identity...")
+	// No key found — generate a new Ed25519 key pair.
+	slog.Info("Generating new Libp2p identity...")
 	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, -1)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate key pair: %w", err)
+		return nil, fmt.Errorf("failed to generate Libp2p key pair: %w", err)
 	}
 
 	rawPriv, err := crypto.MarshalPrivateKey(priv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal private key: %w", err)
+		return nil, fmt.Errorf("failed to marshal Libp2p private key: %w", err)
 	}
 
-	_, err = database.Conn.Exec("INSERT INTO system_config (key, value) VALUES (?, ?)", Libp2pPrivKeyConfigKey, rawPriv)
-	if err != nil {
-		return nil, fmt.Errorf("failed to save private key to db: %w", err)
+	if err := database.SetConfig(Libp2pPrivKeyConfigKey, rawPriv); err != nil {
+		return nil, fmt.Errorf("failed to persist Libp2p private key: %w", err)
 	}
 
 	peerID, _ := peer.IDFromPrivateKey(priv)
-	slog.Info("Created and saved new P2P identity", "peerID", peerID.String())
+	slog.Info("Created and saved new Libp2p identity", "peerID", peerID.String())
 	return priv, nil
 }

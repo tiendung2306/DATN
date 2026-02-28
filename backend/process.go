@@ -85,10 +85,25 @@ func (pm *ProcessManager) StartCryptoEngine() (int, error) {
 
 	cmd := exec.CommandContext(ctx, binPath, "--port", fmt.Sprintf("%d", port))
 
-	// Capture stdout/stderr and pipe to slog
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	// Capture stdout/stderr pipes before Start().
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return 0, fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+		return 0, fmt.Errorf("stderr pipe: %w", err)
+	}
 
+	if err := cmd.Start(); err != nil {
+		cancel()
+		return 0, fmt.Errorf("failed to start crypto-engine: %w", err)
+	}
+
+	// Start log-forwarding goroutines only after Start() succeeds.
+	// Per Go docs, pipes must be fully read before Wait() is called.
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -102,11 +117,6 @@ func (pm *ProcessManager) StartCryptoEngine() (int, error) {
 			slog.Warn("Rust Engine", "msg", scanner.Text())
 		}
 	}()
-
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return 0, fmt.Errorf("failed to start crypto-engine: %w", err)
-	}
 
 	pm.cmd = cmd
 	slog.Info("Crypto Engine started", "port", port, "path", binPath)

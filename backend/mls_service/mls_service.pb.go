@@ -21,9 +21,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Message for generating a new identity.
+// Message for generating a new MLS identity (CSR step 1: create keypair locally).
 type GenerateIdentityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
+	DisplayName   string                 `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"` // Human-readable name, also used as MLS credential identity
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -58,9 +59,25 @@ func (*GenerateIdentityRequest) Descriptor() ([]byte, []int) {
 	return file_mls_service_proto_rawDescGZIP(), []int{0}
 }
 
+func (x *GenerateIdentityRequest) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
 type GenerateIdentityResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	KeyPackage    []byte                 `protobuf:"bytes,1,opt,name=key_package,json=keyPackage,proto3" json:"key_package,omitempty"` // The generated KeyPackage in bytes
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// TLS-serialized SignatureKeyPair (includes private key).
+	// Store in DB. Pass back to Rust in Phase 4 for signing MLS messages.
+	// NEVER transmit over the network.
+	SigningKeyPrivate []byte `protobuf:"bytes,1,opt,name=signing_key_private,json=signingKeyPrivate,proto3" json:"signing_key_private,omitempty"`
+	// Raw Ed25519 public key bytes.
+	// Included in InvitationToken for identity binding (send to Admin).
+	PublicKey []byte `protobuf:"bytes,2,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	// TLS-serialized BasicCredential containing display_name.
+	// Used in Phase 4 for MLS group membership.
+	Credential    []byte `protobuf:"bytes,3,opt,name=credential,proto3" json:"credential,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -95,9 +112,23 @@ func (*GenerateIdentityResponse) Descriptor() ([]byte, []int) {
 	return file_mls_service_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *GenerateIdentityResponse) GetKeyPackage() []byte {
+func (x *GenerateIdentityResponse) GetSigningKeyPrivate() []byte {
 	if x != nil {
-		return x.KeyPackage
+		return x.SigningKeyPrivate
+	}
+	return nil
+}
+
+func (x *GenerateIdentityResponse) GetPublicKey() []byte {
+	if x != nil {
+		return x.PublicKey
+	}
+	return nil
+}
+
+func (x *GenerateIdentityResponse) GetCredential() []byte {
+	if x != nil {
+		return x.Credential
 	}
 	return nil
 }
@@ -479,11 +510,16 @@ var File_mls_service_proto protoreflect.FileDescriptor
 
 const file_mls_service_proto_rawDesc = "" +
 	"\n" +
-	"\x11mls_service.proto\x12\vmls_service\"\x19\n" +
-	"\x17GenerateIdentityRequest\";\n" +
-	"\x18GenerateIdentityResponse\x12\x1f\n" +
-	"\vkey_package\x18\x01 \x01(\fR\n" +
-	"keyPackage\"X\n" +
+	"\x11mls_service.proto\x12\vmls_service\"<\n" +
+	"\x17GenerateIdentityRequest\x12!\n" +
+	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\"\x89\x01\n" +
+	"\x18GenerateIdentityResponse\x12.\n" +
+	"\x13signing_key_private\x18\x01 \x01(\fR\x11signingKeyPrivate\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x02 \x01(\fR\tpublicKey\x12\x1e\n" +
+	"\n" +
+	"credential\x18\x03 \x01(\fR\n" +
+	"credential\"X\n" +
 	"\x15ExportIdentityRequest\x12\x1f\n" +
 	"\vkey_package\x18\x01 \x01(\fR\n" +
 	"keyPackage\x12\x1e\n" +
