@@ -146,16 +146,18 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 
 ```
 /
-├── backend/                    # Go Code (Wails App)
-│   ├── main.go                 # Thin entry point (~11 lines): parseCLI → setupLogging → run
-│   ├── runner.go               # run() — orchestration, creates .local/, dispatches to commands or node
-│   ├── cli.go                  # Config struct + parseCLI() — all CLI flag definitions
+├── app/                        # Go + Wails App (module: "app")
+│   ├── main.go                 # Entry point: branches CLI vs GUI (--headless / IsCommand)
+│   ├── app.go                  # Wails App struct + all bindings + runWailsApp()
+│   ├── runner.go               # run() — CLI orchestration, dispatches to commands or node
+│   ├── cli.go                  # Config struct + parseCLI() + IsCommand()
 │   ├── commands.go             # Command handlers: cmdAdminSetup, cmdCreateBundle, cmdSetup, cmdImportBundle
 │   ├── node.go                 # startNode, runP2PNode, connectBootstrap, pingLoop, waitForShutdown
 │   ├── crypto_engine.go        # startCryptoEngine (Rust sidecar lifecycle + gRPC)
 │   ├── log.go                  # setupLogging, LogFilterHandler (suppress mDNS noise)
 │   ├── app_state.go            # AppState enum: Uninitialized/AwaitingBundle/Authorized/AdminReady
-│   ├── process.go              # Rust sidecar OS process management (StdoutPipe, StderrPipe, Start)
+│   ├── process.go              # Rust sidecar OS process management
+│   ├── wails.json              # Wails config (frontend:dir = "frontend")
 │   ├── .local/                 # Runtime-generated files (gitignored, auto-created on first run)
 │   │   ├── app.db              # SQLite database (default path)
 │   │   └── invite.bundle       # Generated InvitationBundle (default output path)
@@ -171,18 +173,27 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   └── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
 │   ├── db/                     # SQLite logic
 │   │   └── db.go               # Tables: system_config, mls_identity, auth_bundle, messages
-│   └── mls_service/            # Auto-generated gRPC bindings (do not edit)
+│   ├── mls_service/            # Auto-generated gRPC bindings (do not edit)
+│   └── frontend/               # React + TypeScript + Tailwind (Vite)
+│       ├── src/
+│       │   ├── App.tsx                      # Root: polls GetAppState, state-based routing
+│       │   ├── screens/
+│       │   │   ├── SetupScreen.tsx          # State: UNINITIALIZED
+│       │   │   ├── AwaitingBundleScreen.tsx # State: AWAITING_BUNDLE (+ Admin Quick Setup)
+│       │   │   └── DashboardScreen.tsx      # State: AUTHORIZED / ADMIN_READY
+│       │   └── components/
+│       │       ├── AdminPanel.tsx           # Init admin key + Create bundle tabs
+│       │       ├── CopyField.tsx            # Copy-to-clipboard field
+│       │       ├── StatusBadge.tsx          # Colored state pill
+│       │       └── PeerList.tsx             # Connected peers table
+│       └── wailsjs/                         # Auto-generated Wails bindings (do not edit)
+│           └── go/main/App.d.ts             # TypeScript types for all App methods
 │
 ├── crypto-engine/              # Rust Code (Stateless gRPC Sidecar)
 │   ├── src/
 │   │   ├── main.rs             # CLI arg parsing & gRPC Server setup (tonic)
 │   │   └── mls.rs              # OpenMLS logic: generate_identity (empty credential), export/import
 │   └── Cargo.toml
-│
-├── frontend/                   # React Code (not yet implemented)
-│   └── src/
-│       ├── components/         # Chat UI, Login UI, Admin Panel UI
-│       └── wailsjs/            # Auto-generated Wails bindings
 │
 ├── proto/                      # Shared Protocol Buffers
 │   └── mls_service.proto
@@ -213,28 +224,46 @@ cd crypto-engine
 cargo build
 ```
 
-**Step 2: Run Go Backend** (always from the `backend/` directory so `.local/` lands in the right place)
+**Step 2a: GUI mode** (Wails dev server with hot-reload)
 
 ```bash
-cd backend
-go run .
+cd app
+wails dev
 ```
 
-### 5.3. Build Production
+**Step 2b: Headless / CLI mode**
+
+```bash
+cd app
+go run . --headless
+```
+
+### 5.3. Generate Wails TypeScript Bindings
+
+Run after adding or modifying any exported method on the `App` struct in `app/app.go`:
+
+```bash
+cd app
+wails generate module
+```
+
+Output: `app/frontend/wailsjs/go/main/App.d.ts` + `App.js`
+
+### 5.4. Build Production
 
 ```bash
 # 1. Build Rust binary (release mode)
 cd crypto-engine && cargo build --release
 
 # 2. Build Go/Wails app (requires Wails CLI)
-cd .. && wails build
+cd ../app && wails build
 ```
 
-### 5.4. CLI Flags & Onboarding Commands
+### 5.5. CLI Flags & Onboarding Commands
 
-All commands are run from the `backend/` directory. The `.local/` folder is created automatically on first run.
+All commands are run from the `app/` directory. The `.local/` folder is created automatically on first run.
 
-**Full onboarding sequence (first-time setup):**
+**Full onboarding sequence (first-time setup) — CLI mode:**
 
 ```powershell
 # Step 1 — User: generate MLS key pair (run once)
@@ -256,18 +285,21 @@ go run . --db .local/admin.db --create-bundle `
 # Step 4 — User: import bundle received from Admin
 go run . --import-bundle .local/alice.bundle
 
-# Step 5 — Normal operation (StateAuthorized or StateAdminReady)
-go run .
+# Step 5 — Normal operation (headless)
+go run . --headless
 ```
+
+**Admin Quick Setup — GUI mode:**
+If the admin key has already been initialized (`--admin-setup`), opening the GUI while in `AWAITING_BUNDLE` state shows an "Admin Quick Setup" card — enter display name + passphrase to create and import a self-bundle in one click.
 
 **Testing multiple nodes on one machine:**
 
 ```powershell
 # Node 1 (Admin / bootstrap node)
-go run . --db .local/node1.db --p2p-port 4001 --write-bootstrap .local/bootstrap.txt
+go run . --headless --db .local/node1.db --p2p-port 4001 --write-bootstrap .local/bootstrap.txt
 
 # Node 2 (after importing a bundle for its PeerID)
-go run . --db .local/node2.db --p2p-port 4002
+go run . --headless --db .local/node2.db --p2p-port 4002
 ```
 
 **All available flags:**

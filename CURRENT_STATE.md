@@ -20,7 +20,12 @@ A serverless, zero-trust P2P communication platform using Go (Wails) and Rust (O
 
 ### Phase 3: Identity & Admin Onboarding ✅
 *   Tất cả 7 bước đã implement và build clean (Go + Rust).
-*   Xem chi tiết bên dưới.
+
+### Phase 3.5: Wails GUI Integration ✅
+*   Thư mục `backend/` đã đổi tên thành `app/`, Go module name đổi từ `backend` → `app`.
+*   Tích hợp Wails v2.11.0 vào Go app (`app/app.go`).
+*   Scaffold React + TypeScript + Tailwind frontend tại `app/frontend/`.
+*   4 màn hình dev/test UI đã hoàn chỉnh.
 
 ---
 
@@ -42,14 +47,14 @@ A serverless, zero-trust P2P communication platform using Go (Wails) and Rust (O
 
 ```
 [Máy User - lần đầu]
-  1. backend --setup
+  1. app --setup
      → GetOrCreateLibp2pIdentity() → PeerID (đã có từ Phase 2)
      → Rust GenerateIdentity() → MLS keypair (credential rỗng ban đầu)
      → Output: PeerID + MLS_PubKey_hex (KHÔNG có tên — Admin sẽ đặt)
 
 [Máy Admin]
   2. Nhận PeerID_Alice + MLS_PubKey_Alice (Zalo/email)
-  3. backend --create-bundle \
+  3. app --create-bundle \
        --bundle-name "Alice" \          ← Admin đặt tên cho user
        --bundle-peer-id <PeerID> \
        --bundle-pub-key <PubKeyHex> \
@@ -58,22 +63,24 @@ A serverless, zero-trust P2P communication platform using Go (Wails) and Rust (O
   4. Gửi alice.bundle cho Alice (out-of-band)
 
 [Máy User]
-  5. backend --import-bundle alice.bundle
+  5. app --import-bundle alice.bundle
      → Verify: chữ ký Admin + PeerID binding + PublicKey binding + expiry
      → SaveAuthBundle() vào SQLite
      → UpdateMLSDisplayName("Alice") ← tên từ token ghi đè vào mls_identity
      → App → StateAuthorized
 
-  6. backend (chạy bình thường)
+  6. app (chạy bình thường — GUI mode)
      → Load bundle → BuildLocalToken() → NewP2PNode() với auth
      → Kết nối bootstrap_addr từ bundle
      → Auth handshake với mọi peer
 ```
 
+**Admin Quick Setup (GUI shortcut):** Nếu máy đã có admin key (`--admin-setup` đã chạy) và đang ở trạng thái `AWAITING_BUNDLE`, UI hiện card "Admin Quick Setup" — nhập displayName + passphrase → tự tạo và import bundle cho chính mình trong 1 bước. Binding: `CreateAndImportSelfBundle(displayName, passphrase string) error`.
+
 ### 3c. Cấu trúc InvitationToken và InvitationBundle
 
 ```go
-// backend/admin/token.go
+// app/admin/token.go
 type InvitationToken struct {
     Version     int    `json:"version"`     // = 1
     DisplayName string `json:"display_name"` // do Admin đặt
@@ -91,20 +98,16 @@ type InvitationBundle struct {
 }
 ```
 
-**bootstrap_addr PHẢI có `/p2p/PeerID`** — thiếu PeerID thì Noise Protocol không thể xác thực danh tính bootstrap node. Đây là bug đã được phát hiện và sửa trong session này.
+**bootstrap_addr PHẢI có `/p2p/PeerID`** — thiếu PeerID thì Noise Protocol không thể xác thực danh tính bootstrap node.
 
 ### 3d. Bảo vệ chống Token Replay / Spoofing Attack
 
-*   **Vấn đề:** Eve nghe lén, copy token JSON của Alice, dùng token đó kết nối vào Charlie.
-*   **Giải pháp — PeerID binding trong auth handshake:**
-    ```go
-    // backend/p2p/auth_protocol.go — verifyPeerToken()
-    if token.PeerID != authenticatedPeerID.String() {
-        // authenticatedPeerID = stream.Conn().RemotePeer()
-        // Noise Protocol đã chứng minh mật mã: bên kia SỞ HỮU private key của PeerID đó
-        reject() // Eve không có Libp2p private key của Alice → bị lộ ngay
-    }
-    ```
+```go
+// app/p2p/auth_protocol.go — verifyPeerToken()
+if token.PeerID != authenticatedPeerID.String() {
+    reject() // Eve không có Libp2p private key của Alice → bị lộ ngay
+}
+```
 
 ### 3e. Auth Protocol — `/app/auth/1.0.0`
 
@@ -114,33 +117,25 @@ type InvitationBundle struct {
 *   **Client (outbound, gọi `InitiateHandshake`):** SEND token trước → READ token peer
 *   **Server (inbound, `handleIncoming` qua `SetStreamHandler`):** READ token peer trước → SEND token
 
-**Network Notifee:** `authNetworkNotifee` trigger `InitiateHandshake` chỉ với **outbound connections** (`c.Stat().Direction == network.DirOutbound`). Inbound connections tự được server phục vụ qua stream handler.
-
-**AuthGater:** Blacklist-based. Peer mới được phép qua. Sau khi fail **token verification** → bị `Blacklist()` → chặn vĩnh viễn ở `InterceptSecured` và `InterceptUpgraded`.
-**QUAN TRỌNG:** `Blacklist` KHÔNG được gọi khi `NewStream` fail (lỗi mạng tạm thời). Chỉ gọi khi `verifyPeerToken` fail. Gọi sớm sẽ block peer hợp lệ vừa reconnect.
+**AuthGater:** Blacklist-based. `Blacklist` CHỈ được gọi khi `verifyPeerToken` thất bại. KHÔNG gọi khi `NewStream` fail — sẽ block reconnect của peer hợp lệ.
 
 ### 3f. App States — THIẾT KẾ CUỐI CÙNG
 
 ```
-StateUninitialized  → Chưa có MLS keypair → Chạy: backend --setup
-StateAwaitingBundle → Có keypair, chưa có bundle → Gửi PeerID + PubKey cho Admin, chờ bundle
-StateAuthorized     → Có bundle hợp lệ → Kết nối P2P + auth handshake
-StateAdminReady     → StateAuthorized + có root admin key → Có thể tạo bundle cho người khác
+StateUninitialized  → Chưa có MLS keypair → GUI: SetupScreen
+StateAwaitingBundle → Có keypair, chưa có bundle → GUI: AwaitingBundleScreen
+StateAuthorized     → Có bundle hợp lệ → GUI: DashboardScreen
+StateAdminReady     → StateAuthorized + có root admin key → GUI: DashboardScreen + AdminPanel
 ```
 
 ### 3g. display_name — Admin là người cấp, không phải user
 
 *   `display_name` trong `InvitationToken` do **Admin đặt** — đây là tên chính thức.
 *   Khi user chạy `--setup`, credential MLS ban đầu **rỗng**.
-*   Khi user chạy `--import-bundle`, hàm `ImportInvitationBundle` tự động gọi `database.UpdateMLSDisplayName(token.DisplayName)` để ghi tên Admin đặt vào DB.
-*   Hai user khác nhau dù có cùng `display_name` vẫn có keypair khác nhau hoàn toàn (CSPRNG).
+*   Khi user chạy `--import-bundle`, hàm `ImportInvitationBundle` tự động gọi `database.UpdateMLSDisplayName(token.DisplayName)`.
 *   Định danh kỹ thuật thực sự: **PeerID** (mạng) và **MLS PublicKey** (crypto).
 
 ### 3h. CRITICAL — Device Migration phải export cả Libp2p Private Key
-
-**Vấn đề:** `InvitationToken` chứa `PeerID` của máy cũ. Máy mới nếu tạo PeerID mới sẽ không khớp → fail auth handshake.
-
-**Giải pháp bắt buộc cho Phase 5:** File `.backup` phải chứa **cả hai** loại private key:
 
 ```
 identity.backup (mã hóa AES-256-GCM + Argon2id)
@@ -149,8 +144,6 @@ identity.backup (mã hóa AES-256-GCM + Argon2id)
 ├── mls_credential       ← display_name bytes (sau khi import bundle)
 └── invitation_token     ← token Admin đã ký
 ```
-
-**Admin chuyển thiết bị:** Chỉ cần copy file `admin.db` sang máy mới. Tất cả key đều nằm trong DB (Root Admin Key đã mã hóa bằng passphrase). Không cần tool riêng.
 
 **Cần cập nhật Phase 5 ExportIdentity proto:**
 ```protobuf
@@ -163,47 +156,97 @@ message ExportIdentityRequest {
 }
 ```
 
+### 3i. Wails Integration — Kiến trúc GUI
+
+**Nguyên tắc:** Wails binding (không phải CLI spawn, không phải REST API). Mọi tương tác UI đều gọi exported method trên `App` struct → Wails auto-gen TypeScript bindings tại `frontend/wailsjs/go/main/App.d.ts`.
+
+**Phân nhánh CLI vs GUI trong `main.go`:**
+```go
+if cfg.Headless || cfg.IsCommand() {
+    // CLI mode — existing behavior
+    run(cfg)
+} else {
+    // GUI mode
+    runWailsApp(cfg)
+}
+```
+
+**`IsCommand()` = bất kỳ flag nào trong:** `--setup`, `--admin-setup`, `--create-bundle`, `--import-bundle`.
+
+**Wails lifecycle:** `startup(ctx)` → init DB + identity + crypto engine + auto-start P2P nếu AUTHORIZED/ADMIN_READY. `shutdown(ctx)` → dọn dẹp tất cả resources.
+
+**App struct state (thread-safe qua `mu sync.Mutex`):**
+```go
+type App struct {
+    ctx, cfg, db, privKey, mlsClient, conn, stopEngine, node, nodeCancel, mu
+}
+```
+
 ---
 
-## 4. Current Progress — Phase 3 COMPLETED
+## 4. Current Progress
 
-### Files đã implement (Phase 3 + Refactor):
+### Files đã implement (Phase 3 + Wails GUI):
 
 | File | Trạng thái | Ghi chú |
 |------|-----------|---------|
-| `proto/mls_service.proto` | ✅ | `GenerateIdentityRequest` có `display_name` (bị ignore), Response có `public_key`, `signing_key_private`, `credential` |
-| `backend/mls_service/*.pb.go` | ✅ | Regenerated bằng `protoc --go_out=. --go-grpc_out=.` |
-| `crypto-engine/Cargo.toml` | ✅ | `openmls_rust_crypto=0.5`, `openmls_traits=0.5` |
-| `crypto-engine/src/mls.rs` | ✅ | `generate_identity()` không nhận display_name, trả credential rỗng |
-| `crypto-engine/src/main.rs` | ✅ | Handler bỏ qua display_name từ request |
-| `backend/db/db.go` | ✅ | Bảng `mls_identity` + `auth_bundle` (có cột `peer_id`), methods: Save/Get/Has + `UpdateMLSDisplayName` |
-| `backend/p2p/identity.go` | ✅ | Dùng `SetConfig/GetConfig` thay inline SQL |
-| `backend/admin/token.go` | ✅ | `InvitationToken`, `InvitationBundle`, `SignToken`, `VerifyToken`, `SerializeBundle`, `DeserializeBundle` |
-| `backend/admin/admin.go` | ✅ | `SetupAdminKey`, `UnlockAdminKey`, `CreateInvitationBundle` (Argon2id + AES-256-GCM) |
-| `backend/app_state.go` | ✅ | `AppState` enum, `DetermineAppState()` |
-| `backend/p2p/auth.go` | ✅ | `OnboardNewUser`, `GetOnboardingInfo` → `OnboardingInfo{PeerID, PublicKeyHex}`, `ImportInvitationBundle` (4 checks + `UpdateMLSDisplayName`), `BuildLocalToken` |
-| `backend/p2p/gater.go` | ✅ | `AuthGater` blacklist-based implement `network.ConnectionGater` |
-| `backend/p2p/auth_protocol.go` | ✅ | `AuthProtocol`, `handleIncoming` (server), `InitiateHandshake` (client), `authNetworkNotifee` |
-| `backend/p2p/host.go` | ✅ | `NewP2PNode` có tham số `localToken` + `rootPubKey`, tích hợp gater + auth |
-| **`backend/main.go`** | ✅ | **Thin entry point — 11 dòng** (refactored) |
-| **`backend/cli.go`** | ✅ | `Config` struct + `parseCLI()` |
-| **`backend/runner.go`** | ✅ | `run()` — orchestration + dispatch |
-| **`backend/commands.go`** | ✅ | Command handlers: `cmdAdminSetup`, `cmdCreateBundle`, `cmdSetup`, `cmdImportBundle` + print helpers |
-| **`backend/node.go`** | ✅ | `startNode`, `runP2PNode`, `connectBootstrap`, `joinChatRoom`, `pingLoop`, `waitForShutdown`, `writeBootstrapFile` |
-| **`backend/crypto_engine.go`** | ✅ | `startCryptoEngine` (returns stopFn), `waitForCryptoEngine` |
-| **`backend/log.go`** | ✅ | `LogFilterHandler`, `setupLogging` |
+| `proto/mls_service.proto` | ✅ | GenerateIdentity, Ping |
+| `app/mls_service/*.pb.go` | ✅ | Auto-generated |
+| `crypto-engine/src/mls.rs` | ✅ | generate_identity, credential rỗng |
+| `app/db/db.go` | ✅ | Tables: system_config, mls_identity, auth_bundle, messages |
+| `app/p2p/identity.go` | ✅ | GetOrCreateIdentity |
+| `app/admin/token.go` | ✅ | SignToken, VerifyToken, SerializeBundle, DeserializeBundle |
+| `app/admin/admin.go` | ✅ | SetupAdminKey, UnlockAdminKey, CreateInvitationBundle |
+| `app/app_state.go` | ✅ | AppState enum, DetermineAppState() |
+| `app/p2p/auth.go` | ✅ | OnboardNewUser, GetOnboardingInfo, ImportInvitationBundle, BuildLocalToken |
+| `app/p2p/gater.go` | ✅ | AuthGater blacklist-based |
+| `app/p2p/auth_protocol.go` | ✅ | /app/auth/1.0.0 handshake |
+| `app/p2p/host.go` | ✅ | NewP2PNode với localToken + rootPubKey |
+| `app/main.go` | ✅ | Phân nhánh GUI vs CLI |
+| `app/cli.go` | ✅ | Config struct + parseCLI() + IsCommand() |
+| `app/runner.go` | ✅ | run() CLI orchestration |
+| `app/commands.go` | ✅ | cmdAdminSetup, cmdCreateBundle, cmdSetup, cmdImportBundle |
+| `app/node.go` | ✅ | startNode, runP2PNode, connectBootstrap, pingLoop |
+| `app/crypto_engine.go` | ✅ | startCryptoEngine, waitForCryptoEngine |
+| `app/log.go` | ✅ | LogFilterHandler, setupLogging |
+| `app/process.go` | ✅ | ProcessManager, StartCryptoEngine, StopCryptoEngine |
+| **`app/app.go`** | ✅ | **Wails App struct + tất cả bindings** |
+| `app/wails.json` | ✅ | Wails config, frontend:dir = "frontend" |
+| `app/frontend/src/App.tsx` | ✅ | Root: polls GetAppState, state-based routing |
+| `app/frontend/src/screens/SetupScreen.tsx` | ✅ | UNINITIALIZED |
+| `app/frontend/src/screens/AwaitingBundleScreen.tsx` | ✅ | AWAITING_BUNDLE + Admin Quick Setup |
+| `app/frontend/src/screens/DashboardScreen.tsx` | ✅ | AUTHORIZED/ADMIN_READY + peer list |
+| `app/frontend/src/components/AdminPanel.tsx` | ✅ | Init admin key + Create bundle tabs |
+| `app/frontend/src/components/CopyField.tsx` | ✅ | Copy-to-clipboard field |
+| `app/frontend/src/components/StatusBadge.tsx` | ✅ | Colored state pill |
+| `app/frontend/src/components/PeerList.tsx` | ✅ | Connected peers table |
+| `app/frontend/wailsjs/` | ✅ | Auto-generated bindings (wails generate module) |
 
-### CLI Commands hiện tại:
+### Wails Bindings hiện tại (`app/app.go`):
+
+| Method | Mô tả |
+|--------|-------|
+| `GetAppState() string` | UNINITIALIZED / AWAITING_BUNDLE / AUTHORIZED / ADMIN_READY / ERROR |
+| `GetOnboardingInfo() OnboardingInfo` | PeerID + PublicKeyHex |
+| `GenerateKeys() OnboardingInfo` | Tạo MLS keypair qua Rust engine |
+| `OpenAndImportBundle() error` | File dialog → import bundle → start P2P |
+| `HasAdminKey() (bool, error)` | Kiểm tra có admin key không |
+| `CreateAndImportSelfBundle(name, passphrase) error` | Admin tự cấp bundle cho mình |
+| `InitAdminKey(passphrase) error` | Khởi tạo Root Admin key |
+| `CreateBundle(req) (string, error)` | Tạo bundle cho user mới → save dialog |
+| `GetNodeStatus() NodeStatus` | State, PeerID, DisplayName, ConnectedPeers |
+
+### CLI Commands hiện tại (từ `app/`):
 
 ```powershell
 # Lần đầu — User tạo key pair
-backend --setup
+go run . --setup
 
 # Admin: khởi tạo root key (chỉ chạy 1 lần trên máy Admin)
-backend --admin-setup --admin-passphrase "MySecret"
+go run . --admin-setup --admin-passphrase "MySecret"
 
 # Admin: tạo bundle cho user mới
-backend --create-bundle `
+go run . --create-bundle `
   --bundle-name "Alice" `
   --bundle-peer-id "12D3KooW..." `
   --bundle-pub-key "a3f7c2..." `
@@ -211,26 +254,31 @@ backend --create-bundle `
   --bundle-output alice.bundle
 
 # User: import bundle từ Admin
-backend --import-bundle alice.bundle
+go run . --import-bundle alice.bundle
 
-# Chạy bình thường (StateAuthorized hoặc AdminReady)
-backend
-backend --db mydb.db --p2p-port 4002
+# Headless mode (không GUI)
+go run . --headless
+go run . --headless --db mydb.db --p2p-port 4002
+
+# GUI mode (mặc định khi không có flag)
+wails dev        # development (hot-reload)
+wails build      # production build
 ```
 
 ---
 
 ## 5. Lưu ý kỹ thuật quan trọng
 
-*   **protoc command đúng:** `protoc --go_out=. --go-grpc_out=. --proto_path=./proto mls_service.proto` (chạy từ project root, KHÔNG dùng `--go_out=./backend`)
-*   **openmls_rust_crypto version:** phải dùng `0.5` (khớp với `openmls_traits 0.5` mà `openmls 0.8.0` cần), KHÔNG dùng `0.2`
-*   **bootstrap_addr format bắt buộc:** `/ip4/IP/tcp/PORT/p2p/PEERID` — thiếu phần `/p2p/PEERID` thì Noise không xác thực được peer
+*   **Module name:** `module app` (đổi từ `module backend`). Tất cả import paths dùng `"app/..."`.
+*   **Wails embed:** `//go:embed all:frontend/dist` trong `app/app.go`. Frontend source ở `app/frontend/`, build output ở `app/frontend/dist/`. KHÔNG thể dùng `../` trong Go embed.
+*   **wails generate module:** Chạy từ `app/` sau mỗi lần thêm/sửa exported method trên `App` struct để cập nhật `frontend/wailsjs/`.
+*   **protoc command đúng:** `protoc --go_out=. --go-grpc_out=. --proto_path=./proto mls_service.proto` (chạy từ project root)
+*   **openmls_rust_crypto version:** phải dùng `0.5` (khớp với `openmls_traits 0.5`)
+*   **bootstrap_addr format bắt buộc:** `/ip4/IP/tcp/PORT/p2p/PEERID`
 *   **display_name trong MLS credential:** Hiện tại lưu raw UTF-8 bytes. Phase 4 sẽ dùng proper TLS-serialized `BasicCredential`.
-*   **golang.org/x/crypto:** Đã được promote lên direct dependency trong `go.mod` (dùng Argon2id trong admin.go)
-*   **ExportIdentity proto (Phase 5):** PHẢI bao gồm `libp2p_private_key` để PeerID được khôi phục khi chuyển thiết bị
-*   **`process.go` StdoutPipe/StderrPipe:** Phải kiểm tra lỗi trước khi tạo Scanner. Scanner với `nil` pipe → panic. Goroutines quét log PHẢI khởi động **sau** `cmd.Start()`.
-*   **Blacklisting policy trong `auth_protocol.go`:** `Blacklist` chỉ được gọi khi `verifyPeerToken` thất bại. Không gọi khi `NewStream` fail (transient error) — sẽ block reconnect của peer hợp lệ.
-*   **Refactor `main.go`:** Tách thành 6 file đơn trách nhiệm: `cli.go`, `log.go`, `crypto_engine.go`, `commands.go`, `node.go`, `runner.go`. `main.go` chỉ còn ~11 dòng.
+*   **ExportIdentity proto (Phase 5):** PHẢI bao gồm `libp2p_private_key` để PeerID được khôi phục khi chuyển thiết bị.
+*   **Blacklisting policy:** `Blacklist` chỉ gọi khi `verifyPeerToken` thất bại, KHÔNG gọi khi `NewStream` fail.
+*   **GetNodeStatus mutex:** Gọi `getAppStateUnlocked()` (không acquire mutex) thay vì `GetAppState()` khi đang giữ `a.mu`.
 
 ---
 
@@ -240,5 +288,6 @@ Xem `PROJECT_PLAN.md` section 4 để biết chi tiết.
 
 Bước đầu tiên của Phase 4:
 1. Cập nhật `proto/mls_service.proto` với các gRPC methods: `CreateGroup`, `AddMember`, `RemoveMember`, `EncryptMessage`, `DecryptMessage`, `ProcessCommit`
-2. Thiết kế data model MLS state trong SQLite (`mls_groups` table)
-3. Implement Rust handlers (stateless — Go truyền state vào, Rust tính toán, trả state mới)
+2. Thiết kế bảng `mls_groups` trong SQLite
+3. Implement Rust handlers stateless
+4. **Lưu ý dMLS:** MLS chuẩn cần Delivery Service tập trung. Project này dùng approach "Deterministic Conflict Resolution": khi có concurrent commits, tất cả node buffer lại và chọn commit có hash nhỏ nhất. Commit thua bị roll back.
