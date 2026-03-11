@@ -28,11 +28,26 @@ const (
 // AuthProtocol manages the auth handshake on the /app/auth/1.0.0 stream.
 //
 // Wire format for each token:
-//   [4 bytes big-endian uint32: JSON length][JSON bytes of InvitationToken]
+//
+//	[4 bytes big-endian uint32: JSON length][JSON bytes of InvitationToken]
 //
 // Handshake direction (prevents deadlock):
 //   - Client (initiator, opens stream): SEND first, then READ
 //   - Server (acceptor, SetStreamHandler): READ first, then SEND
+//
+// Auth state machine (per connection attempt):
+//
+//	Connected → Handshaking → Verified        (crypto ok → store in verifiedPeers)
+//	                        → SecurityFail    (bad sig / expired / PeerID mismatch
+//	                                           → blacklist peer + close connection)
+//	                        → TransientFail   (IO error / timeout / stream hiccup
+//	                                           → reset stream only, no blacklist)
+//
+// Verified state lifecycle:
+//   - Set on successful handshake (inbound or outbound).
+//   - Cleared when the last connection to the peer is closed (Disconnected event).
+//   - This ensures reconnecting peers always go through a full handshake rather
+//     than hitting stale in-memory state from a previous session.
 type AuthProtocol struct {
 	host          host.Host
 	gater         *AuthGater
@@ -58,7 +73,8 @@ func NewAuthProtocol(
 	return ap
 }
 
-// IsVerified returns true if the peer completed a successful auth handshake.
+// IsVerified returns true if the peer completed a successful auth handshake
+// in the current session.
 func (ap *AuthProtocol) IsVerified(id peer.ID) bool {
 	_, ok := ap.verifiedPeers.Load(id)
 	return ok
@@ -74,56 +90,62 @@ func (ap *AuthProtocol) GetVerifiedToken(id peer.ID) *admin.InvitationToken {
 }
 
 // handleIncoming is the server-side handler: reads peer token first, then sends own.
-// Registered via SetStreamHandler; called automatically by libp2p on new streams.
+//
+// Every incoming stream is always fully processed — there is no early return for
+// "already verified" peers. This is intentional: a peer that reconnects after a
+// restart will open a new stream and must re-authenticate. Skipping the read would
+// cause the client to hang waiting for a response, fail with an IO error, and in
+// the old design incorrectly blacklist a legitimate peer.
 func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 	defer s.Close()
 	peerID := s.Conn().RemotePeer()
 
-	if ap.IsVerified(peerID) {
-		return // duplicate handshake, ignore
-	}
-
 	if err := s.SetDeadline(time.Now().Add(authTimeout)); err != nil {
 		slog.Debug("auth: failed to set deadline", "peer", peerID)
 	}
 
-	// Server reads first
+	// Server reads first.
 	peerToken, err := readToken(s)
 	if err != nil {
-		slog.Warn("auth: failed to read peer token", "peer", peerID, "err", err)
-		ap.reject(s, peerID)
+		slog.Warn("auth: transient read error (inbound)", "peer", peerID, "err", err)
+		ap.rejectTransient(s)
 		return
 	}
 
 	if err := ap.verifyPeerToken(peerToken, peerID); err != nil {
-		slog.Warn("auth: peer token invalid", "peer", peerID, "err", err)
-		ap.reject(s, peerID)
+		slog.Warn("auth: security verification failed (inbound)", "peer", peerID, "reason", err)
+		ap.rejectSecurity(s, peerID, err.Error())
 		return
 	}
 
-	// Server sends own token
+	// Server sends own token.
 	if err := writeToken(s, ap.localToken); err != nil {
-		slog.Warn("auth: failed to send own token", "peer", peerID, "err", err)
+		slog.Warn("auth: transient write error (inbound)", "peer", peerID, "err", err)
+		ap.rejectTransient(s)
 		return
 	}
 
 	ap.verifiedPeers.Store(peerID, peerToken)
-	slog.Info("auth: peer verified (incoming)", "peer", peerID, "name", peerToken.DisplayName)
+	slog.Info("auth: peer verified (inbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 
 // InitiateHandshake is the client-side handler: sends own token first, then reads peer's.
 // Call this after establishing any new outbound connection.
+//
+// The IsVerified guard prevents redundant re-handshakes when mDNS re-discovers a
+// peer that is already live (no new connection, same session). It does NOT block
+// reconnects: Disconnected clears the verified state, so a restarted peer will
+// always trigger a fresh handshake.
 func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 	if ap.IsVerified(peerID) {
-		return // already verified
+		return // already verified on this active session
 	}
 
 	s, err := ap.host.NewStream(ctx, peerID, AuthProtocolID)
 	if err != nil {
-		// Do NOT blacklist here — stream failure is typically transient
-		// (peer reconnecting, brief network hiccup). Blacklisting would
-		// permanently block a legitimate peer for the rest of the session.
-		slog.Warn("auth: failed to open stream to peer", "peer", peerID, "err", err)
+		// Transient: stream open can fail if the remote is still initializing.
+		// Never blacklist here — it would permanently block a legitimate peer.
+		slog.Warn("auth: transient stream open failure (outbound)", "peer", peerID, "err", err)
 		return
 	}
 	defer s.Close()
@@ -132,60 +154,69 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 		slog.Debug("auth: failed to set deadline", "peer", peerID)
 	}
 
-	// Client sends first
+	// Client sends first.
 	if err := writeToken(s, ap.localToken); err != nil {
-		slog.Warn("auth: failed to send own token", "peer", peerID, "err", err)
-		ap.reject(s, peerID)
+		slog.Warn("auth: transient write error (outbound)", "peer", peerID, "err", err)
+		ap.rejectTransient(s)
 		return
 	}
 
-	// Client reads peer's token
+	// Client reads peer's token.
 	peerToken, err := readToken(s)
 	if err != nil {
-		slog.Warn("auth: failed to read peer token", "peer", peerID, "err", err)
-		ap.reject(s, peerID)
+		slog.Warn("auth: transient read error (outbound)", "peer", peerID, "err", err)
+		ap.rejectTransient(s)
 		return
 	}
 
 	if err := ap.verifyPeerToken(peerToken, peerID); err != nil {
-		slog.Warn("auth: peer token invalid", "peer", peerID, "err", err)
-		ap.reject(s, peerID)
+		slog.Warn("auth: security verification failed (outbound)", "peer", peerID, "reason", err)
+		ap.rejectSecurity(s, peerID, err.Error())
 		return
 	}
 
 	ap.verifiedPeers.Store(peerID, peerToken)
-	slog.Info("auth: peer verified (outgoing)", "peer", peerID, "name", peerToken.DisplayName)
+	slog.Info("auth: peer verified (outbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 
-// verifyPeerToken performs all three checks for a received token.
+// verifyPeerToken performs three cryptographic checks on a received token.
 func (ap *AuthProtocol) verifyPeerToken(token *admin.InvitationToken, authenticatedPeerID peer.ID) error {
-	// 1. Admin signature
+	// 1. Admin signature — proves the token was issued by the trusted root key.
 	if !admin.VerifyToken(token, ap.rootPublicKey) {
 		return fmt.Errorf("invalid Admin signature")
 	}
-	// 2. Not expired
+	// 2. Expiry — tokens are valid for 365 days from issuance.
 	if time.Now().Unix() > token.ExpiresAt {
 		return fmt.Errorf("token expired at %d", token.ExpiresAt)
 	}
-	// 3. PeerID binding — token.PeerID must match Noise-authenticated peer identity.
-	// This prevents Eve from replaying Alice's token: Eve cannot forge Alice's Noise key.
+	// 3. PeerID binding — token.PeerID must match the Noise-authenticated identity.
+	// This prevents Eve from replaying Alice's token: she cannot forge Alice's Noise key.
 	if token.PeerID != authenticatedPeerID.String() {
-		return fmt.Errorf("token PeerID mismatch: token=%s, noise_peer=%s",
+		return fmt.Errorf("PeerID mismatch: token=%s noise=%s",
 			token.PeerID, authenticatedPeerID)
 	}
 	return nil
 }
 
-func (ap *AuthProtocol) reject(s network.Stream, peerID peer.ID) {
-	s.Reset() //nolint:errcheck
-	ap.gater.Blacklist(peerID)
+// rejectSecurity handles cryptographic auth failures.
+// Blacklists the peer (with TTL) and closes the connection.
+// Only call when verifyPeerToken returns an error.
+func (ap *AuthProtocol) rejectSecurity(s network.Stream, peerID peer.ID, reason string) {
+	s.Reset()                          //nolint:errcheck
+	ap.gater.Blacklist(peerID, reason) // TTL-based; peer can retry after expiry
 	ap.host.Network().ClosePeer(peerID) //nolint:errcheck
+}
+
+// rejectTransient handles IO/timing failures (EOF, timeout, stream reset).
+// Resets the stream only — does NOT blacklist the peer.
+// The peer may be reconnecting, restarting, or experiencing a brief network hiccup.
+func (ap *AuthProtocol) rejectTransient(s network.Stream) {
+	s.Reset() //nolint:errcheck
 }
 
 // ─── Network Notifee ──────────────────────────────────────────────────────────
 
-// authNetworkNotifee triggers InitiateHandshake on every new outbound-originated connection.
-// It covers mDNS, DHT, and manually bootstrapped peers — no manual wiring needed.
+// authNetworkNotifee triggers auth handshakes and maintains verified-peer state.
 type authNetworkNotifee struct {
 	ap *AuthProtocol
 }
@@ -198,9 +229,25 @@ func (n *authNetworkNotifee) Connected(_ network.Network, c network.Conn) {
 	}
 }
 
-func (n *authNetworkNotifee) Disconnected(_ network.Network, _ network.Conn) {}
-func (n *authNetworkNotifee) Listen(_ network.Network, _ ma.Multiaddr)        {}
-func (n *authNetworkNotifee) ListenClose(_ network.Network, _ ma.Multiaddr)   {}
+// Disconnected clears the verified state when the peer has no more live connections.
+//
+// This is the key to correct reconnect behaviour: without this, a restarted peer
+// would arrive with empty verifiedPeers, open a new auth stream, but the server
+// side would skip the handshake (old "IsVerified" guard) and close without
+// responding — causing the client to fail with an IO error.
+func (n *authNetworkNotifee) Disconnected(_ network.Network, c network.Conn) {
+	peerID := c.RemotePeer()
+	// Only evict if this was the last connection to the peer.
+	// A peer may have simultaneous TCP + QUIC connections; keep the verified state
+	// until all of them are gone.
+	if len(n.ap.host.Network().ConnsToPeer(peerID)) == 0 {
+		n.ap.verifiedPeers.Delete(peerID)
+		slog.Debug("auth: verified state cleared (last connection closed)", "peer", peerID)
+	}
+}
+
+func (n *authNetworkNotifee) Listen(_ network.Network, _ ma.Multiaddr)      {}
+func (n *authNetworkNotifee) ListenClose(_ network.Network, _ ma.Multiaddr) {}
 
 // ─── Wire format helpers ──────────────────────────────────────────────────────
 
