@@ -58,7 +58,7 @@ graph TD
 
 **Problem:** MLS (RFC 9420) assumes a central Delivery Service to serialize state-changing operations. Without it, concurrent Commits cause DAG forking and protocol collapse.
 
-**Solution:** A Decentralized Coordination Wrapper with three mechanisms:
+**Solution:** A Decentralized Coordination Wrapper with four mechanisms:
 
 #### Mechanism 1 — Single-Writer Protocol (Epoch Token Holder)
 
@@ -106,6 +106,37 @@ When a physical network partition occurs, each partition evolves independently. 
     *   Perform **External Join** into the winning branch.
     *   **Autonomous Replay:** Each node re-encrypts and resends its own messages only. Messages from other nodes are NOT cross-recovered (preserves Non-repudiation).
 4.  **Security:** Forward Secrecy preserved absolutely (losing branch keys destroyed). PCS temporarily weakened but restored immediately after External Join completes.
+
+#### Mechanism 4 — Hybrid Logical Clock (Message Display Ordering)
+
+Epoch numbers order MLS state changes but NOT application messages within an epoch. Multiple users can send messages concurrently within the same epoch, and GossipSub does not guarantee delivery order. Without a dedicated ordering mechanism, each node may display messages in a different sequence.
+
+**Solution:** Every application message carries a **Hybrid Logical Clock (HLC)** timestamp combining wall-clock time with a logical counter:
+
+```
+HLCTimestamp = (L, C, NodeID)
+  L  = max(local_physical_time, received_L)   — wall-clock component (unix ms)
+  C  = logical counter for events at same L
+  NodeID = deterministic tiebreaker
+```
+
+*   **On send:** `L = max(local_L, physical_time)`. If `L` unchanged, `C++`; else `C = 0`.
+*   **On receive** `(L_msg, C_msg)`: `L = max(local_L, L_msg, physical_time)`. Counter merges accordingly.
+*   **Comparison:** `(L1,C1,ID1) < (L2,C2,ID2)` lexicographically.
+
+**Properties:**
+*   **Causal consistency:** If Alice reads Bob's message then replies, her reply is guaranteed to appear after Bob's message on every node.
+*   **Total order:** All nodes sort messages identically, even for concurrent messages.
+*   **NTP-independent:** Works correctly in air-gapped networks with clock skew — `L` only ever moves forward.
+*   **Human-readable:** `L` is a Unix millisecond timestamp — the UI displays it as "10:00 AM".
+
+**Clock architecture summary:**
+
+| Clock | Purpose | Used by |
+|---|---|---|
+| **Epoch Number** (logical counter) | MLS state ordering, Token Holder election, Fork Healing | Single-Writer, Epoch Checks |
+| **HLC** (hybrid logical) | Application message display ordering | Message send/receive |
+| **Local wall clock** (`time.Now`) | Liveness detection, feeds into HLC | Heartbeat, T_timeout |
 
 ## 2. TECHNICAL STACK & CONSTRAINTS
 
@@ -171,24 +202,27 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 
 1.  **UI:** User types "Hello".
 2.  **Go (Coordination):** Fetches current `GroupState` + `epoch_number` from SQLite.
-3.  **IPC:** Go calls Rust `EncryptMessage(GroupState, "Hello")`.
-4.  **Rust:** Encrypts payload using current epoch's application secret → Returns (`MlsMessage`, `NewGroupState`).
-5.  **Go:**
+3.  **Go (HLC):** Generates HLC timestamp via `hlc.Now()`.
+4.  **IPC:** Go calls Rust `EncryptMessage(GroupState, "Hello")`.
+5.  **Rust:** Encrypts payload using current epoch's application secret → Returns (`MlsMessage`, `NewGroupState`).
+6.  **Go:**
     *   Saves `NewGroupState` to SQLite.
-    *   Broadcasts `MlsMessage` via GossipSub (Topic: `group_id`), tagged with `epoch_number`.
+    *   Wraps message in `Envelope { epoch, hlc_timestamp, MlsMessage }`.
+    *   Broadcasts via GossipSub (Topic: `group_id`).
 
 ### 3.3. Receiving a Group Message (via Coordination Layer)
 
-1.  **Go (Libp2p):** Receives bytes from GossipSub.
+1.  **Go (Libp2p):** Receives `Envelope` bytes from GossipSub.
 2.  **Go (Coordination — Epoch Check):**
     *   If `msg.epoch == local.epoch` → proceed to step 3.
     *   If `msg.epoch < local.epoch` → reject, send `CurrentEpochNotification`.
     *   If `msg.epoch > local.epoch` → buffer, request state sync.
-3.  **IPC:** Go calls Rust `ProcessMessage(GroupState, Bytes)`.
-4.  **Rust:** Decrypts message, verifies signature, updates tree → Returns (`DecryptedText`, `NewGroupState`).
-5.  **Go:**
-    *   Saves `NewGroupState` and `DecryptedText` to SQLite.
-    *   Emits event to UI to display message.
+3.  **Go (HLC):** Updates local HLC via `hlc.Update(msg.hlc_timestamp)`.
+4.  **IPC:** Go calls Rust `ProcessMessage(GroupState, MlsCiphertext)`.
+5.  **Rust:** Decrypts message, verifies signature → Returns (`DecryptedText`, `NewGroupState`).
+6.  **Go:**
+    *   Saves `NewGroupState`, `DecryptedText`, and `HLCTimestamp` to SQLite.
+    *   Emits event to UI — messages displayed sorted by HLC timestamp.
 
 ### 3.4. MLS State Change (Proposal → Commit via Single-Writer)
 
@@ -275,6 +309,11 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   ├── gater.go            # AuthGater (blacklist-based) implementing network.ConnectionGater
 │   │   └── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
 │   ├── coordination/           # Decentralized Coordination Protocol (CORE RESEARCH — Phase 4)
+│   │   ├── interfaces.go       # Contracts: Transport, Clock, MLSEngine, CoordinationStorage
+│   │   ├── types.go            # Data types, wire messages, enums, sentinel errors
+│   │   ├── config.go           # CoordinatorConfig with all tuneable parameters
+│   │   ├── hlc.go              # Hybrid Logical Clock — message display ordering
+│   │   ├── metrics.go          # Thread-safe instrumentation for evaluation
 │   │   ├── epoch.go            # Epoch tracking, epoch validation, CurrentEpochNotification
 │   │   ├── single_writer.go    # Token Holder election, Proposal routing, Commit authority
 │   │   ├── active_view.go      # ActiveView management, heartbeat, peer liveness

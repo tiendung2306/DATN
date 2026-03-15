@@ -8,10 +8,11 @@ This document serves as a short-term memory for the AI Agent.
 1. **Research (Core):** Design a Decentralized Coordination Protocol that wraps MLS (RFC 9420) for P2P environments — solving the open problem of maintaining causal consistency and total ordering without a central Delivery Service.
 2. **Application:** Build a serverless, zero-trust P2P communication platform using Go (Wails) + Rust (OpenMLS) that implements the protocol.
 
-**Three Core Mechanisms of the Coordination Protocol:**
+**Four Core Mechanisms of the Coordination Protocol:**
 - **Single-Writer Protocol:** Only one node (Epoch Token Holder) may Commit per epoch. Eliminates concurrent Commits entirely.
 - **Epoch Consistency:** Every MLS operation carries an epoch number; stale/future operations are rejected or buffered.
 - **Group Fork Healing:** Network partitions are detected via Gossip Heartbeat; losing branch performs External Join into winning branch.
+- **Hybrid Logical Clock (HLC):** Causal consistency and total ordering for application messages without NTP synchronization.
 
 ## 2. Completed Tasks
 
@@ -219,7 +220,7 @@ type App struct {
 **THAY ĐỔI QUAN TRỌNG so với thiết kế ban đầu:**
 Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đột xảy ra rồi chọn commit có hash nhỏ nhất, commit thua bị rollback. **Phiên bản mới LOẠI BỎ HOÀN TOÀN xung đột** bằng Single-Writer Protocol.
 
-**Ba cơ chế cốt lõi:**
+**Bốn cơ chế cốt lõi:**
 
 **1. Single-Writer Protocol (Giao thức Người ghi duy nhất):**
 *   Tại mọi thời điểm, chỉ **một node duy nhất** — Epoch Token Holder — có quyền tạo Commit.
@@ -238,15 +239,51 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   Nhánh thua: Drop MlsGroup → External Join vào nhánh thắng → Autonomous Replay (chỉ gửi lại tin nhắn của chính mình).
 *   Forward Secrecy bảo toàn (khóa nhánh thua bị hủy). PCS suy yếu tạm thời, khôi phục ngay sau External Join.
 
-**Package mới cần tạo:** `app/coordination/`
-*   `epoch.go` — Epoch tracking, validation, CurrentEpochNotification
-*   `single_writer.go` — Token Holder election, Proposal routing, Commit authority
-*   `active_view.go` — ActiveView management, heartbeat, peer liveness
-*   `fork_healing.go` — Partition detection, branch weight W, External Join orchestration
+**4. Hybrid Logical Clock (HLC) — Thứ tự hiển thị tin nhắn:**
+*   Epoch number chỉ ordering MLS state changes. Trong cùng 1 epoch, nhiều user gửi tin nhắn đồng thời → cần HLC để sắp xếp.
+*   `HLCTimestamp = (L, C, NodeID)`: L = max(physical_time, received_L), C = logical counter, NodeID = tiebreaker.
+*   Đảm bảo: causal consistency, total order, NTP-independent, human-readable (L là unix ms).
+*   Mỗi application message mang HLC timestamp. UI sort bằng `Before()`.
+
+**Hệ thống clock đầy đủ:**
+| Clock | Mục đích |
+|---|---|
+| **Epoch Number** (logical counter) | MLS state ordering, Token Holder election, Fork Healing |
+| **HLC** (hybrid logical) | Application message display ordering |
+| **Local wall clock** | Liveness detection (heartbeat, T_timeout), feeds HLC |
+
+**Package `app/coordination/` — ĐÃ IMPLEMENT (44/44 tests PASS):**
+*   `interfaces.go` — Contracts: Transport, Clock, MLSEngine, CoordinationStorage
+*   `types.go` — Data types, wire messages, enums, sentinel errors
+*   `config.go` — CoordinatorConfig + DefaultConfig + TestConfig + Validate
+*   `clock_real.go` — RealClock (production); FakeClock (test-only, trong `clock_fake_test.go`)
+*   `hlc.go` — Hybrid Logical Clock: Now(), Update(), thread-safe, injectable Clock
+*   `metrics.go` — Thread-safe instrumentation for Phase 7 evaluation + Snapshot + Reset
+*   `active_view.go` — ActiveView: heartbeat tracking, liveness check, eviction, sorted members, onChange
+*   `single_writer.go` — ComputeTokenHolder (argmin SHA-256(nodeID||epoch)), BufferProposal, DrainProposals
+*   `epoch.go` — ValidateEpoch, EpochTracker, future buffer with defensive copies, Advance returns buffered
+*   `fork_healing.go` — CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector
 
 ---
 
 ## 4. Current Progress
+
+### Phase 4 Coordination Layer — Foundation + 4 Mechanisms ✅
+
+| File | Tests | Ghi chú |
+|------|-------|---------|
+| `app/coordination/types.go` | — | HLCTimestamp, Envelope, wire messages, persistence types, enums, sentinel errors |
+| `app/coordination/interfaces.go` | — | Transport, Clock, MLSEngine, CoordinationStorage contracts |
+| `app/coordination/config.go` | 4/4 ✅ | CoordinatorConfig, DefaultConfig, TestConfig, Validate |
+| `app/coordination/clock_real.go` | — | RealClock (production), FakeClock (test-only) |
+| `app/coordination/hlc.go` | 8/8 ✅ | HLC engine: Now(), Update(), monotonic + causal ordering |
+| `app/coordination/metrics.go` | 4/4 ✅ | Thread-safe counters + latency samples + Snapshot + Reset |
+| `app/coordination/active_view.go` | 9/9 ✅ | Peer liveness, heartbeat, eviction, sorted member list, onChange callback |
+| `app/coordination/single_writer.go` | 9/9 ✅ | ComputeTokenHolder (argmin SHA-256), BufferProposal, DrainProposals, AdvanceEpoch |
+| `app/coordination/epoch.go` | 9/9 ✅ | ValidateEpoch, EpochTracker, future buffer with defensive copies |
+| `app/coordination/fork_healing.go` | 10/10 ✅ | CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector |
+
+**Total: 44/44 tests PASS, `go vet` clean, `go build ./...` clean.**
 
 ### Files đã implement (Phase 3 + Wails GUI):
 
@@ -344,29 +381,21 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Phase 4: MLS Group Chat + Decentralized Coordination Protocol
+## 6. Next Step — Phase 4 (tiếp): Coordinator Orchestrator + Proto/Rust + DB
 
-Xem `PROJECT_PLAN.md` section 4 để biết chi tiết đầy đủ.
+Coordination Layer foundation + 4 mechanisms đã xong. Tiếp theo:
 
-**Thứ tự thực hiện Phase 4:**
+1.  **Coordinator Orchestrator (`app/coordination/coordinator.go`):** Tầng trên cùng kết nối ActiveView + SingleWriter + EpochTracker + ForkDetector + HLC + Transport + MLSEngine + Storage thành một vòng lặp xử lý message hoàn chỉnh. Đây là "brain" điều phối toàn bộ cơ chế.
 
-1.  **Proto + Rust Engine (4.1):** Cập nhật `proto/mls_service.proto` với gRPC methods mới: `CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`. Implement stateless handlers trong Rust.
+2.  **Test Harness (`app/coordination/testharness/`):** In-process multi-node cluster, FakeTransport, MockMLSEngine, MockStorage — cho phép chạy scenario tests (partition, heal, concurrent proposals, failover) mà không cần mạng thật.
 
-2.  **Database Schema (4.2):** Tạo bảng `mls_groups` (group_state, epoch, tree_hash) và `coordination_state` (active_view, token_holder, pending_proposals).
+3.  **Proto + Rust Engine (4.1):** Cập nhật `proto/mls_service.proto` với gRPC methods mới: `CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`. Implement stateless handlers trong Rust.
 
-3.  **Coordination Layer — Single-Writer (4.3):**
-    *   `app/coordination/active_view.go` — quản lý danh sách peer online qua Gossip Heartbeat.
-    *   `app/coordination/single_writer.go` — `ComputeTokenHolder(activeView, epoch)`, Proposal routing, Commit authority, Token Holder failover.
+4.  **Database Schema (4.2):** Tạo bảng `mls_groups` (group_state, epoch, tree_hash) và `coordination_state` (active_view, token_holder, pending_proposals).
 
-4.  **Coordination Layer — Epoch Consistency (4.4):**
-    *   `app/coordination/epoch.go` — validate epoch trên mọi message MLS. Gửi `CurrentEpochNotification`. State sync protocol.
+5.  **Group Operations (4.6):** Create Group, Add/Remove Member, Continuous Key Rotation qua Coordinator.
 
-5.  **Coordination Layer — Fork Healing (4.5):**
-    *   `app/coordination/fork_healing.go` — `GroupStateAnnouncement` heartbeat, `CompareBranchWeight`, External Join orchestration, Autonomous Replay.
-
-6.  **Group Operations (4.6):** Create Group, Add/Remove Member, Continuous Key Rotation.
-
-7.  **Messaging (4.7):** Encrypt/Decrypt qua Coordination Layer — mọi tin nhắn tagged với epoch_number.
+6.  **Messaging (4.7):** Encrypt/Decrypt qua Coordination Layer — mọi tin nhắn tagged với epoch + HLC timestamp.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ (Deterministic Conflict Resolution) đã bị thay thế bằng Single-Writer Protocol. Single-Writer **ngăn xung đột từ đầu** thay vì giải quyết sau khi xung đột xảy ra.

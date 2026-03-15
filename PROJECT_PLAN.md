@@ -132,7 +132,7 @@
 
 **Goal:** Integrate OpenMLS via gRPC to enable E2EE group chat, and implement the Decentralized Coordination Protocol — the **core research contribution** of this thesis — to maintain MLS state consistency without a central Delivery Service.
 
-**Core Problem:** MLS (RFC 9420) requires a Delivery Service to serialize state-changing Commits. Without it, concurrent Commits cause DAG forking and break the Ratchet Tree. The Coordination Protocol solves this by wrapping MLS with three mechanisms.
+**Core Problem:** MLS (RFC 9420) requires a Delivery Service to serialize state-changing Commits. Without it, concurrent Commits cause DAG forking and break the Ratchet Tree. The Coordination Protocol solves this by wrapping MLS with four mechanisms: Single-Writer Protocol, Epoch Consistency, Group Fork Healing, and Hybrid Logical Clock.
 
 ### 4.1. MLS Proto Definitions & Rust Engine Extensions
 - **Task:** Update `mls_service.proto` with Group operations:
@@ -274,10 +274,29 @@
   - Token Holder batches Updates into Commits.
   - Ensures PCS: compromised device keys become stale within one rotation cycle.
 
-### 4.7. Messaging (Encrypt/Decrypt through Coordination Layer)
-- **Task:** Implement message send flow (see README Section 3.2).
-- **Task:** Implement message receive flow (see README Section 3.3).
-- **Task:** All messages tagged with `epoch_number` — validated by Coordination Layer before processing.
+### 4.7. Mechanism 4 — Hybrid Logical Clock (Message Display Ordering)
+- **Package:** `app/coordination/hlc.go`
+- **Problem:** Within a single epoch, multiple users send messages concurrently. GossipSub does not guarantee delivery order. Without an ordering mechanism, each node displays messages in a different sequence. Wall clocks cannot be trusted in air-gapped networks without NTP.
+- **Task: Implement HLC type** `HLCTimestamp { WallTimeMs int64, Counter uint32, NodeID string }`:
+  - `Before(other)` — lexicographic comparison for total ordering.
+  - JSON-serializable for wire transport and SQLite storage.
+- **Task: Implement HLC engine** `HLC { clock Clock, mu sync.Mutex, l int64, c uint32, id string }`:
+  - `Now() HLCTimestamp` — called on send or local event.
+  - `Update(received HLCTimestamp) HLCTimestamp` — called on message receive, merges remote clock.
+  - Uses the injectable `Clock` interface — deterministic in tests via `FakeClock`.
+- **Properties guaranteed:**
+  - Causal consistency: if A happened-before B, then `HLC(A) < HLC(B)`.
+  - Total order: all nodes sort messages identically.
+  - Wall-clock proximity: `L` is always ≥ physical time, bounded drift.
+  - NTP-independent: works in air-gapped networks.
+
+### 4.8. Messaging (Encrypt/Decrypt through Coordination Layer)
+- **Task:** Implement message send flow (see README Section 3.2):
+  - Generate HLC timestamp → encrypt via Rust → wrap in Envelope with epoch + HLC → broadcast.
+- **Task:** Implement message receive flow (see README Section 3.3):
+  - Epoch check → update local HLC → decrypt via Rust → store with HLC timestamp → emit to UI.
+- **Task:** All messages tagged with both `epoch_number` (for MLS validation) and `HLCTimestamp` (for display ordering).
+- **Task:** UI sorts and displays messages by HLC — uses `WallTimeMs` for human-readable time.
 
 ---
 
