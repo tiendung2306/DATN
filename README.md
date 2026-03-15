@@ -1,14 +1,17 @@
-# SECURE PRIVATE P2P COMMUNICATION SYSTEM (THESIS PROJECT)
+# DECENTRALIZED COORDINATION PROTOCOL FOR MLS ON PEER-TO-PEER NETWORKS (THESIS PROJECT)
 
-> **CONTEXT FOR AI AGENTS:** This project is a **Graduation Thesis** focused on building a serverless, zero-trust internal communication platform for high-security organizations. It utilizes **Pure P2P** architecture combined with the **MLS (Messaging Layer Security)** protocol.
+> **CONTEXT FOR AI AGENTS:** This project is a **Graduation Thesis** with two objectives:
 >
-> **CORE ARCHITECTURE:** Sidecar Pattern. A **Go** host application manages a headless **Rust** cryptographic engine via gRPC over localhost.
+> 1. **Research (Core):** Design a **Decentralized Coordination Protocol** that wraps around the MLS standard (RFC 9420), enabling it to maintain causal consistency and total ordering on a chaotic P2P network without a central Delivery Service.
+> 2. **Application:** Build a serverless, zero-trust internal communication platform for high-security organizations that implements the protocol above.
 >
-> **IMPORTANT NOTE FOR AI AGENTS:** When implementing features, always refer to `PROJECT_PLAN.md` for the specific phase and task details. Prioritize Security and Consistency over Performance.
+> **CORE ARCHITECTURE:** Sidecar Pattern. A **Go** host application (Networking + Coordination Layer) manages a headless **Rust** cryptographic engine (MLS operations) via gRPC over localhost.
+>
+> **IMPORTANT NOTE FOR AI AGENTS:** When implementing features, always refer to `PROJECT_PLAN.md` for the specific phase and task details. Prioritize **Correctness > Security > Consistency > Performance**.
 
 ## 1. SYSTEM ARCHITECTURE
 
-The system follows a **Local-First, Sidecar Architecture** where the UI and Networking logic are decoupled from the Cryptographic Engine.
+The system follows a **Local-First, Sidecar Architecture** with a clear two-tier separation: the **Coordination Layer** (Go) handles routing, ordering, and consensus, while the **Crypto Layer** (Rust/OpenMLS) handles pure MLS operations.
 
 ### 1.1. High-Level Diagram
 
@@ -19,14 +22,15 @@ graph TD
     Go <--> |SQL Driver| DB[(SQLite)]
     Go <--> |gRPC / Localhost| Rust[Rust Crypto Engine Sidecar]
 
-    subgraph Go_Host [Go Host Backend]
+    subgraph Go_Host [Go Host — Coordination + Networking]
         UI_Manager
+        Coordination_Layer["Coordination Layer<br/>(Single-Writer / Epoch / Fork Healing)"]
         P2P_Host
         DB_Manager
         Process_Manager
     end
 
-    subgraph Rust_Engine [Rust Engine Sidecar]
+    subgraph Rust_Engine [Rust Engine — Pure MLS Crypto]
         gRPC_Server
         OpenMLS_Logic
     end
@@ -37,13 +41,71 @@ graph TD
 *   **Frontend (React/TS):** Renders UI, handles user input, communicates with Go via Wails Runtime.
 *   **Backend (Go - Wails):**
     *   **Process Manager:** Spawns the Rust binary on a random ephemeral port and manages its lifecycle (Start/Stop).
+    *   **Coordination Layer (CORE RESEARCH):** Implements the Decentralized Coordination Protocol:
+        *   **Single-Writer Protocol:** Manages Epoch Token Holder election, Proposal routing, and Commit authority.
+        *   **Epoch Consistency:** Validates epoch numbers on all incoming MLS operations; rejects stale/future operations.
+        *   **Fork Healing:** Detects network partitions via Gossip Heartbeat, computes branch weight W, orchestrates External Join for losing branches.
+        *   **ActiveView Management:** Tracks online peers, handles Token Holder failover on timeout.
     *   **Networking:** Manages Libp2p Host, DHT, GossipSub, and mDNS.
-    *   **Persistence:** Manages SQLite database (User profiles, Chat history, KV Store).
-    *   **Orchestrator:** Acts as the bridge between UI, Network, and Crypto Engine.
+    *   **Persistence:** Manages SQLite database (User profiles, Group state, Chat history, Epoch metadata).
+    *   **Orchestrator:** Acts as the bridge between UI, Network, Coordination Layer, and Crypto Engine.
 *   **Crypto Engine (Rust - OpenMLS):**
     *   **Stateless Service:** Does not access the disk directly. Receives state from Go, processes it, and returns the result.
-    *   **MLS Logic:** Handles Group creation, Commit generation, Key rotation, Encryption/Decryption.
+    *   **MLS Logic:** Handles Group creation, Proposal generation, Commit generation, Key rotation, Encryption/Decryption, External Join, MLS Exporter.
     *   **Interface:** Exposes a gRPC Service (Protobuf).
+
+### 1.3. The Decentralized Coordination Protocol (Core Research Contribution)
+
+**Problem:** MLS (RFC 9420) assumes a central Delivery Service to serialize state-changing operations. Without it, concurrent Commits cause DAG forking and protocol collapse.
+
+**Solution:** A Decentralized Coordination Wrapper with three mechanisms:
+
+#### Mechanism 1 — Single-Writer Protocol (Epoch Token Holder)
+
+Instead of resolving conflicts after they occur, the system **eliminates concurrent commits entirely** by ensuring only one node — the **Epoch Token Holder** — has Commit authority at any given time.
+
+*   **Implicit Election (no communication overhead):**
+    ```
+    TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch_number)
+    ```
+    Every node computes the same result deterministically. No voting round needed.
+
+*   **Proposal/Commit Separation:** Any node may create and gossip a Proposal. Only the Token Holder collects Proposals and issues a single Commit to advance the group to epoch E+1.
+
+*   **Token Rotation:** After epoch transitions to E+1, all nodes recompute `TokenHolder` for the new epoch.
+
+*   **Failover:** If the Token Holder does not emit a Commit within `T_timeout` (3–5 seconds), nodes evict it from `ActiveView` and elect a new holder.
+
+#### Mechanism 2 — Causal Consistency via Epoch Checks
+
+Every MLS operation carries the sender's current `epoch_number`:
+
+| Condition | Action |
+|---|---|
+| `msg.epoch == local.epoch` | Process normally |
+| `msg.epoch < local.epoch` (stale) | Reject; send `CurrentEpochNotification` to sender |
+| `msg.epoch > local.epoch` (future) | Buffer; request state sync from sender |
+
+This guarantees no MLS operation is ever applied to an inconsistent Ratchet Tree state.
+
+#### Mechanism 3 — Group Fork Healing (Network Partition Recovery)
+
+When a physical network partition occurs, each partition evolves independently. On reconnection:
+
+1.  **Detection:** Gossip Heartbeat — each node periodically broadcasts `GroupStateAnnouncement { W, TreeHash }`.
+2.  **Branch Weight Function (multi-variable, ordered by priority):**
+    ```
+    W = (C_members, E, H_commit)
+    ```
+    *   `C_members` — online member count (protects majority experience)
+    *   `E` — epoch count (more evolved branch)
+    *   `H_commit` — last commit hash (deterministic tiebreaker)
+3.  **Healing Process (losing branch):**
+    *   Drop current `MlsGroup` from memory.
+    *   Validate the winning branch's Committer signature via X.509 certificate in `GroupInfo`.
+    *   Perform **External Join** into the winning branch.
+    *   **Autonomous Replay:** Each node re-encrypts and resends its own messages only. Messages from other nodes are NOT cross-recovered (preserves Non-repudiation).
+4.  **Security:** Forward Secrecy preserved absolutely (losing branch keys destroyed). PCS temporarily weakened but restored immediately after External Join completes.
 
 ## 2. TECHNICAL STACK & CONSTRAINTS
 
@@ -63,6 +125,8 @@ graph TD
 *   **Single Active Device:** A user account is valid on only ONE device at a time. Login on a new device triggers a signed `KILL_SESSION` broadcast.
 *   **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
 *   **Offline Handling:** Messages to offline peers must be stored in the DHT (Neighborhood Storage) encrypted.
+*   **Single-Writer Invariant:** At any given epoch, only the deterministically elected Token Holder may issue a Commit. All other nodes MUST route their Proposals through Gossip and wait for the Token Holder's Commit.
+*   **Epoch Monotonicity:** A node MUST NOT process any MLS Commit/Proposal with an epoch number lower than its current epoch.
 *   **PKI Rules (CRITICAL):**
     *   MLS Private Key is generated ON the user's machine and NEVER leaves it (not even encrypted over the network).
     *   Root Admin Private Key MUST NOT be embedded in the client binary. It lives only in the Admin's encrypted local storage.
@@ -103,27 +167,59 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 3.  **Connect:** Go gRPC Client connects to `127.0.0.1:54321`.
 4.  **Ping:** Go calls `Ping()` to verify the engine is ready.
 
-### 3.2. Sending a Group Message (MLS)
+### 3.2. Sending a Group Message (via Coordination Layer)
 
 1.  **UI:** User types "Hello".
-2.  **Go:** Fetches current `GroupState` from SQLite.
+2.  **Go (Coordination):** Fetches current `GroupState` + `epoch_number` from SQLite.
 3.  **IPC:** Go calls Rust `EncryptMessage(GroupState, "Hello")`.
-4.  **Rust:** Updates Ratchet Tree (if needed), encrypts payload → Returns (`MlsMessage`, `NewGroupState`).
+4.  **Rust:** Encrypts payload using current epoch's application secret → Returns (`MlsMessage`, `NewGroupState`).
 5.  **Go:**
     *   Saves `NewGroupState` to SQLite.
-    *   Broadcasts `MlsMessage` via Libp2p GossipSub (Topic: `group_id`).
+    *   Broadcasts `MlsMessage` via GossipSub (Topic: `group_id`), tagged with `epoch_number`.
 
-### 3.3. Receiving a Group Message
+### 3.3. Receiving a Group Message (via Coordination Layer)
 
 1.  **Go (Libp2p):** Receives bytes from GossipSub.
-2.  **Go:** Fetches current `GroupState`.
+2.  **Go (Coordination — Epoch Check):**
+    *   If `msg.epoch == local.epoch` → proceed to step 3.
+    *   If `msg.epoch < local.epoch` → reject, send `CurrentEpochNotification`.
+    *   If `msg.epoch > local.epoch` → buffer, request state sync.
 3.  **IPC:** Go calls Rust `ProcessMessage(GroupState, Bytes)`.
 4.  **Rust:** Decrypts message, verifies signature, updates tree → Returns (`DecryptedText`, `NewGroupState`).
 5.  **Go:**
     *   Saves `NewGroupState` and `DecryptedText` to SQLite.
     *   Emits event to UI to display message.
 
-### 3.4. Secure Identity Export / Import (Device Migration)
+### 3.4. MLS State Change (Proposal → Commit via Single-Writer)
+
+1.  **Any node** creates a Proposal (e.g., Add/Remove/Update) → broadcasts via GossipSub.
+2.  **All nodes** receive and buffer the Proposal locally.
+3.  **Token Holder** (for current epoch E):
+    *   Collects buffered Proposals.
+    *   Calls Rust `CreateCommit(GroupState, Proposals[])`.
+    *   Rust generates Commit + optional Welcome messages → Returns `NewGroupState` (epoch E+1).
+    *   Token Holder broadcasts Commit via GossipSub.
+4.  **All other nodes** receive Commit:
+    *   Calls Rust `ProcessCommit(GroupState, CommitBytes)`.
+    *   Advance to epoch E+1.
+    *   Recompute `TokenHolder` for E+1.
+5.  **Failover:** If Token Holder does not emit Commit within `T_timeout`:
+    *   Nodes evict it from `ActiveView`.
+    *   New `TokenHolder` computed → assumes Commit authority.
+
+### 3.5. Group Fork Healing (Network Partition Recovery)
+
+1.  **During partition:** Each sub-network evolves independently (different epoch chains).
+2.  **On reconnection:** Gossip Heartbeat detects divergent `TreeHash` values.
+3.  **Branch comparison:** Each node computes `W = (C_members, E, H_commit)`.
+4.  **Losing branch nodes:**
+    *   Drop current MlsGroup.
+    *   Validate winning branch `GroupInfo` (Committer signature via X.509).
+    *   Perform External Join into winning branch via Rust engine.
+    *   Re-encrypt own messages (Autonomous Replay) and resend.
+5.  **Result:** All nodes converge to a single epoch and TreeHash.
+
+### 3.6. Secure Identity Export / Import (Device Migration)
 
 **Export (old device):**
 1.  User selects "Export Identity" → enters Passphrase.
@@ -141,6 +237,13 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 > **NOTE:** The `.backup` file MUST contain `libp2p_private_key`. Without it, the new device generates a new PeerID which does NOT match the `token.PeerID` in the InvitationToken → auth handshake fails.
 
 **Admin migration:** Only requires copying `admin.db` to the new machine. The Root Admin Key is already encrypted with the passphrase inside that file — no special export tool needed.
+
+### 3.7. Secure Direct Swarming (File Transfer)
+
+1.  **Sender:** Uses **MLS Exporter** to derive a one-time symmetric key from current group secrets.
+2.  **Sender:** Encrypts file with derived key → splits into chunks → announces metadata via GossipSub.
+3.  **Receivers:** Download chunks from sender (and other receivers who already have chunks) in parallel — similar to BitTorrent swarming.
+4.  **Receivers:** Reassemble + decrypt using the same MLS Exporter-derived key.
 
 ## 4. DIRECTORY STRUCTURE
 
@@ -171,8 +274,13 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   ├── auth.go             # OnboardNewUser, ImportInvitationBundle, GetOnboardingInfo, BuildLocalToken
 │   │   ├── gater.go            # AuthGater (blacklist-based) implementing network.ConnectionGater
 │   │   └── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
+│   ├── coordination/           # Decentralized Coordination Protocol (CORE RESEARCH — Phase 4)
+│   │   ├── epoch.go            # Epoch tracking, epoch validation, CurrentEpochNotification
+│   │   ├── single_writer.go    # Token Holder election, Proposal routing, Commit authority
+│   │   ├── active_view.go      # ActiveView management, heartbeat, peer liveness
+│   │   └── fork_healing.go     # Partition detection, branch weight W, External Join orchestration
 │   ├── db/                     # SQLite logic
-│   │   └── db.go               # Tables: system_config, mls_identity, auth_bundle, messages
+│   │   └── db.go               # Tables: system_config, mls_identity, auth_bundle, mls_groups, messages
 │   ├── mls_service/            # Auto-generated gRPC bindings (do not edit)
 │   └── frontend/               # React + TypeScript + Tailwind (Vite)
 │       ├── src/
@@ -192,7 +300,7 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 ├── crypto-engine/              # Rust Code (Stateless gRPC Sidecar)
 │   ├── src/
 │   │   ├── main.rs             # CLI arg parsing & gRPC Server setup (tonic)
-│   │   └── mls.rs              # OpenMLS logic: generate_identity (empty credential), export/import
+│   │   └── mls.rs              # OpenMLS logic: generate_identity, group ops, export/import
 │   └── Cargo.toml
 │
 ├── proto/                      # Shared Protocol Buffers

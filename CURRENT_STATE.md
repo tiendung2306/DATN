@@ -1,9 +1,17 @@
-# Current State of SECURE PRIVATE P2P COMMUNICATION SYSTEM Project
+# Current State — Decentralized Coordination Protocol for MLS on P2P Networks
 
 This document serves as a short-term memory for the AI Agent.
 
 ## 1. Project Overview
-A serverless, zero-trust P2P communication platform using Go (Wails) and Rust (OpenMLS).
+
+**Thesis with dual objectives:**
+1. **Research (Core):** Design a Decentralized Coordination Protocol that wraps MLS (RFC 9420) for P2P environments — solving the open problem of maintaining causal consistency and total ordering without a central Delivery Service.
+2. **Application:** Build a serverless, zero-trust P2P communication platform using Go (Wails) + Rust (OpenMLS) that implements the protocol.
+
+**Three Core Mechanisms of the Coordination Protocol:**
+- **Single-Writer Protocol:** Only one node (Epoch Token Holder) may Commit per epoch. Eliminates concurrent Commits entirely.
+- **Epoch Consistency:** Every MLS operation carries an epoch number; stale/future operations are rejected or buffered.
+- **Group Fork Healing:** Network partitions are detected via Gossip Heartbeat; losing branch performs External Join into winning branch.
 
 ## 2. Completed Tasks
 
@@ -117,7 +125,31 @@ if token.PeerID != authenticatedPeerID.String() {
 *   **Client (outbound, gọi `InitiateHandshake`):** SEND token trước → READ token peer
 *   **Server (inbound, `handleIncoming` qua `SetStreamHandler`):** READ token peer trước → SEND token
 
-**AuthGater:** Blacklist-based. `Blacklist` CHỈ được gọi khi `verifyPeerToken` thất bại. KHÔNG gọi khi `NewStream` fail — sẽ block reconnect của peer hợp lệ.
+**Auth state machine (per connection attempt):**
+```
+Connected → Handshaking → Verified       (crypto ok → lưu vào verifiedPeers)
+                        → SecurityFail   (sai chữ ký / hết hạn / PeerID mismatch
+                                          → rejectSecurity: blacklist TTL + close peer)
+                        → TransientFail  (IO error / timeout / stream reset
+                                          → rejectTransient: reset stream only, KHÔNG blacklist)
+```
+
+**Vòng đời verifiedPeers:**
+*   Set khi handshake thành công (inbound hoặc outbound).
+*   Xóa khi peer đóng **tất cả** connection (TCP + QUIC) — xử lý trong `Disconnected` notifee.
+*   Đảm bảo peer reconnect/restart luôn phải handshake lại, không bị skip do stale state.
+
+**AuthGater (TTL-based):**
+*   `Blacklist(id, reason)` CHỈ được gọi từ `rejectSecurity` — khi `verifyPeerToken` thất bại.
+*   KHÔNG gọi khi `NewStream` fail, IO error, hoặc timeout — đây là `rejectTransient`.
+*   Blacklist entry tự hết hạn sau **30 phút** (peer được thử lại mà không cần restart app).
+*   `isBlacklisted` evict entry hết hạn lazily khi check.
+
+**Root cause bug đã fix (restart → "gater disallows connection"):**
+Trước đây `handleIncoming` có `if IsVerified(peer) { return }`. Khi node A restart, node B
+(còn chạy) vẫn giữ A trong verifiedPeers nên skip handshake mà không đọc/ghi token. A đang
+chờ đọc token thì nhận EOF → gọi `reject()` (cũ) → blacklist B oan. Fix: bỏ early-return ở
+inbound + thêm `Disconnected` handler xóa verifiedPeers + tách `rejectSecurity`/`rejectTransient`.
 
 ### 3f. App States — THIẾT KẾ CUỐI CÙNG
 
@@ -181,6 +213,36 @@ type App struct {
     ctx, cfg, db, privKey, mlsClient, conn, stopEngine, node, nodeCancel, mu
 }
 ```
+
+### 3j. Decentralized Coordination Protocol — Thiết kế mới (Phase 4)
+
+**THAY ĐỔI QUAN TRỌNG so với thiết kế ban đầu:**
+Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đột xảy ra rồi chọn commit có hash nhỏ nhất, commit thua bị rollback. **Phiên bản mới LOẠI BỎ HOÀN TOÀN xung đột** bằng Single-Writer Protocol.
+
+**Ba cơ chế cốt lõi:**
+
+**1. Single-Writer Protocol (Giao thức Người ghi duy nhất):**
+*   Tại mọi thời điểm, chỉ **một node duy nhất** — Epoch Token Holder — có quyền tạo Commit.
+*   Election tất định (không cần giao tiếp): `TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch)`
+*   Phân tách Proposal/Commit: mọi node có thể tạo Proposal, chỉ Token Holder đóng gói thành Commit.
+*   Failover: Token Holder không commit trong `T_timeout` (3-5s) → bị loại khỏi ActiveView → bầu lại.
+
+**2. Epoch Consistency (Nhất quán nhân quả qua kiểm tra Epoch):**
+*   `msg.epoch == local.epoch` → xử lý bình thường
+*   `msg.epoch < local.epoch` → từ chối, gửi `CurrentEpochNotification`
+*   `msg.epoch > local.epoch` → buffer, request state sync
+
+**3. Group Fork Healing (Hàn gắn phân mảnh mạng):**
+*   Phát hiện qua Gossip Heartbeat (khác TreeHash).
+*   Hàm trọng số: `W = (C_members, E, H_commit)` — so sánh lexicographic.
+*   Nhánh thua: Drop MlsGroup → External Join vào nhánh thắng → Autonomous Replay (chỉ gửi lại tin nhắn của chính mình).
+*   Forward Secrecy bảo toàn (khóa nhánh thua bị hủy). PCS suy yếu tạm thời, khôi phục ngay sau External Join.
+
+**Package mới cần tạo:** `app/coordination/`
+*   `epoch.go` — Epoch tracking, validation, CurrentEpochNotification
+*   `single_writer.go` — Token Holder election, Proposal routing, Commit authority
+*   `active_view.go` — ActiveView management, heartbeat, peer liveness
+*   `fork_healing.go` — Partition detection, branch weight W, External Join orchestration
 
 ---
 
@@ -277,17 +339,36 @@ wails build      # production build
 *   **bootstrap_addr format bắt buộc:** `/ip4/IP/tcp/PORT/p2p/PEERID`
 *   **display_name trong MLS credential:** Hiện tại lưu raw UTF-8 bytes. Phase 4 sẽ dùng proper TLS-serialized `BasicCredential`.
 *   **ExportIdentity proto (Phase 5):** PHẢI bao gồm `libp2p_private_key` để PeerID được khôi phục khi chuyển thiết bị.
-*   **Blacklisting policy:** `Blacklist` chỉ gọi khi `verifyPeerToken` thất bại, KHÔNG gọi khi `NewStream` fail.
+*   **Blacklisting policy:** `rejectSecurity` (có blacklist) chỉ gọi khi `verifyPeerToken` thất bại. `rejectTransient` (không blacklist) cho mọi lỗi IO/timeout. KHÔNG bao giờ blacklist khi `NewStream` fail.
 *   **GetNodeStatus mutex:** Gọi `getAppStateUnlocked()` (không acquire mutex) thay vì `GetAppState()` khi đang giữ `a.mu`.
 
 ---
 
-## 6. Next Step — Phase 4: MLS Secure Group Chat
+## 6. Next Step — Phase 4: MLS Group Chat + Decentralized Coordination Protocol
 
-Xem `PROJECT_PLAN.md` section 4 để biết chi tiết.
+Xem `PROJECT_PLAN.md` section 4 để biết chi tiết đầy đủ.
 
-Bước đầu tiên của Phase 4:
-1. Cập nhật `proto/mls_service.proto` với các gRPC methods: `CreateGroup`, `AddMember`, `RemoveMember`, `EncryptMessage`, `DecryptMessage`, `ProcessCommit`
-2. Thiết kế bảng `mls_groups` trong SQLite
-3. Implement Rust handlers stateless
-4. **Lưu ý dMLS:** MLS chuẩn cần Delivery Service tập trung. Project này dùng approach "Deterministic Conflict Resolution": khi có concurrent commits, tất cả node buffer lại và chọn commit có hash nhỏ nhất. Commit thua bị roll back.
+**Thứ tự thực hiện Phase 4:**
+
+1.  **Proto + Rust Engine (4.1):** Cập nhật `proto/mls_service.proto` với gRPC methods mới: `CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`. Implement stateless handlers trong Rust.
+
+2.  **Database Schema (4.2):** Tạo bảng `mls_groups` (group_state, epoch, tree_hash) và `coordination_state` (active_view, token_holder, pending_proposals).
+
+3.  **Coordination Layer — Single-Writer (4.3):**
+    *   `app/coordination/active_view.go` — quản lý danh sách peer online qua Gossip Heartbeat.
+    *   `app/coordination/single_writer.go` — `ComputeTokenHolder(activeView, epoch)`, Proposal routing, Commit authority, Token Holder failover.
+
+4.  **Coordination Layer — Epoch Consistency (4.4):**
+    *   `app/coordination/epoch.go` — validate epoch trên mọi message MLS. Gửi `CurrentEpochNotification`. State sync protocol.
+
+5.  **Coordination Layer — Fork Healing (4.5):**
+    *   `app/coordination/fork_healing.go` — `GroupStateAnnouncement` heartbeat, `CompareBranchWeight`, External Join orchestration, Autonomous Replay.
+
+6.  **Group Operations (4.6):** Create Group, Add/Remove Member, Continuous Key Rotation.
+
+7.  **Messaging (4.7):** Encrypt/Decrypt qua Coordination Layer — mọi tin nhắn tagged với epoch_number.
+
+**Lưu ý thiết kế quan trọng:**
+*   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ (Deterministic Conflict Resolution) đã bị thay thế bằng Single-Writer Protocol. Single-Writer **ngăn xung đột từ đầu** thay vì giải quyết sau khi xung đột xảy ra.
+*   **GroupState là opaque bytes** từ góc nhìn Go. Go lưu vào SQLite; chỉ Rust mới deserialize thành Ratchet Tree.
+*   **Coordination Layer chạy hoàn toàn ở Go** — Rust không biết gì về Single-Writer hay Epoch. Rust chỉ thực hiện phép toán MLS thuần túy.

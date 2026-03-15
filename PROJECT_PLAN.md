@@ -1,6 +1,7 @@
-# PROJECT PLAN: SECURE PRIVATE P2P COMMUNICATION SYSTEM
+# PROJECT PLAN: DECENTRALIZED COORDINATION PROTOCOL FOR MLS ON P2P NETWORKS
 
 **Role:** Graduation Thesis Project
+**Nature:** Protocol Research + Application Implementation
 **Architecture:** Distributed System, Sidecar Pattern, Local-first
 **Core Stack:**
 - **Frontend/Host:** Wails (Go) + React/TypeScript
@@ -9,7 +10,11 @@
 - **Database:** SQLite (Managed by Go)
 - **IPC:** gRPC (Protobuf) over localhost with dynamic port assignment
 
-## 1. SYSTEM ARCHITECTURE & SETUP (Weeks 1-2)
+**Research Focus:** Design a Decentralized Coordination Protocol wrapping MLS (RFC 9420) that maintains causal consistency and total ordering on a P2P network without a central Delivery Service. The protocol is built on three mechanisms: Single-Writer Protocol, Epoch Consistency, and Group Fork Healing.
+
+---
+
+## 1. SYSTEM ARCHITECTURE & SETUP (Weeks 1-2) [COMPLETED ✅]
 
 **Goal:** Establish the IPC infrastructure where the Go application manages the Rust sidecar process lifecycle securely and reliably.
 
@@ -45,7 +50,7 @@
 
 ---
 
-## 2. P2P NETWORKING LAYER (Weeks 3-5) [COMPLETED]
+## 2. P2P NETWORKING LAYER (Weeks 3-5) [COMPLETED ✅]
 
 **Goal:** Enable decentralized node discovery and communication using Go-libp2p.
 
@@ -115,28 +120,170 @@
   - Node D (expired token): rejected at `verifyPeerToken` ✅
   - Eve replaying Alice's token: `token.PeerID != noise_peer` → rejected ✅
 
----
-
-## 4. MLS SECURE GROUP CHAT (Weeks 8-11)
-
-**Goal:** Integrate OpenMLS via gRPC to enable E2EE group chat.
-
-### 4.1. MLS Proto Definitions & State Management
-- **Task:** Update `mls_service.proto` for Group operations (`CreateGroup`, `ProcessCommit`, etc.).
-- **Task:** Implement Stateless Rust logic (State is passed from Go -> Rust -> Go).
-
-### 4.2. Group Operations
-- **Task:** Implement "Create Group" and "Join Group" flows via Direct P2P messages (Welcome Msg).
-
-### 4.3. Messaging & Consensus
-- **Task:** Implement `EncryptMessage` / `DecryptMessage`.
-- **Task:** Implement Deterministic Ordering logic (Buffer commits -> Select lowest Hash).
+### 3.7. Wails GUI Integration ✅
+- Thư mục `backend/` đã đổi tên thành `app/`, Go module name đổi từ `backend` → `app`.
+- Tích hợp Wails v2.11.0 vào Go app (`app/app.go`).
+- Scaffold React + TypeScript + Tailwind frontend tại `app/frontend/`.
+- 4 màn hình dev/test UI đã hoàn chỉnh: SetupScreen, AwaitingBundleScreen, DashboardScreen, AdminPanel.
 
 ---
 
-## 5. ADVANCED FEATURES: MIGRATION & OFFLINE (Weeks 12-13)
+## 4. MLS GROUP CHAT + DECENTRALIZED COORDINATION PROTOCOL (Weeks 8-12)
 
-**Goal:** Secure Identity Migration (Manual) and Offline Messaging.
+**Goal:** Integrate OpenMLS via gRPC to enable E2EE group chat, and implement the Decentralized Coordination Protocol — the **core research contribution** of this thesis — to maintain MLS state consistency without a central Delivery Service.
+
+**Core Problem:** MLS (RFC 9420) requires a Delivery Service to serialize state-changing Commits. Without it, concurrent Commits cause DAG forking and break the Ratchet Tree. The Coordination Protocol solves this by wrapping MLS with three mechanisms.
+
+### 4.1. MLS Proto Definitions & Rust Engine Extensions
+- **Task:** Update `mls_service.proto` with Group operations:
+  - `CreateGroup(GroupId, CreatorIdentity) → GroupState`
+  - `CreateProposal(GroupState, ProposalType, Data) → ProposalBytes`
+  - `CreateCommit(GroupState, Proposals[]) → CommitBytes, WelcomeBytes, NewGroupState`
+  - `ProcessCommit(GroupState, CommitBytes) → NewGroupState`
+  - `ProcessWelcome(WelcomeBytes, SigningKey) → GroupState`
+  - `EncryptMessage(GroupState, Plaintext) → MlsCiphertext, NewGroupState`
+  - `DecryptMessage(GroupState, MlsCiphertext) → Plaintext, NewGroupState`
+  - `ExternalJoin(GroupInfo, SigningKey) → GroupState, CommitBytes`
+  - `ExportSecret(GroupState, Label, Length) → DerivedKey`
+- **Task:** Implement all handlers in Rust as **stateless** functions: Receive GroupState bytes → Deserialize → Operate → Serialize → Return.
+- **Implementation Note:** GroupState is opaque bytes from Go's perspective. Go stores it in SQLite; Rust deserializes it into the OpenMLS Ratchet Tree internally.
+
+### 4.2. Database Schema for Groups & Coordination
+- **Task:** Add `mls_groups` table:
+  ```sql
+  CREATE TABLE mls_groups (
+      group_id       TEXT PRIMARY KEY,
+      group_state    BLOB NOT NULL,        -- serialized OpenMLS group state
+      epoch          INTEGER NOT NULL,      -- current epoch number
+      tree_hash      BLOB,                  -- current tree hash (for fork detection)
+      my_role        TEXT DEFAULT 'member',  -- 'creator' | 'member'
+      created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  ```
+- **Task:** Add `coordination_state` table:
+  ```sql
+  CREATE TABLE coordination_state (
+      group_id           TEXT PRIMARY KEY,
+      active_view        TEXT NOT NULL,     -- JSON array of online peer IDs
+      token_holder       TEXT,              -- current epoch's Token Holder PeerID
+      last_commit_hash   BLOB,             -- hash of last processed Commit
+      last_commit_at     DATETIME,
+      pending_proposals  TEXT,              -- JSON array of buffered Proposals
+      FOREIGN KEY (group_id) REFERENCES mls_groups(group_id)
+  );
+  ```
+
+### 4.3. Mechanism 1 — Single-Writer Protocol (Go Coordination Layer)
+- **Package:** `app/coordination/single_writer.go`
+- **Task: ActiveView Management** (`app/coordination/active_view.go`):
+  - Maintain set of online peers per group via Gossip Heartbeat (periodic `PeerAlive` messages).
+  - Peer is removed from ActiveView after missing `N` consecutive heartbeats.
+  - ActiveView changes trigger Token Holder recomputation.
+- **Task: Implicit Token Holder Election:**
+  ```go
+  func ComputeTokenHolder(activeView []peer.ID, epoch uint64) peer.ID {
+      // TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch)
+      // H = SHA-256. All nodes compute the same result deterministically.
+  }
+  ```
+- **Task: Proposal Routing:**
+  - Any node creates a Proposal → broadcasts via GossipSub topic `{group_id}/proposals`.
+  - All nodes buffer received Proposals locally.
+  - Only Token Holder calls `CreateCommit(GroupState, bufferedProposals)`.
+- **Task: Commit Broadcasting:**
+  - Token Holder broadcasts Commit via GossipSub topic `{group_id}/commits`.
+  - All nodes process Commit → advance to epoch E+1 → recompute Token Holder.
+- **Task: Failover (Token Holder Timeout):**
+  - If no Commit is received within `T_timeout` (configurable, default 3–5s):
+    - Evict Token Holder from ActiveView.
+    - Recompute new Token Holder.
+    - New holder assumes Commit authority immediately.
+  - **Critical:** Timeout must account for network latency in LAN (typically <1ms).
+
+### 4.4. Mechanism 2 — Epoch Consistency Checks (Go Coordination Layer)
+- **Package:** `app/coordination/epoch.go`
+- **Task: Epoch Validation on every incoming MLS message:**
+  ```go
+  func (c *Coordinator) ValidateEpoch(msgEpoch, localEpoch uint64) EpochAction {
+      switch {
+      case msgEpoch == localEpoch:
+          return ActionProcess
+      case msgEpoch < localEpoch:
+          return ActionRejectStale  // send CurrentEpochNotification
+      default:
+          return ActionBufferFuture // request state sync
+      }
+  }
+  ```
+- **Task:** Implement `CurrentEpochNotification` message (sent via direct P2P stream, not GossipSub).
+- **Task:** Implement state sync protocol: node with stale epoch requests `GroupInfo` + recent Commits from an up-to-date peer.
+
+### 4.5. Mechanism 3 — Group Fork Healing (Go Coordination Layer)
+- **Package:** `app/coordination/fork_healing.go`
+- **Task: Gossip Heartbeat with GroupStateAnnouncement:**
+  ```go
+  type GroupStateAnnouncement struct {
+      GroupID    string
+      TreeHash   []byte
+      Epoch      uint64
+      MemberCount int    // online members in this branch
+      CommitHash []byte  // hash of last Commit
+  }
+  ```
+  - Broadcast periodically (e.g., every 5 seconds) on topic `{group_id}/heartbeat`.
+  - Receiving a `GroupStateAnnouncement` with different `TreeHash` at higher or equal epoch → partition detected.
+- **Task: Branch Weight Comparison Function:**
+  ```go
+  // W = (C_members, E, H_commit) — compared lexicographically
+  func CompareBranchWeight(local, remote GroupStateAnnouncement) BranchResult {
+      if local.MemberCount != remote.MemberCount {
+          return compare(local.MemberCount, remote.MemberCount)
+      }
+      if local.Epoch != remote.Epoch {
+          return compare(local.Epoch, remote.Epoch)
+      }
+      return compareBytes(local.CommitHash, remote.CommitHash)
+  }
+  ```
+- **Task: Healing Process (losing branch):**
+  1. Drop current MlsGroup from Go memory (NOT from SQLite — keep for audit).
+  2. Request `GroupInfo` from winning branch peer.
+  3. Validate Committer signature in `GroupInfo` (X.509 certificate).
+  4. Call Rust `ExternalJoin(GroupInfo, mySigningKey) → NewGroupState`.
+  5. Save new GroupState to SQLite → advance to winning branch's epoch.
+  6. **Autonomous Replay:** Re-encrypt and resend own messages from the partition period. MUST NOT resend other nodes' messages (Non-repudiation).
+- **Security Analysis:**
+  - Forward Secrecy: Preserved — losing branch keys are destroyed (crypto-shredding).
+  - PCS: Temporarily weakened during partition, restored immediately after External Join.
+
+### 4.6. Group Operations Integration (End-to-End Flow)
+- **Task:** Implement "Create Group" flow:
+  - Creator calls Rust `CreateGroup` → stores GroupState + epoch 0 in SQLite.
+  - Creator is Token Holder for epoch 0 (sole member).
+  - Creator broadcasts `GroupCreated` announcement.
+- **Task:** Implement "Add Member" flow:
+  - Any member creates `Add` Proposal → GossipSub.
+  - Token Holder collects → Commit → Welcome message sent to new member via direct stream.
+  - New member calls Rust `ProcessWelcome` → joins group at current epoch.
+- **Task:** Implement "Remove Member" flow:
+  - Any member creates `Remove` Proposal → GossipSub.
+  - Token Holder collects → Commit → removed member's keys are evicted from tree.
+- **Task:** Implement "Continuous Key Rotation" (leveraging MLS O(log N)):
+  - Periodic `Update` Proposals generated automatically (configurable interval).
+  - Token Holder batches Updates into Commits.
+  - Ensures PCS: compromised device keys become stale within one rotation cycle.
+
+### 4.7. Messaging (Encrypt/Decrypt through Coordination Layer)
+- **Task:** Implement message send flow (see README Section 3.2).
+- **Task:** Implement message receive flow (see README Section 3.3).
+- **Task:** All messages tagged with `epoch_number` — validated by Coordination Layer before processing.
+
+---
+
+## 5. ADVANCED FEATURES: MIGRATION & OFFLINE (Weeks 13-14)
+
+**Goal:** Secure Identity Migration (Manual) and Offline Messaging (Store-and-Forward).
 
 ### 5.1. Secure Identity Export/Import (File-based)
 - **CRITICAL DESIGN NOTE:** The `.backup` file MUST include the Libp2p private key in addition to the MLS key.
@@ -147,32 +294,70 @@
   - `libp2p_private_key` from `system_config` table
   - `mls_signing_key` + `mls_credential` + `invitation_token` from `mls_identity` and `auth_bundle` tables
 - **Task:** Send all of the above to Rust `ExportIdentity(data, passphrase)`.
-- **Task:** Rust Logic: Serialize all fields -> Encrypt with AES-256-GCM (Key derived from Passphrase via Argon2id) -> Return `EncryptedBlob`.
+- **Task:** Rust Logic: Serialize all fields → Encrypt with AES-256-GCM (Key derived from Passphrase via Argon2id) → Return `EncryptedBlob`.
 - **Task:** Go Logic: Save `EncryptedBlob` to a `.backup` file.
-- **Task:** Import Flow: Read `.backup` file -> Send to Rust `ImportIdentity(blob, passphrase)` -> Restore ALL keys -> Store in DB -> Broadcast `KILL_SESSION`.
+- **Task:** Import Flow: Read `.backup` file → Send to Rust `ImportIdentity(blob, passphrase)` → Restore ALL keys → Store in DB → Broadcast `KILL_SESSION`.
 
 ### 5.2. Session Takeover (Single Active Device)
 - **Task:** On successful Import & Connect: Broadcast `KILL_SESSION` (Signed by User Key).
-- **Task:** Active clients listening to `KILL_SESSION`: Verify signature -> Self-destruct if valid.
+- **Task:** Active clients listening to `KILL_SESSION`: Verify signature → Self-destruct if valid.
 
-### 5.3. Offline Messaging (Neighborhood Storage)
-- **Task:** If sending fails: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.
-- **Task:** On Connect: `dht.Get(Key=Hash(MyID))`.
+### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage)
+- **Task:** If recipient is offline: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.
+- **Task:** On recipient connect: `dht.Get(Key=Hash(MyID))` → retrieve and process buffered messages.
+- **Task:** Messages are encrypted with MLS group key — only the intended recipient's MLS state can decrypt.
+- **Task:** Automatic cleanup: DHT entries expire after configurable TTL.
 
 ---
 
-## 6. FILE TRANSFER & FINALIZATION (Weeks 14-15)
+## 6. FILE TRANSFER & FINALIZATION (Weeks 15-16)
 
-**Goal:** Direct high-speed file transfer and documentation.
+**Goal:** Secure high-speed file transfer and thesis documentation.
 
-### 6.1. Direct Stream Protocol
-- **Task:** Define Libp2p Protocol `/app/file/1.0.0`.
-- **Task:** Implement Stream Handler (Send Metadata -> Stream Content).
-- **Task:** UI Progress Bar.
+### 6.1. Secure Direct Swarming (MLS Exporter-based)
+- **Task:** Derive one-time symmetric key using `MLS Exporter` (label: `"file-transfer"`, context: `file_hash`).
+- **Task:** Sender encrypts file with derived key → splits into fixed-size chunks.
+- **Task:** Announce file metadata (hash, size, chunk count, derived key label) via GossipSub.
+- **Task:** Implement chunk exchange protocol `/app/file/1.0.0`:
+  - Receivers request chunks from sender AND from other receivers who already have them (swarming).
+  - Multi-stream parallel download — optimizes LAN bandwidth.
+- **Task:** Receiver reassembles chunks → decrypt → verify hash.
+- **Task:** UI: Progress bar, file selection dialog.
 
 ### 6.2. Thesis Report & Defense Prep
-- **Task:** Finalize diagrams.
-- **Task:** Prepare Demo environment.
+- **Task:** Finalize diagrams (architecture, protocol flow, fork healing sequence).
+- **Task:** Prepare Demo environment (multi-node Docker / multi-process on single machine).
+- **Task:** Write evaluation results (see Phase 7).
+
+---
+
+## 7. EVALUATION & TESTING (Throughout + Final Weeks)
+
+**Goal:** Prove correctness, performance, and security of the Decentralized Coordination Protocol.
+
+### 7.1. Correctness & Consistency (Concurrency Chaos Test)
+- **Task:** Simulate 10+ nodes sending Proposals and Commits simultaneously within the same millisecond.
+- **Success Criteria:** All nodes converge to the same Epoch number AND their TreeHash values match perfectly across every device.
+- **Task:** Verify Single-Writer invariant: at no point do two Commits exist for the same epoch.
+
+### 7.2. Partition & Healing Test
+- **Task:** Physically disconnect network into 2 independent branches (split-brain simulation).
+- **Task:** Let each branch evolve independently for multiple epochs.
+- **Task:** Reconnect and measure:
+  - Branch Weight W correctly selects the winning branch.
+  - External Join success rate for losing branch nodes.
+  - Time to full convergence (all nodes on same epoch + TreeHash).
+
+### 7.3. Performance & Latency
+- **Task:** Measure epoch finalization time (Proposal → Commit → all nodes at E+1).
+- **Task:** Compare overhead vs. a baseline system using a centralized Delivery Service.
+- **Task:** Scalability: measure CPU and bandwidth consumption as group size increases during periodic key rotation — empirically validate O(log N) advantage of MLS.
+
+### 7.4. Security & Threat Validation
+- **Task:** Extract SQLite database of a "losing branch" node after a Partition & Healing test.
+- **Task:** Verify that staged Commit keys have been destroyed (crypto-shredding) — Forward Secrecy proof.
+- **Task:** Verify Token Replay attack is blocked (Eve replaying Alice's token → rejected).
+- **Task:** Verify expired tokens are rejected at auth handshake.
 
 **Validation Criteria:**
-> Successful transfer of identity via file. Old session terminates automatically. Large file transfer works.
+> All nodes converge to identical state after concurrent operations and network partitions. O(log N) scaling empirically demonstrated. Forward Secrecy preserved after fork healing. Identity migration succeeds with session takeover. File transfer completes via swarming protocol.
