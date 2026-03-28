@@ -65,21 +65,24 @@ type Clock interface {
 // Test:       MockMLSEngine returning canned responses without Rust.
 type MLSEngine interface {
 	// CreateGroup initializes a new MLS group. The caller becomes the sole member.
-	CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState []byte, err error)
+	// Returns the initial group state and tree hash.
+	CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error)
 
 	// CreateProposal generates an MLS Proposal (Add, Remove, or Update).
 	CreateProposal(ctx context.Context, groupState []byte, pType ProposalType, data []byte) (proposalBytes []byte, err error)
 
 	// CreateCommit bundles one or more Proposals into a Commit, advancing the
 	// group to the next epoch. Returns the Commit bytes, an optional Welcome
-	// message for newly added members, and the updated GroupState.
-	CreateCommit(ctx context.Context, groupState []byte, proposals [][]byte) (commitBytes, welcomeBytes, newGroupState []byte, err error)
+	// message for newly added members, the updated GroupState, and the new tree hash.
+	CreateCommit(ctx context.Context, groupState []byte, proposals [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error)
 
 	// ProcessCommit applies a Commit received from the Token Holder.
-	ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte) (newGroupState []byte, err error)
+	// Returns the new group state and tree hash after applying the commit.
+	ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte) (newGroupState, newTreeHash []byte, err error)
 
 	// ProcessWelcome processes a Welcome message to join an existing group.
-	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey []byte) (groupState []byte, err error)
+	// Returns the group state and tree hash at the joined epoch.
+	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey []byte) (groupState, treeHash []byte, err error)
 
 	// EncryptMessage encrypts plaintext using the current epoch's application secret.
 	EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error)
@@ -89,7 +92,7 @@ type MLSEngine interface {
 
 	// ExternalJoin performs an external join into a group using its GroupInfo.
 	// Used during fork healing when a node on the losing branch joins the winner.
-	ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes []byte, err error)
+	ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error)
 
 	// ExportSecret derives a secret from the current MLS epoch using the
 	// Exporter mechanism (RFC 9420 §8). Used for file transfer key derivation.

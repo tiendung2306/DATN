@@ -2,79 +2,162 @@ syntax = "proto3";
 
 package mls_service;
 
-option go_package = "backend/mls_service";
+option go_package = "app/mls_service";
 
-// MLSCryptoService provides cryptographic operations using OpenMLS.
 service MLSCryptoService {
-  // Generates a new identity for the user.
+  // ── Phase 2: Identity ──
+  rpc Ping(PingRequest) returns (PingResponse);
   rpc GenerateIdentity(GenerateIdentityRequest) returns (GenerateIdentityResponse);
-
-  // Exports the current identity, typically for backup or migration.
   rpc ExportIdentity(ExportIdentityRequest) returns (ExportIdentityResponse);
-
-  // Imports an identity from previously exported data.
   rpc ImportIdentity(ImportIdentityRequest) returns (ImportIdentityResponse);
 
-  // A simple ping method to check service connectivity.
-  rpc Ping(PingRequest) returns (PingResponse);
+  // ── Phase 4: Group Operations ──
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  rpc CreateProposal(CreateProposalRequest) returns (CreateProposalResponse);
+  rpc CreateCommit(CreateCommitRequest) returns (CreateCommitResponse);
+  rpc ProcessCommit(ProcessCommitRequest) returns (ProcessCommitResponse);
+  rpc ProcessWelcome(ProcessWelcomeRequest) returns (ProcessWelcomeResponse);
+  rpc EncryptMessage(EncryptMessageRequest) returns (EncryptMessageResponse);
+  rpc DecryptMessage(DecryptMessageRequest) returns (DecryptMessageResponse);
+  rpc ExternalJoin(ExternalJoinRequest) returns (ExternalJoinResponse);
+  rpc ExportSecret(ExportSecretRequest) returns (ExportSecretResponse);
 }
 
-// Message for generating a new MLS identity (CSR step 1: create keypair locally).
-message GenerateIdentityRequest {
-  string display_name = 1; // Human-readable name, also used as MLS credential identity
-}
+// ── Phase 2 Messages ──
 
-message GenerateIdentityResponse {
-  // TLS-serialized SignatureKeyPair (includes private key).
-  // Store in DB. Pass back to Rust in Phase 4 for signing MLS messages.
-  // NEVER transmit over the network.
-  bytes signing_key_private = 1;
-
-  // Raw Ed25519 public key bytes.
-  // Included in InvitationToken for identity binding (send to Admin).
-  bytes public_key = 2;
-
-  // TLS-serialized BasicCredential containing display_name.
-  // Used in Phase 4 for MLS group membership.
-  bytes credential = 3;
-}
-
-// Message for exporting an identity.
-message ExportIdentityRequest {
-  bytes key_package = 1; // The KeyPackage to export
-  string passphrase = 2; // Passphrase to encrypt the exported data
-}
-
-message ExportIdentityResponse {
-  bytes encrypted_backup_data = 1; // Encrypted identity data
-}
-
-// Message for importing an identity.
-message ImportIdentityRequest {
-  bytes encrypted_backup_data = 1; // Encrypted identity data
-  string passphrase = 2; // Passphrase to decrypt the data
-}
-
-message ImportIdentityResponse {
-  bytes key_package = 1; // The imported KeyPackage in bytes
-  // Potentially other identity-related information
-}
-
-// A generic message type for MLS messages (e.g., handshake, application messages).
-message MlsMessage {
-  bytes data = 1; // Raw MLS message bytes
-  // Additional metadata can be added here if needed
-}
-
-// A message type for KeyPackage (public identity information).
-message KeyPackage {
-  bytes data = 1; // Raw KeyPackage bytes
-  // Additional metadata can be added here if needed
-}
-
-// Ping Request and Response
 message PingRequest {}
 message PingResponse {
   string message = 1;
   int64 timestamp = 2;
+}
+
+message GenerateIdentityRequest {
+  string display_name = 1;
+}
+
+message GenerateIdentityResponse {
+  bytes signing_key_private = 1;
+  bytes public_key = 2;
+  bytes credential = 3;
+}
+
+message ExportIdentityRequest {
+  bytes key_package = 1;
+  string passphrase = 2;
+}
+
+message ExportIdentityResponse {
+  bytes encrypted_backup_data = 1;
+}
+
+message ImportIdentityRequest {
+  bytes encrypted_backup_data = 1;
+  string passphrase = 2;
+}
+
+message ImportIdentityResponse {
+  bytes key_package = 1;
+}
+
+// ── Phase 4 Enum ──
+
+enum MlsProposalType {
+  PROPOSAL_ADD = 0;
+  PROPOSAL_REMOVE = 1;
+  PROPOSAL_UPDATE = 2;
+}
+
+// ── Phase 4 Messages ──
+
+message CreateGroupRequest {
+  string group_id = 1;
+  bytes signing_key = 2;
+}
+
+message CreateGroupResponse {
+  bytes group_state = 1;
+  bytes tree_hash = 2;
+}
+
+message CreateProposalRequest {
+  bytes group_state = 1;
+  MlsProposalType proposal_type = 2;
+  bytes data = 3;
+}
+
+message CreateProposalResponse {
+  bytes proposal_bytes = 1;
+}
+
+message CreateCommitRequest {
+  bytes group_state = 1;
+  repeated bytes proposals = 2;
+}
+
+message CreateCommitResponse {
+  bytes commit_bytes = 1;
+  bytes welcome_bytes = 2;
+  bytes new_group_state = 3;
+  bytes new_tree_hash = 4;
+}
+
+message ProcessCommitRequest {
+  bytes group_state = 1;
+  bytes commit_bytes = 2;
+}
+
+message ProcessCommitResponse {
+  bytes new_group_state = 1;
+  bytes new_tree_hash = 2;
+}
+
+message ProcessWelcomeRequest {
+  bytes welcome_bytes = 1;
+  bytes signing_key = 2;
+}
+
+message ProcessWelcomeResponse {
+  bytes group_state = 1;
+  bytes tree_hash = 2;
+}
+
+message EncryptMessageRequest {
+  bytes group_state = 1;
+  bytes plaintext = 2;
+}
+
+message EncryptMessageResponse {
+  bytes ciphertext = 1;
+  bytes new_group_state = 2;
+}
+
+message DecryptMessageRequest {
+  bytes group_state = 1;
+  bytes ciphertext = 2;
+}
+
+message DecryptMessageResponse {
+  bytes plaintext = 1;
+  bytes new_group_state = 2;
+}
+
+message ExternalJoinRequest {
+  bytes group_info = 1;
+  bytes signing_key = 2;
+}
+
+message ExternalJoinResponse {
+  bytes group_state = 1;
+  bytes commit_bytes = 2;
+  bytes tree_hash = 3;
+}
+
+message ExportSecretRequest {
+  bytes group_state = 1;
+  string label = 2;
+  uint32 length = 3;
+}
+
+message ExportSecretResponse {
+  bytes secret = 1;
 }

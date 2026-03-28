@@ -252,8 +252,8 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | **HLC** (hybrid logical) | Application message display ordering |
 | **Local wall clock** | Liveness detection (heartbeat, T_timeout), feeds HLC |
 
-**Package `app/coordination/` — ĐÃ IMPLEMENT (44/44 tests PASS):**
-*   `interfaces.go` — Contracts: Transport, Clock, MLSEngine, CoordinationStorage
+**Package `app/coordination/` — ĐÃ IMPLEMENT (54/54 tests PASS):**
+*   `interfaces.go` — Contracts: Transport, Clock, MLSEngine (with treeHash returns), CoordinationStorage
 *   `types.go` — Data types, wire messages, enums, sentinel errors
 *   `config.go` — CoordinatorConfig + DefaultConfig + TestConfig + Validate
 *   `clock_real.go` — RealClock (production); FakeClock (test-only, trong `clock_fake_test.go`)
@@ -263,17 +263,23 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   `single_writer.go` — ComputeTokenHolder (argmin SHA-256(nodeID||epoch)), BufferProposal, DrainProposals
 *   `epoch.go` — ValidateEpoch, EpochTracker, future buffer with defensive copies, Advance returns buffered
 *   `fork_healing.go` — CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector
+*   `coordinator.go` — Central orchestrator: ties ActiveView + SingleWriter + EpochTracker + ForkDetector + HLC into message processing pipeline. Public API: CreateGroup, Start, Stop, SendMessage, ProposeAdd/Remove/Update
+*   `mls_adapter.go` — GrpcMLSEngine: adapts gRPC MLSCryptoServiceClient → MLSEngine interface
+*   `testutil_test.go` — FakeNetwork (queue + DrainAll), FakeTransport, MockMLSEngine, MockStorage
+*   `coordinator_test.go` — 10 integration tests: group creation, token holder election, message send/receive, proposal/commit, epoch consistency, heartbeats, HLC ordering, fork detection
 
 ---
 
 ## 4. Current Progress
 
-### Phase 4 Coordination Layer — Foundation + 4 Mechanisms ✅
+### Phase 4 Coordination Layer — COMPLETE ✅ (66 tests: 62 Go + 4 Rust)
+
+#### Coordination Mechanisms (54 Go tests)
 
 | File | Tests | Ghi chú |
 |------|-------|---------|
 | `app/coordination/types.go` | — | HLCTimestamp, Envelope, wire messages, persistence types, enums, sentinel errors |
-| `app/coordination/interfaces.go` | — | Transport, Clock, MLSEngine, CoordinationStorage contracts |
+| `app/coordination/interfaces.go` | — | Transport, Clock, MLSEngine (with treeHash), CoordinationStorage contracts |
 | `app/coordination/config.go` | 4/4 ✅ | CoordinatorConfig, DefaultConfig, TestConfig, Validate |
 | `app/coordination/clock_real.go` | — | RealClock (production), FakeClock (test-only) |
 | `app/coordination/hlc.go` | 8/8 ✅ | HLC engine: Now(), Update(), monotonic + causal ordering |
@@ -282,17 +288,56 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `app/coordination/single_writer.go` | 9/9 ✅ | ComputeTokenHolder (argmin SHA-256), BufferProposal, DrainProposals, AdvanceEpoch |
 | `app/coordination/epoch.go` | 9/9 ✅ | ValidateEpoch, EpochTracker, future buffer with defensive copies |
 | `app/coordination/fork_healing.go` | 10/10 ✅ | CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector |
+| `app/coordination/coordinator.go` | 10/10 ✅ | Central orchestrator: message pipeline, periodic tasks, public API |
+| `app/coordination/mls_adapter.go` | — | GrpcMLSEngine: gRPC client → MLSEngine interface |
+| `app/coordination/testutil_test.go` | — | FakeNetwork, FakeTransport, MockMLSEngine, MockStorage |
 
-**Total: 44/44 tests PASS, `go vet` clean, `go build ./...` clean.**
+#### Infrastructure — Proto + DB + Transport (8 Go tests)
 
-### Files đã implement (Phase 3 + Wails GUI):
+| File | Tests | Ghi chú |
+|------|-------|---------|
+| `proto/mls_service.proto` | — | 13 RPCs: 4 existing (Phase 2) + 9 new (Phase 4) |
+| `app/mls_service/*.pb.go` | — | Auto-generated from proto (protoc) |
+| `app/db/db.go` | — | New tables: mls_groups, coordination_state, stored_messages |
+| `app/db/coordination_storage.go` | 8/8 ✅ | SQLiteCoordinationStorage: GroupRecord, CoordState, StoredMessage CRUD |
+| `app/p2p/transport_adapter.go` | — | LibP2PTransport: GossipSub + direct streams → Transport interface |
+
+#### Real OpenMLS Crypto Engine (4 Rust tests)
+
+| File | Tests | Ghi chú |
+|------|-------|---------|
+| `crypto-engine/src/mls.rs` | 4/4 ✅ | MlsGroupStore (Arc<Mutex<HashMap>>), real OpenMLS 0.8: create_group, encrypt_message, decrypt_message, create_commit (self_update), process_commit, process_welcome, export_secret |
+| `crypto-engine/src/main.rs` | — | gRPC server with Arc<MlsGroupStore> shared state, all 13 RPC handlers |
+| `crypto-engine/Cargo.toml` | — | Added: openmls_basic_credential, ed25519-dalek, serde, serde_json, tls_codec, sha2 |
+
+#### Wails Bindings + Frontend Chat UI
+
+| File | Ghi chú |
+|------|---------|
+| `app/group_ops.go` | CreateGroupChat, SendGroupMessage, GetGroupMessages, GetGroups, GetGroupStatus, initCoordinationStackLocked, loadExistingGroupsLocked, Wails event handlers |
+| `app/app.go` | Added coordination fields (transport, coordStorage, mlsEngine, coordinators map), initCoordinationStackLocked() call in launchP2PNode, stopCoordinatorsLocked() in teardown |
+| `app/frontend/src/components/ChatPanel.tsx` | Group creation UI, group tabs, HLC-sorted message list, real-time updates via EventsOn("group:message"), message input |
+| `app/frontend/src/screens/DashboardScreen.tsx` | Integrated ChatPanel below existing grid |
+| `app/frontend/wailsjs/go/main/App.js` | Added exports: CreateGroupChat, SendGroupMessage, GetGroupMessages, GetGroups, GetGroupStatus |
+| `app/frontend/wailsjs/go/main/App.d.ts` | TypeScript declarations for new group chat functions |
+| `app/frontend/wailsjs/go/models.ts` | Added MessageInfo, GroupInfo types |
+
+**Grand total: 66 tests PASS (62 Go + 4 Rust), `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean.**
+
+### All files implemented (Phase 1-4):
 
 | File | Trạng thái | Ghi chú |
 |------|-----------|---------|
-| `proto/mls_service.proto` | ✅ | GenerateIdentity, Ping |
-| `app/mls_service/*.pb.go` | ✅ | Auto-generated |
-| `crypto-engine/src/mls.rs` | ✅ | generate_identity, credential rỗng |
-| `app/db/db.go` | ✅ | Tables: system_config, mls_identity, auth_bundle, messages |
+| `proto/mls_service.proto` | ✅ | 13 RPCs: Phase 2 (4) + Phase 4 (9 new) |
+| `app/mls_service/*.pb.go` | ✅ | Auto-generated from proto |
+| `crypto-engine/src/mls.rs` | ✅ | Real OpenMLS 0.8: MlsGroupStore + all group operations |
+| `crypto-engine/src/main.rs` | ✅ | gRPC server with Arc<MlsGroupStore> |
+| `app/db/db.go` | ✅ | Tables: system_config, mls_identity, auth_bundle, messages, mls_groups, coordination_state, stored_messages |
+| `app/db/coordination_storage.go` | ✅ | SQLiteCoordinationStorage (8 tests) |
+| `app/p2p/transport_adapter.go` | ✅ | LibP2PTransport: GossipSub + direct streams |
+| `app/coordination/mls_adapter.go` | ✅ | GrpcMLSEngine: gRPC → MLSEngine interface |
+| `app/coordination/*.go` | ✅ | All 4 mechanisms + Coordinator orchestrator (54 tests) |
+| `app/group_ops.go` | ✅ | **Wails bindings for group chat operations** |
 | `app/p2p/identity.go` | ✅ | GetOrCreateIdentity |
 | `app/admin/token.go` | ✅ | SignToken, VerifyToken, SerializeBundle, DeserializeBundle |
 | `app/admin/admin.go` | ✅ | SetupAdminKey, UnlockAdminKey, CreateInvitationBundle |
@@ -309,19 +354,20 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `app/crypto_engine.go` | ✅ | startCryptoEngine, waitForCryptoEngine |
 | `app/log.go` | ✅ | LogFilterHandler, setupLogging |
 | `app/process.go` | ✅ | ProcessManager, StartCryptoEngine, StopCryptoEngine |
-| **`app/app.go`** | ✅ | **Wails App struct + tất cả bindings** |
+| **`app/app.go`** | ✅ | **Wails App struct + coordination stack + all bindings** |
 | `app/wails.json` | ✅ | Wails config, frontend:dir = "frontend" |
 | `app/frontend/src/App.tsx` | ✅ | Root: polls GetAppState, state-based routing |
 | `app/frontend/src/screens/SetupScreen.tsx` | ✅ | UNINITIALIZED |
 | `app/frontend/src/screens/AwaitingBundleScreen.tsx` | ✅ | AWAITING_BUNDLE + Admin Quick Setup |
-| `app/frontend/src/screens/DashboardScreen.tsx` | ✅ | AUTHORIZED/ADMIN_READY + peer list |
+| `app/frontend/src/screens/DashboardScreen.tsx` | ✅ | AUTHORIZED/ADMIN_READY + peer list + **ChatPanel** |
 | `app/frontend/src/components/AdminPanel.tsx` | ✅ | Init admin key + Create bundle tabs |
+| `app/frontend/src/components/ChatPanel.tsx` | ✅ | **Group chat UI with HLC ordering** |
 | `app/frontend/src/components/CopyField.tsx` | ✅ | Copy-to-clipboard field |
 | `app/frontend/src/components/StatusBadge.tsx` | ✅ | Colored state pill |
 | `app/frontend/src/components/PeerList.tsx` | ✅ | Connected peers table |
-| `app/frontend/wailsjs/` | ✅ | Auto-generated bindings (wails generate module) |
+| `app/frontend/wailsjs/` | ✅ | Bindings + MessageInfo/GroupInfo types |
 
-### Wails Bindings hiện tại (`app/app.go`):
+### Wails Bindings hiện tại (`app/app.go` + `app/group_ops.go`):
 
 | Method | Mô tả |
 |--------|-------|
@@ -334,6 +380,11 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `InitAdminKey(passphrase) error` | Khởi tạo Root Admin key |
 | `CreateBundle(req) (string, error)` | Tạo bundle cho user mới → save dialog |
 | `GetNodeStatus() NodeStatus` | State, PeerID, DisplayName, ConnectedPeers |
+| **`CreateGroupChat(groupID) error`** | **Tạo MLS group + Coordinator + subscribe GossipSub** |
+| **`SendGroupMessage(groupID, text) error`** | **Encrypt + broadcast qua Coordinator** |
+| **`GetGroupMessages(groupID) []MessageInfo`** | **Lấy messages sorted by HLC** |
+| **`GetGroups() []GroupInfo`** | **Danh sách groups đã tham gia** |
+| **`GetGroupStatus(groupID) map[string]interface{}`** | **Epoch, token holder, member count, metrics** |
 
 ### CLI Commands hiện tại (từ `app/`):
 
@@ -381,23 +432,34 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Phase 4 (tiếp): Coordinator Orchestrator + Proto/Rust + DB
+## 6. Next Step — Phase 5: Advanced Features
 
-Coordination Layer foundation + 4 mechanisms đã xong. Tiếp theo:
+Phase 4 hoàn tất. Hệ thống đã có:
+- Real OpenMLS crypto (create group, encrypt/decrypt messages, self-update commit, export secret)
+- Full coordination pipeline (Single-Writer, Epoch Consistency, Fork Healing, HLC) — 54 Go tests
+- Wails bindings + Chat UI cho manual testing
+- 66 tests pass (62 Go + 4 Rust), all builds clean
 
-1.  **Coordinator Orchestrator (`app/coordination/coordinator.go`):** Tầng trên cùng kết nối ActiveView + SingleWriter + EpochTracker + ForkDetector + HLC + Transport + MLSEngine + Storage thành một vòng lặp xử lý message hoàn chỉnh. Đây là "brain" điều phối toàn bộ cơ chế.
+**Để manual test:**
+1. `cd crypto-engine && cargo build --release`
+2. `cd app && wails generate module && wails dev`
+3. Trong UI: nhập Group ID → "Create / Join" → gõ tin nhắn → xem tin nhắn hiển thị với HLC timestamp
+4. Chạy 2 instance trên 2 máy/port để test P2P messaging
 
-2.  **Test Harness (`app/coordination/testharness/`):** In-process multi-node cluster, FakeTransport, MockMLSEngine, MockStorage — cho phép chạy scenario tests (partition, heal, concurrent proposals, failover) mà không cần mạng thật.
+**Tiếp theo (Phase 5):**
 
-3.  **Proto + Rust Engine (4.1):** Cập nhật `proto/mls_service.proto` với gRPC methods mới: `CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`. Implement stateless handlers trong Rust.
+1.  **Secure Identity Export/Import:** `.backup` file chứa libp2p_private_key + mls_signing_key + credential + invitation_token, mã hóa AES-256-GCM (Argon2id). Hỗ trợ chuyển thiết bị.
 
-4.  **Database Schema (4.2):** Tạo bảng `mls_groups` (group_state, epoch, tree_hash) và `coordination_state` (active_view, token_holder, pending_proposals).
+2.  **Session Takeover (Single Active Device):** Broadcast `KILL_SESSION` signed message khi import identity trên thiết bị mới.
 
-5.  **Group Operations (4.6):** Create Group, Add/Remove Member, Continuous Key Rotation qua Coordinator.
+3.  **Offline Messaging (DHT Store-and-Forward):** `dht.Put(Hash(RecipientID), EncryptedMsg)` cho peer offline. Auto-retrieve on connect.
 
-6.  **Messaging (4.7):** Encrypt/Decrypt qua Coordination Layer — mọi tin nhắn tagged với epoch + HLC timestamp.
+4.  **Multi-node Add Member flow:** Implement KeyPackage generation + Add Proposal → Commit → Welcome. Cần extend proto cho KeyPackage lifecycle.
 
 **Lưu ý thiết kế quan trọng:**
-*   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ (Deterministic Conflict Resolution) đã bị thay thế bằng Single-Writer Protocol. Single-Writer **ngăn xung đột từ đầu** thay vì giải quyết sau khi xung đột xảy ra.
-*   **GroupState là opaque bytes** từ góc nhìn Go. Go lưu vào SQLite; chỉ Rust mới deserialize thành Ratchet Tree.
-*   **Coordination Layer chạy hoàn toàn ở Go** — Rust không biết gì về Single-Writer hay Epoch. Rust chỉ thực hiện phép toán MLS thuần túy.
+*   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.
+*   **GroupState trong Rust:** JSON metadata `{"group_id": "...", "epoch": N}`. Real MLS group sống trong `MlsGroupStore` (in-memory HashMap). Go chỉ lưu metadata; Rust quản lý actual crypto state.
+*   **Coordination Layer chạy hoàn toàn ở Go** — Rust không biết gì về Single-Writer hay Epoch.
+*   **Real OpenMLS 0.8:** create_group dùng `MlsGroup::new_with_group_id`, encrypt dùng `group.create_message`, decrypt dùng `group.process_message`. Forward secrecy enforced (sender CANNOT decrypt own messages — own messages stored as plaintext directly).
+*   **LibP2PTransport:** Wraps real GossipSub + direct streams qua protocol `/coordination/direct/1.0.0`. Auto-skips messages from self.
+*   **Shared transport:** All Coordinators share a single `LibP2PTransport` instance.

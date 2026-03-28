@@ -106,6 +106,43 @@ func (d *Database) createTables() error {
 			root_public_key  BLOB    NOT NULL,
 			imported_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
+
+		// Phase 4: MLS group state persisted by the Coordinator.
+		`CREATE TABLE IF NOT EXISTS mls_groups (
+			group_id    TEXT PRIMARY KEY,
+			group_state BLOB    NOT NULL,
+			epoch       INTEGER NOT NULL DEFAULT 0,
+			tree_hash   BLOB,
+			my_role     TEXT    NOT NULL DEFAULT 'member',
+			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		// Phase 4: coordination metadata per group.
+		`CREATE TABLE IF NOT EXISTS coordination_state (
+			group_id          TEXT PRIMARY KEY,
+			active_view       TEXT NOT NULL DEFAULT '[]',
+			token_holder      TEXT NOT NULL DEFAULT '',
+			last_commit_hash  BLOB,
+			last_commit_at    DATETIME,
+			pending_proposals TEXT NOT NULL DEFAULT '[]',
+			FOREIGN KEY (group_id) REFERENCES mls_groups(group_id)
+		);`,
+
+		// Phase 4: decrypted messages stored for UI display, ordered by HLC.
+		`CREATE TABLE IF NOT EXISTS stored_messages (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			group_id         TEXT    NOT NULL,
+			epoch            INTEGER NOT NULL,
+			sender_id        TEXT    NOT NULL,
+			content          BLOB    NOT NULL,
+			hlc_wall_time_ms INTEGER NOT NULL,
+			hlc_counter      INTEGER NOT NULL,
+			hlc_node_id      TEXT    NOT NULL
+		);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_stored_messages_group_hlc
+			ON stored_messages(group_id, hlc_wall_time_ms, hlc_counter, hlc_node_id);`,
 	}
 
 	for _, q := range queries {

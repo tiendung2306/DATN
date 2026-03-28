@@ -18,6 +18,42 @@ export namespace main {
 	        this.admin_passphrase = source["admin_passphrase"];
 	    }
 	}
+	export class GroupInfo {
+	    group_id: string;
+	    epoch: number;
+	    my_role: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GroupInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.group_id = source["group_id"];
+	        this.epoch = source["epoch"];
+	        this.my_role = source["my_role"];
+	    }
+	}
+	export class MessageInfo {
+	    group_id: string;
+	    sender: string;
+	    content: string;
+	    timestamp: number;
+	    is_mine: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.group_id = source["group_id"];
+	        this.sender = source["sender"];
+	        this.content = source["content"];
+	        this.timestamp = source["timestamp"];
+	        this.is_mine = source["is_mine"];
+	    }
+	}
 	export class PeerInfo {
 	    id: string;
 	    display_name: string;

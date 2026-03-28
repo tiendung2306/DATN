@@ -6,9 +6,17 @@ export function CreateAndImportSelfBundle(arg1:string,arg2:string):Promise<void>
 
 export function CreateBundle(arg1:main.CreateBundleRequest):Promise<string>;
 
+export function CreateGroupChat(arg1:string):Promise<void>;
+
 export function GenerateKeys():Promise<main.OnboardingInfo>;
 
 export function GetAppState():Promise<string>;
+
+export function GetGroupMessages(arg1:string):Promise<Array<main.MessageInfo>>;
+
+export function GetGroupStatus(arg1:string):Promise<Record<string, any>>;
+
+export function GetGroups():Promise<Array<main.GroupInfo>>;
 
 export function GetNodeStatus():Promise<main.NodeStatus>;
 
@@ -19,3 +27,5 @@ export function HasAdminKey():Promise<boolean>;
 export function InitAdminKey(arg1:string):Promise<void>;
 
 export function OpenAndImportBundle():Promise<void>;
+
+export function SendGroupMessage(arg1:string,arg2:string):Promise<void>;

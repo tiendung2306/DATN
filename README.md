@@ -307,7 +307,8 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   ├── pubsub.go           # GossipSub ChatRoom
 │   │   ├── auth.go             # OnboardNewUser, ImportInvitationBundle, GetOnboardingInfo, BuildLocalToken
 │   │   ├── gater.go            # AuthGater (blacklist-based) implementing network.ConnectionGater
-│   │   └── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
+│   │   ├── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
+│   │   └── transport_adapter.go # LibP2PTransport: GossipSub + direct streams → Transport interface
 │   ├── coordination/           # Decentralized Coordination Protocol (CORE RESEARCH — Phase 4)
 │   │   ├── interfaces.go       # Contracts: Transport, Clock, MLSEngine, CoordinationStorage
 │   │   ├── types.go            # Data types, wire messages, enums, sentinel errors
@@ -317,9 +318,13 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   ├── epoch.go            # Epoch tracking, epoch validation, CurrentEpochNotification
 │   │   ├── single_writer.go    # Token Holder election, Proposal routing, Commit authority
 │   │   ├── active_view.go      # ActiveView management, heartbeat, peer liveness
-│   │   └── fork_healing.go     # Partition detection, branch weight W, External Join orchestration
+│   │   ├── fork_healing.go     # Partition detection, branch weight W, External Join orchestration
+│   │   ├── coordinator.go      # Central orchestrator tying all mechanisms into message pipeline
+│   │   ├── mls_adapter.go      # GrpcMLSEngine: adapts gRPC client → MLSEngine interface
+│   │   └── clock_real.go       # RealClock (production time.Now/time.After)
 │   ├── db/                     # SQLite logic
-│   │   └── db.go               # Tables: system_config, mls_identity, auth_bundle, mls_groups, messages
+│   │   ├── db.go               # Tables: system_config, mls_identity, auth_bundle, mls_groups, coordination_state, stored_messages
+│   │   └── coordination_storage.go  # SQLiteCoordinationStorage implementing CoordinationStorage
 │   ├── mls_service/            # Auto-generated gRPC bindings (do not edit)
 │   └── frontend/               # React + TypeScript + Tailwind (Vite)
 │       ├── src/
@@ -343,7 +348,7 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   └── Cargo.toml
 │
 ├── proto/                      # Shared Protocol Buffers
-│   └── mls_service.proto
+│   └── mls_service.proto       # 13 RPCs: Phase 2 (4) + Phase 4 (9 group operations)
 │
 ├── PROJECT_PLAN.md             # Detailed execution roadmap (phases + tasks)
 ├── CURRENT_STATE.md            # AI Agent short-term memory (current progress + key decisions)

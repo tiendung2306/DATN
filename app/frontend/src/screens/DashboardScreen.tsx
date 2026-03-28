@@ -4,6 +4,7 @@ import { main } from '../../wailsjs/go/models'
 import StatusBadge from '../components/StatusBadge'
 import PeerList from '../components/PeerList'
 import AdminPanel from '../components/AdminPanel'
+import ChatPanel from '../components/ChatPanel'
 
 interface DashboardScreenProps {
   isAdmin: boolean
@@ -121,6 +122,9 @@ export default function DashboardScreen({ isAdmin }: DashboardScreenProps) {
           <PeerList peers={status?.connected_peers ?? []} />
         </div>
       </div>
+
+      {/* Group chat */}
+      <ChatPanel />
 
       {/* Admin panel */}
       {isAdmin && (

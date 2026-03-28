@@ -10,12 +10,28 @@ export function CreateBundle(arg1) {
   return window['go']['main']['App']['CreateBundle'](arg1);
 }
 
+export function CreateGroupChat(arg1) {
+  return window['go']['main']['App']['CreateGroupChat'](arg1);
+}
+
 export function GenerateKeys() {
   return window['go']['main']['App']['GenerateKeys']();
 }
 
 export function GetAppState() {
   return window['go']['main']['App']['GetAppState']();
+}
+
+export function GetGroupMessages(arg1) {
+  return window['go']['main']['App']['GetGroupMessages'](arg1);
+}
+
+export function GetGroupStatus(arg1) {
+  return window['go']['main']['App']['GetGroupStatus'](arg1);
+}
+
+export function GetGroups() {
+  return window['go']['main']['App']['GetGroups']();
 }
 
 export function GetNodeStatus() {
@@ -36,4 +52,8 @@ export function InitAdminKey(arg1) {
 
 export function OpenAndImportBundle() {
   return window['go']['main']['App']['OpenAndImportBundle']();
+}
+
+export function SendGroupMessage(arg1, arg2) {
+  return window['go']['main']['App']['SendGroupMessage'](arg1, arg2);
 }

@@ -19,26 +19,40 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	MLSCryptoService_Ping_FullMethodName             = "/mls_service.MLSCryptoService/Ping"
 	MLSCryptoService_GenerateIdentity_FullMethodName = "/mls_service.MLSCryptoService/GenerateIdentity"
 	MLSCryptoService_ExportIdentity_FullMethodName   = "/mls_service.MLSCryptoService/ExportIdentity"
 	MLSCryptoService_ImportIdentity_FullMethodName   = "/mls_service.MLSCryptoService/ImportIdentity"
-	MLSCryptoService_Ping_FullMethodName             = "/mls_service.MLSCryptoService/Ping"
+	MLSCryptoService_CreateGroup_FullMethodName      = "/mls_service.MLSCryptoService/CreateGroup"
+	MLSCryptoService_CreateProposal_FullMethodName   = "/mls_service.MLSCryptoService/CreateProposal"
+	MLSCryptoService_CreateCommit_FullMethodName     = "/mls_service.MLSCryptoService/CreateCommit"
+	MLSCryptoService_ProcessCommit_FullMethodName    = "/mls_service.MLSCryptoService/ProcessCommit"
+	MLSCryptoService_ProcessWelcome_FullMethodName   = "/mls_service.MLSCryptoService/ProcessWelcome"
+	MLSCryptoService_EncryptMessage_FullMethodName   = "/mls_service.MLSCryptoService/EncryptMessage"
+	MLSCryptoService_DecryptMessage_FullMethodName   = "/mls_service.MLSCryptoService/DecryptMessage"
+	MLSCryptoService_ExternalJoin_FullMethodName     = "/mls_service.MLSCryptoService/ExternalJoin"
+	MLSCryptoService_ExportSecret_FullMethodName     = "/mls_service.MLSCryptoService/ExportSecret"
 )
 
 // MLSCryptoServiceClient is the client API for MLSCryptoService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// MLSCryptoService provides cryptographic operations using OpenMLS.
 type MLSCryptoServiceClient interface {
-	// Generates a new identity for the user.
-	GenerateIdentity(ctx context.Context, in *GenerateIdentityRequest, opts ...grpc.CallOption) (*GenerateIdentityResponse, error)
-	// Exports the current identity, typically for backup or migration.
-	ExportIdentity(ctx context.Context, in *ExportIdentityRequest, opts ...grpc.CallOption) (*ExportIdentityResponse, error)
-	// Imports an identity from previously exported data.
-	ImportIdentity(ctx context.Context, in *ImportIdentityRequest, opts ...grpc.CallOption) (*ImportIdentityResponse, error)
-	// A simple ping method to check service connectivity.
+	// ── Phase 2: Identity ──
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
+	GenerateIdentity(ctx context.Context, in *GenerateIdentityRequest, opts ...grpc.CallOption) (*GenerateIdentityResponse, error)
+	ExportIdentity(ctx context.Context, in *ExportIdentityRequest, opts ...grpc.CallOption) (*ExportIdentityResponse, error)
+	ImportIdentity(ctx context.Context, in *ImportIdentityRequest, opts ...grpc.CallOption) (*ImportIdentityResponse, error)
+	// ── Phase 4: Group Operations ──
+	CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*CreateGroupResponse, error)
+	CreateProposal(ctx context.Context, in *CreateProposalRequest, opts ...grpc.CallOption) (*CreateProposalResponse, error)
+	CreateCommit(ctx context.Context, in *CreateCommitRequest, opts ...grpc.CallOption) (*CreateCommitResponse, error)
+	ProcessCommit(ctx context.Context, in *ProcessCommitRequest, opts ...grpc.CallOption) (*ProcessCommitResponse, error)
+	ProcessWelcome(ctx context.Context, in *ProcessWelcomeRequest, opts ...grpc.CallOption) (*ProcessWelcomeResponse, error)
+	EncryptMessage(ctx context.Context, in *EncryptMessageRequest, opts ...grpc.CallOption) (*EncryptMessageResponse, error)
+	DecryptMessage(ctx context.Context, in *DecryptMessageRequest, opts ...grpc.CallOption) (*DecryptMessageResponse, error)
+	ExternalJoin(ctx context.Context, in *ExternalJoinRequest, opts ...grpc.CallOption) (*ExternalJoinResponse, error)
+	ExportSecret(ctx context.Context, in *ExportSecretRequest, opts ...grpc.CallOption) (*ExportSecretResponse, error)
 }
 
 type mLSCryptoServiceClient struct {
@@ -47,6 +61,16 @@ type mLSCryptoServiceClient struct {
 
 func NewMLSCryptoServiceClient(cc grpc.ClientConnInterface) MLSCryptoServiceClient {
 	return &mLSCryptoServiceClient{cc}
+}
+
+func (c *mLSCryptoServiceClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PingResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_Ping_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *mLSCryptoServiceClient) GenerateIdentity(ctx context.Context, in *GenerateIdentityRequest, opts ...grpc.CallOption) (*GenerateIdentityResponse, error) {
@@ -79,10 +103,90 @@ func (c *mLSCryptoServiceClient) ImportIdentity(ctx context.Context, in *ImportI
 	return out, nil
 }
 
-func (c *mLSCryptoServiceClient) Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error) {
+func (c *mLSCryptoServiceClient) CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*CreateGroupResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PingResponse)
-	err := c.cc.Invoke(ctx, MLSCryptoService_Ping_FullMethodName, in, out, cOpts...)
+	out := new(CreateGroupResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_CreateGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) CreateProposal(ctx context.Context, in *CreateProposalRequest, opts ...grpc.CallOption) (*CreateProposalResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateProposalResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_CreateProposal_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) CreateCommit(ctx context.Context, in *CreateCommitRequest, opts ...grpc.CallOption) (*CreateCommitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateCommitResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_CreateCommit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ProcessCommit(ctx context.Context, in *ProcessCommitRequest, opts ...grpc.CallOption) (*ProcessCommitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProcessCommitResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ProcessCommit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ProcessWelcome(ctx context.Context, in *ProcessWelcomeRequest, opts ...grpc.CallOption) (*ProcessWelcomeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProcessWelcomeResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ProcessWelcome_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) EncryptMessage(ctx context.Context, in *EncryptMessageRequest, opts ...grpc.CallOption) (*EncryptMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EncryptMessageResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_EncryptMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) DecryptMessage(ctx context.Context, in *DecryptMessageRequest, opts ...grpc.CallOption) (*DecryptMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecryptMessageResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_DecryptMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ExternalJoin(ctx context.Context, in *ExternalJoinRequest, opts ...grpc.CallOption) (*ExternalJoinResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExternalJoinResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ExternalJoin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ExportSecret(ctx context.Context, in *ExportSecretRequest, opts ...grpc.CallOption) (*ExportSecretResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportSecretResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ExportSecret_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,17 +196,22 @@ func (c *mLSCryptoServiceClient) Ping(ctx context.Context, in *PingRequest, opts
 // MLSCryptoServiceServer is the server API for MLSCryptoService service.
 // All implementations must embed UnimplementedMLSCryptoServiceServer
 // for forward compatibility.
-//
-// MLSCryptoService provides cryptographic operations using OpenMLS.
 type MLSCryptoServiceServer interface {
-	// Generates a new identity for the user.
-	GenerateIdentity(context.Context, *GenerateIdentityRequest) (*GenerateIdentityResponse, error)
-	// Exports the current identity, typically for backup or migration.
-	ExportIdentity(context.Context, *ExportIdentityRequest) (*ExportIdentityResponse, error)
-	// Imports an identity from previously exported data.
-	ImportIdentity(context.Context, *ImportIdentityRequest) (*ImportIdentityResponse, error)
-	// A simple ping method to check service connectivity.
+	// ── Phase 2: Identity ──
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
+	GenerateIdentity(context.Context, *GenerateIdentityRequest) (*GenerateIdentityResponse, error)
+	ExportIdentity(context.Context, *ExportIdentityRequest) (*ExportIdentityResponse, error)
+	ImportIdentity(context.Context, *ImportIdentityRequest) (*ImportIdentityResponse, error)
+	// ── Phase 4: Group Operations ──
+	CreateGroup(context.Context, *CreateGroupRequest) (*CreateGroupResponse, error)
+	CreateProposal(context.Context, *CreateProposalRequest) (*CreateProposalResponse, error)
+	CreateCommit(context.Context, *CreateCommitRequest) (*CreateCommitResponse, error)
+	ProcessCommit(context.Context, *ProcessCommitRequest) (*ProcessCommitResponse, error)
+	ProcessWelcome(context.Context, *ProcessWelcomeRequest) (*ProcessWelcomeResponse, error)
+	EncryptMessage(context.Context, *EncryptMessageRequest) (*EncryptMessageResponse, error)
+	DecryptMessage(context.Context, *DecryptMessageRequest) (*DecryptMessageResponse, error)
+	ExternalJoin(context.Context, *ExternalJoinRequest) (*ExternalJoinResponse, error)
+	ExportSecret(context.Context, *ExportSecretRequest) (*ExportSecretResponse, error)
 	mustEmbedUnimplementedMLSCryptoServiceServer()
 }
 
@@ -113,6 +222,9 @@ type MLSCryptoServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedMLSCryptoServiceServer struct{}
 
+func (UnimplementedMLSCryptoServiceServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+}
 func (UnimplementedMLSCryptoServiceServer) GenerateIdentity(context.Context, *GenerateIdentityRequest) (*GenerateIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GenerateIdentity not implemented")
 }
@@ -122,8 +234,32 @@ func (UnimplementedMLSCryptoServiceServer) ExportIdentity(context.Context, *Expo
 func (UnimplementedMLSCryptoServiceServer) ImportIdentity(context.Context, *ImportIdentityRequest) (*ImportIdentityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ImportIdentity not implemented")
 }
-func (UnimplementedMLSCryptoServiceServer) Ping(context.Context, *PingRequest) (*PingResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
+func (UnimplementedMLSCryptoServiceServer) CreateGroup(context.Context, *CreateGroupRequest) (*CreateGroupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateGroup not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) CreateProposal(context.Context, *CreateProposalRequest) (*CreateProposalResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateProposal not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) CreateCommit(context.Context, *CreateCommitRequest) (*CreateCommitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateCommit not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ProcessCommit(context.Context, *ProcessCommitRequest) (*ProcessCommitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProcessCommit not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ProcessWelcome(context.Context, *ProcessWelcomeRequest) (*ProcessWelcomeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProcessWelcome not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) EncryptMessage(context.Context, *EncryptMessageRequest) (*EncryptMessageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EncryptMessage not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) DecryptMessage(context.Context, *DecryptMessageRequest) (*DecryptMessageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecryptMessage not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ExternalJoin(context.Context, *ExternalJoinRequest) (*ExternalJoinResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExternalJoin not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ExportSecret(context.Context, *ExportSecretRequest) (*ExportSecretResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportSecret not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) mustEmbedUnimplementedMLSCryptoServiceServer() {}
 func (UnimplementedMLSCryptoServiceServer) testEmbeddedByValue()                          {}
@@ -144,6 +280,24 @@ func RegisterMLSCryptoServiceServer(s grpc.ServiceRegistrar, srv MLSCryptoServic
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&MLSCryptoService_ServiceDesc, srv)
+}
+
+func _MLSCryptoService_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_Ping_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).Ping(ctx, req.(*PingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _MLSCryptoService_GenerateIdentity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -200,20 +354,164 @@ func _MLSCryptoService_ImportIdentity_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
-func _MLSCryptoService_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PingRequest)
+func _MLSCryptoService_CreateGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGroupRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(MLSCryptoServiceServer).Ping(ctx, in)
+		return srv.(MLSCryptoServiceServer).CreateGroup(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: MLSCryptoService_Ping_FullMethodName,
+		FullMethod: MLSCryptoService_CreateGroup_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MLSCryptoServiceServer).Ping(ctx, req.(*PingRequest))
+		return srv.(MLSCryptoServiceServer).CreateGroup(ctx, req.(*CreateGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_CreateProposal_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateProposalRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).CreateProposal(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_CreateProposal_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).CreateProposal(ctx, req.(*CreateProposalRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_CreateCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).CreateCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_CreateCommit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).CreateCommit(ctx, req.(*CreateCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ProcessCommit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProcessCommitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ProcessCommit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ProcessCommit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ProcessCommit(ctx, req.(*ProcessCommitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ProcessWelcome_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProcessWelcomeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ProcessWelcome(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ProcessWelcome_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ProcessWelcome(ctx, req.(*ProcessWelcomeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_EncryptMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).EncryptMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_EncryptMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).EncryptMessage(ctx, req.(*EncryptMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_DecryptMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecryptMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).DecryptMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_DecryptMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).DecryptMessage(ctx, req.(*DecryptMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ExternalJoin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExternalJoinRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ExternalJoin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ExternalJoin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ExternalJoin(ctx, req.(*ExternalJoinRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ExportSecret_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportSecretRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ExportSecret(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ExportSecret_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ExportSecret(ctx, req.(*ExportSecretRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -225,6 +523,10 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "mls_service.MLSCryptoService",
 	HandlerType: (*MLSCryptoServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Ping",
+			Handler:    _MLSCryptoService_Ping_Handler,
+		},
 		{
 			MethodName: "GenerateIdentity",
 			Handler:    _MLSCryptoService_GenerateIdentity_Handler,
@@ -238,8 +540,40 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MLSCryptoService_ImportIdentity_Handler,
 		},
 		{
-			MethodName: "Ping",
-			Handler:    _MLSCryptoService_Ping_Handler,
+			MethodName: "CreateGroup",
+			Handler:    _MLSCryptoService_CreateGroup_Handler,
+		},
+		{
+			MethodName: "CreateProposal",
+			Handler:    _MLSCryptoService_CreateProposal_Handler,
+		},
+		{
+			MethodName: "CreateCommit",
+			Handler:    _MLSCryptoService_CreateCommit_Handler,
+		},
+		{
+			MethodName: "ProcessCommit",
+			Handler:    _MLSCryptoService_ProcessCommit_Handler,
+		},
+		{
+			MethodName: "ProcessWelcome",
+			Handler:    _MLSCryptoService_ProcessWelcome_Handler,
+		},
+		{
+			MethodName: "EncryptMessage",
+			Handler:    _MLSCryptoService_EncryptMessage_Handler,
+		},
+		{
+			MethodName: "DecryptMessage",
+			Handler:    _MLSCryptoService_DecryptMessage_Handler,
+		},
+		{
+			MethodName: "ExternalJoin",
+			Handler:    _MLSCryptoService_ExternalJoin_Handler,
+		},
+		{
+			MethodName: "ExportSecret",
+			Handler:    _MLSCryptoService_ExportSecret_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

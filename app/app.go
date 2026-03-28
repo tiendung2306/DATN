@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"app/admin"
+	"app/coordination"
 	"app/db"
 	"app/mls_service"
 	"app/p2p"
@@ -37,6 +38,12 @@ type App struct {
 	node       *p2p.P2PNode
 	nodeCancel context.CancelFunc
 	mu         sync.Mutex
+
+	// Coordination stack (initialized after P2P node starts)
+	transport    *p2p.LibP2PTransport
+	coordStorage *db.SQLiteCoordinationStorage
+	mlsEngine    coordination.MLSEngine
+	coordinators map[string]*coordination.Coordinator
 }
 
 // NewApp creates the App instance that Wails will bind.
@@ -108,6 +115,8 @@ func (a *App) shutdown(_ context.Context) {
 
 // teardown releases all resources. Must be called with a.mu held.
 func (a *App) teardown() {
+	a.stopCoordinatorsLocked()
+
 	if a.nodeCancel != nil {
 		a.nodeCancel()
 		a.nodeCancel = nil
@@ -442,6 +451,9 @@ func (a *App) launchP2PNode() error {
 	}
 
 	slog.Info("P2P node started via GUI", "peerID", node.Host.ID().String())
+
+	a.initCoordinationStackLocked()
+
 	return nil
 }
 
