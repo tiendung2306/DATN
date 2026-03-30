@@ -272,7 +272,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 ## 4. Current Progress
 
-### Phase 4 Coordination Layer — COMPLETE ✅ (66 tests: 62 Go + 4 Rust)
+### Phase 4 Coordination Layer — COMPLETE ✅ (68 tests: 62 Go + 6 Rust)
 
 #### Coordination Mechanisms (54 Go tests)
 
@@ -302,12 +302,12 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `app/db/coordination_storage.go` | 8/8 ✅ | SQLiteCoordinationStorage: GroupRecord, CoordState, StoredMessage CRUD |
 | `app/p2p/transport_adapter.go` | — | LibP2PTransport: GossipSub + direct streams → Transport interface |
 
-#### Real OpenMLS Crypto Engine (4 Rust tests)
+#### Real OpenMLS Crypto Engine (6 Rust tests)
 
 | File | Tests | Ghi chú |
 |------|-------|---------|
-| `crypto-engine/src/mls.rs` | 4/4 ✅ | MlsGroupStore (Arc<Mutex<HashMap>>), real OpenMLS 0.8: create_group, encrypt_message, decrypt_message, create_commit (self_update), process_commit, process_welcome, export_secret |
-| `crypto-engine/src/main.rs` | — | gRPC server with Arc<MlsGroupStore> shared state, all 13 RPC handlers |
+| `crypto-engine/src/mls.rs` | 6/6 ✅ | Stateless persisted `group_state` (serialize/deserialize OpenMLS storage), real OpenMLS 0.8: create_group, encrypt_message, decrypt_message, create_commit (self_update), process_commit, process_welcome, export_secret |
+| `crypto-engine/src/main.rs` | — | Stateless gRPC server (no shared group map), all 13 RPC handlers |
 | `crypto-engine/Cargo.toml` | — | Added: openmls_basic_credential, ed25519-dalek, serde, serde_json, tls_codec, sha2 |
 
 #### Wails Bindings + Frontend Chat UI
@@ -322,7 +322,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `app/frontend/wailsjs/go/main/App.d.ts` | TypeScript declarations for new group chat functions |
 | `app/frontend/wailsjs/go/models.ts` | Added MessageInfo, GroupInfo types |
 
-**Grand total: 66 tests PASS (62 Go + 4 Rust), `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean.**
+**Grand total: 68 tests PASS (62 Go + 6 Rust), `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean.**
 
 ### All files implemented (Phase 1-4):
 
@@ -330,8 +330,8 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 |------|-----------|---------|
 | `proto/mls_service.proto` | ✅ | 13 RPCs: Phase 2 (4) + Phase 4 (9 new) |
 | `app/mls_service/*.pb.go` | ✅ | Auto-generated from proto |
-| `crypto-engine/src/mls.rs` | ✅ | Real OpenMLS 0.8: MlsGroupStore + all group operations |
-| `crypto-engine/src/main.rs` | ✅ | gRPC server with Arc<MlsGroupStore> |
+| `crypto-engine/src/mls.rs` | ✅ | Real OpenMLS 0.8 stateless engine: persisted `group_state` blob + all group operations |
+| `crypto-engine/src/main.rs` | ✅ | Stateless gRPC server (no shared in-memory group map) |
 | `app/db/db.go` | ✅ | Tables: system_config, mls_identity, auth_bundle, messages, mls_groups, coordination_state, stored_messages |
 | `app/db/coordination_storage.go` | ✅ | SQLiteCoordinationStorage (8 tests) |
 | `app/p2p/transport_adapter.go` | ✅ | LibP2PTransport: GossipSub + direct streams |
@@ -438,7 +438,7 @@ Phase 4 hoàn tất. Hệ thống đã có:
 - Real OpenMLS crypto (create group, encrypt/decrypt messages, self-update commit, export secret)
 - Full coordination pipeline (Single-Writer, Epoch Consistency, Fork Healing, HLC) — 54 Go tests
 - Wails bindings + Chat UI cho manual testing
-- 66 tests pass (62 Go + 4 Rust), all builds clean
+- 68 tests pass (62 Go + 6 Rust), all builds clean
 
 **Để manual test:**
 1. `cd crypto-engine && cargo build --release`
@@ -458,7 +458,7 @@ Phase 4 hoàn tất. Hệ thống đã có:
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.
-*   **GroupState trong Rust:** JSON metadata `{"group_id": "...", "epoch": N}`. Real MLS group sống trong `MlsGroupStore` (in-memory HashMap). Go chỉ lưu metadata; Rust quản lý actual crypto state.
+*   **GroupState trong Rust:** blob bytes chứa full persisted OpenMLS storage + metadata/signing key. Rust deserialize blob để load group và serialize lại sau mỗi operation (stateless giữa các RPC/process restart).
 *   **Coordination Layer chạy hoàn toàn ở Go** — Rust không biết gì về Single-Writer hay Epoch.
 *   **Real OpenMLS 0.8:** create_group dùng `MlsGroup::new_with_group_id`, encrypt dùng `group.create_message`, decrypt dùng `group.process_message`. Forward secrecy enforced (sender CANNOT decrypt own messages — own messages stored as plaintext directly).
 *   **LibP2PTransport:** Wraps real GossipSub + direct streams qua protocol `/coordination/direct/1.0.0`. Auto-skips messages from self.

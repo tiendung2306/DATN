@@ -134,7 +134,7 @@
 
 **Core Problem:** MLS (RFC 9420) requires a Delivery Service to serialize state-changing Commits. Without it, concurrent Commits cause DAG forking and break the Ratchet Tree. The Coordination Protocol solves this by wrapping MLS with four mechanisms: Single-Writer Protocol, Epoch Consistency, Group Fork Healing, and Hybrid Logical Clock.
 
-### 4.1. MLS Proto Definitions & Rust Engine Extensions [COMPLETED ✅ — Stub]
+### 4.1. MLS Proto Definitions & Rust Engine Extensions [COMPLETED ✅]
 - **Task:** Update `mls_service.proto` with Group operations:
   - `CreateGroup(GroupId, CreatorIdentity) → GroupState`
   - `CreateProposal(GroupState, ProposalType, Data) → ProposalBytes`
@@ -147,7 +147,7 @@
   - `ExportSecret(GroupState, Label, Length) → DerivedKey`
 - **Task:** Implement all handlers in Rust as **stateless** functions: Receive GroupState bytes → Deserialize → Operate → Serialize → Return.
 - **Implementation Note:** GroupState is opaque bytes from Go's perspective. Go stores it in SQLite; Rust deserializes it into the OpenMLS Ratchet Tree internally.
-- **Status:** Proto updated with 9 new RPCs (`CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`). Go protobuf regenerated. Rust handlers implemented as deterministic stubs (string-based group state, prefix-based encrypt/decrypt). Stubs allow full pipeline testing; real OpenMLS integration pending.
+- **Status:** Proto updated with 9 new RPCs (`CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`). Go protobuf regenerated. Rust handlers now run real OpenMLS 0.8 and follow stateless flow: receive `group_state` bytes → deserialize storage + load group → operate → serialize updated state bytes.
 - **Go adapter:** `app/coordination/mls_adapter.go` — `GrpcMLSEngine` wraps gRPC client to `MLSEngine` interface.
 
 ### 4.2. Database Schema for Groups & Coordination [COMPLETED ✅]
@@ -306,14 +306,14 @@
   - Epoch check → update local HLC → decrypt via Rust → store with HLC timestamp → emit to UI.
 - **Task:** All messages tagged with both `epoch_number` (for MLS validation) and `HLCTimestamp` (for display ordering).
 - **Task:** UI sorts and displays messages by HLC — uses `WallTimeMs` for human-readable time.
-- **Status:** Full pipeline wired end-to-end. `app/group_ops.go` exposes `SendGroupMessage` and `GetGroupMessages` via Wails bindings. `ChatPanel.tsx` renders messages sorted by HLC timestamp with real-time updates via `EventsOn("group:message")`. Real OpenMLS encryption (`MlsGroup::create_message`) used in Rust — forward secrecy preserved. **62 Go tests + 4 Rust tests PASS.**
+- **Status:** Full pipeline wired end-to-end. `app/group_ops.go` exposes `SendGroupMessage` and `GetGroupMessages` via Wails bindings. `ChatPanel.tsx` renders messages sorted by HLC timestamp with real-time updates via `EventsOn("group:message")`. Real OpenMLS encryption (`MlsGroup::create_message`) used in Rust — forward secrecy preserved. **62 Go tests + 6 Rust tests PASS.**
 
 ### 4.9. Phase 4 Summary [COMPLETED ✅]
 
-**All Phase 4 tasks completed (66 tests total: 62 Go + 4 Rust):**
+**All Phase 4 tasks completed (68 tests total: 62 Go + 6 Rust):**
 - Coordination Layer: all 4 mechanisms + Coordinator orchestrator (54 Go tests)
 - Infrastructure: Proto (13 RPCs), DB schema + storage (8 Go tests), Transport adapter, gRPC adapter
-- Real OpenMLS: `MlsGroupStore` (in-memory `Arc<Mutex<HashMap>>`), `create_group`, `encrypt_message`, `decrypt_message`, `create_commit` (self_update), `process_commit`, `process_welcome`, `export_secret` — all using real OpenMLS 0.8 crypto (4 Rust tests)
+- Real OpenMLS stateless engine: `create_group`, `encrypt_message`, `decrypt_message`, `create_commit` (self_update), `process_commit`, `process_welcome`, `export_secret` serialize/deserialize full `group_state` bytes via OpenMLS storage (6 Rust tests)
 - Wails Bindings: `app/group_ops.go` with `CreateGroupChat`, `SendGroupMessage`, `GetGroupMessages`, `GetGroups`, `GetGroupStatus` + coordination stack initialization in `app/app.go`
 - Frontend Chat UI: `ChatPanel.tsx` with group creation, message display (HLC-sorted), real-time updates via Wails events
 - All code: `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean
@@ -322,6 +322,7 @@
 - Multi-node testing on 2-3 real instances (manual test)
 - Add Member flow requires KeyPackage generation (not yet implemented in proto)
 - External Join requires verifiable GroupInfo from winning branch (stub only)
+- Legacy groups created with old metadata-only `group_state` must be recreated/migrated
 
 ---
 
