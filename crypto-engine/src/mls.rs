@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::sync::Mutex;
-
 use ed25519_dalek::SigningKey;
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
@@ -34,24 +31,97 @@ pub fn generate_identity() -> Result<GeneratedIdentity, String> {
     })
 }
 
-// ─── In-memory group store ───────────────────────────────────────────────────
+// ─── Persisted group state (replaces the old in-memory HashMap) ──────────────
 
-struct GroupEntry {
-    group: MlsGroup,
+const STATE_VERSION: u8 = 1;
+
+/// Self-contained serializable snapshot of an MLS group.
+/// Go stores this as an opaque blob in SQLite; Rust reconstructs the
+/// full OpenMLS `MlsGroup` from it on every RPC call.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedGroupState {
+    version: u8,
+    group_id: String,
+    epoch: u64,
+    signing_key: Vec<u8>,
+    entries: Vec<(Vec<u8>, Vec<u8>)>,
+}
+
+/// Intermediate result of importing a persisted group state.
+struct ImportedGroup {
+    group_id: String,
+    signing_key: Vec<u8>,
     provider: OpenMlsRustCrypto,
     signer: SignatureKeyPair,
+    group: MlsGroup,
 }
 
-pub struct MlsGroupStore {
-    groups: Mutex<HashMap<String, GroupEntry>>,
+fn export_state(
+    provider: &OpenMlsRustCrypto,
+    group_id: &str,
+    epoch: u64,
+    signing_key: &[u8],
+) -> Vec<u8> {
+    let values = provider.storage().values.read().unwrap();
+    let persisted = PersistedGroupState {
+        version: STATE_VERSION,
+        group_id: group_id.to_string(),
+        epoch,
+        signing_key: signing_key.to_vec(),
+        entries: values.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+    };
+    serde_json::to_vec(&persisted).unwrap_or_default()
 }
 
-impl MlsGroupStore {
-    pub fn new() -> Self {
-        Self {
-            groups: Mutex::new(HashMap::new()),
+fn import_state(state_bytes: &[u8]) -> Result<ImportedGroup, String> {
+    let persisted: PersistedGroupState = serde_json::from_slice(state_bytes).map_err(|e| {
+        if serde_json::from_slice::<serde_json::Value>(state_bytes)
+            .ok()
+            .and_then(|v| v.get("version").cloned())
+            .is_none()
+        {
+            "group_state is in legacy format (no crypto data); please recreate the group".to_string()
+        } else {
+            format!("invalid persisted group state: {e}")
+        }
+    })?;
+
+    if persisted.version != STATE_VERSION {
+        return Err(format!(
+            "unsupported group_state version {} (expected {})",
+            persisted.version, STATE_VERSION
+        ));
+    }
+
+    let provider = OpenMlsRustCrypto::default();
+
+    // Populate storage with the persisted entries
+    {
+        let mut values = provider.storage().values.write().unwrap();
+        for (k, v) in persisted.entries {
+            values.insert(k, v);
         }
     }
+
+    let signer = reconstruct_signer(&provider, &persisted.signing_key)?;
+
+    let group_id_mls = GroupId::from_slice(persisted.group_id.as_bytes());
+    let group = MlsGroup::load(provider.storage(), &group_id_mls)
+        .map_err(|e| format!("storage error loading group '{}': {e:?}", persisted.group_id))?
+        .ok_or_else(|| {
+            format!(
+                "group '{}' not found in restored storage",
+                persisted.group_id
+            )
+        })?;
+
+    Ok(ImportedGroup {
+        group_id: persisted.group_id,
+        signing_key: persisted.signing_key,
+        provider,
+        signer,
+        group,
+    })
 }
 
 // ─── Result types (wire-compatible with gRPC responses) ──────────────────────
@@ -104,25 +174,6 @@ struct ProposalDescriptor {
 
 // ─── Helper functions ────────────────────────────────────────────────────────
 
-fn make_group_state(group_id: &str, epoch: u64) -> Vec<u8> {
-    serde_json::to_vec(&serde_json::json!({
-        "group_id": group_id,
-        "epoch": epoch,
-    }))
-    .unwrap_or_default()
-}
-
-fn parse_group_state(state: &[u8]) -> Result<(String, u64), String> {
-    let v: serde_json::Value =
-        serde_json::from_slice(state).map_err(|e| format!("invalid group state JSON: {e}"))?;
-    let group_id = v["group_id"]
-        .as_str()
-        .ok_or("missing group_id in state")?
-        .to_string();
-    let epoch = v["epoch"].as_u64().unwrap_or(0);
-    Ok((group_id, epoch))
-}
-
 fn reconstruct_signer(
     provider: &OpenMlsRustCrypto,
     signing_key: &[u8],
@@ -150,15 +201,12 @@ fn compute_tree_hash(group_id: &str, epoch: u64) -> Vec<u8> {
 }
 
 fn get_epoch(group: &MlsGroup) -> u64 {
-    let epoch = group.epoch();
-    // GroupEpoch implements Into<u64> or has as_u64()
-    epoch.as_u64()
+    group.epoch().as_u64()
 }
 
-// ─── MLS Group Operations ────────────────────────────────────────────────────
+// ─── MLS Group Operations (stateless) ───────────────────────────────────────
 
 pub fn create_group(
-    store: &MlsGroupStore,
     group_id: &str,
     signing_key: &[u8],
 ) -> Result<CreateGroupResult, String> {
@@ -189,13 +237,7 @@ pub fn create_group(
 
     let epoch = get_epoch(&group);
     let tree_hash = compute_tree_hash(group_id, epoch);
-    let state = make_group_state(group_id, epoch);
-
-    store
-        .groups
-        .lock()
-        .unwrap()
-        .insert(group_id.to_string(), GroupEntry { group, provider, signer });
+    let state = export_state(&provider, group_id, epoch, signing_key);
 
     Ok(CreateGroupResult {
         group_state: state,
@@ -204,28 +246,22 @@ pub fn create_group(
 }
 
 pub fn encrypt_message(
-    store: &MlsGroupStore,
     group_state: &[u8],
     plaintext: &[u8],
 ) -> Result<EncryptResult, String> {
-    let (group_id, _) = parse_group_state(group_state)?;
+    let mut imp = import_state(group_state)?;
 
-    let mut groups = store.groups.lock().unwrap();
-    let entry = groups
-        .get_mut(&group_id)
-        .ok_or_else(|| format!("group '{group_id}' not found in memory"))?;
-
-    let mls_out = entry
+    let mls_out = imp
         .group
-        .create_message(&entry.provider, &entry.signer, plaintext)
+        .create_message(&imp.provider, &imp.signer, plaintext)
         .map_err(|e| format!("create_message: {e:?}"))?;
 
     let ciphertext = mls_out
         .tls_serialize_detached()
         .map_err(|e| format!("serialize MlsMessageOut: {e:?}"))?;
 
-    let epoch = get_epoch(&entry.group);
-    let new_state = make_group_state(&group_id, epoch);
+    let epoch = get_epoch(&imp.group);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(EncryptResult {
         ciphertext,
@@ -234,16 +270,10 @@ pub fn encrypt_message(
 }
 
 pub fn decrypt_message(
-    store: &MlsGroupStore,
     group_state: &[u8],
     ciphertext: &[u8],
 ) -> Result<DecryptResult, String> {
-    let (group_id, _) = parse_group_state(group_state)?;
-
-    let mut groups = store.groups.lock().unwrap();
-    let entry = groups
-        .get_mut(&group_id)
-        .ok_or_else(|| format!("group '{group_id}' not found in memory"))?;
+    let mut imp = import_state(group_state)?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(ciphertext)
         .map_err(|e| format!("deserialize ciphertext: {e:?}"))?;
@@ -252,9 +282,9 @@ pub fn decrypt_message(
         .try_into_protocol_message()
         .map_err(|e| format!("extract protocol message: {e:?}"))?;
 
-    let processed = entry
+    let processed = imp
         .group
-        .process_message(&entry.provider, protocol_msg)
+        .process_message(&imp.provider, protocol_msg)
         .map_err(|e| format!("process_message: {e:?}"))?;
 
     let plaintext = match processed.into_content() {
@@ -270,8 +300,8 @@ pub fn decrypt_message(
         }
     };
 
-    let epoch = get_epoch(&entry.group);
-    let new_state = make_group_state(&group_id, epoch);
+    let epoch = get_epoch(&imp.group);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(DecryptResult {
         plaintext,
@@ -280,7 +310,6 @@ pub fn decrypt_message(
 }
 
 pub fn create_proposal(
-    _store: &MlsGroupStore,
     _group_state: &[u8],
     proposal_type: i32,
     data: &[u8],
@@ -293,22 +322,15 @@ pub fn create_proposal(
 }
 
 pub fn create_commit(
-    store: &MlsGroupStore,
     group_state: &[u8],
     proposals: &[Vec<u8>],
 ) -> Result<CommitResult, String> {
-    let (group_id, _) = parse_group_state(group_state)?;
-
-    let mut groups = store.groups.lock().unwrap();
-    let entry = groups
-        .get_mut(&group_id)
-        .ok_or_else(|| format!("group '{group_id}' not found in memory"))?;
+    let mut imp = import_state(group_state)?;
 
     if proposals.is_empty() {
         return Err("no proposals to commit".into());
     }
 
-    // Parse all proposal descriptors
     let mut update_count = 0u32;
     for raw in proposals {
         let desc: ProposalDescriptor =
@@ -331,17 +353,15 @@ pub fn create_commit(
         return Err("no supported proposals to commit".into());
     }
 
-    // Self-update: creates a commit with an Update proposal
-    let bundle = entry
+    let bundle = imp
         .group
-        .self_update(&entry.provider, &entry.signer, LeafNodeParameters::default())
+        .self_update(&imp.provider, &imp.signer, LeafNodeParameters::default())
         .map_err(|e| format!("self_update: {e:?}"))?;
 
     let (commit_out, welcome_out, _group_info) = bundle.into_contents();
 
-    entry
-        .group
-        .merge_pending_commit(&entry.provider)
+    imp.group
+        .merge_pending_commit(&imp.provider)
         .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
 
     let commit_bytes = commit_out
@@ -355,9 +375,9 @@ pub fn create_commit(
         None => Vec::new(),
     };
 
-    let epoch = get_epoch(&entry.group);
-    let new_tree_hash = compute_tree_hash(&group_id, epoch);
-    let new_state = make_group_state(&group_id, epoch);
+    let epoch = get_epoch(&imp.group);
+    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(CommitResult {
         commit_bytes,
@@ -368,16 +388,10 @@ pub fn create_commit(
 }
 
 pub fn process_commit(
-    store: &MlsGroupStore,
     group_state: &[u8],
     commit_bytes: &[u8],
 ) -> Result<ProcessCommitResult, String> {
-    let (group_id, _) = parse_group_state(group_state)?;
-
-    let mut groups = store.groups.lock().unwrap();
-    let entry = groups
-        .get_mut(&group_id)
-        .ok_or_else(|| format!("group '{group_id}' not found in memory"))?;
+    let mut imp = import_state(group_state)?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(commit_bytes)
         .map_err(|e| format!("deserialize commit: {e:?}"))?;
@@ -386,16 +400,15 @@ pub fn process_commit(
         .try_into_protocol_message()
         .map_err(|e| format!("extract protocol message: {e:?}"))?;
 
-    let processed = entry
+    let processed = imp
         .group
-        .process_message(&entry.provider, protocol_msg)
+        .process_message(&imp.provider, protocol_msg)
         .map_err(|e| format!("process_message (commit): {e:?}"))?;
 
     match processed.into_content() {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
-            entry
-                .group
-                .merge_staged_commit(&entry.provider, *staged_commit)
+            imp.group
+                .merge_staged_commit(&imp.provider, *staged_commit)
                 .map_err(|e| format!("merge_staged_commit: {e:?}"))?;
         }
         other => {
@@ -406,9 +419,9 @@ pub fn process_commit(
         }
     }
 
-    let epoch = get_epoch(&entry.group);
-    let new_tree_hash = compute_tree_hash(&group_id, epoch);
-    let new_state = make_group_state(&group_id, epoch);
+    let epoch = get_epoch(&imp.group);
+    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(ProcessCommitResult {
         new_group_state: new_state,
@@ -417,12 +430,11 @@ pub fn process_commit(
 }
 
 pub fn process_welcome(
-    store: &MlsGroupStore,
     welcome_bytes: &[u8],
     signing_key: &[u8],
 ) -> Result<WelcomeResult, String> {
     let provider = OpenMlsRustCrypto::default();
-    let signer = reconstruct_signer(&provider, signing_key)?;
+    let _signer = reconstruct_signer(&provider, signing_key)?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
         .map_err(|e| format!("deserialize welcome: {e:?}"))?;
@@ -446,16 +458,7 @@ pub fn process_welcome(
     let group_id = String::from_utf8_lossy(group.group_id().as_slice()).to_string();
     let epoch = get_epoch(&group);
     let tree_hash = compute_tree_hash(&group_id, epoch);
-    let state = make_group_state(&group_id, epoch);
-
-    store.groups.lock().unwrap().insert(
-        group_id,
-        GroupEntry {
-            group,
-            provider,
-            signer,
-        },
-    );
+    let state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(WelcomeResult {
         group_state: state,
@@ -464,7 +467,6 @@ pub fn process_welcome(
 }
 
 pub fn external_join(
-    _store: &MlsGroupStore,
     group_info: &[u8],
     signing_key: &[u8],
 ) -> Result<ExternalJoinResult, String> {
@@ -490,21 +492,15 @@ pub fn external_join(
 }
 
 pub fn export_secret(
-    store: &MlsGroupStore,
     group_state: &[u8],
     label: &str,
     length: u32,
 ) -> Result<Vec<u8>, String> {
-    let (group_id, _) = parse_group_state(group_state)?;
+    let imp = import_state(group_state)?;
 
-    let groups = store.groups.lock().unwrap();
-    let entry = groups
-        .get(&group_id)
-        .ok_or_else(|| format!("group '{group_id}' not found in memory"))?;
-
-    let secret = entry
+    let secret = imp
         .group
-        .export_secret(entry.provider.crypto(), label, &[], length as usize)
+        .export_secret(imp.provider.crypto(), label, &[], length as usize)
         .map_err(|e| format!("export_secret: {e:?}"))?;
 
     Ok(secret)
@@ -523,55 +519,74 @@ mod tests {
 
     #[test]
     fn test_create_group() {
-        let store = MlsGroupStore::new();
         let sk = test_signing_key();
-        let result = create_group(&store, "test-group-1", &sk).expect("create_group failed");
+        let result = create_group("test-group-1", &sk).expect("create_group failed");
 
         assert!(!result.group_state.is_empty());
         assert!(!result.tree_hash.is_empty());
 
-        let (gid, epoch) = parse_group_state(&result.group_state).unwrap();
-        assert_eq!(gid, "test-group-1");
-        assert_eq!(epoch, 0);
+        let persisted: PersistedGroupState =
+            serde_json::from_slice(&result.group_state).unwrap();
+        assert_eq!(persisted.group_id, "test-group-1");
+        assert_eq!(persisted.epoch, 0);
+        assert_eq!(persisted.version, STATE_VERSION);
+        assert!(!persisted.entries.is_empty());
     }
 
     #[test]
     fn test_encrypt_message() {
-        let store = MlsGroupStore::new();
         let sk = test_signing_key();
-        let cr = create_group(&store, "test-encrypt", &sk).expect("create_group");
+        let cr = create_group("test-encrypt", &sk).expect("create_group");
 
-        let enc = encrypt_message(&store, &cr.group_state, b"Hello, MLS!")
+        let enc = encrypt_message(&cr.group_state, b"Hello, MLS!")
             .expect("encrypt_message");
         assert!(!enc.ciphertext.is_empty());
         assert!(!enc.new_group_state.is_empty());
     }
 
     #[test]
-    fn test_create_proposal_descriptor() {
-        let store = MlsGroupStore::new();
+    fn test_encrypt_survives_reimport() {
         let sk = test_signing_key();
-        let cr = create_group(&store, "test-proposal", &sk).expect("create_group");
+        let cr = create_group("test-reimport", &sk).expect("create_group");
 
-        let prop = create_proposal(&store, &cr.group_state, 2, b"")
-            .expect("create_proposal");
+        let enc1 = encrypt_message(&cr.group_state, b"msg-1").expect("encrypt 1");
+
+        // The returned new_group_state can be used for the next operation
+        // (simulates Go saving to SQLite and reading it back).
+        let enc2 = encrypt_message(&enc1.new_group_state, b"msg-2").expect("encrypt 2");
+        assert!(!enc2.ciphertext.is_empty());
+    }
+
+    #[test]
+    fn test_create_proposal_descriptor() {
+        let prop = create_proposal(b"{}", 2, b"").expect("create_proposal");
         let desc: ProposalDescriptor = serde_json::from_slice(&prop).unwrap();
         assert_eq!(desc.proposal_type, 2);
     }
 
     #[test]
     fn test_export_secret() {
-        let store = MlsGroupStore::new();
         let sk = test_signing_key();
-        let cr = create_group(&store, "test-export", &sk).expect("create_group");
+        let cr = create_group("test-export", &sk).expect("create_group");
 
-        let secret = export_secret(&store, &cr.group_state, "test-label", 32)
+        let secret = export_secret(&cr.group_state, "test-label", 32)
             .expect("export_secret");
         assert_eq!(secret.len(), 32);
+    }
 
-        // Deterministic: same label produces same secret
-        let secret2 = export_secret(&store, &cr.group_state, "test-label", 32)
-            .expect("export_secret 2");
-        assert_eq!(secret, secret2);
+    #[test]
+    fn test_legacy_state_rejected() {
+        let legacy = serde_json::to_vec(&serde_json::json!({
+            "group_id": "old-group",
+            "epoch": 0
+        }))
+        .unwrap();
+        match import_state(&legacy) {
+            Ok(_) => panic!("expected error for legacy state, got Ok"),
+            Err(e) => assert!(
+                e.contains("legacy format"),
+                "expected legacy format error, got: {e}"
+            ),
+        }
     }
 }

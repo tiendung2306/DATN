@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"log/slog"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
@@ -43,11 +42,6 @@ func (cr *ChatRoom) readLoop(ctx context.Context) {
 			close(cr.Messages)
 			return
 		}
-		
-		slog.Info("Received PubSub message", 
-			"from", msg.GetFrom().String(), 
-			"topic", msg.GetTopic(),
-			"data", string(msg.Data))
 		
 		cr.Messages <- msg
 	}

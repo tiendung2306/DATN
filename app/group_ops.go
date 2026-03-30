@@ -93,6 +93,8 @@ func (a *App) SendGroupMessage(groupID string, text string) error {
 		return nil
 	}
 
+	slog.Info("Sending group message", "group", groupID, "len", len(text))
+
 	a.mu.Lock()
 	coord, ok := a.coordinators[groupID]
 	a.mu.Unlock()

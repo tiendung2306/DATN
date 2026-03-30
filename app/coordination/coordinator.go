@@ -1,12 +1,12 @@
 package coordination
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
-
-	"context"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -296,8 +296,10 @@ func (c *Coordinator) handleApplicationLocked(env *Envelope) {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
+		slog.Warn("Rejected stale message", "group", c.groupID, "msgEpoch", env.Epoch, "currentEpoch", c.epoch)
 		return
 	case ActionBufferFuture:
+		slog.Info("Buffered future-epoch message", "group", c.groupID, "msgEpoch", env.Epoch)
 		raw, _ := json.Marshal(env)
 		c.epochTracker.BufferFuture(env.Epoch, raw)
 		return
@@ -312,9 +314,11 @@ func (c *Coordinator) handleApplicationLocked(env *Envelope) {
 
 	plaintext, newState, err := c.mls.DecryptMessage(c.ctx, c.groupState, appMsg.Ciphertext)
 	if err != nil {
+		slog.Error("Failed to decrypt message", "group", c.groupID, "from", env.From, "error", err)
 		return
 	}
 	c.groupState = newState
+	slog.Info("Message received", "group", c.groupID, "epoch", env.Epoch, "from", env.From, "ts", localTs.WallTimeMs)
 
 	msg := &StoredMessage{
 		GroupID:   c.groupID,
@@ -358,6 +362,7 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 	c.groupState = newState
 	c.epoch = newEpoch
 	c.treeHash = newTreeHash
+	slog.Info("Epoch advanced", "group", c.groupID, "newEpoch", newEpoch)
 
 	buffered := c.epochTracker.Advance(newEpoch, newTreeHash)
 	c.singleWriter.AdvanceEpoch(newEpoch)
@@ -417,11 +422,13 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 
 	ciphertext, newState, err := c.mls.EncryptMessage(c.ctx, c.groupState, plaintext)
 	if err != nil {
+		slog.Error("Failed to encrypt message", "group", c.groupID, "error", err)
 		return nil, fmt.Errorf("encrypt: %w", err)
 	}
 	c.groupState = newState
 
 	c.broadcastWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
+	slog.Info("Message sent", "group", c.groupID, "epoch", c.epoch, "ts", ts.WallTimeMs)
 
 	msg := &StoredMessage{
 		GroupID:   c.groupID,

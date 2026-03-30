@@ -16,6 +16,18 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
   const [info, setInfo] = useState<main.OnboardingInfo | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [copiedBoth, setCopiedBoth] = useState(false)
+
+  const handleCopyBoth = async () => {
+    if (!info) return
+    try {
+      await navigator.clipboard.writeText(`Peer ID: ${info.peer_id}\nPublic Key (hex): ${info.public_key_hex}`)
+      setCopiedBoth(true)
+      setTimeout(() => setCopiedBoth(false), 1500)
+    } catch {
+      // clipboard not available
+    }
+  }
 
   useEffect(() => {
     Promise.all([GetOnboardingInfo(), HasAdminKey()])
@@ -71,6 +83,12 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
                 <>
                   <CopyField label="Your Peer ID" value={info.peer_id} />
                   <CopyField label="Your MLS Public Key (hex)" value={info.public_key_hex} />
+                  <button
+                    onClick={handleCopyBoth}
+                    className="btn-secondary w-full text-xs"
+                  >
+                    {copiedBoth ? '✓ Both Copied' : 'Copy Both (Peer ID + Public Key)'}
+                  </button>
                 </>
               ) : (
                 <div className="h-20 rounded-lg bg-gray-800/50 animate-pulse" />

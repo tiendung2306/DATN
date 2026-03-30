@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use chrono::Utc;
 use clap::Parser;
 use tonic::{transport::Server, Request, Response, Status};
@@ -28,9 +26,7 @@ struct Args {
     port: u16,
 }
 
-pub struct MyMlsService {
-    store: Arc<mls::MlsGroupStore>,
-}
+pub struct MyMlsService;
 
 #[tonic::async_trait]
 impl MlsCryptoService for MyMlsService {
@@ -78,14 +74,14 @@ impl MlsCryptoService for MyMlsService {
         Err(Status::unimplemented("ImportIdentity — planned for Phase 5"))
     }
 
-    // ── Phase 4: Group Operations (Real OpenMLS) ─────────────────────────
+    // ── Phase 4: Group Operations (Stateless — Real OpenMLS) ─────────────
 
     async fn create_group(
         &self,
         request: Request<CreateGroupRequest>,
     ) -> Result<Response<CreateGroupResponse>, Status> {
         let req = request.into_inner();
-        match mls::create_group(&self.store, &req.group_id, &req.signing_key) {
+        match mls::create_group(&req.group_id, &req.signing_key) {
             Ok(result) => Ok(Response::new(CreateGroupResponse {
                 group_state: result.group_state,
                 tree_hash: result.tree_hash,
@@ -102,7 +98,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<CreateProposalRequest>,
     ) -> Result<Response<CreateProposalResponse>, Status> {
         let req = request.into_inner();
-        match mls::create_proposal(&self.store, &req.group_state, req.proposal_type, &req.data) {
+        match mls::create_proposal(&req.group_state, req.proposal_type, &req.data) {
             Ok(proposal_bytes) => Ok(Response::new(CreateProposalResponse { proposal_bytes })),
             Err(e) => {
                 eprintln!("create_proposal error: {e}");
@@ -116,7 +112,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<CreateCommitRequest>,
     ) -> Result<Response<CreateCommitResponse>, Status> {
         let req = request.into_inner();
-        match mls::create_commit(&self.store, &req.group_state, &req.proposals) {
+        match mls::create_commit(&req.group_state, &req.proposals) {
             Ok(result) => Ok(Response::new(CreateCommitResponse {
                 commit_bytes: result.commit_bytes,
                 welcome_bytes: result.welcome_bytes,
@@ -135,7 +131,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ProcessCommitRequest>,
     ) -> Result<Response<ProcessCommitResponse>, Status> {
         let req = request.into_inner();
-        match mls::process_commit(&self.store, &req.group_state, &req.commit_bytes) {
+        match mls::process_commit(&req.group_state, &req.commit_bytes) {
             Ok(result) => Ok(Response::new(ProcessCommitResponse {
                 new_group_state: result.new_group_state,
                 new_tree_hash: result.new_tree_hash,
@@ -152,7 +148,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ProcessWelcomeRequest>,
     ) -> Result<Response<ProcessWelcomeResponse>, Status> {
         let req = request.into_inner();
-        match mls::process_welcome(&self.store, &req.welcome_bytes, &req.signing_key) {
+        match mls::process_welcome(&req.welcome_bytes, &req.signing_key) {
             Ok(result) => Ok(Response::new(ProcessWelcomeResponse {
                 group_state: result.group_state,
                 tree_hash: result.tree_hash,
@@ -169,7 +165,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<EncryptMessageRequest>,
     ) -> Result<Response<EncryptMessageResponse>, Status> {
         let req = request.into_inner();
-        match mls::encrypt_message(&self.store, &req.group_state, &req.plaintext) {
+        match mls::encrypt_message(&req.group_state, &req.plaintext) {
             Ok(result) => Ok(Response::new(EncryptMessageResponse {
                 ciphertext: result.ciphertext,
                 new_group_state: result.new_group_state,
@@ -186,7 +182,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<DecryptMessageRequest>,
     ) -> Result<Response<DecryptMessageResponse>, Status> {
         let req = request.into_inner();
-        match mls::decrypt_message(&self.store, &req.group_state, &req.ciphertext) {
+        match mls::decrypt_message(&req.group_state, &req.ciphertext) {
             Ok(result) => Ok(Response::new(DecryptMessageResponse {
                 plaintext: result.plaintext,
                 new_group_state: result.new_group_state,
@@ -203,7 +199,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ExternalJoinRequest>,
     ) -> Result<Response<ExternalJoinResponse>, Status> {
         let req = request.into_inner();
-        match mls::external_join(&self.store, &req.group_info, &req.signing_key) {
+        match mls::external_join(&req.group_info, &req.signing_key) {
             Ok(result) => Ok(Response::new(ExternalJoinResponse {
                 group_state: result.group_state,
                 commit_bytes: result.commit_bytes,
@@ -221,7 +217,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ExportSecretRequest>,
     ) -> Result<Response<ExportSecretResponse>, Status> {
         let req = request.into_inner();
-        match mls::export_secret(&self.store, &req.group_state, &req.label, req.length) {
+        match mls::export_secret(&req.group_state, &req.label, req.length) {
             Ok(secret) => Ok(Response::new(ExportSecretResponse { secret })),
             Err(e) => {
                 eprintln!("export_secret error: {e}");
@@ -236,8 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let addr = format!("127.0.0.1:{}", args.port).parse()?;
 
-    let store = Arc::new(mls::MlsGroupStore::new());
-    let service = MyMlsService { store };
+    let service = MyMlsService;
 
     println!("Crypto Engine listening on {addr}");
 
