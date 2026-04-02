@@ -16,9 +16,28 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
 )
+
+// AppDHTProtocolPrefix is the Kademlia application protocol prefix for this app.
+// It must not be the default "/ipfs": with that prefix, go-libp2p-kad-dht enforces
+// that the record validator map contains exactly "pk" and "ipns" — adding our
+// "app" namespace would fail validation. A custom prefix skips that check.
+const AppDHTProtocolPrefix = protocol.ID("/datn")
+
+// appDHTValidator accepts all values stored under the "/app/" namespace.
+// Data integrity is handled by MLS signatures — DHT just acts as a store.
+type appDHTValidator struct{}
+
+func (appDHTValidator) Validate(_ string, _ []byte) error { return nil }
+func (appDHTValidator) Select(_ string, vals [][]byte) (int, error) {
+	if len(vals) == 0 {
+		return 0, fmt.Errorf("no values to select")
+	}
+	return 0, nil
+}
 
 type P2PNode struct {
 	Host         host.Host
@@ -76,8 +95,12 @@ func NewP2PNode(
 	}
 	slog.Info("Libp2p Host started", "id", h.ID().String(), "addrs", h.Addrs())
 
-	// 3. Initialize Kademlia DHT
-	kademliaDHT, err := dht.New(ctx, h, dht.Mode(dht.ModeAuto))
+	// 3. Initialize Kademlia DHT + "/app/" record namespace for KP / Welcome storage.
+	kademliaDHT, err := dht.New(ctx, h,
+		dht.Mode(dht.ModeAuto),
+		dht.ProtocolPrefix(AppDHTProtocolPrefix),
+		dht.NamespacedValidator("app", appDHTValidator{}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DHT: %w", err)
 	}

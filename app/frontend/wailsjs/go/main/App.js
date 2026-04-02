@@ -6,6 +6,10 @@ export function AddMemberToGroup(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddMemberToGroup'](arg1, arg2, arg3);
 }
 
+export function CheckDHTWelcome(arg1) {
+  return window['go']['main']['App']['CheckDHTWelcome'](arg1);
+}
+
 export function CreateAndImportSelfBundle(arg1, arg2) {
   return window['go']['main']['App']['CreateAndImportSelfBundle'](arg1, arg2);
 }
@@ -46,6 +50,10 @@ export function GetGroups() {
   return window['go']['main']['App']['GetGroups']();
 }
 
+export function GetKPStatus() {
+  return window['go']['main']['App']['GetKPStatus']();
+}
+
 export function GetNodeStatus() {
   return window['go']['main']['App']['GetNodeStatus']();
 }
@@ -60,6 +68,10 @@ export function HasAdminKey() {
 
 export function InitAdminKey(arg1) {
   return window['go']['main']['App']['InitAdminKey'](arg1);
+}
+
+export function InvitePeerToGroup(arg1, arg2) {
+  return window['go']['main']['App']['InvitePeerToGroup'](arg1, arg2);
 }
 
 export function JoinGroupWithWelcome(arg1, arg2, arg3) {

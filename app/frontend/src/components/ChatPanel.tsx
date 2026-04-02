@@ -2,14 +2,18 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import {
   AddMemberToGroup,
+  CheckDHTWelcome,
   CreateGroupChat,
   GenerateKeyPackage,
   GetGroupMembers,
   GetGroupMessages,
   GetGroups,
+  GetNodeStatus,
+  InvitePeerToGroup,
   JoinGroupWithWelcome,
   SendGroupMessage,
 } from '../../wailsjs/go/main/App'
+import { main } from '../../wailsjs/go/models'
 
 interface MessageData {
   group_id: string
@@ -61,6 +65,10 @@ export default function ChatPanel() {
   const [joinBundleHex, setJoinBundleHex] = useState('')
   const [joinGroupID, setJoinGroupID] = useState('')
   const [members, setMembers] = useState<MemberRow[]>([])
+  const [connectedPeers, setConnectedPeers] = useState<main.PeerInfo[]>([])
+  const [localPeerID, setLocalPeerID] = useState('')
+  const [invitePeerId, setInvitePeerId] = useState('')
+  const [dhtCheckGroupID, setDhtCheckGroupID] = useState('')
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -81,10 +89,11 @@ export default function ChatPanel() {
     return () => clearInterval(interval)
   }, [])
 
-  // Members list when panel is open
+  // Members list + libp2p peers when panel is open
   useEffect(() => {
     if (!activeGroup || !membersOpen) {
       setMembers([])
+      setConnectedPeers([])
       return
     }
     const load = async () => {
@@ -95,8 +104,22 @@ export default function ChatPanel() {
         setMembers([])
       }
     }
+    const loadPeers = async () => {
+      try {
+        const ns = await GetNodeStatus()
+        if (ns?.peer_id) setLocalPeerID(ns.peer_id)
+        if (ns?.connected_peers) setConnectedPeers(ns.connected_peers as main.PeerInfo[])
+        else setConnectedPeers([])
+      } catch {
+        setConnectedPeers([])
+      }
+    }
     load()
-    const interval = setInterval(load, 4000)
+    loadPeers()
+    const interval = setInterval(() => {
+      load()
+      loadPeers()
+    }, 4000)
     return () => clearInterval(interval)
   }, [activeGroup, membersOpen])
 
@@ -142,6 +165,23 @@ export default function ChatPanel() {
     return () => {
       if (typeof cancel === 'function') cancel()
       EventsOff('group:epoch')
+    }
+  }, [])
+
+  // Invitee finished in-band join
+  useEffect(() => {
+    const cancel = EventsOn('group:joined', async (data: { group_id: string }) => {
+      try {
+        const g = await GetGroups()
+        if (g) setGroups(g)
+        if (data?.group_id) setActiveGroup(data.group_id)
+      } catch {
+        /* ignore */
+      }
+    })
+    return () => {
+      if (typeof cancel === 'function') cancel()
+      EventsOff('group:joined')
     }
   }, [])
 
@@ -224,6 +264,22 @@ export default function ChatPanel() {
     }
   }
 
+  const handleInviteNetwork = async () => {
+    if (!activeGroup || !invitePeerId.trim()) return
+    setLoading(true)
+    setError(null)
+    try {
+      await InvitePeerToGroup(invitePeerId.trim(), activeGroup)
+      const g = await GetGroups()
+      if (g) setGroups(g)
+      setInvitePeerId('')
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleJoinWelcome = async () => {
     const gid = joinGroupID.trim() || activeGroup || ''
     if (!gid) {
@@ -253,26 +309,31 @@ export default function ChatPanel() {
         Group Chat
       </h2>
 
-      {/* Create / Join group */}
-      <div className="flex gap-2 mb-4">
-        <input
-          type="text"
-          className="input flex-1"
-          placeholder="Enter Group ID..."
-          value={newGroupID}
-          onChange={(e) => setNewGroupID(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleCreateGroup()
-          }}
-          disabled={loading}
-        />
-        <button
-          className="btn btn-primary text-sm"
-          onClick={handleCreateGroup}
-          disabled={loading || !newGroupID.trim()}
-        >
-          {loading ? 'Creating...' : 'Create / Join'}
-        </button>
+      {/* Create group */}
+      <div className="mb-4">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="input flex-1"
+            placeholder="New group name (e.g. team-alpha)"
+            value={newGroupID}
+            onChange={(e) => setNewGroupID(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreateGroup()
+            }}
+            disabled={loading}
+          />
+          <button
+            className="btn btn-primary text-sm shrink-0"
+            onClick={handleCreateGroup}
+            disabled={loading || !newGroupID.trim()}
+          >
+            {loading ? 'Creating...' : 'Create group'}
+          </button>
+        </div>
+        <p className="mt-1.5 text-[10px] text-gray-500">
+          One device creates the group; others join when you invite them (below). Everyone must use the same group name.
+        </p>
       </div>
 
       {error && (
@@ -315,141 +376,55 @@ export default function ChatPanel() {
             className="w-full flex items-center justify-between px-3 py-2 text-left text-xs font-medium text-gray-400 hover:bg-gray-900/80 rounded-lg"
             onClick={() => setMembersOpen((o) => !o)}
           >
-            <span>Members &amp; keys</span>
+            <span>Members &amp; invites</span>
             <span className="text-gray-600">{membersOpen ? '▲' : '▼'}</span>
           </button>
           {membersOpen && (
             <div className="px-3 pb-3 space-y-4 border-t border-gray-800 pt-3">
-              <div>
-                <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
-                  My Key Package
-                </h3>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-xs mb-2"
-                  onClick={handleGenKP}
-                  disabled={loading}
-                >
-                  Generate Key Package
-                </button>
-                {kpPublicHex && (
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-gray-500">Public (share with creator)</p>
-                    <div className="flex gap-1">
-                      <textarea
-                        className="input text-[10px] font-mono h-16 w-full"
-                        readOnly
-                        value={kpPublicHex}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary text-xs shrink-0"
-                        onClick={() => copyText(kpPublicHex)}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    <p className="text-[10px] text-amber-600/90">
-                      Keep the private bundle below on this device until you receive a Welcome.
-                    </p>
-                    <div className="flex gap-1">
-                      <textarea
-                        className="input text-[10px] font-mono h-16 w-full"
-                        readOnly
-                        value={kpBundleHex}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary text-xs shrink-0"
-                        onClick={() => copyText(kpBundleHex)}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                After peers show up as connected (Dashboard), the group creator picks them below — KeyPackage and Welcome
+                are sent over the same libp2p connection (Noise), so you do not need to copy hex by hand.
+              </p>
 
               {activeRole === 'creator' && (
                 <div>
                   <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
-                    Add member
+                    Invite connected peer
                   </h3>
-                  <input
-                    type="text"
-                    className="input w-full mb-2 text-xs"
-                    placeholder="New member Peer ID"
-                    value={addPeerID}
-                    onChange={(e) => setAddPeerID(e.target.value)}
-                  />
-                  <textarea
-                    className="input w-full text-[10px] font-mono h-20 mb-2"
-                    placeholder="Key Package (hex)"
-                    value={addKpHex}
-                    onChange={(e) => setAddKpHex(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-primary text-xs"
-                    onClick={handleAddMember}
-                    disabled={loading || !addPeerID.trim() || !addKpHex.trim()}
-                  >
-                    Add member
-                  </button>
-                  {welcomeOutHex && (
-                    <div className="mt-2">
-                      <p className="text-[10px] text-gray-500 mb-1">Welcome (send OOB to invitee)</p>
-                      <div className="flex gap-1">
-                        <textarea
-                          className="input text-[10px] font-mono h-16 w-full"
-                          readOnly
-                          value={welcomeOutHex}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-secondary text-xs shrink-0"
-                          onClick={() => copyText(welcomeOutHex)}
-                        >
-                          Copy
-                        </button>
-                      </div>
-                    </div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <select
+                      className="input text-xs flex-1 min-w-0"
+                      value={invitePeerId}
+                      onChange={(e) => setInvitePeerId(e.target.value)}
+                    >
+                      <option value="">Select a connected peer…</option>
+                      {connectedPeers
+                        .filter((p) => p.id !== localPeerID)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {(p.display_name && p.display_name.trim()) || shortID(p.id)}
+                            {!p.verified ? ' (unverified)' : ''}
+                            {' · '}
+                            {shortID(p.id)}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-primary text-xs shrink-0"
+                      onClick={handleInviteNetwork}
+                      disabled={loading || !invitePeerId.trim()}
+                    >
+                      Send invite
+                    </button>
+                  </div>
+                  {connectedPeers.filter((p) => p.id !== localPeerID).length === 0 && (
+                    <p className="mt-1 text-[10px] text-amber-600/90">
+                      No other peers connected — ensure both nodes are online and reachable (Dashboard shows peer list).
+                    </p>
                   )}
                 </div>
               )}
-
-              <div>
-                <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
-                  Join via Welcome
-                </h3>
-                <input
-                  type="text"
-                  className="input w-full mb-2 text-xs"
-                  placeholder="Group ID (defaults to active tab if empty)"
-                  value={joinGroupID}
-                  onChange={(e) => setJoinGroupID(e.target.value)}
-                />
-                <textarea
-                  className="input w-full text-[10px] font-mono h-16 mb-2"
-                  placeholder="Welcome (hex)"
-                  value={joinWelcomeHex}
-                  onChange={(e) => setJoinWelcomeHex(e.target.value)}
-                />
-                <textarea
-                  className="input w-full text-[10px] font-mono h-16 mb-2"
-                  placeholder="Your Key Package private bundle (hex) from Generate"
-                  value={joinBundleHex}
-                  onChange={(e) => setJoinBundleHex(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn btn-primary text-xs"
-                  onClick={handleJoinWelcome}
-                  disabled={loading}
-                >
-                  Join group
-                </button>
-              </div>
 
               <div>
                 <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
@@ -476,6 +451,186 @@ export default function ChatPanel() {
                   </ul>
                 )}
               </div>
+
+              {activeRole !== 'creator' && (
+                <div>
+                  <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                    Check for pending invite
+                  </h3>
+                  <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
+                    If you were invited while offline, enter the group name and pull the Welcome from the DHT.
+                    You usually don't need this — delivery is automatic when you reconnect.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="input text-xs flex-1"
+                      placeholder="Group name (e.g. team-alpha)"
+                      value={dhtCheckGroupID}
+                      onChange={(e) => setDhtCheckGroupID(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          CheckDHTWelcome(dhtCheckGroupID.trim())
+                            .then(() => GetGroups().then((g) => { if (g) setGroups(g) }))
+                            .catch((e: any) => setError(e?.message || String(e)))
+                          setDhtCheckGroupID('')
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary text-xs shrink-0"
+                      disabled={!dhtCheckGroupID.trim() || loading}
+                      onClick={() => {
+                        CheckDHTWelcome(dhtCheckGroupID.trim())
+                          .then(() => GetGroups().then((g) => { if (g) setGroups(g) }))
+                          .catch((e: any) => setError(e?.message || String(e)))
+                        setDhtCheckGroupID('')
+                      }}
+                    >
+                      Check
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <details className="rounded-lg border border-gray-800 bg-gray-900/40">
+                <summary className="cursor-pointer px-2 py-2 text-[10px] text-gray-500 hover:text-gray-400">
+                  Advanced — manual hex (offline / debugging)
+                </summary>
+                <div className="px-2 pb-3 pt-1 space-y-4 border-t border-gray-800">
+                  <div>
+                    <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                      My Key Package
+                    </h3>
+                    <button
+                      type="button"
+                      className="btn btn-secondary text-xs mb-2"
+                      onClick={handleGenKP}
+                      disabled={loading}
+                    >
+                      Generate Key Package
+                    </button>
+                    {kpPublicHex && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-gray-500">Public (share with creator)</p>
+                        <div className="flex gap-1">
+                          <textarea
+                            className="input text-[10px] font-mono h-16 w-full"
+                            readOnly
+                            value={kpPublicHex}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-secondary text-xs shrink-0"
+                            onClick={() => copyText(kpPublicHex)}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-amber-600/90">
+                          Keep the private bundle on this device until you receive a Welcome.
+                        </p>
+                        <div className="flex gap-1">
+                          <textarea
+                            className="input text-[10px] font-mono h-16 w-full"
+                            readOnly
+                            value={kpBundleHex}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-secondary text-xs shrink-0"
+                            onClick={() => copyText(kpBundleHex)}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeRole === 'creator' && (
+                    <div>
+                      <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                        Add member (manual)
+                      </h3>
+                      <input
+                        type="text"
+                        className="input w-full mb-2 text-xs"
+                        placeholder="New member Peer ID"
+                        value={addPeerID}
+                        onChange={(e) => setAddPeerID(e.target.value)}
+                      />
+                      <textarea
+                        className="input w-full text-[10px] font-mono h-20 mb-2"
+                        placeholder="Key Package (hex)"
+                        value={addKpHex}
+                        onChange={(e) => setAddKpHex(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary text-xs"
+                        onClick={handleAddMember}
+                        disabled={loading || !addPeerID.trim() || !addKpHex.trim()}
+                      >
+                        Add member
+                      </button>
+                      {welcomeOutHex && (
+                        <div className="mt-2">
+                          <p className="text-[10px] text-gray-500 mb-1">Welcome (send OOB to invitee)</p>
+                          <div className="flex gap-1">
+                            <textarea
+                              className="input text-[10px] font-mono h-16 w-full"
+                              readOnly
+                              value={welcomeOutHex}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-secondary text-xs shrink-0"
+                              onClick={() => copyText(welcomeOutHex)}
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                      Join via Welcome (manual)
+                    </h3>
+                    <input
+                      type="text"
+                      className="input w-full mb-2 text-xs"
+                      placeholder="Group ID (defaults to active tab if empty)"
+                      value={joinGroupID}
+                      onChange={(e) => setJoinGroupID(e.target.value)}
+                    />
+                    <textarea
+                      className="input w-full text-[10px] font-mono h-16 mb-2"
+                      placeholder="Welcome (hex)"
+                      value={joinWelcomeHex}
+                      onChange={(e) => setJoinWelcomeHex(e.target.value)}
+                    />
+                    <textarea
+                      className="input w-full text-[10px] font-mono h-16 mb-2"
+                      placeholder="Your Key Package private bundle (hex) from Generate"
+                      value={joinBundleHex}
+                      onChange={(e) => setJoinBundleHex(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-primary text-xs"
+                      onClick={handleJoinWelcome}
+                      disabled={loading}
+                    >
+                      Join group
+                    </button>
+                  </div>
+                </div>
+              </details>
             </div>
           )}
         </div>

@@ -122,6 +122,7 @@ func (a *App) teardown() {
 		a.nodeCancel = nil
 	}
 	if a.node != nil {
+		a.removeWelcomeDeliveryHandler()
 		a.node.Close()
 		a.node = nil
 	}
@@ -453,6 +454,11 @@ func (a *App) launchP2PNode() error {
 	slog.Info("P2P node started via GUI", "peerID", node.Host.ID().String())
 
 	a.initCoordinationStackLocked()
+	a.registerWelcomeDeliveryHandler()
+	a.node.Host.Network().Notify(&peerConnectedHook{app: a})
+
+	// Advertise local KeyPackage to DHT so others can invite us (works offline).
+	go a.advertiseKeyPackage()
 
 	return nil
 }

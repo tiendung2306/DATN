@@ -143,6 +143,28 @@ func (d *Database) createTables() error {
 
 		`CREATE INDEX IF NOT EXISTS idx_stored_messages_group_hlc
 			ON stored_messages(group_id, hlc_wall_time_ms, hlc_counter, hlc_node_id);`,
+
+		// Phase 5: local KeyPackage private bundles (one active per peer; reused after group join).
+		// public_kp is the bytes published to DHT; private_bundle stays local forever.
+		`CREATE TABLE IF NOT EXISTS kp_bundles (
+			id              INTEGER PRIMARY KEY,
+			peer_id         TEXT    NOT NULL UNIQUE,
+			public_kp       BLOB    NOT NULL,
+			private_bundle  BLOB    NOT NULL,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
+		// Phase 5: outbound Welcome messages awaiting delivery (store-and-forward).
+		// Creator side: written after AddMembers, deleted when invitee confirms join.
+		`CREATE TABLE IF NOT EXISTS pending_welcomes_out (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_peer_id  TEXT    NOT NULL,
+			group_id        TEXT    NOT NULL,
+			welcome_bytes   BLOB    NOT NULL,
+			delivered       INTEGER NOT NULL DEFAULT 0,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(target_peer_id, group_id)
+		);`,
 	}
 
 	for _, q := range queries {
@@ -312,4 +334,86 @@ var ErrNotFound = sql.ErrNoRows
 // IsNotFound is a convenience wrapper around errors.Is(err, sql.ErrNoRows).
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
+}
+
+// ── kp_bundles ────────────────────────────────────────────────────────────────
+
+// SaveKPBundle upserts the local KeyPackage (public + private) keyed by peerID.
+// There is at most one active KP per peer.  A new call replaces the old one.
+func (d *Database) SaveKPBundle(peerID string, publicKP, privateBundle []byte) error {
+	_, err := d.Conn.Exec(
+		`INSERT OR REPLACE INTO kp_bundles (peer_id, public_kp, private_bundle)
+		 VALUES (?, ?, ?)`,
+		peerID, publicKP, privateBundle,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveKPBundle: %w", err)
+	}
+	return nil
+}
+
+// GetKPBundle retrieves the stored public KP + private bundle for peerID.
+// Returns sql.ErrNoRows if none has been generated yet.
+func (d *Database) GetKPBundle(peerID string) (publicKP, privateBundle []byte, err error) {
+	err = d.Conn.QueryRow(
+		`SELECT public_kp, private_bundle FROM kp_bundles WHERE peer_id = ?`, peerID,
+	).Scan(&publicKP, &privateBundle)
+	return
+}
+
+// ── pending_welcomes_out ──────────────────────────────────────────────────────
+
+// SavePendingWelcome stores a Welcome that needs to be delivered to targetPeerID.
+// Overwrites any previous pending welcome for the same (target, group) pair.
+func (d *Database) SavePendingWelcome(targetPeerID, groupID string, welcomeBytes []byte) error {
+	_, err := d.Conn.Exec(
+		`INSERT OR REPLACE INTO pending_welcomes_out
+		 (target_peer_id, group_id, welcome_bytes, delivered)
+		 VALUES (?, ?, ?, 0)`,
+		targetPeerID, groupID, welcomeBytes,
+	)
+	if err != nil {
+		return fmt.Errorf("SavePendingWelcome: %w", err)
+	}
+	return nil
+}
+
+// PendingWelcome is one undelivered Welcome record.
+type PendingWelcome struct {
+	ID            int64
+	TargetPeerID  string
+	GroupID       string
+	WelcomeBytes  []byte
+}
+
+// GetPendingWelcomesFor returns all undelivered Welcomes for the given peer.
+func (d *Database) GetPendingWelcomesFor(targetPeerID string) ([]PendingWelcome, error) {
+	rows, err := d.Conn.Query(
+		`SELECT id, target_peer_id, group_id, welcome_bytes
+		 FROM pending_welcomes_out
+		 WHERE target_peer_id = ? AND delivered = 0`,
+		targetPeerID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetPendingWelcomesFor: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PendingWelcome
+	for rows.Next() {
+		var pw PendingWelcome
+		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes); err != nil {
+			return nil, err
+		}
+		out = append(out, pw)
+	}
+	return out, rows.Err()
+}
+
+// MarkWelcomeDelivered marks a pending welcome row as delivered.
+func (d *Database) MarkWelcomeDelivered(id int64) error {
+	_, err := d.Conn.Exec(
+		`UPDATE pending_welcomes_out SET delivered = 1 WHERE id = ?`, id,
+	)
+	return err
 }

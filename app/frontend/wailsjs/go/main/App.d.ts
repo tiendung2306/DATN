@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function AddMemberToGroup(arg1:string,arg2:string,arg3:string):Promise<string>;
 
+export function CheckDHTWelcome(arg1:string):Promise<void>;
+
 export function CreateAndImportSelfBundle(arg1:string,arg2:string):Promise<void>;
 
 export function CreateBundle(arg1:main.CreateBundleRequest):Promise<string>;
@@ -24,6 +26,8 @@ export function GetGroupStatus(arg1:string):Promise<Record<string, any>>;
 
 export function GetGroups():Promise<Array<main.GroupInfo>>;
 
+export function GetKPStatus():Promise<Record<string, any>>;
+
 export function GetNodeStatus():Promise<main.NodeStatus>;
 
 export function GetOnboardingInfo():Promise<main.OnboardingInfo>;
@@ -31,6 +35,8 @@ export function GetOnboardingInfo():Promise<main.OnboardingInfo>;
 export function HasAdminKey():Promise<boolean>;
 
 export function InitAdminKey(arg1:string):Promise<void>;
+
+export function InvitePeerToGroup(arg1:string,arg2:string):Promise<void>;
 
 export function JoinGroupWithWelcome(arg1:string,arg2:string,arg3:string):Promise<void>;
 
