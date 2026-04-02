@@ -10,13 +10,14 @@ pub mod mls_service {
 
 use mls_service::mls_crypto_service_server::{MlsCryptoService, MlsCryptoServiceServer};
 use mls_service::{
-    CreateCommitRequest, CreateCommitResponse, CreateGroupRequest, CreateGroupResponse,
-    CreateProposalRequest, CreateProposalResponse, DecryptMessageRequest, DecryptMessageResponse,
-    EncryptMessageRequest, EncryptMessageResponse, ExportIdentityRequest, ExportIdentityResponse,
-    ExportSecretRequest, ExportSecretResponse, ExternalJoinRequest, ExternalJoinResponse,
-    GenerateIdentityRequest, GenerateIdentityResponse, ImportIdentityRequest,
-    ImportIdentityResponse, PingRequest, PingResponse, ProcessCommitRequest,
-    ProcessCommitResponse, ProcessWelcomeRequest, ProcessWelcomeResponse,
+    AddMembersRequest, AddMembersResponse, CreateCommitRequest, CreateCommitResponse,
+    CreateGroupRequest, CreateGroupResponse, CreateProposalRequest, CreateProposalResponse,
+    DecryptMessageRequest, DecryptMessageResponse, EncryptMessageRequest, EncryptMessageResponse,
+    ExportIdentityRequest, ExportIdentityResponse, ExportSecretRequest, ExportSecretResponse,
+    ExternalJoinRequest, ExternalJoinResponse, GenerateIdentityRequest, GenerateIdentityResponse,
+    GenerateKeyPackageRequest, GenerateKeyPackageResponse, ImportIdentityRequest,
+    ImportIdentityResponse, PingRequest, PingResponse, ProcessCommitRequest, ProcessCommitResponse,
+    ProcessWelcomeRequest, ProcessWelcomeResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -148,10 +149,15 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ProcessWelcomeRequest>,
     ) -> Result<Response<ProcessWelcomeResponse>, Status> {
         let req = request.into_inner();
-        match mls::process_welcome(&req.welcome_bytes, &req.signing_key) {
+        match mls::process_welcome(
+            &req.welcome_bytes,
+            &req.signing_key,
+            &req.key_package_bundle_private,
+        ) {
             Ok(result) => Ok(Response::new(ProcessWelcomeResponse {
                 group_state: result.group_state,
                 tree_hash: result.tree_hash,
+                epoch: result.epoch,
             })),
             Err(e) => {
                 eprintln!("process_welcome error: {e}");
@@ -221,6 +227,42 @@ impl MlsCryptoService for MyMlsService {
             Ok(secret) => Ok(Response::new(ExportSecretResponse { secret })),
             Err(e) => {
                 eprintln!("export_secret error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn generate_key_package(
+        &self,
+        request: Request<GenerateKeyPackageRequest>,
+    ) -> Result<Response<GenerateKeyPackageResponse>, Status> {
+        let req = request.into_inner();
+        match mls::generate_key_package(&req.signing_key) {
+            Ok(result) => Ok(Response::new(GenerateKeyPackageResponse {
+                key_package_bytes: result.key_package_bytes,
+                key_package_bundle_private: result.key_package_bundle_private,
+            })),
+            Err(e) => {
+                eprintln!("generate_key_package error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn add_members(
+        &self,
+        request: Request<AddMembersRequest>,
+    ) -> Result<Response<AddMembersResponse>, Status> {
+        let req = request.into_inner();
+        match mls::add_members(&req.group_state, &req.key_packages) {
+            Ok(result) => Ok(Response::new(AddMembersResponse {
+                commit_bytes: result.commit_bytes,
+                welcome_bytes: result.welcome_bytes,
+                new_group_state: result.new_group_state,
+                new_tree_hash: result.new_tree_hash,
+            })),
+            Err(e) => {
+                eprintln!("add_members error: {e}");
                 Err(Status::internal(e))
             }
         }

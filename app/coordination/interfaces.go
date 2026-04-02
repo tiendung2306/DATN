@@ -81,8 +81,15 @@ type MLSEngine interface {
 	ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte) (newGroupState, newTreeHash []byte, err error)
 
 	// ProcessWelcome processes a Welcome message to join an existing group.
-	// Returns the group state and tree hash at the joined epoch.
-	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey []byte) (groupState, treeHash []byte, err error)
+	// keyPackageBundlePrivate must be the opaque blob from GenerateKeyPackage (never shared OOB).
+	// Returns the group state, tree hash, and MLS epoch at the joined state.
+	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error)
+
+	// GenerateKeyPackage builds a public KeyPackage and a private bundle blob for the invitee.
+	GenerateKeyPackage(ctx context.Context, signingKey []byte) (keyPackageBytes, keyPackageBundlePrivate []byte, err error)
+
+	// AddMembers performs an MLS add (proposal+commit+welcome) for the given KeyPackages.
+	AddMembers(ctx context.Context, groupState []byte, keyPackages [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error)
 
 	// EncryptMessage encrypts plaintext using the current epoch's application secret.
 	EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error)

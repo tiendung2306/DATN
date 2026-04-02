@@ -19,19 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MLSCryptoService_Ping_FullMethodName             = "/mls_service.MLSCryptoService/Ping"
-	MLSCryptoService_GenerateIdentity_FullMethodName = "/mls_service.MLSCryptoService/GenerateIdentity"
-	MLSCryptoService_ExportIdentity_FullMethodName   = "/mls_service.MLSCryptoService/ExportIdentity"
-	MLSCryptoService_ImportIdentity_FullMethodName   = "/mls_service.MLSCryptoService/ImportIdentity"
-	MLSCryptoService_CreateGroup_FullMethodName      = "/mls_service.MLSCryptoService/CreateGroup"
-	MLSCryptoService_CreateProposal_FullMethodName   = "/mls_service.MLSCryptoService/CreateProposal"
-	MLSCryptoService_CreateCommit_FullMethodName     = "/mls_service.MLSCryptoService/CreateCommit"
-	MLSCryptoService_ProcessCommit_FullMethodName    = "/mls_service.MLSCryptoService/ProcessCommit"
-	MLSCryptoService_ProcessWelcome_FullMethodName   = "/mls_service.MLSCryptoService/ProcessWelcome"
-	MLSCryptoService_EncryptMessage_FullMethodName   = "/mls_service.MLSCryptoService/EncryptMessage"
-	MLSCryptoService_DecryptMessage_FullMethodName   = "/mls_service.MLSCryptoService/DecryptMessage"
-	MLSCryptoService_ExternalJoin_FullMethodName     = "/mls_service.MLSCryptoService/ExternalJoin"
-	MLSCryptoService_ExportSecret_FullMethodName     = "/mls_service.MLSCryptoService/ExportSecret"
+	MLSCryptoService_Ping_FullMethodName               = "/mls_service.MLSCryptoService/Ping"
+	MLSCryptoService_GenerateIdentity_FullMethodName   = "/mls_service.MLSCryptoService/GenerateIdentity"
+	MLSCryptoService_ExportIdentity_FullMethodName     = "/mls_service.MLSCryptoService/ExportIdentity"
+	MLSCryptoService_ImportIdentity_FullMethodName     = "/mls_service.MLSCryptoService/ImportIdentity"
+	MLSCryptoService_CreateGroup_FullMethodName        = "/mls_service.MLSCryptoService/CreateGroup"
+	MLSCryptoService_CreateProposal_FullMethodName     = "/mls_service.MLSCryptoService/CreateProposal"
+	MLSCryptoService_CreateCommit_FullMethodName       = "/mls_service.MLSCryptoService/CreateCommit"
+	MLSCryptoService_ProcessCommit_FullMethodName      = "/mls_service.MLSCryptoService/ProcessCommit"
+	MLSCryptoService_ProcessWelcome_FullMethodName     = "/mls_service.MLSCryptoService/ProcessWelcome"
+	MLSCryptoService_EncryptMessage_FullMethodName     = "/mls_service.MLSCryptoService/EncryptMessage"
+	MLSCryptoService_DecryptMessage_FullMethodName     = "/mls_service.MLSCryptoService/DecryptMessage"
+	MLSCryptoService_ExternalJoin_FullMethodName       = "/mls_service.MLSCryptoService/ExternalJoin"
+	MLSCryptoService_ExportSecret_FullMethodName       = "/mls_service.MLSCryptoService/ExportSecret"
+	MLSCryptoService_GenerateKeyPackage_FullMethodName = "/mls_service.MLSCryptoService/GenerateKeyPackage"
+	MLSCryptoService_AddMembers_FullMethodName         = "/mls_service.MLSCryptoService/AddMembers"
 )
 
 // MLSCryptoServiceClient is the client API for MLSCryptoService service.
@@ -53,6 +55,9 @@ type MLSCryptoServiceClient interface {
 	DecryptMessage(ctx context.Context, in *DecryptMessageRequest, opts ...grpc.CallOption) (*DecryptMessageResponse, error)
 	ExternalJoin(ctx context.Context, in *ExternalJoinRequest, opts ...grpc.CallOption) (*ExternalJoinResponse, error)
 	ExportSecret(ctx context.Context, in *ExportSecretRequest, opts ...grpc.CallOption) (*ExportSecretResponse, error)
+	// Phase 4.1 — Add member / KeyPackage lifecycle
+	GenerateKeyPackage(ctx context.Context, in *GenerateKeyPackageRequest, opts ...grpc.CallOption) (*GenerateKeyPackageResponse, error)
+	AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error)
 }
 
 type mLSCryptoServiceClient struct {
@@ -193,6 +198,26 @@ func (c *mLSCryptoServiceClient) ExportSecret(ctx context.Context, in *ExportSec
 	return out, nil
 }
 
+func (c *mLSCryptoServiceClient) GenerateKeyPackage(ctx context.Context, in *GenerateKeyPackageRequest, opts ...grpc.CallOption) (*GenerateKeyPackageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenerateKeyPackageResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_GenerateKeyPackage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddMembersResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_AddMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MLSCryptoServiceServer is the server API for MLSCryptoService service.
 // All implementations must embed UnimplementedMLSCryptoServiceServer
 // for forward compatibility.
@@ -212,6 +237,9 @@ type MLSCryptoServiceServer interface {
 	DecryptMessage(context.Context, *DecryptMessageRequest) (*DecryptMessageResponse, error)
 	ExternalJoin(context.Context, *ExternalJoinRequest) (*ExternalJoinResponse, error)
 	ExportSecret(context.Context, *ExportSecretRequest) (*ExportSecretResponse, error)
+	// Phase 4.1 — Add member / KeyPackage lifecycle
+	GenerateKeyPackage(context.Context, *GenerateKeyPackageRequest) (*GenerateKeyPackageResponse, error)
+	AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error)
 	mustEmbedUnimplementedMLSCryptoServiceServer()
 }
 
@@ -260,6 +288,12 @@ func (UnimplementedMLSCryptoServiceServer) ExternalJoin(context.Context, *Extern
 }
 func (UnimplementedMLSCryptoServiceServer) ExportSecret(context.Context, *ExportSecretRequest) (*ExportSecretResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportSecret not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) GenerateKeyPackage(context.Context, *GenerateKeyPackageRequest) (*GenerateKeyPackageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GenerateKeyPackage not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AddMembers not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) mustEmbedUnimplementedMLSCryptoServiceServer() {}
 func (UnimplementedMLSCryptoServiceServer) testEmbeddedByValue()                          {}
@@ -516,6 +550,42 @@ func _MLSCryptoService_ExportSecret_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLSCryptoService_GenerateKeyPackage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GenerateKeyPackageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).GenerateKeyPackage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_GenerateKeyPackage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).GenerateKeyPackage(ctx, req.(*GenerateKeyPackageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_AddMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).AddMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_AddMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).AddMembers(ctx, req.(*AddMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MLSCryptoService_ServiceDesc is the grpc.ServiceDesc for MLSCryptoService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -574,6 +644,14 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExportSecret",
 			Handler:    _MLSCryptoService_ExportSecret_Handler,
+		},
+		{
+			MethodName: "GenerateKeyPackage",
+			Handler:    _MLSCryptoService_GenerateKeyPackage_Handler,
+		},
+		{
+			MethodName: "AddMembers",
+			Handler:    _MLSCryptoService_AddMembers_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

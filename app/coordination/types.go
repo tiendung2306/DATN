@@ -81,8 +81,10 @@ type ProposalMsg struct {
 // CommitMsg carries an MLS Commit created by the Token Holder.
 // Advances the group from epoch E to E+1.
 type CommitMsg struct {
-	CommitData  []byte `json:"commit_data"`  // MLS Commit bytes
-	WelcomeData []byte `json:"welcome_data"` // MLS Welcome (may be empty)
+	CommitData []byte `json:"commit_data"` // MLS Commit bytes
+	// WelcomeData is intentionally not broadcast in normal flow (MLS Welcome is OOB).
+	// Kept for backward compatibility with older envelopes.
+	WelcomeData []byte `json:"welcome_data,omitempty"`
 	NewTreeHash []byte `json:"new_tree_hash"`
 }
 

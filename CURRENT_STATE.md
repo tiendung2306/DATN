@@ -36,6 +36,12 @@ This document serves as a short-term memory for the AI Agent.
 *   Scaffold React + TypeScript + Tailwind frontend tại `app/frontend/`.
 *   4 màn hình dev/test UI đã hoàn chỉnh.
 
+### Phase 4.1: Add member / KeyPackage (MLS) ✅
+*   Proto: `GenerateKeyPackage`, `AddMembers`; `ProcessWelcome` extended with `epoch` and `key_package_bundle_private` (OpenMLS requires the invitee to retain the `KeyPackageBundle` private material until Welcome, not just the public KeyPackage).
+*   Rust: `generate_key_package`, `add_members`; gRPC handlers; tests `test_generate_key_package`, `test_add_member_and_welcome`.
+*   Go: `MLSEngine` + adapter + mock; `Coordinator.AddMember` added; `CommitMsg` broadcast only carries `CommitData` + `NewTreeHash` (Welcome is delivered out-of-band, not broadcast).
+*   Wails: `KeyPackageResult`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GetGroupMembers`, `MemberInfo`; ChatPanel **Members & keys** panel.
+
 ---
 
 ## 3. Technical Decisions & Knowledge
@@ -454,7 +460,7 @@ Phase 4 hoàn tất. Hệ thống đã có:
 
 3.  **Offline Messaging (DHT Store-and-Forward):** `dht.Put(Hash(RecipientID), EncryptedMsg)` cho peer offline. Auto-retrieve on connect.
 
-4.  **Multi-node Add Member flow:** Implement KeyPackage generation + Add Proposal → Commit → Welcome. Cần extend proto cho KeyPackage lifecycle.
+4.  **Hardening Add Member flow:** bind `newMemberPeerID` with KeyPackage identity before add, and reduce exposure of `key_package_bundle_private` on frontend (prefer local secure handling over clipboard/UI state).
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.

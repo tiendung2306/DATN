@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"app/coordination"
 	"app/db"
 	"app/p2p"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -27,6 +33,18 @@ type GroupInfo struct {
 	GroupID string `json:"group_id"`
 	Epoch   uint64 `json:"epoch"`
 	MyRole  string `json:"my_role"`
+}
+
+// MemberInfo describes a peer in the coordination active view with liveness.
+type MemberInfo struct {
+	PeerID   string `json:"peer_id"`
+	IsOnline bool   `json:"is_online"`
+}
+
+// KeyPackageResult is returned by GenerateKeyPackage for Wails/TS bindings.
+type KeyPackageResult struct {
+	PublicHex        string `json:"public_hex"`
+	BundlePrivateHex string `json:"bundle_private_hex"`
 }
 
 // ─── Group chat operations ───────────────────────────────────────────────────
@@ -160,6 +178,159 @@ func (a *App) GetGroups() ([]GroupInfo, error) {
 	return result, nil
 }
 
+// GenerateKeyPackage builds an MLS KeyPackage for the local identity.
+// Public hex is shared OOB with the group creator; bundle private hex must be
+// kept locally until JoinGroupWithWelcome.
+func (a *App) GenerateKeyPackage() (KeyPackageResult, error) {
+	if a.mlsEngine == nil {
+		return KeyPackageResult{}, fmt.Errorf("crypto engine not available — build the Rust project first")
+	}
+	identity, err := a.db.GetMLSIdentity()
+	if err != nil {
+		return KeyPackageResult{}, fmt.Errorf("get MLS identity: %w", err)
+	}
+	kp, bundle, err := a.mlsEngine.GenerateKeyPackage(context.Background(), identity.SigningKeyPrivate)
+	if err != nil {
+		return KeyPackageResult{}, err
+	}
+	return KeyPackageResult{
+		PublicHex:        hex.EncodeToString(kp),
+		BundlePrivateHex: hex.EncodeToString(bundle),
+	}, nil
+}
+
+// AddMemberToGroup runs MLS AddMembers as the Token Holder and returns the
+// Welcome message as hex for out-of-band delivery to the invitee.
+func (a *App) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex string) (welcomeHex string, err error) {
+	raw, err := hex.DecodeString(strings.TrimSpace(keyPackageHex))
+	if err != nil {
+		return "", fmt.Errorf("decode key package hex: %w", err)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.coordinators == nil {
+		return "", fmt.Errorf("coordination stack not initialized")
+	}
+	coord, ok := a.coordinators[groupID]
+	if !ok {
+		return "", fmt.Errorf("not in group %q", groupID)
+	}
+
+	welcome, err := coord.AddMember(peer.ID(newMemberPeerID), raw)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(welcome), nil
+}
+
+// JoinGroupWithWelcome joins an existing group using a Welcome message and the
+// private KeyPackage bundle from [App.GenerateKeyPackage] for this invite flow.
+func (a *App) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex string) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("group ID is required")
+	}
+	welcomeRaw, err := hex.DecodeString(strings.TrimSpace(welcomeHex))
+	if err != nil {
+		return fmt.Errorf("decode welcome hex: %w", err)
+	}
+	bundleRaw, err := hex.DecodeString(strings.TrimSpace(keyPackageBundlePrivateHex))
+	if err != nil {
+		return fmt.Errorf("decode key package bundle hex: %w", err)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.node == nil {
+		return fmt.Errorf("P2P node not running")
+	}
+	if a.mlsEngine == nil {
+		return fmt.Errorf("crypto engine not available — build the Rust project first")
+	}
+	if a.coordStorage == nil {
+		return fmt.Errorf("storage not initialized")
+	}
+	if _, exists := a.coordinators[groupID]; exists {
+		return fmt.Errorf("already in group %q", groupID)
+	}
+
+	identity, err := a.db.GetMLSIdentity()
+	if err != nil {
+		return fmt.Errorf("get MLS identity: %w", err)
+	}
+
+	groupState, treeHash, epoch, err := a.mlsEngine.ProcessWelcome(context.Background(), welcomeRaw, identity.SigningKeyPrivate, bundleRaw)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	if err := a.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    groupID,
+		GroupState: groupState,
+		Epoch:      epoch,
+		TreeHash:   treeHash,
+		MyRole:     coordination.RoleMember,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		return fmt.Errorf("save group record: %w", err)
+	}
+
+	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
+		Config:        coordination.DefaultConfig(),
+		Transport:     a.transport,
+		Clock:         coordination.RealClock{},
+		MLS:           a.mlsEngine,
+		Storage:       a.coordStorage,
+		LocalID:       a.node.Host.ID(),
+		GroupID:       groupID,
+		SigningKey:    identity.SigningKeyPrivate,
+		OnMessage:     a.makeMessageHandler(groupID),
+		OnEpochChange: a.makeEpochHandler(groupID),
+	})
+	if err != nil {
+		return fmt.Errorf("create coordinator: %w", err)
+	}
+	if err := coord.Start(a.ctx); err != nil {
+		return fmt.Errorf("start coordinator: %w", err)
+	}
+	a.coordinators[groupID] = coord
+	slog.Info("Joined group via Welcome", "group_id", groupID, "epoch", epoch)
+	return nil
+}
+
+// GetGroupMembers returns active-view members with coarse online status from libp2p.
+func (a *App) GetGroupMembers(groupID string) ([]MemberInfo, error) {
+	a.mu.Lock()
+	coord, ok := a.coordinators[groupID]
+	tr := a.transport
+	a.mu.Unlock()
+
+	if !ok {
+		return nil, fmt.Errorf("not in group %q", groupID)
+	}
+	if tr == nil {
+		return nil, fmt.Errorf("transport not initialized")
+	}
+
+	online := make(map[string]struct{})
+	for _, p := range tr.ConnectedPeers() {
+		online[string(p)] = struct{}{}
+	}
+
+	ids := coord.ActiveMembers()
+	out := make([]MemberInfo, 0, len(ids))
+	for _, id := range ids {
+		_, isOn := online[string(id)]
+		out = append(out, MemberInfo{PeerID: string(id), IsOnline: isOn})
+	}
+	return out, nil
+}
+
 // GetGroupStatus returns live status for a specific group.
 func (a *App) GetGroupStatus(groupID string) map[string]interface{} {
 	a.mu.Lock()
@@ -172,14 +343,14 @@ func (a *App) GetGroupStatus(groupID string) map[string]interface{} {
 
 	snap := coord.GetMetrics()
 	return map[string]interface{}{
-		"group_id":             groupID,
-		"epoch":                coord.CurrentEpoch(),
-		"is_token_holder":      coord.IsTokenHolder(),
-		"active_members":       len(coord.ActiveMembers()),
-		"commits_issued":       snap.CommitsIssued,
-		"proposals_received":   snap.ProposalsReceived,
-		"messages_encrypted":   snap.CommitBytesTotal,
-		"partitions_detected":  snap.PartitionsDetected,
+		"group_id":            groupID,
+		"epoch":               coord.CurrentEpoch(),
+		"is_token_holder":     coord.IsTokenHolder(),
+		"active_members":      len(coord.ActiveMembers()),
+		"commits_issued":      snap.CommitsIssued,
+		"proposals_received":  snap.ProposalsReceived,
+		"messages_encrypted":  snap.CommitBytesTotal,
+		"partitions_detected": snap.PartitionsDetected,
 	}
 }
 

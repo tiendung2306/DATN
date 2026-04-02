@@ -887,11 +887,13 @@ func (x *ProcessCommitResponse) GetNewTreeHash() []byte {
 }
 
 type ProcessWelcomeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	WelcomeBytes  []byte                 `protobuf:"bytes,1,opt,name=welcome_bytes,json=welcomeBytes,proto3" json:"welcome_bytes,omitempty"`
-	SigningKey    []byte                 `protobuf:"bytes,2,opt,name=signing_key,json=signingKey,proto3" json:"signing_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	WelcomeBytes []byte                 `protobuf:"bytes,1,opt,name=welcome_bytes,json=welcomeBytes,proto3" json:"welcome_bytes,omitempty"`
+	SigningKey   []byte                 `protobuf:"bytes,2,opt,name=signing_key,json=signingKey,proto3" json:"signing_key,omitempty"`
+	// Same blob returned from GenerateKeyPackage.key_package_bundle_private
+	KeyPackageBundlePrivate []byte `protobuf:"bytes,3,opt,name=key_package_bundle_private,json=keyPackageBundlePrivate,proto3" json:"key_package_bundle_private,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *ProcessWelcomeRequest) Reset() {
@@ -938,10 +940,18 @@ func (x *ProcessWelcomeRequest) GetSigningKey() []byte {
 	return nil
 }
 
+func (x *ProcessWelcomeRequest) GetKeyPackageBundlePrivate() []byte {
+	if x != nil {
+		return x.KeyPackageBundlePrivate
+	}
+	return nil
+}
+
 type ProcessWelcomeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	GroupState    []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
 	TreeHash      []byte                 `protobuf:"bytes,2,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -988,6 +998,13 @@ func (x *ProcessWelcomeResponse) GetTreeHash() []byte {
 		return x.TreeHash
 	}
 	return nil
+}
+
+func (x *ProcessWelcomeResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
 }
 
 type EncryptMessageRequest struct {
@@ -1414,6 +1431,223 @@ func (x *ExportSecretResponse) GetSecret() []byte {
 	return nil
 }
 
+type GenerateKeyPackageRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SigningKey    []byte                 `protobuf:"bytes,1,opt,name=signing_key,json=signingKey,proto3" json:"signing_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GenerateKeyPackageRequest) Reset() {
+	*x = GenerateKeyPackageRequest{}
+	mi := &file_mls_service_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateKeyPackageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateKeyPackageRequest) ProtoMessage() {}
+
+func (x *GenerateKeyPackageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateKeyPackageRequest.ProtoReflect.Descriptor instead.
+func (*GenerateKeyPackageRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *GenerateKeyPackageRequest) GetSigningKey() []byte {
+	if x != nil {
+		return x.SigningKey
+	}
+	return nil
+}
+
+type GenerateKeyPackageResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	KeyPackageBytes []byte                 `protobuf:"bytes,1,opt,name=key_package_bytes,json=keyPackageBytes,proto3" json:"key_package_bytes,omitempty"`
+	// Opaque blob (JSON) — invitee must retain until ProcessWelcome; never share OOB.
+	KeyPackageBundlePrivate []byte `protobuf:"bytes,2,opt,name=key_package_bundle_private,json=keyPackageBundlePrivate,proto3" json:"key_package_bundle_private,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *GenerateKeyPackageResponse) Reset() {
+	*x = GenerateKeyPackageResponse{}
+	mi := &file_mls_service_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GenerateKeyPackageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GenerateKeyPackageResponse) ProtoMessage() {}
+
+func (x *GenerateKeyPackageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GenerateKeyPackageResponse.ProtoReflect.Descriptor instead.
+func (*GenerateKeyPackageResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *GenerateKeyPackageResponse) GetKeyPackageBytes() []byte {
+	if x != nil {
+		return x.KeyPackageBytes
+	}
+	return nil
+}
+
+func (x *GenerateKeyPackageResponse) GetKeyPackageBundlePrivate() []byte {
+	if x != nil {
+		return x.KeyPackageBundlePrivate
+	}
+	return nil
+}
+
+type AddMembersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupState    []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
+	KeyPackages   [][]byte               `protobuf:"bytes,2,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddMembersRequest) Reset() {
+	*x = AddMembersRequest{}
+	mi := &file_mls_service_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddMembersRequest) ProtoMessage() {}
+
+func (x *AddMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddMembersRequest.ProtoReflect.Descriptor instead.
+func (*AddMembersRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *AddMembersRequest) GetGroupState() []byte {
+	if x != nil {
+		return x.GroupState
+	}
+	return nil
+}
+
+func (x *AddMembersRequest) GetKeyPackages() [][]byte {
+	if x != nil {
+		return x.KeyPackages
+	}
+	return nil
+}
+
+type AddMembersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CommitBytes   []byte                 `protobuf:"bytes,1,opt,name=commit_bytes,json=commitBytes,proto3" json:"commit_bytes,omitempty"`
+	WelcomeBytes  []byte                 `protobuf:"bytes,2,opt,name=welcome_bytes,json=welcomeBytes,proto3" json:"welcome_bytes,omitempty"`
+	NewGroupState []byte                 `protobuf:"bytes,3,opt,name=new_group_state,json=newGroupState,proto3" json:"new_group_state,omitempty"`
+	NewTreeHash   []byte                 `protobuf:"bytes,4,opt,name=new_tree_hash,json=newTreeHash,proto3" json:"new_tree_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AddMembersResponse) Reset() {
+	*x = AddMembersResponse{}
+	mi := &file_mls_service_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AddMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AddMembersResponse) ProtoMessage() {}
+
+func (x *AddMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AddMembersResponse.ProtoReflect.Descriptor instead.
+func (*AddMembersResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *AddMembersResponse) GetCommitBytes() []byte {
+	if x != nil {
+		return x.CommitBytes
+	}
+	return nil
+}
+
+func (x *AddMembersResponse) GetWelcomeBytes() []byte {
+	if x != nil {
+		return x.WelcomeBytes
+	}
+	return nil
+}
+
+func (x *AddMembersResponse) GetNewGroupState() []byte {
+	if x != nil {
+		return x.NewGroupState
+	}
+	return nil
+}
+
+func (x *AddMembersResponse) GetNewTreeHash() []byte {
+	if x != nil {
+		return x.NewTreeHash
+	}
+	return nil
+}
+
 var File_mls_service_proto protoreflect.FileDescriptor
 
 const file_mls_service_proto_rawDesc = "" +
@@ -1478,15 +1712,17 @@ const file_mls_service_proto_rawDesc = "" +
 	"\fcommit_bytes\x18\x02 \x01(\fR\vcommitBytes\"c\n" +
 	"\x15ProcessCommitResponse\x12&\n" +
 	"\x0fnew_group_state\x18\x01 \x01(\fR\rnewGroupState\x12\"\n" +
-	"\rnew_tree_hash\x18\x02 \x01(\fR\vnewTreeHash\"]\n" +
+	"\rnew_tree_hash\x18\x02 \x01(\fR\vnewTreeHash\"\x9a\x01\n" +
 	"\x15ProcessWelcomeRequest\x12#\n" +
 	"\rwelcome_bytes\x18\x01 \x01(\fR\fwelcomeBytes\x12\x1f\n" +
 	"\vsigning_key\x18\x02 \x01(\fR\n" +
-	"signingKey\"V\n" +
+	"signingKey\x12;\n" +
+	"\x1akey_package_bundle_private\x18\x03 \x01(\fR\x17keyPackageBundlePrivate\"l\n" +
 	"\x16ProcessWelcomeResponse\x12\x1f\n" +
 	"\vgroup_state\x18\x01 \x01(\fR\n" +
 	"groupState\x12\x1b\n" +
-	"\ttree_hash\x18\x02 \x01(\fR\btreeHash\"V\n" +
+	"\ttree_hash\x18\x02 \x01(\fR\btreeHash\x12\x14\n" +
+	"\x05epoch\x18\x03 \x01(\x04R\x05epoch\"V\n" +
 	"\x15EncryptMessageRequest\x12\x1f\n" +
 	"\vgroup_state\x18\x01 \x01(\fR\n" +
 	"groupState\x12\x1c\n" +
@@ -1521,11 +1757,27 @@ const file_mls_service_proto_rawDesc = "" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x16\n" +
 	"\x06length\x18\x03 \x01(\rR\x06length\".\n" +
 	"\x14ExportSecretResponse\x12\x16\n" +
-	"\x06secret\x18\x01 \x01(\fR\x06secret*M\n" +
+	"\x06secret\x18\x01 \x01(\fR\x06secret\"<\n" +
+	"\x19GenerateKeyPackageRequest\x12\x1f\n" +
+	"\vsigning_key\x18\x01 \x01(\fR\n" +
+	"signingKey\"\x85\x01\n" +
+	"\x1aGenerateKeyPackageResponse\x12*\n" +
+	"\x11key_package_bytes\x18\x01 \x01(\fR\x0fkeyPackageBytes\x12;\n" +
+	"\x1akey_package_bundle_private\x18\x02 \x01(\fR\x17keyPackageBundlePrivate\"W\n" +
+	"\x11AddMembersRequest\x12\x1f\n" +
+	"\vgroup_state\x18\x01 \x01(\fR\n" +
+	"groupState\x12!\n" +
+	"\fkey_packages\x18\x02 \x03(\fR\vkeyPackages\"\xa8\x01\n" +
+	"\x12AddMembersResponse\x12!\n" +
+	"\fcommit_bytes\x18\x01 \x01(\fR\vcommitBytes\x12#\n" +
+	"\rwelcome_bytes\x18\x02 \x01(\fR\fwelcomeBytes\x12&\n" +
+	"\x0fnew_group_state\x18\x03 \x01(\fR\rnewGroupState\x12\"\n" +
+	"\rnew_tree_hash\x18\x04 \x01(\fR\vnewTreeHash*M\n" +
 	"\x0fMlsProposalType\x12\x10\n" +
 	"\fPROPOSAL_ADD\x10\x00\x12\x13\n" +
 	"\x0fPROPOSAL_REMOVE\x10\x01\x12\x13\n" +
-	"\x0fPROPOSAL_UPDATE\x10\x022\xfb\b\n" +
+	"\x0fPROPOSAL_UPDATE\x10\x022\xb1\n" +
+	"\n" +
 	"\x10MLSCryptoService\x12;\n" +
 	"\x04Ping\x12\x18.mls_service.PingRequest\x1a\x19.mls_service.PingResponse\x12_\n" +
 	"\x10GenerateIdentity\x12$.mls_service.GenerateIdentityRequest\x1a%.mls_service.GenerateIdentityResponse\x12Y\n" +
@@ -1539,7 +1791,10 @@ const file_mls_service_proto_rawDesc = "" +
 	"\x0eEncryptMessage\x12\".mls_service.EncryptMessageRequest\x1a#.mls_service.EncryptMessageResponse\x12Y\n" +
 	"\x0eDecryptMessage\x12\".mls_service.DecryptMessageRequest\x1a#.mls_service.DecryptMessageResponse\x12S\n" +
 	"\fExternalJoin\x12 .mls_service.ExternalJoinRequest\x1a!.mls_service.ExternalJoinResponse\x12S\n" +
-	"\fExportSecret\x12 .mls_service.ExportSecretRequest\x1a!.mls_service.ExportSecretResponseB\x11Z\x0fapp/mls_serviceb\x06proto3"
+	"\fExportSecret\x12 .mls_service.ExportSecretRequest\x1a!.mls_service.ExportSecretResponse\x12e\n" +
+	"\x12GenerateKeyPackage\x12&.mls_service.GenerateKeyPackageRequest\x1a'.mls_service.GenerateKeyPackageResponse\x12M\n" +
+	"\n" +
+	"AddMembers\x12\x1e.mls_service.AddMembersRequest\x1a\x1f.mls_service.AddMembersResponseB\x11Z\x0fapp/mls_serviceb\x06proto3"
 
 var (
 	file_mls_service_proto_rawDescOnce sync.Once
@@ -1554,35 +1809,39 @@ func file_mls_service_proto_rawDescGZIP() []byte {
 }
 
 var file_mls_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_mls_service_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_mls_service_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_mls_service_proto_goTypes = []any{
-	(MlsProposalType)(0),             // 0: mls_service.MlsProposalType
-	(*PingRequest)(nil),              // 1: mls_service.PingRequest
-	(*PingResponse)(nil),             // 2: mls_service.PingResponse
-	(*GenerateIdentityRequest)(nil),  // 3: mls_service.GenerateIdentityRequest
-	(*GenerateIdentityResponse)(nil), // 4: mls_service.GenerateIdentityResponse
-	(*ExportIdentityRequest)(nil),    // 5: mls_service.ExportIdentityRequest
-	(*ExportIdentityResponse)(nil),   // 6: mls_service.ExportIdentityResponse
-	(*ImportIdentityRequest)(nil),    // 7: mls_service.ImportIdentityRequest
-	(*ImportIdentityResponse)(nil),   // 8: mls_service.ImportIdentityResponse
-	(*CreateGroupRequest)(nil),       // 9: mls_service.CreateGroupRequest
-	(*CreateGroupResponse)(nil),      // 10: mls_service.CreateGroupResponse
-	(*CreateProposalRequest)(nil),    // 11: mls_service.CreateProposalRequest
-	(*CreateProposalResponse)(nil),   // 12: mls_service.CreateProposalResponse
-	(*CreateCommitRequest)(nil),      // 13: mls_service.CreateCommitRequest
-	(*CreateCommitResponse)(nil),     // 14: mls_service.CreateCommitResponse
-	(*ProcessCommitRequest)(nil),     // 15: mls_service.ProcessCommitRequest
-	(*ProcessCommitResponse)(nil),    // 16: mls_service.ProcessCommitResponse
-	(*ProcessWelcomeRequest)(nil),    // 17: mls_service.ProcessWelcomeRequest
-	(*ProcessWelcomeResponse)(nil),   // 18: mls_service.ProcessWelcomeResponse
-	(*EncryptMessageRequest)(nil),    // 19: mls_service.EncryptMessageRequest
-	(*EncryptMessageResponse)(nil),   // 20: mls_service.EncryptMessageResponse
-	(*DecryptMessageRequest)(nil),    // 21: mls_service.DecryptMessageRequest
-	(*DecryptMessageResponse)(nil),   // 22: mls_service.DecryptMessageResponse
-	(*ExternalJoinRequest)(nil),      // 23: mls_service.ExternalJoinRequest
-	(*ExternalJoinResponse)(nil),     // 24: mls_service.ExternalJoinResponse
-	(*ExportSecretRequest)(nil),      // 25: mls_service.ExportSecretRequest
-	(*ExportSecretResponse)(nil),     // 26: mls_service.ExportSecretResponse
+	(MlsProposalType)(0),               // 0: mls_service.MlsProposalType
+	(*PingRequest)(nil),                // 1: mls_service.PingRequest
+	(*PingResponse)(nil),               // 2: mls_service.PingResponse
+	(*GenerateIdentityRequest)(nil),    // 3: mls_service.GenerateIdentityRequest
+	(*GenerateIdentityResponse)(nil),   // 4: mls_service.GenerateIdentityResponse
+	(*ExportIdentityRequest)(nil),      // 5: mls_service.ExportIdentityRequest
+	(*ExportIdentityResponse)(nil),     // 6: mls_service.ExportIdentityResponse
+	(*ImportIdentityRequest)(nil),      // 7: mls_service.ImportIdentityRequest
+	(*ImportIdentityResponse)(nil),     // 8: mls_service.ImportIdentityResponse
+	(*CreateGroupRequest)(nil),         // 9: mls_service.CreateGroupRequest
+	(*CreateGroupResponse)(nil),        // 10: mls_service.CreateGroupResponse
+	(*CreateProposalRequest)(nil),      // 11: mls_service.CreateProposalRequest
+	(*CreateProposalResponse)(nil),     // 12: mls_service.CreateProposalResponse
+	(*CreateCommitRequest)(nil),        // 13: mls_service.CreateCommitRequest
+	(*CreateCommitResponse)(nil),       // 14: mls_service.CreateCommitResponse
+	(*ProcessCommitRequest)(nil),       // 15: mls_service.ProcessCommitRequest
+	(*ProcessCommitResponse)(nil),      // 16: mls_service.ProcessCommitResponse
+	(*ProcessWelcomeRequest)(nil),      // 17: mls_service.ProcessWelcomeRequest
+	(*ProcessWelcomeResponse)(nil),     // 18: mls_service.ProcessWelcomeResponse
+	(*EncryptMessageRequest)(nil),      // 19: mls_service.EncryptMessageRequest
+	(*EncryptMessageResponse)(nil),     // 20: mls_service.EncryptMessageResponse
+	(*DecryptMessageRequest)(nil),      // 21: mls_service.DecryptMessageRequest
+	(*DecryptMessageResponse)(nil),     // 22: mls_service.DecryptMessageResponse
+	(*ExternalJoinRequest)(nil),        // 23: mls_service.ExternalJoinRequest
+	(*ExternalJoinResponse)(nil),       // 24: mls_service.ExternalJoinResponse
+	(*ExportSecretRequest)(nil),        // 25: mls_service.ExportSecretRequest
+	(*ExportSecretResponse)(nil),       // 26: mls_service.ExportSecretResponse
+	(*GenerateKeyPackageRequest)(nil),  // 27: mls_service.GenerateKeyPackageRequest
+	(*GenerateKeyPackageResponse)(nil), // 28: mls_service.GenerateKeyPackageResponse
+	(*AddMembersRequest)(nil),          // 29: mls_service.AddMembersRequest
+	(*AddMembersResponse)(nil),         // 30: mls_service.AddMembersResponse
 }
 var file_mls_service_proto_depIdxs = []int32{
 	0,  // 0: mls_service.CreateProposalRequest.proposal_type:type_name -> mls_service.MlsProposalType
@@ -1599,21 +1858,25 @@ var file_mls_service_proto_depIdxs = []int32{
 	21, // 11: mls_service.MLSCryptoService.DecryptMessage:input_type -> mls_service.DecryptMessageRequest
 	23, // 12: mls_service.MLSCryptoService.ExternalJoin:input_type -> mls_service.ExternalJoinRequest
 	25, // 13: mls_service.MLSCryptoService.ExportSecret:input_type -> mls_service.ExportSecretRequest
-	2,  // 14: mls_service.MLSCryptoService.Ping:output_type -> mls_service.PingResponse
-	4,  // 15: mls_service.MLSCryptoService.GenerateIdentity:output_type -> mls_service.GenerateIdentityResponse
-	6,  // 16: mls_service.MLSCryptoService.ExportIdentity:output_type -> mls_service.ExportIdentityResponse
-	8,  // 17: mls_service.MLSCryptoService.ImportIdentity:output_type -> mls_service.ImportIdentityResponse
-	10, // 18: mls_service.MLSCryptoService.CreateGroup:output_type -> mls_service.CreateGroupResponse
-	12, // 19: mls_service.MLSCryptoService.CreateProposal:output_type -> mls_service.CreateProposalResponse
-	14, // 20: mls_service.MLSCryptoService.CreateCommit:output_type -> mls_service.CreateCommitResponse
-	16, // 21: mls_service.MLSCryptoService.ProcessCommit:output_type -> mls_service.ProcessCommitResponse
-	18, // 22: mls_service.MLSCryptoService.ProcessWelcome:output_type -> mls_service.ProcessWelcomeResponse
-	20, // 23: mls_service.MLSCryptoService.EncryptMessage:output_type -> mls_service.EncryptMessageResponse
-	22, // 24: mls_service.MLSCryptoService.DecryptMessage:output_type -> mls_service.DecryptMessageResponse
-	24, // 25: mls_service.MLSCryptoService.ExternalJoin:output_type -> mls_service.ExternalJoinResponse
-	26, // 26: mls_service.MLSCryptoService.ExportSecret:output_type -> mls_service.ExportSecretResponse
-	14, // [14:27] is the sub-list for method output_type
-	1,  // [1:14] is the sub-list for method input_type
+	27, // 14: mls_service.MLSCryptoService.GenerateKeyPackage:input_type -> mls_service.GenerateKeyPackageRequest
+	29, // 15: mls_service.MLSCryptoService.AddMembers:input_type -> mls_service.AddMembersRequest
+	2,  // 16: mls_service.MLSCryptoService.Ping:output_type -> mls_service.PingResponse
+	4,  // 17: mls_service.MLSCryptoService.GenerateIdentity:output_type -> mls_service.GenerateIdentityResponse
+	6,  // 18: mls_service.MLSCryptoService.ExportIdentity:output_type -> mls_service.ExportIdentityResponse
+	8,  // 19: mls_service.MLSCryptoService.ImportIdentity:output_type -> mls_service.ImportIdentityResponse
+	10, // 20: mls_service.MLSCryptoService.CreateGroup:output_type -> mls_service.CreateGroupResponse
+	12, // 21: mls_service.MLSCryptoService.CreateProposal:output_type -> mls_service.CreateProposalResponse
+	14, // 22: mls_service.MLSCryptoService.CreateCommit:output_type -> mls_service.CreateCommitResponse
+	16, // 23: mls_service.MLSCryptoService.ProcessCommit:output_type -> mls_service.ProcessCommitResponse
+	18, // 24: mls_service.MLSCryptoService.ProcessWelcome:output_type -> mls_service.ProcessWelcomeResponse
+	20, // 25: mls_service.MLSCryptoService.EncryptMessage:output_type -> mls_service.EncryptMessageResponse
+	22, // 26: mls_service.MLSCryptoService.DecryptMessage:output_type -> mls_service.DecryptMessageResponse
+	24, // 27: mls_service.MLSCryptoService.ExternalJoin:output_type -> mls_service.ExternalJoinResponse
+	26, // 28: mls_service.MLSCryptoService.ExportSecret:output_type -> mls_service.ExportSecretResponse
+	28, // 29: mls_service.MLSCryptoService.GenerateKeyPackage:output_type -> mls_service.GenerateKeyPackageResponse
+	30, // 30: mls_service.MLSCryptoService.AddMembers:output_type -> mls_service.AddMembersResponse
+	16, // [16:31] is the sub-list for method output_type
+	1,  // [1:16] is the sub-list for method input_type
 	1,  // [1:1] is the sub-list for extension type_name
 	1,  // [1:1] is the sub-list for extension extendee
 	0,  // [0:1] is the sub-list for field type_name
@@ -1630,7 +1893,7 @@ func file_mls_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mls_service_proto_rawDesc), len(file_mls_service_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   26,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

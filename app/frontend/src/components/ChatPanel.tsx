@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime'
 import {
+  AddMemberToGroup,
   CreateGroupChat,
-  SendGroupMessage,
+  GenerateKeyPackage,
+  GetGroupMembers,
   GetGroupMessages,
   GetGroups,
+  JoinGroupWithWelcome,
+  SendGroupMessage,
 } from '../../wailsjs/go/main/App'
 
 interface MessageData {
@@ -19,6 +23,11 @@ interface GroupData {
   group_id: string
   epoch: number
   my_role: string
+}
+
+interface MemberRow {
+  peer_id: string
+  is_online: boolean
 }
 
 function shortID(id: string): string {
@@ -42,6 +51,17 @@ export default function ChatPanel() {
   const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const [membersOpen, setMembersOpen] = useState(false)
+  const [kpPublicHex, setKpPublicHex] = useState('')
+  const [kpBundleHex, setKpBundleHex] = useState('')
+  const [addPeerID, setAddPeerID] = useState('')
+  const [addKpHex, setAddKpHex] = useState('')
+  const [welcomeOutHex, setWelcomeOutHex] = useState('')
+  const [joinWelcomeHex, setJoinWelcomeHex] = useState('')
+  const [joinBundleHex, setJoinBundleHex] = useState('')
+  const [joinGroupID, setJoinGroupID] = useState('')
+  const [members, setMembers] = useState<MemberRow[]>([])
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
@@ -60,6 +80,25 @@ export default function ChatPanel() {
     const interval = setInterval(loadGroups, 5000)
     return () => clearInterval(interval)
   }, [])
+
+  // Members list when panel is open
+  useEffect(() => {
+    if (!activeGroup || !membersOpen) {
+      setMembers([])
+      return
+    }
+    const load = async () => {
+      try {
+        const m = await GetGroupMembers(activeGroup)
+        setMembers((m as MemberRow[]) ?? [])
+      } catch {
+        setMembers([])
+      }
+    }
+    load()
+    const interval = setInterval(load, 4000)
+    return () => clearInterval(interval)
+  }, [activeGroup, membersOpen])
 
   // Load messages when active group changes
   useEffect(() => {
@@ -147,6 +186,67 @@ export default function ChatPanel() {
     }
   }
 
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      setError('Could not copy to clipboard')
+    }
+  }
+
+  const activeRole = groups.find((g) => g.group_id === activeGroup)?.my_role
+
+  const handleGenKP = async () => {
+    setError(null)
+    try {
+      const r = await GenerateKeyPackage()
+      setKpPublicHex(r.public_hex)
+      setKpBundleHex(r.bundle_private_hex)
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    }
+  }
+
+  const handleAddMember = async () => {
+    if (!activeGroup) return
+    setLoading(true)
+    setError(null)
+    try {
+      const w = await AddMemberToGroup(activeGroup, addPeerID.trim(), addKpHex.trim())
+      setWelcomeOutHex(w)
+      setAddKpHex('')
+      const g = await GetGroups()
+      if (g) setGroups(g)
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleJoinWelcome = async () => {
+    const gid = joinGroupID.trim() || activeGroup || ''
+    if (!gid) {
+      setError('Enter a group ID')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      await JoinGroupWithWelcome(gid, joinWelcomeHex.trim(), joinBundleHex.trim())
+      setJoinWelcomeHex('')
+      setJoinBundleHex('')
+      setJoinGroupID('')
+      const g = await GetGroups()
+      if (g) setGroups(g)
+      setActiveGroup(gid)
+    } catch (e: any) {
+      setError(e?.message || String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="card mt-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-4">
@@ -204,6 +304,180 @@ export default function ChatPanel() {
               <span className="ml-1.5 text-[10px] opacity-60">E{g.epoch}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Members & MLS add/join (out-of-band) */}
+      {activeGroup && (
+        <div className="mb-4 rounded-lg border border-gray-800 bg-gray-950/50">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 text-left text-xs font-medium text-gray-400 hover:bg-gray-900/80 rounded-lg"
+            onClick={() => setMembersOpen((o) => !o)}
+          >
+            <span>Members &amp; keys</span>
+            <span className="text-gray-600">{membersOpen ? '▲' : '▼'}</span>
+          </button>
+          {membersOpen && (
+            <div className="px-3 pb-3 space-y-4 border-t border-gray-800 pt-3">
+              <div>
+                <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                  My Key Package
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-secondary text-xs mb-2"
+                  onClick={handleGenKP}
+                  disabled={loading}
+                >
+                  Generate Key Package
+                </button>
+                {kpPublicHex && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] text-gray-500">Public (share with creator)</p>
+                    <div className="flex gap-1">
+                      <textarea
+                        className="input text-[10px] font-mono h-16 w-full"
+                        readOnly
+                        value={kpPublicHex}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs shrink-0"
+                        onClick={() => copyText(kpPublicHex)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-amber-600/90">
+                      Keep the private bundle below on this device until you receive a Welcome.
+                    </p>
+                    <div className="flex gap-1">
+                      <textarea
+                        className="input text-[10px] font-mono h-16 w-full"
+                        readOnly
+                        value={kpBundleHex}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs shrink-0"
+                        onClick={() => copyText(kpBundleHex)}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {activeRole === 'creator' && (
+                <div>
+                  <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                    Add member
+                  </h3>
+                  <input
+                    type="text"
+                    className="input w-full mb-2 text-xs"
+                    placeholder="New member Peer ID"
+                    value={addPeerID}
+                    onChange={(e) => setAddPeerID(e.target.value)}
+                  />
+                  <textarea
+                    className="input w-full text-[10px] font-mono h-20 mb-2"
+                    placeholder="Key Package (hex)"
+                    value={addKpHex}
+                    onChange={(e) => setAddKpHex(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary text-xs"
+                    onClick={handleAddMember}
+                    disabled={loading || !addPeerID.trim() || !addKpHex.trim()}
+                  >
+                    Add member
+                  </button>
+                  {welcomeOutHex && (
+                    <div className="mt-2">
+                      <p className="text-[10px] text-gray-500 mb-1">Welcome (send OOB to invitee)</p>
+                      <div className="flex gap-1">
+                        <textarea
+                          className="input text-[10px] font-mono h-16 w-full"
+                          readOnly
+                          value={welcomeOutHex}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-xs shrink-0"
+                          onClick={() => copyText(welcomeOutHex)}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                  Join via Welcome
+                </h3>
+                <input
+                  type="text"
+                  className="input w-full mb-2 text-xs"
+                  placeholder="Group ID (defaults to active tab if empty)"
+                  value={joinGroupID}
+                  onChange={(e) => setJoinGroupID(e.target.value)}
+                />
+                <textarea
+                  className="input w-full text-[10px] font-mono h-16 mb-2"
+                  placeholder="Welcome (hex)"
+                  value={joinWelcomeHex}
+                  onChange={(e) => setJoinWelcomeHex(e.target.value)}
+                />
+                <textarea
+                  className="input w-full text-[10px] font-mono h-16 mb-2"
+                  placeholder="Your Key Package private bundle (hex) from Generate"
+                  value={joinBundleHex}
+                  onChange={(e) => setJoinBundleHex(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-primary text-xs"
+                  onClick={handleJoinWelcome}
+                  disabled={loading}
+                >
+                  Join group
+                </button>
+              </div>
+
+              <div>
+                <h3 className="text-[11px] font-semibold text-gray-500 uppercase mb-2">
+                  Online members (active view)
+                </h3>
+                {members.length === 0 ? (
+                  <p className="text-[10px] text-gray-600 italic">No members listed yet</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {members.map((m) => (
+                      <li
+                        key={m.peer_id}
+                        className="flex items-center gap-2 text-[11px] font-mono text-gray-300"
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            m.is_online ? 'bg-green-500' : 'bg-gray-600'
+                          }`}
+                          title={m.is_online ? 'connected' : 'not connected'}
+                        />
+                        {shortID(m.peer_id)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

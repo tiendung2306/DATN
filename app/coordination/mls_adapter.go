@@ -64,15 +64,37 @@ func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, co
 	return resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
-func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey []byte) (groupState, treeHash []byte, err error) {
+func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error) {
 	resp, err := g.client.ProcessWelcome(ctx, &mls_service.ProcessWelcomeRequest{
-		WelcomeBytes: welcomeBytes,
-		SigningKey:    signingKey,
+		WelcomeBytes:            welcomeBytes,
+		SigningKey:              signingKey,
+		KeyPackageBundlePrivate: keyPackageBundlePrivate,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("grpc ProcessWelcome: %w", err)
+		return nil, nil, 0, fmt.Errorf("grpc ProcessWelcome: %w", err)
 	}
-	return resp.GetGroupState(), resp.GetTreeHash(), nil
+	return resp.GetGroupState(), resp.GetTreeHash(), resp.GetEpoch(), nil
+}
+
+func (g *GrpcMLSEngine) GenerateKeyPackage(ctx context.Context, signingKey []byte) (keyPackageBytes, keyPackageBundlePrivate []byte, err error) {
+	resp, err := g.client.GenerateKeyPackage(ctx, &mls_service.GenerateKeyPackageRequest{
+		SigningKey: signingKey,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("grpc GenerateKeyPackage: %w", err)
+	}
+	return resp.GetKeyPackageBytes(), resp.GetKeyPackageBundlePrivate(), nil
+}
+
+func (g *GrpcMLSEngine) AddMembers(ctx context.Context, groupState []byte, keyPackages [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error) {
+	resp, err := g.client.AddMembers(ctx, &mls_service.AddMembersRequest{
+		GroupState:  groupState,
+		KeyPackages: keyPackages,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("grpc AddMembers: %w", err)
+	}
+	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error) {

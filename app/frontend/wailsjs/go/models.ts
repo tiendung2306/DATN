@@ -34,6 +34,34 @@ export namespace main {
 	        this.my_role = source["my_role"];
 	    }
 	}
+	export class KeyPackageResult {
+	    public_hex: string;
+	    bundle_private_hex: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new KeyPackageResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.public_hex = source["public_hex"];
+	        this.bundle_private_hex = source["bundle_private_hex"];
+	    }
+	}
+	export class MemberInfo {
+	    peer_id: string;
+	    is_online: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemberInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.peer_id = source["peer_id"];
+	        this.is_online = source["is_online"];
+	    }
+	}
 	export class MessageInfo {
 	    group_id: string;
 	    sender: string;

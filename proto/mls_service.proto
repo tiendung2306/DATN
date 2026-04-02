@@ -21,6 +21,10 @@ service MLSCryptoService {
   rpc DecryptMessage(DecryptMessageRequest) returns (DecryptMessageResponse);
   rpc ExternalJoin(ExternalJoinRequest) returns (ExternalJoinResponse);
   rpc ExportSecret(ExportSecretRequest) returns (ExportSecretResponse);
+
+  // Phase 4.1 — Add member / KeyPackage lifecycle
+  rpc GenerateKeyPackage(GenerateKeyPackageRequest) returns (GenerateKeyPackageResponse);
+  rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
 }
 
 // ── Phase 2 Messages ──
@@ -114,11 +118,14 @@ message ProcessCommitResponse {
 message ProcessWelcomeRequest {
   bytes welcome_bytes = 1;
   bytes signing_key = 2;
+  // Same blob returned from GenerateKeyPackage.key_package_bundle_private
+  bytes key_package_bundle_private = 3;
 }
 
 message ProcessWelcomeResponse {
   bytes group_state = 1;
   bytes tree_hash = 2;
+  uint64 epoch = 3;
 }
 
 message EncryptMessageRequest {
@@ -160,4 +167,26 @@ message ExportSecretRequest {
 
 message ExportSecretResponse {
   bytes secret = 1;
+}
+
+message GenerateKeyPackageRequest {
+  bytes signing_key = 1;
+}
+
+message GenerateKeyPackageResponse {
+  bytes key_package_bytes = 1;
+  // Opaque blob (JSON) — invitee must retain until ProcessWelcome; never share OOB.
+  bytes key_package_bundle_private = 2;
+}
+
+message AddMembersRequest {
+  bytes group_state = 1;
+  repeated bytes key_packages = 2;
+}
+
+message AddMembersResponse {
+  bytes commit_bytes = 1;
+  bytes welcome_bytes = 2;
+  bytes new_group_state = 3;
+  bytes new_tree_hash = 4;
 }

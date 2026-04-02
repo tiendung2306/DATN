@@ -3,6 +3,7 @@ use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::crypto::OpenMlsCrypto;
+use openmls_traits::storage::StorageProvider;
 use sha2::{Digest, Sha256};
 use tls_codec::{Deserialize as TlsDeserializeTrait, Serialize as TlsSerializeTrait};
 
@@ -146,6 +147,7 @@ pub struct ProcessCommitResult {
 pub struct WelcomeResult {
     pub group_state: Vec<u8>,
     pub tree_hash: Vec<u8>,
+    pub epoch: u64,
 }
 
 pub struct EncryptResult {
@@ -162,6 +164,11 @@ pub struct ExternalJoinResult {
     pub group_state: Vec<u8>,
     pub commit_bytes: Vec<u8>,
     pub tree_hash: Vec<u8>,
+}
+
+pub struct GenerateKeyPackageResult {
+    pub key_package_bytes: Vec<u8>,
+    pub key_package_bundle_private: Vec<u8>,
 }
 
 // ─── Proposal descriptor (coordination-layer concept, not raw MLS) ───────────
@@ -205,6 +212,93 @@ fn get_epoch(group: &MlsGroup) -> u64 {
 }
 
 // ─── MLS Group Operations (stateless) ───────────────────────────────────────
+
+/// Build a self-signed MLS KeyPackage for the given identity (out-of-band add flow).
+/// Returns the public KeyPackage bytes (share with the group creator) and an opaque
+/// private blob that the invitee must retain until [`process_welcome`] (never share OOB).
+pub fn generate_key_package(signing_key: &[u8]) -> Result<GenerateKeyPackageResult, String> {
+    let provider = OpenMlsRustCrypto::default();
+    let signer = reconstruct_signer(&provider, signing_key)?;
+
+    let credential = BasicCredential::new(signer.to_public_vec());
+    let credential_with_key = CredentialWithKey {
+        credential: credential.into(),
+        signature_key: signer.to_public_vec().into(),
+    };
+
+    let bundle = KeyPackageBuilder::new()
+        .build(
+            CIPHERSUITE,
+            &provider,
+            &signer,
+            credential_with_key,
+        )
+        .map_err(|e| format!("KeyPackageBuilder::build: {e:?}"))?;
+
+    let key_package_bytes = bundle
+        .key_package()
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize KeyPackage: {e:?}"))?;
+
+    let key_package_bundle_private = serde_json::to_vec(&bundle)
+        .map_err(|e| format!("serialize KeyPackageBundle: {e}"))?;
+
+    Ok(GenerateKeyPackageResult {
+        key_package_bytes,
+        key_package_bundle_private,
+    })
+}
+
+/// Add one or more members via their KeyPackages (commit + welcome in one step).
+pub fn add_members(
+    group_state: &[u8],
+    key_packages_bytes: &[Vec<u8>],
+) -> Result<CommitResult, String> {
+    let mut imp = import_state(group_state)?;
+
+    if key_packages_bytes.is_empty() {
+        return Err("no key packages".into());
+    }
+
+    let mut key_packages: Vec<KeyPackage> = Vec::with_capacity(key_packages_bytes.len());
+    for raw in key_packages_bytes {
+        let mut rd = raw.as_slice();
+        let kpin = KeyPackageIn::tls_deserialize(&mut rd)
+            .map_err(|e| format!("deserialize KeyPackageIn: {e:?}"))?;
+        let kp = kpin
+            .validate(imp.provider.crypto(), ProtocolVersion::Mls10)
+            .map_err(|e| format!("invalid KeyPackage: {e:?}"))?;
+        key_packages.push(kp);
+    }
+
+    let (commit_out, welcome_out, _group_info) = imp
+        .group
+        .add_members(&imp.provider, &imp.signer, &key_packages)
+        .map_err(|e| format!("add_members: {e:?}"))?;
+
+    imp.group
+        .merge_pending_commit(&imp.provider)
+        .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
+
+    let commit_bytes = commit_out
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize commit: {e:?}"))?;
+
+    let welcome_bytes = welcome_out
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize welcome: {e:?}"))?;
+
+    let epoch = get_epoch(&imp.group);
+    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
+
+    Ok(CommitResult {
+        commit_bytes,
+        welcome_bytes,
+        new_group_state: new_state,
+        new_tree_hash,
+    })
+}
 
 pub fn create_group(
     group_id: &str,
@@ -432,9 +526,21 @@ pub fn process_commit(
 pub fn process_welcome(
     welcome_bytes: &[u8],
     signing_key: &[u8],
+    key_package_bundle_private: &[u8],
 ) -> Result<WelcomeResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let _signer = reconstruct_signer(&provider, signing_key)?;
+
+    let bundle: KeyPackageBundle = serde_json::from_slice(key_package_bundle_private)
+        .map_err(|e| format!("deserialize KeyPackageBundle: {e}"))?;
+    let hash_ref = bundle
+        .key_package()
+        .hash_ref(provider.crypto())
+        .map_err(|e| format!("key package hash_ref: {e:?}"))?;
+    provider
+        .storage()
+        .write_key_package(&hash_ref, &bundle)
+        .map_err(|e| format!("store KeyPackageBundle: {e:?}"))?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(welcome_bytes)
         .map_err(|e| format!("deserialize welcome: {e:?}"))?;
@@ -463,6 +569,7 @@ pub fn process_welcome(
     Ok(WelcomeResult {
         group_state: state,
         tree_hash,
+        epoch,
     })
 }
 
@@ -572,6 +679,38 @@ mod tests {
         let secret = export_secret(&cr.group_state, "test-label", 32)
             .expect("export_secret");
         assert_eq!(secret.len(), 32);
+    }
+
+    #[test]
+    fn test_generate_key_package() {
+        let sk = test_signing_key();
+        let kp = generate_key_package(&sk).expect("generate_key_package");
+        assert!(!kp.key_package_bytes.is_empty());
+        assert!(!kp.key_package_bundle_private.is_empty());
+    }
+
+    #[test]
+    fn test_add_member_and_welcome() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let cr = create_group("add-member-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
+
+        let commit = add_members(&cr.group_state, &[kp_b.key_package_bytes.clone()]).expect("add_members");
+
+        let welcome_b = process_welcome(
+            &commit.welcome_bytes,
+            &sk_b,
+            &kp_b.key_package_bundle_private,
+        )
+        .expect("process_welcome B");
+
+        let enc_a = encrypt_message(&commit.new_group_state, b"hello from A")
+            .expect("encrypt A");
+        let dec_b = decrypt_message(&welcome_b.group_state, &enc_a.ciphertext)
+            .expect("decrypt B");
+        assert_eq!(dec_b.plaintext, b"hello from A");
     }
 
     #[test]

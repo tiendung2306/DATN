@@ -292,11 +292,35 @@ func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes
 	return newStateBytes, newTH, nil
 }
 
-func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _ []byte) ([]byte, []byte, error) {
+func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []byte) ([]byte, []byte, uint64, error) {
+	if err := m.popError(); err != nil {
+		return nil, nil, 0, err
+	}
+	return welcomeBytes, mockTreeHash(0), 1, nil
+}
+
+func (m *MockMLSEngine) GenerateKeyPackage(_ context.Context, _ []byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
-	return welcomeBytes, mockTreeHash(0), nil
+	return []byte("mock-key-package"), []byte("mock-kp-bundle-private"), nil
+}
+
+func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
+	if err := m.popError(); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	var state mockGroupState
+	if err := json.Unmarshal(groupState, &state); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("mock: bad state: %w", err)
+	}
+	state.Epoch++
+	newTH := mockTreeHash(state.Epoch)
+	state.TreeHash = hex.EncodeToString(newTH)
+	newStateBytes, _ := json.Marshal(state)
+	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
+	commitBytes, _ := json.Marshal(commitInfo)
+	return commitBytes, []byte("mock-welcome"), newStateBytes, newTH, nil
 }
 
 func (m *MockMLSEngine) EncryptMessage(_ context.Context, groupState, plaintext []byte) ([]byte, []byte, error) {

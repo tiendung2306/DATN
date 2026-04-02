@@ -342,11 +342,12 @@ func (c *Coordinator) tryCommitLocked() {
 		return
 	}
 
-	commitBytes, _, newState, newTreeHash, err := c.mls.CreateCommit(c.ctx, c.groupState, proposals)
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(c.ctx, c.groupState, proposals)
 	if err != nil {
 		return
 	}
 
+	_ = welcomeBytes // MLS Welcome must be delivered out-of-band, not broadcast in CommitMsg.
 	commitMsg := CommitMsg{
 		CommitData:  commitBytes,
 		NewTreeHash: newTreeHash,
@@ -407,6 +408,40 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
+
+// AddMember adds a new member from their KeyPackage bytes. Only the current
+// Token Holder may call this. Returns the MLS Welcome bytes for out-of-band
+// delivery to the invitee.
+func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte) ([]byte, error) {
+	_ = newMemberPeerID
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.started {
+		return nil, fmt.Errorf("coordinator not started")
+	}
+	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
+		return nil, ErrNotTokenHolder
+	}
+
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(c.ctx, c.groupState, [][]byte{keyPackageBytes})
+	if err != nil {
+		return nil, fmt.Errorf("AddMembers: %w", err)
+	}
+
+	commitMsg := CommitMsg{
+		CommitData:  commitBytes,
+		NewTreeHash: newTreeHash,
+	}
+	c.broadcastLocked(MsgCommit, commitMsg)
+
+	c.advanceEpochLocked(newState, c.epoch+1, newTreeHash, commitBytes)
+	c.metrics.IncrCommitsIssued()
+	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+
+	return welcomeBytes, nil
+}
 
 // SendMessage encrypts plaintext and broadcasts it as an application message.
 // Returns the HLC timestamp assigned to the message.
