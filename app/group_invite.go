@@ -193,11 +193,27 @@ func (a *App) InvitePeerToGroup(peerIDStr, groupID string) error {
 		return fmt.Errorf("cannot invite yourself")
 	}
 
-	// Fetch public KeyPackage from DHT (works while invitee is offline).
-	slog.Info("Fetching KeyPackage from DHT", "target", targetID, "group", groupID)
-	kpBytes, err := p2p.FetchKeyPackage(context.Background(), node.DHT, targetID)
-	if err != nil {
-		return fmt.Errorf("could not fetch KeyPackage for %s from DHT: %w\n\nTip: the peer must have been online at least once to advertise their KeyPackage.", targetID, err)
+	// Prefer DHT (offline invitee), but on small LANs the routing table is often
+	// empty so PutValue/GetValue fails — fall back to a direct stream (Noise).
+	if node.AuthProtocol != nil {
+		node.AuthProtocol.InitiateHandshake(a.ctx, targetID)
+	}
+
+	slog.Info("Fetching KeyPackage", "target", targetID, "group", groupID)
+	kpBytes, dhtErr := p2p.FetchKeyPackage(context.Background(), node.DHT, targetID)
+	if dhtErr != nil {
+		slog.Warn("DHT KeyPackage fetch failed, trying direct kp-offer stream",
+			"target", targetID, "dht_err", dhtErr)
+		var directErr error
+		kpBytes, directErr = p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID)
+		if directErr != nil {
+			return fmt.Errorf(
+				"could not get KeyPackage for %s: DHT: %v; direct stream: %w.\n\n"+
+					"Ensure both nodes show as connected in the Dashboard, wait a few seconds after connect, then retry. "+
+					"On small LANs the DHT routing table may be empty — direct fetch needs an active libp2p connection.",
+				targetID, dhtErr, directErr)
+		}
+		slog.Info("KeyPackage fetched via direct stream", "target", targetID)
 	}
 
 	// AddMembers (Coordinator + MLS engine).
@@ -288,6 +304,93 @@ func (a *App) retryPendingWelcomes(targetID peer.ID) {
 }
 
 // ── Phase 3b: Welcome receipt (invitee) ───────────────────────────────────────
+
+// ensureLocalPublicKPBytes returns the public KeyPackage bytes, generating and
+// persisting a bundle in SQLite if none exists yet.
+func (a *App) ensureLocalPublicKPBytes() ([]byte, error) {
+	a.mu.Lock()
+	node := a.node
+	database := a.db
+	a.mu.Unlock()
+	if node == nil || database == nil {
+		return nil, fmt.Errorf("node or database not ready")
+	}
+	pid := node.Host.ID().String()
+	pub, _, err := database.GetKPBundle(pid)
+	if err == nil && len(pub) > 0 {
+		return pub, nil
+	}
+	kpRes, err := a.GenerateKeyPackage()
+	if err != nil {
+		return nil, err
+	}
+	publicKP, _ := hex.DecodeString(kpRes.PublicHex)
+	privateBundle, _ := hex.DecodeString(kpRes.BundlePrivateHex)
+	if err := database.SaveKPBundle(pid, publicKP, privateBundle); err != nil {
+		return nil, err
+	}
+	return publicKP, nil
+}
+
+func (a *App) handleKPOfferStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	one := make([]byte, 1)
+	if _, err := io.ReadFull(s, one); err != nil || one[0] != 0x01 {
+		return
+	}
+
+	a.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if a.node != nil {
+		ap = a.node.AuthProtocol
+	}
+	database := a.db
+	a.mu.Unlock()
+
+	if ap != nil && !ap.IsVerified(remote) {
+		slog.Warn("kp-offer: rejected unverified peer", "peer", remote)
+		return
+	}
+	if database == nil {
+		return
+	}
+
+	pub, err := a.ensureLocalPublicKPBytes()
+	if err != nil {
+		slog.Error("kp-offer: could not produce public KP", "err", err)
+		return
+	}
+
+	var lb [4]byte
+	binary.BigEndian.PutUint32(lb[:], uint32(len(pub)))
+	if _, err := s.Write(lb[:]); err != nil {
+		return
+	}
+	if _, err := s.Write(pub); err != nil {
+		return
+	}
+	slog.Info("kp-offer: served public KeyPackage", "to", remote, "bytes", len(pub))
+}
+
+func (a *App) registerKPOfferHandler() {
+	if a.node == nil {
+		return
+	}
+	a.node.Host.SetStreamHandler(p2p.KPOfferProtocol, func(s network.Stream) {
+		go a.handleKPOfferStream(s)
+	})
+	slog.Info("KP offer handler registered", "protocol", string(p2p.KPOfferProtocol))
+}
+
+func (a *App) removeKPOfferHandler() {
+	if a.node == nil {
+		return
+	}
+	a.node.Host.RemoveStreamHandler(p2p.KPOfferProtocol)
+}
 
 // registerWelcomeDeliveryHandler registers the stream handler so the invitee
 // auto-joins groups when a Welcome is pushed by the creator.
@@ -446,6 +549,10 @@ type peerConnectedHook struct {
 func (h *peerConnectedHook) Listen(network.Network, ma.Multiaddr)      {}
 func (h *peerConnectedHook) ListenClose(network.Network, ma.Multiaddr) {}
 func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
-	go h.app.retryPendingWelcomes(c.RemotePeer())
+	p := c.RemotePeer()
+	go h.app.retryPendingWelcomes(p)
+	// DHT PutValue needs peers in the routing table — retry KP advertisement
+	// whenever anyone connects (common on small LANs).
+	go h.app.advertiseKeyPackage()
 }
 func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {}

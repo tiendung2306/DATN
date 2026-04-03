@@ -97,7 +97,7 @@ func NewP2PNode(
 
 	// 3. Initialize Kademlia DHT + "/app/" record namespace for KP / Welcome storage.
 	kademliaDHT, err := dht.New(ctx, h,
-		dht.Mode(dht.ModeAuto),
+		dht.Mode(dht.ModeAutoServer),
 		dht.ProtocolPrefix(AppDHTProtocolPrefix),
 		dht.NamespacedValidator("app", appDHTValidator{}),
 	)
