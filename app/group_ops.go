@@ -136,10 +136,10 @@ func (a *App) GetGroupMessages(groupID string) ([]MessageInfo, error) {
 		return nil, err
 	}
 
-	var localID string
+	var localID peer.ID
 	a.mu.Lock()
 	if a.node != nil {
-		localID = string(a.node.Host.ID())
+		localID = a.node.Host.ID()
 	}
 	a.mu.Unlock()
 
@@ -147,10 +147,10 @@ func (a *App) GetGroupMessages(groupID string) ([]MessageInfo, error) {
 	for i, m := range msgs {
 		result[i] = MessageInfo{
 			GroupID:   m.GroupID,
-			Sender:    string(m.SenderID),
+			Sender:    m.SenderID.String(),
 			Content:   string(m.Content),
 			Timestamp: m.Timestamp.WallTimeMs,
-			IsMine:    string(m.SenderID) == localID,
+			IsMine:    m.SenderID == localID,
 		}
 	}
 	return result, nil
@@ -319,14 +319,14 @@ func (a *App) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 
 	online := make(map[string]struct{})
 	for _, p := range tr.ConnectedPeers() {
-		online[string(p)] = struct{}{}
+		online[p.String()] = struct{}{}
 	}
 
 	ids := coord.ActiveMembers()
 	out := make([]MemberInfo, 0, len(ids))
 	for _, id := range ids {
-		_, isOn := online[string(id)]
-		out = append(out, MemberInfo{PeerID: string(id), IsOnline: isOn})
+		_, isOn := online[id.String()]
+		out = append(out, MemberInfo{PeerID: id.String(), IsOnline: isOn})
 	}
 	return out, nil
 }
@@ -433,7 +433,7 @@ func (a *App) makeMessageHandler(groupID string) func(*coordination.StoredMessag
 
 		wailsRuntime.EventsEmit(a.ctx, "group:message", map[string]interface{}{
 			"group_id":  msg.GroupID,
-			"sender":    string(msg.SenderID),
+			"sender":    msg.SenderID.String(),
 			"content":   string(msg.Content),
 			"timestamp": msg.Timestamp.WallTimeMs,
 			"is_mine":   isMine,

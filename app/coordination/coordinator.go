@@ -220,7 +220,7 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 	case MsgCommit:
 		c.handleCommitLocked(&env)
 	case MsgApplication:
-		c.handleApplicationLocked(&env)
+		c.handleApplicationLocked(from, &env)
 	}
 }
 
@@ -292,7 +292,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope) {
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
 }
 
-func (c *Coordinator) handleApplicationLocked(env *Envelope) {
+func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope) {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
@@ -311,6 +311,9 @@ func (c *Coordinator) handleApplicationLocked(env *Envelope) {
 	}
 
 	localTs := c.hlc.Update(env.Timestamp)
+	if localTs.NodeID == "" {
+		localTs.NodeID = string(c.localID)
+	}
 
 	plaintext, newState, err := c.mls.DecryptMessage(c.ctx, c.groupState, appMsg.Ciphertext)
 	if err != nil {
@@ -320,10 +323,15 @@ func (c *Coordinator) handleApplicationLocked(env *Envelope) {
 	c.groupState = newState
 	slog.Info("Message received", "group", c.groupID, "epoch", env.Epoch, "from", env.From, "ts", localTs.WallTimeMs)
 
+	sender := peer.ID(env.From)
+	if sender == "" {
+		sender = from
+	}
+
 	msg := &StoredMessage{
 		GroupID:   c.groupID,
 		Epoch:     env.Epoch,
-		SenderID:  peer.ID(env.From),
+		SenderID:  sender,
 		Content:   plaintext,
 		Timestamp: localTs,
 	}
@@ -402,7 +410,7 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 		case MsgCommit:
 			c.handleCommitLocked(&env)
 		case MsgApplication:
-			c.handleApplicationLocked(&env)
+			c.handleApplicationLocked(peer.ID(env.From), &env)
 		}
 	}
 }
@@ -454,6 +462,9 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 	}
 
 	ts := c.hlc.Now()
+	if ts.NodeID == "" {
+		ts.NodeID = string(c.localID)
+	}
 
 	ciphertext, newState, err := c.mls.EncryptMessage(c.ctx, c.groupState, plaintext)
 	if err != nil {

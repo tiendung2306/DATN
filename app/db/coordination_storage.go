@@ -52,7 +52,7 @@ func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecor
 		     group_state = excluded.group_state,
 		     epoch       = excluded.epoch,
 		     tree_hash   = excluded.tree_hash,
-		     my_role     = excluded.my_role,
+		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
 		     updated_at  = excluded.updated_at`,
 		rec.GroupID, rec.GroupState, rec.Epoch, rec.TreeHash,
 		string(rec.MyRole), rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),

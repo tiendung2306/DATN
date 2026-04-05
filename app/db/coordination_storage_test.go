@@ -98,6 +98,44 @@ func TestSQLiteCoordinationStorage_GroupRecord_Upsert(t *testing.T) {
 	}
 }
 
+func TestSQLiteCoordinationStorage_GroupRecord_Upsert_PreservesMyRoleWhenOmitted(t *testing.T) {
+	s := setupTestStorage(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-role",
+		GroupState: []byte("v0"),
+		Epoch:      0,
+		TreeHash:   []byte("t0"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate epoch advancement saving state without MyRole (zero value).
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-role",
+		GroupState: []byte("v1"),
+		Epoch:      1,
+		TreeHash:   []byte("t1"),
+		MyRole:     "",
+		CreatedAt:  time.Time{},
+		UpdatedAt:  now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetGroupRecord("group-role")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MyRole != coordination.RoleCreator {
+		t.Errorf("MyRole = %q after upsert with empty MyRole, want %q", got.MyRole, coordination.RoleCreator)
+	}
+}
+
 func TestSQLiteCoordinationStorage_ListGroups(t *testing.T) {
 	s := setupTestStorage(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
