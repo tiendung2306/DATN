@@ -39,6 +39,10 @@ func run(cfg *Config) error {
 		return cmdCreateBundle(database, privKey, cfg)
 	case cfg.ImportBundle != "":
 		return cmdImportBundle(database, privKey, cfg.ImportBundle)
+	case cfg.ExportIdentity:
+		return cmdExportIdentity(database, privKey, cfg)
+	case cfg.ImportIdentityPath != "":
+		return cmdImportIdentity(database, cfg)
 	}
 
 	// ── Start Rust crypto engine (needed for --setup and normal operation) ────

@@ -15,6 +15,11 @@ type Config struct {
 	// Onboarding
 	Setup        bool
 	ImportBundle string
+	ExportIdentity     bool
+	ImportIdentityPath string
+	ExportOutputPath   string
+	IdentityPassphrase string
+	Force              bool
 
 	// Admin-only
 	AdminSetup      bool
@@ -37,6 +42,11 @@ func parseCLI() *Config {
 
 	flag.BoolVar(&cfg.Setup, "setup", false, "Generate MLS key pair (first-time setup, run once)")
 	flag.StringVar(&cfg.ImportBundle, "import-bundle", "", "Path to .bundle file received from Admin")
+	flag.BoolVar(&cfg.ExportIdentity, "export-identity", false, "Export local identity to encrypted .backup")
+	flag.StringVar(&cfg.ImportIdentityPath, "import-identity", "", "Path to encrypted .backup file")
+	flag.StringVar(&cfg.ExportOutputPath, "export-output", ".local/identity.backup", "Output path for --export-identity")
+	flag.StringVar(&cfg.IdentityPassphrase, "identity-passphrase", "", "Passphrase used for identity backup import/export")
+	flag.BoolVar(&cfg.Force, "force", false, "Force destructive operations like replacing existing identity on import")
 
 	flag.BoolVar(&cfg.AdminSetup, "admin-setup", false, "Generate Root Admin key pair (run once on admin machine)")
 	flag.StringVar(&cfg.AdminPassphrase, "admin-passphrase", "", "Passphrase to encrypt/unlock the Root Admin key")
@@ -53,5 +63,10 @@ func parseCLI() *Config {
 // IsCommand returns true when any one-shot command flag is active.
 // Used by main() to decide whether to run in CLI mode or launch the Wails GUI.
 func (c *Config) IsCommand() bool {
-	return c.Setup || c.AdminSetup || c.CreateBundle || c.ImportBundle != ""
+	return c.Setup ||
+		c.AdminSetup ||
+		c.CreateBundle ||
+		c.ImportBundle != "" ||
+		c.ExportIdentity ||
+		c.ImportIdentityPath != ""
 }

@@ -126,7 +126,16 @@ if token.PeerID != authenticatedPeerID.String() {
 
 ### 3e. Auth Protocol — `/app/auth/1.0.0`
 
-**Wire format:** `[4 bytes big-endian uint32: JSON length][JSON bytes of InvitationToken]`
+**Wire format (current):** `[4 bytes big-endian uint32: JSON length][JSON bytes of AuthHandshakeMsg]`
+
+```go
+type AuthHandshakeMsg struct {
+  Token   *InvitationToken
+  Session SessionClaim // started_at + nonce + MLS-signed proof
+}
+```
+
+Backward compatibility: parser still accepts legacy token-only payload.
 
 **Quy tắc tránh deadlock:**
 *   **Client (outbound, gọi `InitiateHandshake`):** SEND token trước → READ token peer
@@ -181,19 +190,13 @@ identity.backup (mã hóa AES-256-GCM + Argon2id)
 ├── libp2p_private_key   ← BẮT BUỘC — để PeerID giống hệt trên máy mới
 ├── mls_signing_key      ← MLS private key
 ├── mls_credential       ← display_name bytes (sau khi import bundle)
-└── invitation_token     ← token Admin đã ký
+├── invitation_token     ← token Admin đã ký
+├── mls_groups           ← serialized group_state snapshot
+├── stored_messages      ← local decrypted chat history
+├── kp_bundles           ← pending invite private material
+└── pending_welcomes_out ← welcomes chưa giao
 ```
-
-**Cần cập nhật Phase 5 ExportIdentity proto:**
-```protobuf
-message ExportIdentityRequest {
-  bytes libp2p_private_key = 1; // THÊM — để PeerID được khôi phục
-  bytes mls_signing_key    = 2;
-  bytes mls_credential     = 3;
-  bytes invitation_token   = 4;
-  string passphrase        = 5;
-}
-```
+Implementation note: backup/import is now fully handled in Go (no Rust `ExportIdentity/ImportIdentity` RPC required).
 
 ### 3i. Wails Integration — Kiến trúc GUI
 
@@ -277,6 +280,49 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 ---
 
 ## 4. Current Progress
+
+### Phase 5.1 + 5.2 (Identity migration + session takeover) — COMPLETE ✅
+
+#### Implemented in this update
+
+- **Identity backup/import (Phase 5.1, Go-side):**
+  - Added `app/identity_backup.go`:
+    - `ExportIdentityBackup(...)` and `ImportIdentityBackup(...)`
+    - Wire format: `[16B salt][12B nonce][AES-GCM ciphertext]`
+    - Argon2id params aligned with admin key encryption.
+  - Added tests `app/identity_backup_test.go`:
+    - export/import round-trip
+    - wrong passphrase rejection
+    - full content migration round-trip (groups/messages)
+  - Backup format upgraded to v2:
+    - identity + full user content snapshot (`mls_groups`, `stored_messages`, `kp_bundles`, `pending_welcomes_out`)
+    - import supports backward compatibility for v1 (identity-only backups)
+  - Added CLI support:
+    - `--export-identity`, `--import-identity`, `--export-output`, `--identity-passphrase`, `--force`
+    - commands integrated in `app/commands.go`, `app/runner.go`, `app/cli.go`
+  - Added Wails bindings:
+    - `ExportIdentity(passphrase)`
+    - `ImportIdentityFromFile(passphrase, force)`
+
+- **Session takeover hardening (Phase 5.2, auth-handshake session claim model):**
+  - Added signed session claim (`app/p2p/session_claim.go`):
+    - `BuildSessionClaim(...)` and `VerifySessionClaim(...)`
+    - claim signed by MLS private key, verified with `token.PublicKey`
+  - Added tests `app/p2p/session_claim_test.go`
+  - Extended auth wire format in `app/p2p/auth_protocol.go`:
+    - from raw `InvitationToken` → `AuthHandshakeMsg { token, session }`
+    - backward-compatible parser for legacy peers (token-only payload)
+  - Added deterministic stale-session rejection:
+    - per-peer `SessionStarted` tracked
+    - older session handshakes are rejected
+    - newer session closes older concurrent connections for same PeerID
+  - Updated node startup path (`app/app.go`, `app/node.go`, `app/p2p/host.go`) to attach session claim on auth handshake.
+
+#### Validation
+
+- `go test ./...` PASS
+- `go vet ./...` PASS
+- `go build ./...` PASS
 
 ### Phase 4 Coordination Layer — COMPLETE ✅ (68 tests: 62 Go + 6 Rust)
 

@@ -153,7 +153,7 @@ HLCTimestamp = (L, C, NodeID)
 *   **Sidecar Pattern:** The Rust binary MUST NOT be started manually. The Go app MUST spawn it using `os/exec` and pass the listening port via CLI flag (e.g., `--port 12345`).
 *   **Stateless Rust:** The Rust engine MUST NOT store state (Ratchet Trees, Keys) permanently. Go retrieves state from SQLite → Sends to Rust → Rust computes → Returns new state → Go saves to SQLite.
 *   **Strict Onboarding:** No node can join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
-*   **Single Active Device:** A user account is valid on only ONE device at a time. Login on a new device triggers a signed `KILL_SESSION` broadcast.
+*   **Single Active Device:** A user account is valid on only ONE device at a time. Auth handshake includes a signed `SessionClaim`; peers reject stale sessions and keep only the newest active device.
 *   **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
 *   **Offline Handling:** Messages to offline peers must be stored in the DHT (Neighborhood Storage) encrypted.
 *   **Single-Writer Invariant:** At any given epoch, only the deterministically elected Token Holder may issue a Commit. All other nodes MUST route their Proposals through Gossip and wait for the Token Holder's Commit.
@@ -257,16 +257,18 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 
 **Export (old device):**
 1.  User selects "Export Identity" → enters Passphrase.
-2.  Go fetches `libp2p_private_key` + `mls_signing_key` + `mls_credential` + `invitation_token` from SQLite.
-3.  Calls Rust `ExportIdentity(data, passphrase)` → AES-256-GCM encrypted blob (key derived via Argon2id).
-4.  Go saves blob to `.backup` file.
+2.  Go fetches identity + content snapshot from SQLite:
+    * `libp2p_private_key`, `mls_signing_key`, `mls_credential`, `invitation_token`
+    * `mls_groups`, `stored_messages`, `kp_bundles`, `pending_welcomes_out`
+3.  Go serializes payload (versioned) and encrypts it with AES-256-GCM (key derived via Argon2id).
+4.  Go saves encrypted blob to `.backup` file.
 
 **Import (new device):**
 1.  User selects `.backup` file → enters Passphrase.
-2.  Go reads file → Calls Rust `ImportIdentity(blob, passphrase)`.
-3.  Rust decrypts → Returns `libp2p_private_key` + `mls_signing_key` + `mls_credential` + `invitation_token`.
-4.  Go stores all keys in SQLite → **PeerID is restored** (same Libp2p key → same PeerID → passes auth handshake).
-5.  Signs & broadcasts `KILL_SESSION` to invalidate old device → connects to P2P.
+2.  Go reads file and decrypts payload locally (no Rust RPC for backup).
+3.  Go restores identity rows + content snapshot to SQLite.
+4.  **PeerID is restored** (same Libp2p key → same PeerID → passes auth handshake).
+5.  On next startup, the node presents a signed `SessionClaim`; peers reject stale sessions and keep the newest one.
 
 > **NOTE:** The `.backup` file MUST contain `libp2p_private_key`. Without it, the new device generates a new PeerID which does NOT match the `token.PeerID` in the InvitationToken → auth handshake fails.
 

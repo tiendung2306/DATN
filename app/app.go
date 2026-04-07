@@ -46,6 +46,8 @@ type App struct {
 	coordinators map[string]*coordination.Coordinator
 }
 
+const killSessionPendingConfigKey = "kill_session_pending"
+
 // NewApp creates the App instance that Wails will bind.
 func NewApp(cfg *Config) *App {
 	return &App{
@@ -99,6 +101,8 @@ func (a *App) startup(ctx context.Context) {
 	if state == StateAuthorized || state == StateAdminReady {
 		if err := a.launchP2PNode(); err != nil {
 			slog.Error("Failed to start P2P node on startup", "error", err)
+		} else if err := consumeKillSessionPendingFlag(a.db); err != nil {
+			slog.Warn("Failed to clear kill session pending flag", "error", err)
 		}
 	}
 }
@@ -227,6 +231,95 @@ func (a *App) OpenAndImportBundle() error {
 		return err
 	}
 	return a.launchP2PNode()
+}
+
+// ExportIdentity exports local identity data to an encrypted .backup file.
+// The user provides a passphrase that protects the backup with Argon2id+AES-GCM.
+func (a *App) ExportIdentity(passphrase string) error {
+	if a.db == nil || a.privKey == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	if passphrase == "" {
+		return fmt.Errorf("passphrase is required")
+	}
+
+	backupBytes, err := ExportIdentityBackup(a.db, a.privKey, passphrase)
+	if err != nil {
+		return err
+	}
+
+	outPath, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		Title:           "Save Identity Backup",
+		DefaultFilename: "identity.backup",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Identity Backup (*.backup)", Pattern: "*.backup"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("save dialog: %w", err)
+	}
+	if outPath == "" {
+		return nil
+	}
+
+	if err := os.WriteFile(outPath, backupBytes, 0600); err != nil {
+		return fmt.Errorf("write backup file: %w", err)
+	}
+	return nil
+}
+
+// ImportIdentityFromFile imports an encrypted .backup and replaces current local identity data.
+// The caller should restart app after success so all in-memory components reload cleanly.
+func (a *App) ImportIdentityFromFile(passphrase string, force bool) error {
+	if a.db == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	if passphrase == "" {
+		return fmt.Errorf("passphrase is required")
+	}
+
+	hasIdentity, err := a.db.HasMLSIdentity()
+	if err != nil {
+		return fmt.Errorf("check existing identity: %w", err)
+	}
+	hasBundle, err := a.db.HasAuthBundle()
+	if err != nil {
+		return fmt.Errorf("check existing auth bundle: %w", err)
+	}
+	if (hasIdentity || hasBundle) && !force {
+		return fmt.Errorf("existing identity data found; set force=true to replace")
+	}
+
+	path, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Select Identity Backup",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "Identity Backup (*.backup)", Pattern: "*.backup"},
+			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("open dialog: %w", err)
+	}
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read backup file: %w", err)
+	}
+	if _, err := ImportIdentityBackup(a.db, data, passphrase); err != nil {
+		return err
+	}
+	if _, err := resetSessionStartedAt(a.db); err != nil {
+		return fmt.Errorf("reset session start: %w", err)
+	}
+	if err := a.db.SetConfig(killSessionPendingConfigKey, []byte("1")); err != nil {
+		return fmt.Errorf("set kill session pending flag: %w", err)
+	}
+
+	slog.Info("Identity imported via GUI. Restart app to apply and trigger session takeover.")
+	return nil
 }
 
 // InitAdminKey generates the Root Admin key pair and encrypts it with the passphrase.
@@ -438,7 +531,13 @@ func (a *App) launchP2PNode() error {
 
 	nodeCtx, cancel := context.WithCancel(a.ctx)
 	localToken := p2p.BuildLocalToken(bundle)
-	node, err := p2p.NewP2PNode(nodeCtx, a.privKey, a.cfg.P2PPort, localToken, bundle.RootPublicKey)
+	hs, err := buildLocalAuthHandshake(a.db, localToken.PeerID)
+	if err != nil {
+		cancel()
+		return fmt.Errorf("build auth handshake: %w", err)
+	}
+	hs.Token = localToken
+	node, err := p2p.NewP2PNode(nodeCtx, a.privKey, a.cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("init P2P node: %w", err)

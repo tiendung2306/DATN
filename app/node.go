@@ -61,11 +61,19 @@ func runP2PNode(
 	defer cancel()
 
 	localToken := p2p.BuildLocalToken(bundle)
-	node, err := p2p.NewP2PNode(ctx, privKey, cfg.P2PPort, localToken, bundle.RootPublicKey)
+	hs, err := buildLocalAuthHandshake(database, localToken.PeerID)
+	if err != nil {
+		return fmt.Errorf("build auth handshake: %w", err)
+	}
+	hs.Token = localToken
+	node, err := p2p.NewP2PNode(ctx, privKey, cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
 	if err != nil {
 		return fmt.Errorf("initialize P2P node: %w", err)
 	}
 	defer node.Close()
+	if err := consumeKillSessionPendingFlag(database); err != nil {
+		slog.Warn("failed to clear kill session pending flag", "error", err)
+	}
 
 	if cfg.WriteBootstrap != "" {
 		go writeBootstrapFile(node, cfg.WriteBootstrap)

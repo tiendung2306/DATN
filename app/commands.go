@@ -101,6 +101,62 @@ func cmdImportBundle(database *db.Database, privKey p2pCrypto.PrivKey, path stri
 	return nil
 }
 
+// cmdExportIdentity exports local identity material to an encrypted .backup file.
+func cmdExportIdentity(database *db.Database, privKey p2pCrypto.PrivKey, cfg *Config) error {
+	if cfg.IdentityPassphrase == "" {
+		return fmt.Errorf("--identity-passphrase is required for --export-identity")
+	}
+	backupBytes, err := ExportIdentityBackup(database, privKey, cfg.IdentityPassphrase)
+	if err != nil {
+		return fmt.Errorf("export identity backup: %w", err)
+	}
+	if err := os.WriteFile(cfg.ExportOutputPath, backupBytes, 0600); err != nil {
+		return fmt.Errorf("write backup file %q: %w", cfg.ExportOutputPath, err)
+	}
+	slog.Info("Identity backup exported", "output", cfg.ExportOutputPath)
+	return nil
+}
+
+// cmdImportIdentity imports local identity material from an encrypted .backup file.
+func cmdImportIdentity(database *db.Database, cfg *Config) error {
+	if cfg.IdentityPassphrase == "" {
+		return fmt.Errorf("--identity-passphrase is required for --import-identity")
+	}
+
+	hasIdentity, err := database.HasMLSIdentity()
+	if err != nil {
+		return fmt.Errorf("check existing identity: %w", err)
+	}
+	hasBundle, err := database.HasAuthBundle()
+	if err != nil {
+		return fmt.Errorf("check existing auth bundle: %w", err)
+	}
+	if (hasIdentity || hasBundle) && !cfg.Force {
+		return fmt.Errorf("local identity data already exists; re-run with --force to replace it")
+	}
+
+	data, err := os.ReadFile(cfg.ImportIdentityPath)
+	if err != nil {
+		return fmt.Errorf("read backup file %q: %w", cfg.ImportIdentityPath, err)
+	}
+	payload, err := ImportIdentityBackup(database, data, cfg.IdentityPassphrase)
+	if err != nil {
+		return fmt.Errorf("import identity backup: %w", err)
+	}
+	if _, err := resetSessionStartedAt(database); err != nil {
+		return fmt.Errorf("reset session start: %w", err)
+	}
+	if err := database.SetConfig(killSessionPendingConfigKey, []byte("1")); err != nil {
+		return fmt.Errorf("set kill session pending flag: %w", err)
+	}
+	slog.Info("Identity imported successfully",
+		"peerID", payload.BundlePeerID,
+		"displayName", payload.BundleDisplayName,
+	)
+	slog.Info("Please restart the app to apply the imported identity and trigger session takeover.")
+	return nil
+}
+
 // buildAdminBootstrapAddr constructs the full multiaddr for Admin's P2P endpoint.
 // The /p2p/PEERID suffix is mandatory — libp2p's Noise Protocol uses it to
 // authenticate the remote peer's identity during connection establishment.

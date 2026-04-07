@@ -220,6 +220,16 @@ func (d *Database) HasConfig(key string) (bool, error) {
 	return count > 0, nil
 }
 
+// DeleteConfig removes a key from system_config. It is not an error if the key
+// does not exist.
+func (d *Database) DeleteConfig(key string) error {
+	_, err := d.Conn.Exec("DELETE FROM system_config WHERE key = ?", key)
+	if err != nil {
+		return fmt.Errorf("DeleteConfig(%q): %w", key, err)
+	}
+	return nil
+}
+
 // ── mls_identity ─────────────────────────────────────────────────────────────
 
 // SaveMLSIdentity persists the local MLS identity (overwrites if exists).

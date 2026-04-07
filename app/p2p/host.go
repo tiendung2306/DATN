@@ -70,6 +70,7 @@ func NewP2PNode(
 	listenPort int,
 	localToken *admin.InvitationToken,
 	rootPubKey []byte,
+	localHandshake *AuthHandshakeMsg,
 ) (*P2PNode, error) {
 	bestIP := GetBestLocalIP()
 	slog.Info("Selected best network interface for P2P", "ip", bestIP)
@@ -122,7 +123,10 @@ func NewP2PNode(
 
 	// 5. Initialize auth protocol (when token and root key are provided)
 	if localToken != nil && len(rootPubKey) > 0 {
-		ap := NewAuthProtocol(h, gater, localToken, rootPubKey)
+		if localHandshake == nil {
+			return nil, fmt.Errorf("auth handshake payload is required when auth is enabled")
+		}
+		ap := NewAuthProtocol(h, gater, localToken, rootPubKey, localHandshake)
 		node.AuthProtocol = ap
 		h.Network().Notify(&authNetworkNotifee{ap: ap})
 		slog.Info("Auth protocol registered", "protocol", AuthProtocolID)

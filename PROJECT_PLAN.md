@@ -338,14 +338,22 @@
 - **Task:** Go Logic: Read BOTH private keys from DB:
   - `libp2p_private_key` from `system_config` table
   - `mls_signing_key` + `mls_credential` + `invitation_token` from `mls_identity` and `auth_bundle` tables
-- **Task:** Send all of the above to Rust `ExportIdentity(data, passphrase)`.
-- **Task:** Rust Logic: Serialize all fields → Encrypt with AES-256-GCM (Key derived from Passphrase via Argon2id) → Return `EncryptedBlob`.
-- **Task:** Go Logic: Save `EncryptedBlob` to a `.backup` file.
-- **Task:** Import Flow: Read `.backup` file → Send to Rust `ImportIdentity(blob, passphrase)` → Restore ALL keys → Store in DB → Broadcast `KILL_SESSION`.
+- **Task:** Go Logic: Serialize identity payload and encrypt with AES-256-GCM (Key derived from Passphrase via Argon2id) → Save `.backup`.
+- **Task:** Include full user content snapshot for migration UX parity:
+  - `mls_groups` (group states)
+  - `stored_messages` (local chat history)
+  - `kp_bundles` and `pending_welcomes_out` (invite flows in progress)
+- **Task:** Import Flow: Read `.backup` → Decrypt in Go → Restore identity + content snapshot in SQLite.
+- **Task:** Backward compatibility: `.backup` versioning must support old identity-only backups.
 
 ### 5.2. Session Takeover (Single Active Device)
-- **Task:** On successful Import & Connect: Broadcast `KILL_SESSION` (Signed by User Key).
-- **Task:** Active clients listening to `KILL_SESSION`: Verify signature → Self-destruct if valid.
+- **Task:** Extend `/app/auth/1.0.0` handshake with signed `SessionClaim`:
+  - payload includes `session_started_at` + nonce
+  - signature verified with MLS public key from `InvitationToken`
+- **Task:** Per-peer session arbitration:
+  - newer session accepted
+  - stale session rejected
+  - concurrent old connections for same PeerID closed
 
 ### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage)
 - **Task:** If recipient is offline: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.

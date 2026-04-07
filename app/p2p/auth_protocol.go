@@ -25,6 +25,16 @@ const (
 	maxTokenBytes  = 64 * 1024 // 64 KB sanity limit
 )
 
+type AuthHandshakeMsg struct {
+	Token   *admin.InvitationToken `json:"token"`
+	Session SessionClaim           `json:"session"`
+}
+
+type verifiedPeerState struct {
+	Token          *admin.InvitationToken
+	SessionStarted int64
+}
+
 // AuthProtocol manages the auth handshake on the /app/auth/1.0.0 stream.
 //
 // Wire format for each token:
@@ -52,8 +62,9 @@ type AuthProtocol struct {
 	host          host.Host
 	gater         *AuthGater
 	localToken    *admin.InvitationToken
+	localHandshake *AuthHandshakeMsg
 	rootPublicKey ed25519.PublicKey
-	verifiedPeers sync.Map // peer.ID → *admin.InvitationToken
+	verifiedPeers sync.Map // peer.ID → *verifiedPeerState
 }
 
 // NewAuthProtocol registers the stream handler and returns the AuthProtocol.
@@ -62,11 +73,13 @@ func NewAuthProtocol(
 	gater *AuthGater,
 	localToken *admin.InvitationToken,
 	rootPubKey []byte,
+	localHandshake *AuthHandshakeMsg,
 ) *AuthProtocol {
 	ap := &AuthProtocol{
 		host:          h,
 		gater:         gater,
 		localToken:    localToken,
+		localHandshake: localHandshake,
 		rootPublicKey: ed25519.PublicKey(rootPubKey),
 	}
 	h.SetStreamHandler(AuthProtocolID, ap.handleIncoming)
@@ -86,7 +99,7 @@ func (ap *AuthProtocol) GetVerifiedToken(id peer.ID) *admin.InvitationToken {
 	if !ok {
 		return nil
 	}
-	return v.(*admin.InvitationToken)
+	return v.(*verifiedPeerState).Token
 }
 
 // handleIncoming is the server-side handler: reads peer token first, then sends own.
@@ -105,12 +118,13 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 	}
 
 	// Server reads first.
-	peerToken, err := readToken(s)
+	peerHandshake, err := readHandshake(s)
 	if err != nil {
 		slog.Warn("auth: transient read error (inbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
+	peerToken := peerHandshake.Token
 
 	if err := ap.verifyPeerToken(peerToken, peerID); err != nil {
 		slog.Warn("auth: security verification failed (inbound)", "peer", peerID, "reason", err)
@@ -118,14 +132,32 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 		return
 	}
 
+	sessionStarted := peerHandshake.Session.StartedAt
+	if sessionStarted > 0 {
+		if err := VerifySessionClaim(peerHandshake.Session, peerToken.PeerID, peerToken.PublicKey); err != nil {
+			slog.Warn("auth: security verification failed (inbound claim)", "peer", peerID, "reason", err)
+			ap.rejectSecurity(s, peerID, err.Error())
+			return
+		}
+	}
+
+	if !ap.acceptSession(peerID, sessionStarted, s.Conn()) {
+		slog.Warn("auth: rejecting stale session", "peer", peerID, "started_at", peerHandshake.Session.StartedAt)
+		ap.rejectTransient(s)
+		return
+	}
+
 	// Server sends own token.
-	if err := writeToken(s, ap.localToken); err != nil {
+	if err := writeHandshake(s, ap.localHandshake); err != nil {
 		slog.Warn("auth: transient write error (inbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
 
-	ap.verifiedPeers.Store(peerID, peerToken)
+	ap.verifiedPeers.Store(peerID, &verifiedPeerState{
+		Token:          peerToken,
+		SessionStarted: sessionStarted,
+	})
 	slog.Info("auth: peer verified (inbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 
@@ -155,19 +187,20 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 	}
 
 	// Client sends first.
-	if err := writeToken(s, ap.localToken); err != nil {
+	if err := writeHandshake(s, ap.localHandshake); err != nil {
 		slog.Warn("auth: transient write error (outbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
 
 	// Client reads peer's token.
-	peerToken, err := readToken(s)
+	peerHandshake, err := readHandshake(s)
 	if err != nil {
 		slog.Warn("auth: transient read error (outbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
+	peerToken := peerHandshake.Token
 
 	if err := ap.verifyPeerToken(peerToken, peerID); err != nil {
 		slog.Warn("auth: security verification failed (outbound)", "peer", peerID, "reason", err)
@@ -175,8 +208,46 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 		return
 	}
 
-	ap.verifiedPeers.Store(peerID, peerToken)
+	sessionStarted := peerHandshake.Session.StartedAt
+	if sessionStarted > 0 {
+		if err := VerifySessionClaim(peerHandshake.Session, peerToken.PeerID, peerToken.PublicKey); err != nil {
+			slog.Warn("auth: security verification failed (outbound claim)", "peer", peerID, "reason", err)
+			ap.rejectSecurity(s, peerID, err.Error())
+			return
+		}
+	}
+	if !ap.acceptSession(peerID, sessionStarted, s.Conn()) {
+		slog.Warn("auth: rejecting stale session (outbound)", "peer", peerID, "started_at", peerHandshake.Session.StartedAt)
+		ap.rejectTransient(s)
+		return
+	}
+
+	ap.verifiedPeers.Store(peerID, &verifiedPeerState{
+		Token:          peerToken,
+		SessionStarted: sessionStarted,
+	})
 	slog.Info("auth: peer verified (outbound)", "peer", peerID, "name", peerToken.DisplayName)
+}
+
+func (ap *AuthProtocol) acceptSession(peerID peer.ID, startedAt int64, acceptedConn network.Conn) bool {
+	v, ok := ap.verifiedPeers.Load(peerID)
+	if ok {
+		existing := v.(*verifiedPeerState)
+		if startedAt < existing.SessionStarted {
+			return false
+		}
+	}
+
+	// Evict other concurrent connections for this PeerID if this session is newer.
+	for _, conn := range ap.host.Network().ConnsToPeer(peerID) {
+		if acceptedConn != nil && conn.ID() == acceptedConn.ID() {
+			continue
+		}
+		if err := conn.Close(); err != nil {
+			slog.Debug("auth: close old conn failed", "peer", peerID, "err", err)
+		}
+	}
+	return true
 }
 
 // verifyPeerToken performs three cryptographic checks on a received token.
@@ -251,10 +322,13 @@ func (n *authNetworkNotifee) ListenClose(_ network.Network, _ ma.Multiaddr) {}
 
 // ─── Wire format helpers ──────────────────────────────────────────────────────
 
-func writeToken(w io.Writer, token *admin.InvitationToken) error {
-	data, err := json.Marshal(token)
+func writeHandshake(w io.Writer, hs *AuthHandshakeMsg) error {
+	if hs == nil || hs.Token == nil {
+		return fmt.Errorf("empty auth handshake")
+	}
+	data, err := json.Marshal(hs)
 	if err != nil {
-		return fmt.Errorf("marshal token: %w", err)
+		return fmt.Errorf("marshal handshake: %w", err)
 	}
 	lenBuf := make([]byte, 4)
 	binary.BigEndian.PutUint32(lenBuf, uint32(len(data)))
@@ -265,7 +339,7 @@ func writeToken(w io.Writer, token *admin.InvitationToken) error {
 	return err
 }
 
-func readToken(r io.Reader) (*admin.InvitationToken, error) {
+func readHandshake(r io.Reader) (*AuthHandshakeMsg, error) {
 	lenBuf := make([]byte, 4)
 	if _, err := io.ReadFull(r, lenBuf); err != nil {
 		return nil, fmt.Errorf("read length prefix: %w", err)
@@ -278,9 +352,19 @@ func readToken(r io.Reader) (*admin.InvitationToken, error) {
 	if _, err := io.ReadFull(r, data); err != nil {
 		return nil, fmt.Errorf("read token data: %w", err)
 	}
+	var hs AuthHandshakeMsg
+	if err := json.Unmarshal(data, &hs); err == nil && hs.Token != nil {
+		return &hs, nil
+	}
+	// Backward compatibility: older nodes send raw InvitationToken.
 	var token admin.InvitationToken
 	if err := json.Unmarshal(data, &token); err != nil {
-		return nil, fmt.Errorf("unmarshal token: %w", err)
+		return nil, fmt.Errorf("unmarshal handshake/token: %w", err)
 	}
-	return &token, nil
+	return &AuthHandshakeMsg{
+		Token: &token,
+		Session: SessionClaim{
+			StartedAt: 0, // legacy node without session claims
+		},
+	}, nil
 }
