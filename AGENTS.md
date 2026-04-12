@@ -46,7 +46,7 @@ This document outlines the core principles, mandates, and operational guidelines
 
 * **`PROJECT_PLAN.md`**: Detailed execution roadmap. ALWAYS refer to this for task specifics and phasing.
 * **`README.md`**: High-level project overview, architecture, protocol design, and critical rules.
-* **`CURRENT_STATE.md`**: Short-term memory — current progress, technical decisions, and implementation details. **Trước khi đụng Go/Wails:** đọc mục *Agent — Bản đồ mã nguồn & Wails* (đường dẫn `adapter/*`, `service.Runtime`, import TS `wailsjs/go/service/Runtime`).
+* **`CURRENT_STATE.md`**: Short-term memory — current progress, technical decisions, and implementation details. **Trước khi đụng Go/Wails:** đọc mục *Agent — Bản đồ mã nguồn & Wails* (`adapter/*`, `service.Runtime`, import TS `app/frontend/wailsjs/go/service/Runtime`).
 
 ## Go layout note (hexagonal)
 

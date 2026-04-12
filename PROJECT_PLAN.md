@@ -10,7 +10,7 @@
 - **Database:** SQLite (Managed by Go)
 - **IPC:** gRPC (Protobuf) over localhost with dynamic port assignment
 
-> **Đường dẫn mã (2026):** Go app trong `app/`. Thư mục lịch sử `backend/` đã đổi thành `app/`. SQLite: `app/adapter/store` (không còn `app/db`). Libp2p: `app/adapter/p2p`. Rust sidecar + gRPC MLS: `app/adapter/sidecar`. Wails bind `*service.Runtime` (`app/service/`); TS: `frontend/wailsjs/go/service/Runtime`. Các mục dưới đây có thể vẫn ghi `backend/` hoặc `app/app.go` theo timeline — khi implement mới, đối chiếu `CURRENT_STATE.md` mục *Agent — Bản đồ mã nguồn*.
+> **Đường dẫn mã (2026):** Go app trong `app/` (module `app`). SQLite: `app/adapter/store`. Libp2p: `app/adapter/p2p`. Rust sidecar + gRPC MLS: `app/adapter/sidecar` (`GrpcMLSEngine` trong `engine.go`). Wails: `app/main.go`, bind `*service.Runtime` (`app/service/`), TS: `app/frontend/wailsjs/go/service/Runtime`. Chi tiết: `CURRENT_STATE.md` mục *Agent — Bản đồ mã nguồn*.
 
 **Research Focus:** Design a Decentralized Coordination Protocol wrapping MLS (RFC 9420) that maintains causal consistency and total ordering on a P2P network without a central Delivery Service. The protocol is built on four mechanisms: Single-Writer Protocol, Epoch Consistency, Group Fork Healing, and Hybrid Logical Clock (HLC).
 
@@ -23,9 +23,8 @@
 ### 1.1. Monorepo Structure & Protobuf Definition
 - **Task:** Define the directory structure.
   - `/proto`: Shared `.proto` definitions.
-  - `/backend`: Go code (Wails app, Libp2p host, SQLite manager).
+  - `/app`: Go host (Wails, Libp2p, SQLite); frontend nguồn tại `app/frontend/`.
   - `/crypto-engine`: Rust code (gRPC server, OpenMLS logic).
-  - `/frontend`: React code.
 - **Task:** Define `mls_service.proto`.
   - Service: `MLSCryptoService`
   - Methods (Initial): `GenerateIdentity`, `ExportIdentity`, `ImportIdentity`.
@@ -98,24 +97,24 @@
 - Methods: `SaveMLSIdentity`, `GetMLSIdentity`, `HasMLSIdentity`, `UpdateMLSDisplayName`, `SaveAuthBundle`, `GetAuthBundle`, `HasAuthBundle`, `SetConfig`, `GetConfig`, `HasConfig`.
 
 ### 3.3. Admin PKI Package ✅
-- `backend/admin/token.go`: `InvitationToken`, `InvitationBundle`, `SignToken`, `VerifyToken`, `SerializeBundle`, `DeserializeBundle`.
-- `backend/admin/admin.go`: `SetupAdminKey`, `UnlockAdminKey`, `CreateInvitationBundle`. Encryption: Argon2id(passphrase, salt) → AES-256-GCM. Wire format: `[16B salt][12B nonce][ciphertext]`.
+- `app/admin/token.go`: `InvitationToken`, `InvitationBundle`, `SignToken`, `VerifyToken`, `SerializeBundle`, `DeserializeBundle`.
+- `app/admin/admin.go`: `SetupAdminKey`, `UnlockAdminKey`, `CreateInvitationBundle`. Encryption: Argon2id(passphrase, salt) → AES-256-GCM. Wire format: `[16B salt][12B nonce][ciphertext]`.
 
 ### 3.4. App States & Onboarding Flow ✅
-- `backend/app_state.go`: `StateUninitialized`, `StateAwaitingBundle`, `StateAuthorized`, `StateAdminReady`, `DetermineAppState(db)`.
-- `backend/p2p/auth.go`:
+- `app/service/app_state.go`: `StateUninitialized`, `StateAwaitingBundle`, `StateAuthorized`, `StateAdminReady`, `DetermineAppState(db)`.
+- `app/adapter/p2p/auth.go`:
   - `OnboardNewUser(ctx, db, mlsClient)` — no `displayName` param; credential set empty.
   - `GetOnboardingInfo(db, privKey) *OnboardingInfo` — returns `{PeerID, PublicKeyHex}` only.
   - `ImportInvitationBundle(db, privKey, bundleJSON)` — 4 checks + calls `UpdateMLSDisplayName`.
   - `BuildLocalToken(bundle) *admin.InvitationToken` — reconstructs full token from stored bundle.
 
 ### 3.5. Connection Gating & Auth Protocol ✅
-- `backend/p2p/gater.go`: `AuthGater` blacklist-based (not whitelist). New peers allowed through; blacklisted on handshake failure.
-- `backend/p2p/auth_protocol.go`: Protocol `/app/auth/1.0.0`. Wire format: `[4B uint32 length][JSON token]`. Client (outbound) sends first; Server (inbound) reads first — avoids deadlock. `authNetworkNotifee` triggers `InitiateHandshake` only for outbound connections.
-- `backend/p2p/host.go`: `NewP2PNode` signature updated with `localToken *admin.InvitationToken` and `rootPubKey []byte`. Integrates `libp2p.ConnectionGater(gater)`.
+- `app/adapter/p2p/gater.go`: `AuthGater` blacklist-based (not whitelist). New peers allowed through; blacklisted on handshake failure.
+- `app/adapter/p2p/auth_protocol.go`: Protocol `/app/auth/1.0.0`. Wire format: `[4B uint32 length][JSON payload]` (`AuthHandshakeMsg`: token + optional signed `SessionClaim`). Client (outbound) sends first; Server (inbound) reads first — avoids deadlock.
+- `app/adapter/p2p/host.go`: `NewP2PNode` với `localToken *admin.InvitationToken` và `rootPubKey []byte`. Integrates `libp2p.ConnectionGater(gater)`.
 
 ### 3.6. Integration ✅
-- `backend/main.go` fully rewritten: `DetermineAppState` branching, new CLI flags (`--setup`, `--admin-setup`, `--create-bundle`, `--import-bundle`), `waitForCryptoEngine` with retry loop, `runAdminSetup`, `runCreateBundle`.
+- `app/main.go` (composition root) + `app/cli` (`--setup`, `--admin-setup`, `--create-bundle`, `--import-bundle`, headless, …) + `service.Runtime` lifecycle; spawn sidecar / crypto client qua `adapter/sidecar`.
 - **Validation scenarios:**
   - Node A (Admin) + Node B (valid bundle): connect + auth ✅
   - Node C (no bundle / `StateUninitialized`): P2P not started ✅
@@ -123,14 +122,13 @@
   - Eve replaying Alice's token: `token.PeerID != noise_peer` → rejected ✅
 
 ### 3.7. Wails GUI Integration ✅
-- Thư mục `backend/` đã đổi tên thành `app/`, Go module name đổi từ `backend` → `app`.
-- Tích hợp Wails v2.11.0 vào Go app (`app/app.go`).
-- Scaffold React + TypeScript + Tailwind frontend tại `app/frontend/`.
+- Go module `app`; Wails v2.11.0 — `app/adapter/wailsui` gọi `wails.Run`, bind `*service.Runtime`, `EventSink` → UI events.
+- Scaffold React + TypeScript + Tailwind tại `app/frontend/`.
 - 4 màn hình dev/test UI đã hoàn chỉnh: SetupScreen, AwaitingBundleScreen, DashboardScreen, AdminPanel.
 
 ---
 
-## 4. MLS GROUP CHAT + DECENTRALIZED COORDINATION PROTOCOL (Weeks 8-12)
+## 4. MLS GROUP CHAT + DECENTRALIZED COORDINATION PROTOCOL (Weeks 8-12) [COMPLETED ✅]
 
 **Goal:** Integrate OpenMLS via gRPC to enable E2EE group chat, and implement the Decentralized Coordination Protocol — the **core research contribution** of this thesis — to maintain MLS state consistency without a central Delivery Service.
 
@@ -149,8 +147,8 @@
   - `ExportSecret(GroupState, Label, Length) → DerivedKey`
 - **Task:** Implement all handlers in Rust as **stateless** functions: Receive GroupState bytes → Deserialize → Operate → Serialize → Return.
 - **Implementation Note:** GroupState is opaque bytes from Go's perspective. Go stores it in SQLite; Rust deserializes it into the OpenMLS Ratchet Tree internally.
-- **Status:** Proto updated with 9 new RPCs (`CreateGroup`, `CreateProposal`, `CreateCommit`, `ProcessCommit`, `ProcessWelcome`, `EncryptMessage`, `DecryptMessage`, `ExternalJoin`, `ExportSecret`). Go protobuf regenerated. Rust handlers now run real OpenMLS 0.8 and follow stateless flow: receive `group_state` bytes → deserialize storage + load group → operate → serialize updated state bytes.
-- **Go adapter:** `app/coordination/mls_adapter.go` — `GrpcMLSEngine` wraps gRPC client to `MLSEngine` interface.
+- **Status:** Proto có các RPC nhóm (CreateGroup … ExportSecret), sau đó bổ sung `GenerateKeyPackage`, `AddMembers`; `ProcessWelcome` mở rộng (epoch + `key_package_bundle_private` cho invitee). Go protobuf regenerated. Rust OpenMLS 0.8, stateless: nhận `group_state` bytes → operate → trả bytes mới.
+- **Go bridge:** `GrpcMLSEngine` trong `app/adapter/sidecar/engine.go` — implements `coordination.MLSEngine` (không còn `app/coordination/mls_adapter.go`).
 
 ### 4.2. Database Schema for Groups & Coordination [COMPLETED ✅]
 - **Task:** Add `mls_groups` table:
@@ -177,8 +175,8 @@
       FOREIGN KEY (group_id) REFERENCES mls_groups(group_id)
   );
   ```
-- **Status:** Both tables created in `app/db/db.go`. Added `stored_messages` table with HLC-based index for message ordering. `app/db/coordination_storage.go` implements `CoordinationStorage` interface (UPSERT for GroupRecord/CoordState, HLC-ordered message queries). **8 tests PASS.**
-- **Transport adapter:** `app/p2p/transport_adapter.go` — `LibP2PTransport` wraps real libp2p GossipSub + direct streams (`/coordination/direct/1.0.0`) to `Transport` interface.
+- **Status:** Schema và migration trong `app/adapter/store/db.go`; `app/adapter/store/coordination_storage.go` implements `CoordinationStorage` (UPSERT GroupRecord/CoordState, HLC-ordered messages). **`go test ./adapter/store` — PASS.**
+- **Transport adapter:** `app/adapter/p2p/transport_adapter.go` — `LibP2PTransport` (GossipSub + direct streams `/coordination/direct/1.0.0`).
 
 ### 4.3. Mechanism 1 — Single-Writer Protocol (Go Coordination Layer) [COMPLETED ✅]
 - **Package:** `app/coordination/single_writer.go`
@@ -282,7 +280,7 @@
   - Periodic `Update` Proposals generated automatically (configurable interval).
   - Token Holder batches Updates into Commits.
   - Ensures PCS: compromised device keys become stale within one rotation cycle.
-- **Status:** Wails bindings created in `app/group_ops.go` exposing `CreateGroupChat`, `SendGroupMessage`, `GetGroupMessages`, `GetGroups`, `GetGroupStatus` to frontend. `app/app.go` modified with coordination stack fields (`transport`, `coordStorage`, `mlsEngine`, `coordinators` map), `initCoordinationStackLocked()` on P2P start, and `stopCoordinatorsLocked()` in teardown. Real OpenMLS implementation in Rust replaces stubs. Frontend `ChatPanel.tsx` component built with group creation, message sending/receiving, and real-time updates via Wails events.
+- **Status:** Wails methods trên `*service.Runtime` trong `app/service/group.go`, `messaging.go`, `invite.go`, …; stack coordination trong `app/service/runtime.go` + `initCoordinationStackLocked` / `stopCoordinatorsLocked` trong `group.go`. Frontend `ChatPanel.tsx`: tạo nhóm, tin nhắn, members/keys, events Wails.
 
 ### 4.7. Mechanism 4 — Hybrid Logical Clock (Message Display Ordering) [COMPLETED ✅]
 - **Package:** `app/coordination/hlc.go`
@@ -294,7 +292,7 @@
   - `Now() HLCTimestamp` — called on send or local event.
   - `Update(received HLCTimestamp) HLCTimestamp` — called on message receive, merges remote clock.
   - Uses the injectable `Clock` interface — deterministic in tests via `FakeClock`.
-- **Status:** `app/coordination/hlc.go` — HLC engine with `Now()`, `Update()`, thread-safe, injectable Clock. `app/coordination/config.go` — `CoordinatorConfig`, `DefaultConfig`, `TestConfig`, `Validate`. `app/coordination/metrics.go` — thread-safe counters + latency samples. `app/coordination/clock_real.go` — `RealClock` for production. **20 tests PASS (8 HLC + 4 config + 4 metrics + 4 clock).**
+- **Status:** `app/coordination/hlc.go` — HLC engine with `Now()`, `Update()`, thread-safe, injectable Clock. `app/coordination/config.go` — `CoordinatorConfig`, `DefaultConfig`, `TestConfig`, `Validate`. `app/coordination/metrics.go` — thread-safe counters + latency samples. `app/coordination/clock_real.go` — `RealClock`; `FakeClock` trong `clock_fake_test.go` (test-only). **`go test ./coordination` — PASS** (gồm table-driven subtests).
 - **Properties guaranteed:**
   - Causal consistency: if A happened-before B, then `HLC(A) < HLC(B)`.
   - Total order: all nodes sort messages identically.
@@ -308,22 +306,21 @@
   - Epoch check → update local HLC → decrypt via Rust → store with HLC timestamp → emit to UI.
 - **Task:** All messages tagged with both `epoch_number` (for MLS validation) and `HLCTimestamp` (for display ordering).
 - **Task:** UI sorts and displays messages by HLC — uses `WallTimeMs` for human-readable time.
-- **Status:** Full pipeline wired end-to-end. `app/group_ops.go` exposes `SendGroupMessage` and `GetGroupMessages` via Wails bindings. `ChatPanel.tsx` renders messages sorted by HLC timestamp with real-time updates via `EventsOn("group:message")`. Real OpenMLS encryption (`MlsGroup::create_message`) used in Rust — forward secrecy preserved. **62 Go tests + 6 Rust tests PASS.**
+- **Status:** Full pipeline end-to-end; `SendGroupMessage` / `GetGroupMessages` trên `service.Runtime` + `ChatPanel.tsx` (HLC sort, `EventsOn("group:message")`). Rust: OpenMLS encrypt/decrypt. **Xác minh:** `cd app && go test ./...` ; `cd crypto-engine && cargo test` — PASS.
 
 ### 4.9. Phase 4 Summary [COMPLETED ✅]
 
-**All Phase 4 tasks completed (68 tests total: 62 Go + 6 Rust):**
-- Coordination Layer: all 4 mechanisms + Coordinator orchestrator (54 Go tests)
-- Infrastructure: Proto (13 RPCs), DB schema + storage (8 Go tests), Transport adapter, gRPC adapter
-- Real OpenMLS stateless engine: `create_group`, `encrypt_message`, `decrypt_message`, `create_commit` (self_update), `process_commit`, `process_welcome`, `export_secret` serialize/deserialize full `group_state` bytes via OpenMLS storage (6 Rust tests)
-- Wails Bindings: `app/group_ops.go` with `CreateGroupChat`, `SendGroupMessage`, `GetGroupMessages`, `GetGroups`, `GetGroupStatus` + coordination stack initialization in `app/app.go`
-- Frontend Chat UI: `ChatPanel.tsx` with group creation, message display (HLC-sorted), real-time updates via Wails events
-- All code: `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean
+**Phase 4 (coordination + MLS group chat) hoàn tất:**
+- **Coordination:** `app/coordination/*` — bốn cơ chế + `Coordinator`; **`go test ./coordination` — PASS**.
+- **Proto / RPC:** `proto/mls_service.proto` — **15 RPC** (gồm identity, nhóm, `GenerateKeyPackage`, `AddMembers`).
+- **Persistence + transport:** `app/adapter/store`, `app/adapter/p2p/transport_adapter.go`; **gRPC:** `app/adapter/sidecar/engine.go`.
+- **Rust:** `crypto-engine` — stateless OpenMLS; **`cargo test` — 8 tests PASS** (gồm `test_generate_key_package`, `test_add_member_and_welcome`).
+- **Wails:** `app/service/*.go` (group, messaging, invite, …), `app/service/runtime.go`; frontend `ChatPanel.tsx`.
+- **Build:** `go vet ./...`, `go build ./...`, `cargo build`, `cargo test` clean (kèm `npm run build` frontend khi cần).
 
 **Remaining for full end-to-end validation (Phase 7):**
 - Multi-node testing on 2-3 real instances (manual test)
-- Add Member flow requires KeyPackage generation (not yet implemented in proto)
-- External Join requires verifiable GroupInfo from winning branch (stub only)
+- External Join / verifiable `GroupInfo` từ nhánh thắng — vẫn cần hardening (xem code Rust/Go hiện tại)
 - Legacy groups created with old metadata-only `group_state` must be recreated/migrated
 
 ---
@@ -332,7 +329,9 @@
 
 **Goal:** Secure Identity Migration (Manual) and Offline Messaging (Store-and-Forward).
 
-### 5.1. Secure Identity Export/Import (File-based)
+**Trạng thái (đối chiếu code):** **5.1** và **5.2** đã implement (`.backup` + `SessionClaim` trong auth). **5.3** (offline DHT messaging) chưa làm.
+
+### 5.1. Secure Identity Export/Import (File-based) [COMPLETED ✅]
 - **CRITICAL DESIGN NOTE:** The `.backup` file MUST include the Libp2p private key in addition to the MLS key.
   - **Reason:** `InvitationToken` binds `PeerID` (derived from Libp2p key) to the MLS public key. If a new device generates a new PeerID, the token becomes invalid and auth handshake fails.
   - **Solution:** Exporting the Libp2p private key allows the new device to restore the exact same PeerID, making the existing token valid.
@@ -348,7 +347,9 @@
 - **Task:** Import Flow: Read `.backup` → Decrypt in Go → Restore identity + content snapshot in SQLite.
 - **Task:** Backward compatibility: `.backup` versioning must support old identity-only backups.
 
-### 5.2. Session Takeover (Single Active Device)
+**Implemented:** `app/service/identity_backup.go`, CLI `app/cli`, Wails `ExportIdentity` / `ImportIdentityFromFile`; format v2 + import v1 (xem `CURRENT_STATE.md` §4).
+
+### 5.2. Session Takeover (Single Active Device) [COMPLETED ✅]
 - **Task:** Extend `/app/auth/1.0.0` handshake with signed `SessionClaim`:
   - payload includes `session_started_at` + nonce
   - signature verified with MLS public key from `InvitationToken`
@@ -356,6 +357,8 @@
   - newer session accepted
   - stale session rejected
   - concurrent old connections for same PeerID closed
+
+**Implemented:** `app/adapter/p2p/session_claim.go`, `auth_protocol.go` (`AuthHandshakeMsg`), `app/service/session.go`, tests trong `session_claim_test.go`.
 
 ### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage)
 - **Task:** If recipient is offline: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.

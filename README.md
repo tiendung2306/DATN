@@ -173,7 +173,7 @@ HLCTimestamp = (L, C, NodeID)
 This is a standard PKI Certificate Signing Request flow. The MLS Private Key is generated locally and never leaves the user's machine. **The display name is assigned by Admin** — users do not name themselves.
 
 **Step A — New User (Alice) — First Launch:**
-1.  `backend --setup` → `GetOrCreateLibp2pIdentity()` → `PeerID_Alice`.
+1.  Trong thư mục `app/`: `go run . --setup` → `GetOrCreateLibp2pIdentity()` → `PeerID_Alice`.
 2.  Rust `GenerateIdentity()` → `MLS_PrivKey` (saved locally) + `MLS_PubKey` (empty credential at this stage).
 3.  App prints `PeerID_Alice` + `MLS_PubKey_hex` → Alice sends both to Admin out-of-band (Zalo, email, etc.).
 4.  App enters `StateAwaitingBundle` — P2P networking does NOT start yet.
@@ -187,7 +187,7 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 6.  Admin sends `.local/invite.bundle` to Alice out-of-band.
 
 **Step C — Alice imports bundle:**
-1.  `backend --import-bundle alice.bundle`.
+1.  `go run . --import-bundle alice.bundle` (từ `app/`).
 2.  App verifies 4 checks: (a) Admin signature valid, (b) `token.PeerID == myPeerID`, (c) `token.PublicKey == myMLSPubKey`, (d) token not expired.
 3.  Bundle + Admin-assigned name `"Alice"` saved to SQLite → `StateAuthorized` → P2P starts → connects to `bootstrap_addr` → auth handshake with all peers.
 
@@ -340,7 +340,7 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   └── Cargo.toml
 │
 ├── proto/                      # Shared Protocol Buffers
-│   └── mls_service.proto       # 13 RPCs: Phase 2 (4) + Phase 4 (9 group operations)
+│   └── mls_service.proto       # 15 RPCs: identity (4) + group/crypto (9) + KeyPackage/AddMembers (2)
 │
 ├── PROJECT_PLAN.md             # Detailed execution roadmap (phases + tasks)
 ├── CURRENT_STATE.md            # AI Agent short-term memory (current progress + key decisions)

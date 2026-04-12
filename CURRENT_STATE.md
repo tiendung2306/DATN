@@ -278,7 +278,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | **HLC** (hybrid logical) | Application message display ordering |
 | **Local wall clock** | Liveness detection (heartbeat, T_timeout), feeds HLC |
 
-**Package `app/coordination/` — ĐÃ IMPLEMENT (54/54 tests PASS):**
+**Package `app/coordination/` — ĐÃ IMPLEMENT (`go test ./coordination` — PASS; ~63 hàm `Test*` + subtests table-driven):**
 *   `interfaces.go` — Contracts: Transport, Clock, MLSEngine (with treeHash returns), CoordinationStorage
 *   `types.go` — Data types, wire messages, enums, sentinel errors
 *   `config.go` — CoordinatorConfig + DefaultConfig + TestConfig + Validate
@@ -323,9 +323,9 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 - `go vet ./...` PASS
 - `go build ./...` PASS
 
-### Phase 4 Coordination Layer — COMPLETE ✅ (≈90+ subtests Go + 6 Rust; `go test ./...` xem package)
+### Phase 4 Coordination Layer — COMPLETE ✅ (xác minh: `cd app && go test ./...`; `cd crypto-engine && cargo test`)
 
-**Coordination (54+ tests):** `app/coordination/*.go` — giữ nguyên vai trò: Transport, Clock, MLSEngine (interface), Coordinator, HLC, fork healing, v.v. **Không** chứa binary Rust; bridge MLS thực tế: `app/adapter/sidecar/engine.go`.
+**Coordination:** `app/coordination/*.go` — Transport, Clock, MLSEngine (interface), Coordinator, HLC, fork healing. **Không** chứa binary Rust; bridge MLS: `app/adapter/sidecar/engine.go`.
 
 **SQLite + transport:** `app/adapter/store` (`db.go`, `coordination_storage.go` — 8 tests store), `app/adapter/p2p/transport_adapter.go` (LibP2PTransport).
 
@@ -398,36 +398,34 @@ wails build      # production build
 *   **protoc command đúng:** `protoc --go_out=. --go-grpc_out=. --proto_path=./proto mls_service.proto` (chạy từ project root)
 *   **openmls_rust_crypto version:** phải dùng `0.5` (khớp với `openmls_traits 0.5`)
 *   **bootstrap_addr format bắt buộc:** `/ip4/IP/tcp/PORT/p2p/PEERID`
-*   **display_name trong MLS credential:** Hiện tại lưu raw UTF-8 bytes. Phase 4 sẽ dùng proper TLS-serialized `BasicCredential`.
-*   **ExportIdentity proto (Phase 5):** PHẢI bao gồm `libp2p_private_key` để PeerID được khôi phục khi chuyển thiết bị.
+*   **display_name trong MLS credential:** Hiện tại lưu raw UTF-8 bytes; có thể nâng cấp sau sang TLS-serialized `BasicCredential` nếu cần.
+*   **Backup `.backup` (Phase 5.1):** Payload **phải** gồm `libp2p_private_key` (cùng các trường MLS/bundle) để khôi phục đúng PeerID — đã implement trong Go (`identity_backup.go`), không phụ thuộc RPC `ExportIdentity`/`ImportIdentity` của proto.
 *   **Blacklisting policy:** `rejectSecurity` (có blacklist) chỉ gọi khi `verifyPeerToken` thất bại. `rejectTransient` (không blacklist) cho mọi lỗi IO/timeout. KHÔNG bao giờ blacklist khi `NewStream` fail.
 *   **GetNodeStatus mutex:** Khi đã giữ lock `Runtime.mu`, dùng `getAppStateUnlocked()` thay vì gọi lại `GetAppState()` (tránh deadlock).
 
 ---
 
-## 6. Next Step — Phase 5: Advanced Features
+## 6. Next Step — Phase 5.3 trở đi + hardening
 
-Phase 4 hoàn tất. Hệ thống đã có:
-- Real OpenMLS crypto (create group, encrypt/decrypt messages, self-update commit, export secret)
-- Full coordination pipeline (Single-Writer, Epoch Consistency, Fork Healing, HLC) — 54 Go tests
-- Wails bindings + Chat UI cho manual testing
-- 68 tests pass (62 Go + 6 Rust), all builds clean
+Phase 4 hoàn tất. **Phase 5.1 (backup `.backup`) và 5.2 (`SessionClaim` / single active device)** đã implement — xem §4.
+
+Hệ thống đã có:
+- OpenMLS (nhóm, tin nhắn, KeyPackage / AddMembers / Welcome, …) qua sidecar
+- Coordination đầy đủ (Single-Writer, Epoch, Fork healing, HLC); **`go test ./...`** và **`cargo test`** để xác minh
 
 **Để manual test:**
-1. `cd crypto-engine && cargo build --release`
-2. `cd app && wails generate module && wails dev`
-3. Trong UI: nhập Group ID → "Create / Join" → gõ tin nhắn → xem tin nhắn hiển thị với HLC timestamp
-4. Chạy 2 instance trên 2 máy/port để test P2P messaging
+1. `cd crypto-engine; cargo build --release`
+2. `cd app; wails generate module; wails dev` (hoặc `go run . --headless` cho CLI)
+3. Trong UI: nhập Group ID → Create / Join → gửi tin nhắn; kiểm tra HLC sort
+4. Hai instance (hai DB / port) để thử P2P
 
-**Tiếp theo (Phase 5):**
+**Tiếp theo (ưu tiên):**
 
-1.  **Secure Identity Export/Import:** `.backup` file chứa libp2p_private_key + mls_signing_key + credential + invitation_token, mã hóa AES-256-GCM (Argon2id). Hỗ trợ chuyển thiết bị.
+1.  **Phase 5.3 — Offline messaging (DHT store-and-forward):** `dht.Put` / `dht.Get` theo thiết kế trong `PROJECT_PLAN.md` §5.3.
 
-2.  **Session Takeover (Single Active Device):** Broadcast `KILL_SESSION` signed message khi import identity trên thiết bị mới.
+2.  **Hardening Add Member / invite:** ràng buộc `newMemberPeerID` với identity trong KeyPackage trước khi add; giảm lộ `key_package_bundle_private` trên frontend (xử lý local an toàn hơn clipboard/state UI).
 
-3.  **Offline Messaging (DHT Store-and-Forward):** `dht.Put(Hash(RecipientID), EncryptedMsg)` cho peer offline. Auto-retrieve on connect.
-
-4.  **Hardening Add Member flow:** bind `newMemberPeerID` with KeyPackage identity before add, and reduce exposure of `key_package_bundle_private` on frontend (prefer local secure handling over clipboard/UI state).
+3.  **Phase 6–7:** file transfer (MLS exporter), đánh giá đa node / partition / báo cáo luận văn.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.
