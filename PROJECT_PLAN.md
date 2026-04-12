@@ -10,6 +10,8 @@
 - **Database:** SQLite (Managed by Go)
 - **IPC:** gRPC (Protobuf) over localhost with dynamic port assignment
 
+> **Đường dẫn mã (2026):** Go app trong `app/`. Thư mục lịch sử `backend/` đã đổi thành `app/`. SQLite: `app/adapter/store` (không còn `app/db`). Libp2p: `app/adapter/p2p`. Rust sidecar + gRPC MLS: `app/adapter/sidecar`. Wails bind `*service.Runtime` (`app/service/`); TS: `frontend/wailsjs/go/service/Runtime`. Các mục dưới đây có thể vẫn ghi `backend/` hoặc `app/app.go` theo timeline — khi implement mới, đối chiếu `CURRENT_STATE.md` mục *Agent — Bản đồ mã nguồn*.
+
 **Research Focus:** Design a Decentralized Coordination Protocol wrapping MLS (RFC 9420) that maintains causal consistency and total ordering on a P2P network without a central Delivery Service. The protocol is built on four mechanisms: Single-Writer Protocol, Epoch Consistency, Group Fork Healing, and Hybrid Logical Clock (HLC).
 
 ---

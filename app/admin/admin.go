@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 
-	"app/db"
+	"app/adapter/store"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -19,7 +19,7 @@ const AdminKeyConfigKey = "admin_root_private_key"
 // SetupAdminKey generates a new Root Admin Ed25519 key pair.
 // The private key is encrypted with Argon2id+AES-256-GCM and stored in the DB.
 // Returns the public key bytes. Call this only once; use UnlockAdminKey afterward.
-func SetupAdminKey(database *db.Database, passphrase string) (ed25519.PublicKey, error) {
+func SetupAdminKey(database *store.Database, passphrase string) (ed25519.PublicKey, error) {
 	hasKey, err := database.HasConfig(AdminKeyConfigKey)
 	if err != nil {
 		return nil, err
@@ -46,10 +46,10 @@ func SetupAdminKey(database *db.Database, passphrase string) (ed25519.PublicKey,
 }
 
 // UnlockAdminKey decrypts and returns the root admin private key from DB.
-func UnlockAdminKey(database *db.Database, passphrase string) (ed25519.PrivateKey, error) {
+func UnlockAdminKey(database *store.Database, passphrase string) (ed25519.PrivateKey, error) {
 	encrypted, err := database.GetConfig(AdminKeyConfigKey)
 	if err != nil {
-		if db.IsNotFound(err) {
+		if store.IsNotFound(err) {
 			return nil, fmt.Errorf("no admin key found; run --admin-setup first")
 		}
 		return nil, err

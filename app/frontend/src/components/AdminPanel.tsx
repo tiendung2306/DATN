@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { CreateBundle, InitAdminKey } from '../../wailsjs/go/main/App'
-import { main } from '../../wailsjs/go/models'
+import { CreateBundle, InitAdminKey } from '../../wailsjs/go/service/Runtime'
+import { service } from '../../wailsjs/go/models'
 
 type Tab = 'init' | 'create'
 
@@ -103,8 +103,8 @@ function InitAdminKeyTab() {
 }
 
 function CreateBundleTab() {
-  const [form, setForm] = useState<main.CreateBundleRequest>(
-    new main.CreateBundleRequest({
+  const [form, setForm] = useState<service.CreateBundleRequest>(
+    new service.CreateBundleRequest({
       display_name: '',
       peer_id: '',
       public_key_hex: '',
@@ -115,9 +115,9 @@ function CreateBundleTab() {
   const [error, setError] = useState<string | null>(null)
   const [outputPath, setOutputPath] = useState<string | null>(null)
 
-  const set = (field: keyof main.CreateBundleRequest) => (
+  const set = (field: keyof service.CreateBundleRequest) => (
     (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm((prev) => ({ ...prev, [field]: e.target.value }))
+      setForm((prev: service.CreateBundleRequest) => ({ ...prev, [field]: e.target.value }))
   )
 
   const handleCreate = async () => {

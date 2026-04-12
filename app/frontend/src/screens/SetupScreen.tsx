@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { GenerateKeys } from '../../wailsjs/go/main/App'
-import { main } from '../../wailsjs/go/models'
+import { GenerateKeys } from '../../wailsjs/go/service/Runtime'
+import { service } from '../../wailsjs/go/models'
 import CopyField from '../components/CopyField'
 
 interface SetupScreenProps {
@@ -10,7 +10,7 @@ interface SetupScreenProps {
 export default function SetupScreen({ onDone }: SetupScreenProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<main.OnboardingInfo | null>(null)
+  const [info, setInfo] = useState<service.OnboardingInfo | null>(null)
   const [copiedBoth, setCopiedBoth] = useState(false)
 
   const handleCopyBoth = async () => {

@@ -46,7 +46,13 @@ This document outlines the core principles, mandates, and operational guidelines
 
 * **`PROJECT_PLAN.md`**: Detailed execution roadmap. ALWAYS refer to this for task specifics and phasing.
 * **`README.md`**: High-level project overview, architecture, protocol design, and critical rules.
-* **`CURRENT_STATE.md`**: Short-term memory — current progress, technical decisions, and implementation details.
+* **`CURRENT_STATE.md`**: Short-term memory — current progress, technical decisions, and implementation details. **Trước khi đụng Go/Wails:** đọc mục *Agent — Bản đồ mã nguồn & Wails* (đường dẫn `adapter/*`, `service.Runtime`, import TS `wailsjs/go/service/Runtime`).
+
+## Go layout note (hexagonal)
+
+* **Coordination protocol** remains in `app/coordination/` (ordering, MLS *interfaces* — no Rust binary there).
+* **MLS gRPC implementation** lives in `app/adapter/sidecar/` (`NewMLSEngine`, process lifecycle).
+* **Composition root** is `app/main.go` (`config`, `cli`, `wailsui`).
 
 ---
 **Note:** This document is a distillation of the primary agent instructions and project-specific rules. In case of conflict, the original system instructions take precedence, followed by the specific rules outlined in `README.md` and `PROJECT_PLAN.md`.

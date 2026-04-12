@@ -4,8 +4,8 @@ import {
   OpenAndImportBundle,
   HasAdminKey,
   CreateAndImportSelfBundle,
-} from '../../wailsjs/go/main/App'
-import { main } from '../../wailsjs/go/models'
+} from '../../wailsjs/go/service/Runtime'
+import { service } from '../../wailsjs/go/models'
 import CopyField from '../components/CopyField'
 
 interface AwaitingBundleScreenProps {
@@ -13,7 +13,7 @@ interface AwaitingBundleScreenProps {
 }
 
 export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScreenProps) {
-  const [info, setInfo] = useState<main.OnboardingInfo | null>(null)
+  const [info, setInfo] = useState<service.OnboardingInfo | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [copiedBoth, setCopiedBoth] = useState(false)
@@ -111,7 +111,7 @@ function AdminSelfSetup({
   info,
   onDone,
 }: {
-  info: main.OnboardingInfo | null
+  info: service.OnboardingInfo | null
   onDone: () => void
 }) {
   const [displayName, setDisplayName] = useState('Admin')

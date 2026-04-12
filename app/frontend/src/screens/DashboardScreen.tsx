@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { GetNodeStatus } from '../../wailsjs/go/main/App'
-import { main } from '../../wailsjs/go/models'
+import { GetNodeStatus } from '../../wailsjs/go/service/Runtime'
+import { service } from '../../wailsjs/go/models'
 import StatusBadge from '../components/StatusBadge'
 import PeerList from '../components/PeerList'
 import AdminPanel from '../components/AdminPanel'
@@ -17,7 +17,7 @@ function shortID(id: string): string {
 }
 
 export default function DashboardScreen({ isAdmin }: DashboardScreenProps) {
-  const [status, setStatus] = useState<main.NodeStatus | null>(null)
+  const [status, setStatus] = useState<service.NodeStatus | null>(null)
   const [copied, setCopied] = useState(false)
   const [showAdmin, setShowAdmin] = useState(false)
 

@@ -12,8 +12,8 @@ import {
   InvitePeerToGroup,
   JoinGroupWithWelcome,
   SendGroupMessage,
-} from '../../wailsjs/go/main/App'
-import { main } from '../../wailsjs/go/models'
+} from '../../wailsjs/go/service/Runtime'
+import { service } from '../../wailsjs/go/models'
 
 interface MessageData {
   group_id: string
@@ -65,7 +65,7 @@ export default function ChatPanel() {
   const [joinBundleHex, setJoinBundleHex] = useState('')
   const [joinGroupID, setJoinGroupID] = useState('')
   const [members, setMembers] = useState<MemberRow[]>([])
-  const [connectedPeers, setConnectedPeers] = useState<main.PeerInfo[]>([])
+  const [connectedPeers, setConnectedPeers] = useState<service.PeerInfo[]>([])
   const [localPeerID, setLocalPeerID] = useState('')
   const [invitePeerId, setInvitePeerId] = useState('')
   const [dhtCheckGroupID, setDhtCheckGroupID] = useState('')
@@ -108,7 +108,7 @@ export default function ChatPanel() {
       try {
         const ns = await GetNodeStatus()
         if (ns?.peer_id) setLocalPeerID(ns.peer_id)
-        if (ns?.connected_peers) setConnectedPeers(ns.connected_peers as main.PeerInfo[])
+        if (ns?.connected_peers) setConnectedPeers(ns.connected_peers as service.PeerInfo[])
         else setConnectedPeers([])
       } catch {
         setConnectedPeers([])
@@ -471,7 +471,7 @@ export default function ChatPanel() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           CheckDHTWelcome(dhtCheckGroupID.trim())
-                            .then(() => GetGroups().then((g) => { if (g) setGroups(g) }))
+                            .then(() => GetGroups().then((g: service.GroupInfo[]) => { if (g) setGroups(g) }))
                             .catch((e: any) => setError(e?.message || String(e)))
                           setDhtCheckGroupID('')
                         }
@@ -483,7 +483,7 @@ export default function ChatPanel() {
                       disabled={!dhtCheckGroupID.trim() || loading}
                       onClick={() => {
                         CheckDHTWelcome(dhtCheckGroupID.trim())
-                          .then(() => GetGroups().then((g) => { if (g) setGroups(g) }))
+                          .then(() => GetGroups().then((g: service.GroupInfo[]) => { if (g) setGroups(g) }))
                           .catch((e: any) => setError(e?.message || String(e)))
                         setDhtCheckGroupID('')
                       }}

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ExportIdentity, ImportIdentityFromFile } from '../../wailsjs/go/main/App'
+import { ExportIdentity, ImportIdentityFromFile } from '../../wailsjs/go/service/Runtime'
 import { Quit } from '../../wailsjs/runtime/runtime'
 
 type StatusKind = 'ok' | 'err' | 'info'

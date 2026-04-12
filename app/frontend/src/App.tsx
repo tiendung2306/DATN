@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { GetAppState } from '../wailsjs/go/main/App'
+import { GetAppState } from '../wailsjs/go/service/Runtime'
 import SetupScreen from './screens/SetupScreen'
 import AwaitingBundleScreen from './screens/AwaitingBundleScreen'
 import DashboardScreen from './screens/DashboardScreen'

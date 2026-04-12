@@ -1,7 +1,7 @@
-import { main } from '../../wailsjs/go/models'
+import { service } from '../../wailsjs/go/models'
 
 interface PeerListProps {
-  peers: main.PeerInfo[]
+  peers: service.PeerInfo[]
 }
 
 function shortID(id: string): string {

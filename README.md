@@ -286,16 +286,18 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 ```
 /
 ├── app/                        # Go + Wails App (module: "app")
-│   ├── main.go                 # Entry point: branches CLI vs GUI (--headless / IsCommand)
-│   ├── app.go                  # Wails App struct + all bindings + runWailsApp()
-│   ├── runner.go               # run() — CLI orchestration, dispatches to commands or node
-│   ├── cli.go                  # Config struct + parseCLI() + IsCommand()
-│   ├── commands.go             # Command handlers: cmdAdminSetup, cmdCreateBundle, cmdSetup, cmdImportBundle
-│   ├── node.go                 # startNode, runP2PNode, connectBootstrap, pingLoop, waitForShutdown
-│   ├── crypto_engine.go        # startCryptoEngine (Rust sidecar lifecycle + gRPC)
-│   ├── log.go                  # setupLogging, LogFilterHandler (suppress mDNS noise)
-│   ├── app_state.go            # AppState enum: Uninitialized/AwaitingBundle/Authorized/AdminReady
-│   ├── process.go              # Rust sidecar OS process management
+│   ├── main.go                 # Composition root: config.Parse, cli vs wailsui.Run, embed frontend/dist
+│   ├── config/                 # CLI flags (Config + Parse); shared by main, service, CLI
+│   ├── cli/                    # cli.Run + command handlers (admin, bundle, setup, headless node)
+│   ├── service/                # Runtime + Wails bindings (group, messaging, invite, identity, admin, session)
+│   ├── domain/                 # Pure domain types (no infra imports)
+│   ├── port/                   # Hexagonal ports (service + repository + transport interfaces)
+│   ├── adapter/
+│   │   ├── store/              # SQLite persistence (+ port repo adapters)
+│   │   ├── p2p/                # Libp2p host, DHT, GossipSub, auth, transport adapter
+│   │   ├── sidecar/            # Rust process + gRPC + GrpcMLSEngine
+│   │   └── wailsui/            # Wails Run + EventSink → runtime.EventsEmit
+│   ├── pkg/log/                # setup (slog + mdns noise filter)
 │   ├── wails.json              # Wails config (frontend:dir = "frontend")
 │   ├── .local/                 # Runtime-generated files (gitignored, auto-created on first run)
 │   │   ├── app.db              # SQLite database (default path)
@@ -303,14 +305,6 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   ├── admin/                  # Admin PKI package
 │   │   ├── token.go            # InvitationToken, InvitationBundle structs + Sign/Verify/Serialize
 │   │   └── admin.go            # SetupAdminKey, UnlockAdminKey, CreateInvitationBundle
-│   ├── p2p/                    # Libp2p logic
-│   │   ├── host.go             # Libp2p Host, DHT, GossipSub, mDNS, ConnectionGater integration
-│   │   ├── identity.go         # Libp2p PeerID persistence (GetOrCreateIdentity)
-│   │   ├── pubsub.go           # GossipSub ChatRoom
-│   │   ├── auth.go             # OnboardNewUser, ImportInvitationBundle, GetOnboardingInfo, BuildLocalToken
-│   │   ├── gater.go            # AuthGater (blacklist-based) implementing network.ConnectionGater
-│   │   ├── auth_protocol.go    # /app/auth/1.0.0 — length-prefixed token handshake + authNetworkNotifee
-│   │   └── transport_adapter.go # LibP2PTransport: GossipSub + direct streams → Transport interface
 │   ├── coordination/           # Decentralized Coordination Protocol (CORE RESEARCH — Phase 4)
 │   │   ├── interfaces.go       # Contracts: Transport, Clock, MLSEngine, CoordinationStorage
 │   │   ├── types.go            # Data types, wire messages, enums, sentinel errors
@@ -322,11 +316,7 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │   │   ├── active_view.go      # ActiveView management, heartbeat, peer liveness
 │   │   ├── fork_healing.go     # Partition detection, branch weight W, External Join orchestration
 │   │   ├── coordinator.go      # Central orchestrator tying all mechanisms into message pipeline
-│   │   ├── mls_adapter.go      # GrpcMLSEngine: adapts gRPC client → MLSEngine interface
 │   │   └── clock_real.go       # RealClock (production time.Now/time.After)
-│   ├── db/                     # SQLite logic
-│   │   ├── db.go               # Tables: system_config, mls_identity, auth_bundle, mls_groups, coordination_state, stored_messages
-│   │   └── coordination_storage.go  # SQLiteCoordinationStorage implementing CoordinationStorage
 │   ├── mls_service/            # Auto-generated gRPC bindings (do not edit)
 │   └── frontend/               # React + TypeScript + Tailwind (Vite)
 │       ├── src/
@@ -340,8 +330,8 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
 │       │       ├── CopyField.tsx            # Copy-to-clipboard field
 │       │       ├── StatusBadge.tsx          # Colored state pill
 │       │       └── PeerList.tsx             # Connected peers table
-│       └── wailsjs/                         # Auto-generated Wails bindings (do not edit)
-│           └── go/main/App.d.ts             # TypeScript types for all App methods
+│       └── wailsjs/                         # Auto-generated (do not edit manually)
+│           └── go/service/Runtime.d.ts      # Bindings for *service.Runtime (+ Runtime.js)
 │
 ├── crypto-engine/              # Rust Code (Stateless gRPC Sidecar)
 │   ├── src/
@@ -394,14 +384,14 @@ go run . --headless
 
 ### 5.3. Generate Wails TypeScript Bindings
 
-Run after adding or modifying any exported method on the `App` struct in `app/app.go`:
+Run after adding or modifying any exported method on the `Runtime` struct in `app/service/` (Wails bind target):
 
 ```bash
 cd app
 wails generate module
 ```
 
-Output: `app/frontend/wailsjs/go/main/App.d.ts` + `App.js`
+Output: `app/frontend/wailsjs/go/service/Runtime.d.ts` + `Runtime.js`, và `go/models.ts` (namespace `service`). Frontend import: `wailsjs/go/service/Runtime`, không dùng `go/main/App`.
 
 ### 5.4. Build Production
 

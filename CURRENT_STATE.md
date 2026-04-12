@@ -32,9 +32,32 @@ This document serves as a short-term memory for the AI Agent.
 
 ### Phase 3.5: Wails GUI Integration ✅
 *   Thư mục `backend/` đã đổi tên thành `app/`, Go module name đổi từ `backend` → `app`.
-*   Tích hợp Wails v2.11.0 vào Go app (`app/app.go`).
+*   Tích hợp Wails v2.11.0: composition root `app/main.go`, bindings trên `app/service.Runtime`, `app/adapter/wailsui` gọi `wails.Run` + `EventSink`.
 *   Scaffold React + TypeScript + Tailwind frontend tại `app/frontend/`.
 *   4 màn hình dev/test UI đã hoàn chỉnh.
+
+### Hexagonal layout (Go) ✅
+*   `app/domain`, `app/port`, `app/adapter/{store,p2p,sidecar,wailsui}`, `app/service`, `app/config`, `app/cli`, `app/pkg/log`; SQLite tại `adapter/store/`, libp2p tại `adapter/p2p/`, Rust sidecar tại `adapter/sidecar/`.
+
+### Agent — Bản đồ mã nguồn & Wails (đọc trước khi sửa) 📌
+
+| Vùng | Đường dẫn | Ghi chú |
+|------|-----------|---------|
+| Composition root | `app/main.go` | `config.Parse()`, nhánh `cli.Run` vs `wailsui.Run`; `//go:embed all:frontend/dist` |
+| Cấu hình flag | `app/config` | `Config`, `Parse()`, `IsCommand()` — dùng chung cho `main` và `service` (**không** đặt `Parse` trong `cli` để tránh import cycle `service` ↔ `cli`) |
+| CLI | `app/cli` | `runner.go`, `commands.go` — gọi `service.*` (headless node, backup, bundle, …) |
+| Ứng dụng + Wails | `app/service` | `Runtime`; lifecycle export: `Startup`, `DomReady`, `BeforeClose`, `Shutdown`. File theo nghiệp vụ: `runtime.go`, `identity.go`, `admin.go`, `node_status.go`, `group.go`, `messaging.go`, `invite.go`, `session.go`, `app_state.go`, `identity_backup.go`, `bootstrap.go`, `cli_node.go`, `events.go` |
+| SQLite | `app/adapter/store` | Thay cho `app/db` cũ |
+| P2P | `app/adapter/p2p` | Thay cho `app/p2p` cũ |
+| Crypto gRPC | `app/adapter/sidecar` | `StartCryptoEngine`, `NewMLSEngine` — thay cho `coordination/mls_adapter.go` + `crypto_engine.go` cũ |
+| Wails vỏ | `app/adapter/wailsui` | `Run`, `EventSink` → `runtime.EventsEmit` |
+| Log | `app/pkg/log` | `Setup(headless)` |
+| Hex ports / domain | `app/port`, `app/domain` | Interfaces + kiểu thuần |
+| Coordination protocol | `app/coordination` | Chỉ logic giao thức; **không** gắn binary Rust trực tiếp |
+
+**Wails → TypeScript (quan trọng):** Bind target là `*service.Runtime`. Codegen tạo `frontend/wailsjs/go/service/Runtime.js|.d.ts` và `models.ts` với namespace **`service`** (không còn `main`). Import FE: `from '.../wailsjs/go/service/Runtime'`, `import { service } from '.../wailsjs/go/models'`. Sau đổi API Go: `cd app && wails generate module`, rồi `npm run build` trong `frontend/` nếu cần.
+
+**Đường dẫn lịch sử (không dùng nữa):** `backend/`, `app/app.go`, `app/group_ops.go`, `app/node.go`, `app/commands.go`, `frontend/wailsjs/go/main/App`, `app/db`, `app/p2p` (root).
 
 ### Phase 4.1: Add member / KeyPackage (MLS) ✅
 *   Proto: `GenerateKeyPackage`, `AddMembers`; `ProcessWelcome` extended with `epoch` and `key_package_bundle_private` (OpenMLS requires the invitee to retain the `KeyPackageBundle` private material until Welcome, not just the public KeyPackage).
@@ -118,7 +141,7 @@ type InvitationBundle struct {
 ### 3d. Bảo vệ chống Token Replay / Spoofing Attack
 
 ```go
-// app/p2p/auth_protocol.go — verifyPeerToken()
+// app/adapter/p2p/auth_protocol.go — verifyPeerToken()
 if token.PeerID != authenticatedPeerID.String() {
     reject() // Eve không có Libp2p private key của Alice → bị lộ ngay
 }
@@ -198,31 +221,25 @@ identity.backup (mã hóa AES-256-GCM + Argon2id)
 ```
 Implementation note: backup/import is now fully handled in Go (no Rust `ExportIdentity/ImportIdentity` RPC required).
 
-### 3i. Wails Integration — Kiến trúc GUI
+### 3i. Wails Integration — Kiến trúc GUI (cập nhật sau refactor)
 
-**Nguyên tắc:** Wails binding (không phải CLI spawn, không phải REST API). Mọi tương tác UI đều gọi exported method trên `App` struct → Wails auto-gen TypeScript bindings tại `frontend/wailsjs/go/main/App.d.ts`.
+**Nguyên tắc:** Wails binding — UI gọi exported methods trên `*service.Runtime`. Codegen: `frontend/wailsjs/go/service/Runtime.d.ts` + `Runtime.js`; DTO trong `frontend/wailsjs/go/models.ts` (namespace `service`).
 
-**Phân nhánh CLI vs GUI trong `main.go`:**
+**Phân nhánh CLI vs GUI trong `app/main.go`:**
 ```go
+cfg := config.Parse()
 if cfg.Headless || cfg.IsCommand() {
-    // CLI mode — existing behavior
-    run(cfg)
+    cli.Run(cfg) // app/cli
 } else {
-    // GUI mode
-    runWailsApp(cfg)
+    wailsui.Run(cfg, distFS) // app/adapter/wailsui — embed frontend/dist
 }
 ```
 
-**`IsCommand()` = bất kỳ flag nào trong:** `--setup`, `--admin-setup`, `--create-bundle`, `--import-bundle`.
+**`IsCommand()`:** xem `app/config/config.go` (setup, admin, bundle, import/export identity, …).
 
-**Wails lifecycle:** `startup(ctx)` → init DB + identity + crypto engine + auto-start P2P nếu AUTHORIZED/ADMIN_READY. `shutdown(ctx)` → dọn dẹp tất cả resources.
+**Wails lifecycle:** `Runtime.Startup` → DB + identity + sidecar + P2P nếu AUTHORIZED/ADMIN_READY; `Runtime.Shutdown` → teardown. `adapter/wailsui` gắn `EventSink` để `Runtime.emit` → `EventsEmit`.
 
-**App struct state (thread-safe qua `mu sync.Mutex`):**
-```go
-type App struct {
-    ctx, cfg, db, privKey, mlsClient, conn, stopEngine, node, nodeCancel, mu
-}
-```
+**State chính (thread-safe, `mu sync.Mutex`):** `ctx`, `cfg`, `db`, `privKey`, `mlsClient`, `conn`, `stopEngine`, `node`, `transport`, `coordStorage`, `mlsEngine`, `coordinators`, … — định nghĩa trong `app/service/runtime.go`.
 
 ### 3j. Decentralized Coordination Protocol — Thiết kế mới (Phase 4)
 
@@ -273,7 +290,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   `epoch.go` — ValidateEpoch, EpochTracker, future buffer with defensive copies, Advance returns buffered
 *   `fork_healing.go` — CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector
 *   `coordinator.go` — Central orchestrator: ties ActiveView + SingleWriter + EpochTracker + ForkDetector + HLC into message processing pipeline. Public API: CreateGroup, Start, Stop, SendMessage, ProposeAdd/Remove/Update
-*   `mls_adapter.go` — GrpcMLSEngine: adapts gRPC MLSCryptoServiceClient → MLSEngine interface
+*   **MLS ↔ gRPC:** `GrpcMLSEngine` nằm ở `app/adapter/sidecar/engine.go` (implements `coordination.MLSEngine`) — không còn file `app/coordination/mls_adapter.go`.
 *   `testutil_test.go` — FakeNetwork (queue + DrainAll), FakeTransport, MockMLSEngine, MockStorage
 *   `coordinator_test.go` — 10 integration tests: group creation, token holder election, message send/receive, proposal/commit, epoch consistency, heartbeats, HLC ordering, fork detection
 
@@ -286,37 +303,19 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 #### Implemented in this update
 
 - **Identity backup/import (Phase 5.1, Go-side):**
-  - Added `app/identity_backup.go`:
+  - Implementation: `app/service/identity_backup.go` (+ tests `identity_backup_test.go`)
     - `ExportIdentityBackup(...)` and `ImportIdentityBackup(...)`
     - Wire format: `[16B salt][12B nonce][AES-GCM ciphertext]`
     - Argon2id params aligned with admin key encryption.
-  - Added tests `app/identity_backup_test.go`:
-    - export/import round-trip
-    - wrong passphrase rejection
-    - full content migration round-trip (groups/messages)
-  - Backup format upgraded to v2:
-    - identity + full user content snapshot (`mls_groups`, `stored_messages`, `kp_bundles`, `pending_welcomes_out`)
-    - import supports backward compatibility for v1 (identity-only backups)
-  - Added CLI support:
-    - `--export-identity`, `--import-identity`, `--export-output`, `--identity-passphrase`, `--force`
-    - commands integrated in `app/commands.go`, `app/runner.go`, `app/cli.go`
-  - Added Wails bindings:
-    - `ExportIdentity(passphrase)`
-    - `ImportIdentityFromFile(passphrase, force)`
+  - Backup format v2: identity + snapshot (`mls_groups`, `stored_messages`, `kp_bundles`, `pending_welcomes_out`); import tương thích v1.
+  - CLI: `app/cli/commands.go` + `runner.go` (`--export-identity`, `--import-identity`, …).
+  - Wails: `Runtime.ExportIdentity`, `Runtime.ImportIdentityFromFile`
+  - Side effects sau import: `service.ApplyIdentityImportSideEffects` (`session.go`)
 
 - **Session takeover hardening (Phase 5.2, auth-handshake session claim model):**
-  - Added signed session claim (`app/p2p/session_claim.go`):
-    - `BuildSessionClaim(...)` and `VerifySessionClaim(...)`
-    - claim signed by MLS private key, verified with `token.PublicKey`
-  - Added tests `app/p2p/session_claim_test.go`
-  - Extended auth wire format in `app/p2p/auth_protocol.go`:
-    - from raw `InvitationToken` → `AuthHandshakeMsg { token, session }`
-    - backward-compatible parser for legacy peers (token-only payload)
-  - Added deterministic stale-session rejection:
-    - per-peer `SessionStarted` tracked
-    - older session handshakes are rejected
-    - newer session closes older concurrent connections for same PeerID
-  - Updated node startup path (`app/app.go`, `app/node.go`, `app/p2p/host.go`) to attach session claim on auth handshake.
+  - `app/adapter/p2p/session_claim.go` + tests; auth wire trong `app/adapter/p2p/auth_protocol.go` (`AuthHandshakeMsg { token, session }`, tương thích token-only cũ).
+  - Session keys / flags: `app/service/session.go` (`buildLocalAuthHandshake`, `resetSessionStartedAt`, `killSessionPendingConfigKey`, …).
+  - Node startup: `app/service/runtime.go` (`launchP2PNode`) + `app/adapter/p2p/host.go`.
 
 #### Validation
 
@@ -324,102 +323,19 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 - `go vet ./...` PASS
 - `go build ./...` PASS
 
-### Phase 4 Coordination Layer — COMPLETE ✅ (68 tests: 62 Go + 6 Rust)
+### Phase 4 Coordination Layer — COMPLETE ✅ (≈90+ subtests Go + 6 Rust; `go test ./...` xem package)
 
-#### Coordination Mechanisms (54 Go tests)
+**Coordination (54+ tests):** `app/coordination/*.go` — giữ nguyên vai trò: Transport, Clock, MLSEngine (interface), Coordinator, HLC, fork healing, v.v. **Không** chứa binary Rust; bridge MLS thực tế: `app/adapter/sidecar/engine.go`.
 
-| File | Tests | Ghi chú |
-|------|-------|---------|
-| `app/coordination/types.go` | — | HLCTimestamp, Envelope, wire messages, persistence types, enums, sentinel errors |
-| `app/coordination/interfaces.go` | — | Transport, Clock, MLSEngine (with treeHash), CoordinationStorage contracts |
-| `app/coordination/config.go` | 4/4 ✅ | CoordinatorConfig, DefaultConfig, TestConfig, Validate |
-| `app/coordination/clock_real.go` | — | RealClock (production), FakeClock (test-only) |
-| `app/coordination/hlc.go` | 8/8 ✅ | HLC engine: Now(), Update(), monotonic + causal ordering |
-| `app/coordination/metrics.go` | 4/4 ✅ | Thread-safe counters + latency samples + Snapshot + Reset |
-| `app/coordination/active_view.go` | 9/9 ✅ | Peer liveness, heartbeat, eviction, sorted member list, onChange callback |
-| `app/coordination/single_writer.go` | 9/9 ✅ | ComputeTokenHolder (argmin SHA-256), BufferProposal, DrainProposals, AdvanceEpoch |
-| `app/coordination/epoch.go` | 9/9 ✅ | ValidateEpoch, EpochTracker, future buffer with defensive copies |
-| `app/coordination/fork_healing.go` | 10/10 ✅ | CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector |
-| `app/coordination/coordinator.go` | 10/10 ✅ | Central orchestrator: message pipeline, periodic tasks, public API |
-| `app/coordination/mls_adapter.go` | — | GrpcMLSEngine: gRPC client → MLSEngine interface |
-| `app/coordination/testutil_test.go` | — | FakeNetwork, FakeTransport, MockMLSEngine, MockStorage |
+**SQLite + transport:** `app/adapter/store` (`db.go`, `coordination_storage.go` — 8 tests store), `app/adapter/p2p/transport_adapter.go` (LibP2PTransport).
 
-#### Infrastructure — Proto + DB + Transport (8 Go tests)
+**Rust:** `crypto-engine/` — OpenMLS stateless qua gRPC (xem `crypto-engine/src/mls.rs`).
 
-| File | Tests | Ghi chú |
-|------|-------|---------|
-| `proto/mls_service.proto` | — | 13 RPCs: 4 existing (Phase 2) + 9 new (Phase 4) |
-| `app/mls_service/*.pb.go` | — | Auto-generated from proto (protoc) |
-| `app/db/db.go` | — | New tables: mls_groups, coordination_state, stored_messages |
-| `app/db/coordination_storage.go` | 8/8 ✅ | SQLiteCoordinationStorage: GroupRecord, CoordState, StoredMessage CRUD |
-| `app/p2p/transport_adapter.go` | — | LibP2PTransport: GossipSub + direct streams → Transport interface |
+**Wails + FE:** Methods trên `app/service.Runtime` (tách file: `group.go`, `messaging.go`, `invite.go`, …). Bindings TS: `frontend/wailsjs/go/service/Runtime.*`, models namespace `service`. UI: `frontend/src/**/*.tsx` (import Runtime, không dùng `go/main/App`).
 
-#### Real OpenMLS Crypto Engine (6 Rust tests)
+**Kiểm tra nhanh:** `cd app && go vet ./... && go test ./...` ; `cd frontend && npm run build`.
 
-| File | Tests | Ghi chú |
-|------|-------|---------|
-| `crypto-engine/src/mls.rs` | 6/6 ✅ | Stateless persisted `group_state` (serialize/deserialize OpenMLS storage), real OpenMLS 0.8: create_group, encrypt_message, decrypt_message, create_commit (self_update), process_commit, process_welcome, export_secret |
-| `crypto-engine/src/main.rs` | — | Stateless gRPC server (no shared group map), all 13 RPC handlers |
-| `crypto-engine/Cargo.toml` | — | Added: openmls_basic_credential, ed25519-dalek, serde, serde_json, tls_codec, sha2 |
-
-#### Wails Bindings + Frontend Chat UI
-
-| File | Ghi chú |
-|------|---------|
-| `app/group_ops.go` | CreateGroupChat, SendGroupMessage, GetGroupMessages, GetGroups, GetGroupStatus, initCoordinationStackLocked, loadExistingGroupsLocked, Wails event handlers |
-| `app/app.go` | Added coordination fields (transport, coordStorage, mlsEngine, coordinators map), initCoordinationStackLocked() call in launchP2PNode, stopCoordinatorsLocked() in teardown |
-| `app/frontend/src/components/ChatPanel.tsx` | Group creation UI, group tabs, HLC-sorted message list, real-time updates via EventsOn("group:message"), message input |
-| `app/frontend/src/screens/DashboardScreen.tsx` | Integrated ChatPanel below existing grid |
-| `app/frontend/wailsjs/go/main/App.js` | Added exports: CreateGroupChat, SendGroupMessage, GetGroupMessages, GetGroups, GetGroupStatus |
-| `app/frontend/wailsjs/go/main/App.d.ts` | TypeScript declarations for new group chat functions |
-| `app/frontend/wailsjs/go/models.ts` | Added MessageInfo, GroupInfo types |
-
-**Grand total: 68 tests PASS (62 Go + 6 Rust), `go vet` clean, `go build ./...` clean, `cargo build` clean, `cargo test` clean, `tsc --noEmit` clean.**
-
-### All files implemented (Phase 1-4):
-
-| File | Trạng thái | Ghi chú |
-|------|-----------|---------|
-| `proto/mls_service.proto` | ✅ | 13 RPCs: Phase 2 (4) + Phase 4 (9 new) |
-| `app/mls_service/*.pb.go` | ✅ | Auto-generated from proto |
-| `crypto-engine/src/mls.rs` | ✅ | Real OpenMLS 0.8 stateless engine: persisted `group_state` blob + all group operations |
-| `crypto-engine/src/main.rs` | ✅ | Stateless gRPC server (no shared in-memory group map) |
-| `app/db/db.go` | ✅ | Tables: system_config, mls_identity, auth_bundle, messages, mls_groups, coordination_state, stored_messages |
-| `app/db/coordination_storage.go` | ✅ | SQLiteCoordinationStorage (8 tests) |
-| `app/p2p/transport_adapter.go` | ✅ | LibP2PTransport: GossipSub + direct streams |
-| `app/coordination/mls_adapter.go` | ✅ | GrpcMLSEngine: gRPC → MLSEngine interface |
-| `app/coordination/*.go` | ✅ | All 4 mechanisms + Coordinator orchestrator (54 tests) |
-| `app/group_ops.go` | ✅ | **Wails bindings for group chat operations** |
-| `app/p2p/identity.go` | ✅ | GetOrCreateIdentity |
-| `app/admin/token.go` | ✅ | SignToken, VerifyToken, SerializeBundle, DeserializeBundle |
-| `app/admin/admin.go` | ✅ | SetupAdminKey, UnlockAdminKey, CreateInvitationBundle |
-| `app/app_state.go` | ✅ | AppState enum, DetermineAppState() |
-| `app/p2p/auth.go` | ✅ | OnboardNewUser, GetOnboardingInfo, ImportInvitationBundle, BuildLocalToken |
-| `app/p2p/gater.go` | ✅ | AuthGater blacklist-based |
-| `app/p2p/auth_protocol.go` | ✅ | /app/auth/1.0.0 handshake |
-| `app/p2p/host.go` | ✅ | NewP2PNode với localToken + rootPubKey |
-| `app/main.go` | ✅ | Phân nhánh GUI vs CLI |
-| `app/cli.go` | ✅ | Config struct + parseCLI() + IsCommand() |
-| `app/runner.go` | ✅ | run() CLI orchestration |
-| `app/commands.go` | ✅ | cmdAdminSetup, cmdCreateBundle, cmdSetup, cmdImportBundle |
-| `app/node.go` | ✅ | startNode, runP2PNode, connectBootstrap, pingLoop |
-| `app/crypto_engine.go` | ✅ | startCryptoEngine, waitForCryptoEngine |
-| `app/log.go` | ✅ | LogFilterHandler, setupLogging |
-| `app/process.go` | ✅ | ProcessManager, StartCryptoEngine, StopCryptoEngine |
-| **`app/app.go`** | ✅ | **Wails App struct + coordination stack + all bindings** |
-| `app/wails.json` | ✅ | Wails config, frontend:dir = "frontend" |
-| `app/frontend/src/App.tsx` | ✅ | Root: polls GetAppState, state-based routing |
-| `app/frontend/src/screens/SetupScreen.tsx` | ✅ | UNINITIALIZED |
-| `app/frontend/src/screens/AwaitingBundleScreen.tsx` | ✅ | AWAITING_BUNDLE + Admin Quick Setup |
-| `app/frontend/src/screens/DashboardScreen.tsx` | ✅ | AUTHORIZED/ADMIN_READY + peer list + **ChatPanel** |
-| `app/frontend/src/components/AdminPanel.tsx` | ✅ | Init admin key + Create bundle tabs |
-| `app/frontend/src/components/ChatPanel.tsx` | ✅ | **Group chat UI with HLC ordering** |
-| `app/frontend/src/components/CopyField.tsx` | ✅ | Copy-to-clipboard field |
-| `app/frontend/src/components/StatusBadge.tsx` | ✅ | Colored state pill |
-| `app/frontend/src/components/PeerList.tsx` | ✅ | Connected peers table |
-| `app/frontend/wailsjs/` | ✅ | Bindings + MessageInfo/GroupInfo types |
-
-### Wails Bindings hiện tại (`app/app.go` + `app/group_ops.go`):
+### Wails bindings (receiver: `*service.Runtime`)
 
 | Method | Mô tả |
 |--------|-------|
@@ -437,6 +353,11 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | **`GetGroupMessages(groupID) []MessageInfo`** | **Lấy messages sorted by HLC** |
 | **`GetGroups() []GroupInfo`** | **Danh sách groups đã tham gia** |
 | **`GetGroupStatus(groupID) map[string]interface{}`** | **Epoch, token holder, member count, metrics** |
+| `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage` | MLS / invite UI (ChatPanel) |
+| `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus` | Luồng invite offline-friendly |
+| `ExportIdentity`, `ImportIdentityFromFile` | Backup `.backup` (GUI) |
+
+*(Danh sách đầy đủ: `wails generate module` → `Runtime.d.ts`.)*
 
 ### CLI Commands hiện tại (từ `app/`):
 
@@ -471,16 +392,16 @@ wails build      # production build
 
 ## 5. Lưu ý kỹ thuật quan trọng
 
-*   **Module name:** `module app` (đổi từ `module backend`). Tất cả import paths dùng `"app/..."`.
-*   **Wails embed:** `//go:embed all:frontend/dist` trong `app/app.go`. Frontend source ở `app/frontend/`, build output ở `app/frontend/dist/`. KHÔNG thể dùng `../` trong Go embed.
-*   **wails generate module:** Chạy từ `app/` sau mỗi lần thêm/sửa exported method trên `App` struct để cập nhật `frontend/wailsjs/`.
+*   **Module name:** `module app`. Import nội bộ: `"app/..."`.
+*   **Wails embed:** `//go:embed all:frontend/dist` trong `app/main.go` (composition root). Source: `app/frontend/src/`; build Vite: `app/frontend/dist/`. Repo có thể có `dist/index.html` tối thiểu để `go build` không lỗi embed khi chưa `npm run build`.
+*   **wails generate module:** Chạy từ `app/` sau khi thêm/sửa exported method trên `service.Runtime` → cập nhật `frontend/wailsjs/go/service/Runtime*` và `models.ts`. Đồng bộ import TS (`service/Runtime`, namespace `service`).
 *   **protoc command đúng:** `protoc --go_out=. --go-grpc_out=. --proto_path=./proto mls_service.proto` (chạy từ project root)
 *   **openmls_rust_crypto version:** phải dùng `0.5` (khớp với `openmls_traits 0.5`)
 *   **bootstrap_addr format bắt buộc:** `/ip4/IP/tcp/PORT/p2p/PEERID`
 *   **display_name trong MLS credential:** Hiện tại lưu raw UTF-8 bytes. Phase 4 sẽ dùng proper TLS-serialized `BasicCredential`.
 *   **ExportIdentity proto (Phase 5):** PHẢI bao gồm `libp2p_private_key` để PeerID được khôi phục khi chuyển thiết bị.
 *   **Blacklisting policy:** `rejectSecurity` (có blacklist) chỉ gọi khi `verifyPeerToken` thất bại. `rejectTransient` (không blacklist) cho mọi lỗi IO/timeout. KHÔNG bao giờ blacklist khi `NewStream` fail.
-*   **GetNodeStatus mutex:** Gọi `getAppStateUnlocked()` (không acquire mutex) thay vì `GetAppState()` khi đang giữ `a.mu`.
+*   **GetNodeStatus mutex:** Khi đã giữ lock `Runtime.mu`, dùng `getAppStateUnlocked()` thay vì gọi lại `GetAppState()` (tránh deadlock).
 
 ---
 
