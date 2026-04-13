@@ -154,6 +154,24 @@ type StoredMessage struct {
 	Timestamp HLCTimestamp
 }
 
+// EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).
+type EnvelopeRecord struct {
+	Seq       int64
+	GroupID   string
+	MsgType   MessageType
+	Epoch     uint64
+	Envelope  []byte
+	Timestamp HLCTimestamp
+}
+
+// PendingDeliveryAckRow is a queued delivery ACK to send to target_peer_id.
+type PendingDeliveryAckRow struct {
+	ID             int64
+	TargetPeerID   string
+	GroupID        string
+	AckedSeq       int64
+}
+
 // ─── Enum Types ──────────────────────────────────────────────────────────────
 
 // ProposalType identifies the kind of MLS Proposal.

@@ -254,3 +254,55 @@ func TestSQLiteCoordinationStorage_Message_EmptyResult(t *testing.T) {
 		t.Errorf("expected 0 messages, got %d", len(got))
 	}
 }
+
+func TestSQLiteCoordinationStorage_EnvelopeLog_AppendAndSince(t *testing.T) {
+	s := setupTestStorage(t)
+	ts := coordination.HLCTimestamp{WallTimeMs: 1, Counter: 0, NodeID: "p1"}
+	wire := []byte(`{"type":"application","group_id":"g1","epoch":0,"from":"p1","ts":{"l":1,"c":0,"id":"p1"},"payload":{}}`)
+
+	seq1, err := s.AppendEnvelope("g1", coordination.MsgApplication, 0, ts, wire)
+	if err != nil || seq1 != 1 {
+		t.Fatalf("AppendEnvelope first: seq=%d err=%v", seq1, err)
+	}
+	seq2, err := s.AppendEnvelope("g1", coordination.MsgApplication, 0, ts, wire)
+	if err != nil || seq2 != 2 {
+		t.Fatalf("AppendEnvelope second: seq=%d err=%v", seq2, err)
+	}
+	latest, _ := s.GetLatestSeq("g1")
+	if latest != 2 {
+		t.Fatalf("GetLatestSeq = %d, want 2", latest)
+	}
+	recs, err := s.GetEnvelopesSince("g1", 0, 10)
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("GetEnvelopesSince after 0: %d recs err=%v", len(recs), err)
+	}
+	recs, err = s.GetEnvelopesSince("g1", 1, 10)
+	if err != nil || len(recs) != 1 || recs[0].Seq != 2 {
+		t.Fatalf("GetEnvelopesSince after 1: %+v err=%v", recs, err)
+	}
+}
+
+func TestSQLiteCoordinationStorage_SyncAcksAndPullCursor(t *testing.T) {
+	s := setupTestStorage(t)
+	if err := s.RecordSyncAck("peerB", "g1", 5); err != nil {
+		t.Fatal(err)
+	}
+	ack, _ := s.GetSyncAck("peerB", "g1")
+	if ack != 5 {
+		t.Fatalf("GetSyncAck = %d", ack)
+	}
+	min, _ := s.GetMinAckedSeq("g1", []string{"peerB", "peerC"})
+	if min != 0 {
+		t.Fatalf("GetMinAckedSeq = %d, want 0 (peerC missing)", min)
+	}
+	_ = s.RecordSyncAck("peerC", "g1", 3)
+	min, _ = s.GetMinAckedSeq("g1", []string{"peerB", "peerC"})
+	if min != 3 {
+		t.Fatalf("GetMinAckedSeq = %d, want 3", min)
+	}
+	_ = s.SetOfflinePullCursor("g1", "peerA", 7)
+	cur, _ := s.GetOfflinePullCursor("g1", "peerA")
+	if cur != 7 {
+		t.Fatalf("pull cursor = %d", cur)
+	}
+}

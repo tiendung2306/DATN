@@ -165,6 +165,48 @@ func (d *Database) createTables() error {
 			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(target_peer_id, group_id)
 		);`,
+
+		// Phase 5.3: offline sync — MLS ciphertext envelopes (per-node monotonic seq).
+		`CREATE TABLE IF NOT EXISTS envelope_log (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			group_id     TEXT    NOT NULL,
+			seq          INTEGER NOT NULL,
+			msg_type     TEXT    NOT NULL,
+			epoch        INTEGER NOT NULL,
+			envelope     BLOB    NOT NULL,
+			hlc_wall_ms  INTEGER NOT NULL,
+			hlc_counter  INTEGER NOT NULL,
+			hlc_node_id  TEXT    NOT NULL,
+			created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			UNIQUE(group_id, seq)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_envelope_log_group_seq
+			ON envelope_log(group_id, seq);`,
+
+		`CREATE TABLE IF NOT EXISTS sync_acks (
+			peer_id   TEXT    NOT NULL,
+			group_id  TEXT    NOT NULL,
+			acked_seq INTEGER NOT NULL DEFAULT 0,
+			acked_at  INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (peer_id, group_id)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS pending_delivery_acks (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_peer_id TEXT    NOT NULL,
+			group_id       TEXT    NOT NULL,
+			acked_seq      INTEGER NOT NULL,
+			created_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			UNIQUE(target_peer_id, group_id)
+		);`,
+
+		`CREATE TABLE IF NOT EXISTS offline_sync_pull_state (
+			group_id         TEXT NOT NULL,
+			remote_peer_id   TEXT NOT NULL,
+			last_remote_seq  INTEGER NOT NULL DEFAULT 0,
+			updated_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (group_id, remote_peer_id)
+		);`,
 	}
 
 	for _, q := range queries {

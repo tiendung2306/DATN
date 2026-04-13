@@ -142,6 +142,7 @@ func (r *Runtime) teardown() {
 	if r.node != nil {
 		r.removeKPOfferHandler()
 		r.removeWelcomeDeliveryHandler()
+		r.removeOfflineSyncHandlers()
 		r.node.Close()
 		r.node = nil
 	}
@@ -202,9 +203,12 @@ func (r *Runtime) launchP2PNode() error {
 	r.initCoordinationStackLocked()
 	r.registerKPOfferHandler()
 	r.registerWelcomeDeliveryHandler()
+	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})
 
 	go r.advertiseKeyPackage()
+	go r.checkOfflineDHTInboxOnce()
+	go r.offlineEnvelopeGCLoop(nodeCtx)
 
 	return nil
 }

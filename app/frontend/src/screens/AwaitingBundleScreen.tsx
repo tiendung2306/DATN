@@ -3,6 +3,7 @@ import {
   GetOnboardingInfo,
   OpenAndImportBundle,
   HasAdminKey,
+  InitAdminKey,
   CreateAndImportSelfBundle,
 } from '../../wailsjs/go/service/Runtime'
 import { service } from '../../wailsjs/go/models'
@@ -58,9 +59,11 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
           </div>
         )}
 
-        {/* Admin shortcut — visible only when admin key is present */}
-        {isAdmin && (
+        {/* Admin shortcuts */}
+        {isAdmin ? (
           <AdminSelfSetup info={info} onDone={onImported} />
+        ) : (
+          <AdminBootstrapSetup info={info} onDone={onImported} />
         )}
 
         {/* Divider */}
@@ -192,6 +195,98 @@ function AdminSelfSetup({
           </>
         ) : (
           'Create & Import My Bundle'
+        )}
+      </button>
+    </div>
+  )
+}
+
+function AdminBootstrapSetup({
+  info,
+  onDone,
+}: {
+  info: service.OnboardingInfo | null
+  onDone: () => void
+}) {
+  const [displayName, setDisplayName] = useState('Admin')
+  const [passphrase, setPassphrase] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleBootstrap = async () => {
+    if (!passphrase) return
+    setLoading(true)
+    setError(null)
+    try {
+      await InitAdminKey(passphrase)
+      await CreateAndImportSelfBundle(displayName || 'Admin', passphrase)
+      onDone()
+    } catch (e: unknown) {
+      setError(String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="card border-purple-900/60 bg-purple-950/20 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-base">🧪</span>
+        <div>
+          <p className="text-sm font-semibold text-purple-300">Dev Quick Setup (Make Me Admin)</p>
+          <p className="text-xs text-gray-500">
+            For development only: initialize root admin key, then self-issue and import bundle.
+          </p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-lg bg-red-950 border border-red-800 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="label">Display Name</label>
+          <input
+            className="input"
+            placeholder="Admin"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="label">New Admin Passphrase</label>
+          <input
+            type="password"
+            className="input"
+            placeholder="••••••••"
+            value={passphrase}
+            onChange={(e) => setPassphrase(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleBootstrap()}
+          />
+        </div>
+      </div>
+
+      {info && (
+        <p className="text-xs text-gray-600">
+          This will bootstrap admin for <span className="font-mono text-gray-500">{info.peer_id.slice(0, 20)}…</span>
+        </p>
+      )}
+
+      <button
+        className="btn-primary w-full"
+        onClick={handleBootstrap}
+        disabled={loading || !passphrase}
+      >
+        {loading ? (
+          <>
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            Bootstrapping admin...
+          </>
+        ) : (
+          'Make This User Admin'
         )}
       </button>
     </div>

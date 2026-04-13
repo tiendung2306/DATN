@@ -140,4 +140,27 @@ type CoordinationStorage interface {
 	// GetMessagesSince retrieves messages for a group with HLC timestamps
 	// after the given lower bound, sorted by HLC ascending.
 	GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error)
+
+	// AppendEnvelope stores a raw JSON Envelope for offline replay (MsgCommit / MsgApplication only).
+	AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (seq int64, err error)
+
+	// GetEnvelopesSince returns envelopes with seq > afterSeq from this node's log, ordered by seq ASC.
+	GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*EnvelopeRecord, error)
+
+	GetLatestSeq(groupID string) (int64, error)
+
+	// PruneEnvelopes deletes rows older than cutoff (created_at unix) and caps rows per group.
+	PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (removed int, err error)
+
+	RecordSyncAck(peerID string, groupID string, ackedSeq int64) error
+	GetSyncAck(peerID string, groupID string) (int64, error)
+	// GetMinAckedSeq returns the minimum ack across peerIDs; missing peers count as 0.
+	GetMinAckedSeq(groupID string, peerIDs []string) (int64, error)
+
+	EnqueuePendingDeliveryAck(targetPeerID, groupID string, ackedSeq int64) error
+	ListPendingDeliveryAcksForTarget(targetPeerID string) ([]PendingDeliveryAckRow, error)
+	DeletePendingDeliveryAck(id int64) error
+
+	GetOfflinePullCursor(groupID, remotePeerID string) (lastRemoteSeq int64, err error)
+	SetOfflinePullCursor(groupID, remotePeerID string, lastRemoteSeq int64) error
 }

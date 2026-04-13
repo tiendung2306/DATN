@@ -364,14 +364,24 @@ type MockStorage struct {
 	groups   map[string]*GroupRecord
 	coords   map[string]*CoordState
 	messages []*StoredMessage
+
+	envByGroup map[string][]*EnvelopeRecord
+	syncAcks   map[string]map[string]int64 // groupID -> peerID -> ackedSeq
+	pendingAck []PendingDeliveryAckRow
+	pullCursor map[string]int64 // "groupID|remotePeerID"
+	nextEnvID  map[string]int64 // groupID -> next seq
 }
 
 var _ CoordinationStorage = (*MockStorage)(nil)
 
 func NewMockStorage() *MockStorage {
 	return &MockStorage{
-		groups: make(map[string]*GroupRecord),
-		coords: make(map[string]*CoordState),
+		groups:     make(map[string]*GroupRecord),
+		coords:     make(map[string]*CoordState),
+		envByGroup: make(map[string][]*EnvelopeRecord),
+		syncAcks:   make(map[string]map[string]int64),
+		pullCursor: make(map[string]int64),
+		nextEnvID:  make(map[string]int64),
 	}
 }
 
@@ -445,4 +455,138 @@ func (s *MockStorage) Messages() []*StoredMessage {
 	cp := make([]*StoredMessage, len(s.messages))
 	copy(cp, s.messages)
 	return cp
+}
+
+func (s *MockStorage) AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextEnvID[groupID]++
+	seq := s.nextEnvID[groupID]
+	rec := &EnvelopeRecord{
+		Seq: seq, GroupID: groupID, MsgType: msgType, Epoch: epoch,
+		Envelope: envelope, Timestamp: ts,
+	}
+	s.envByGroup[groupID] = append(s.envByGroup[groupID], rec)
+	return seq, nil
+}
+
+func (s *MockStorage) GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*EnvelopeRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if maxCount < 1 {
+		maxCount = 50
+	}
+	var out []*EnvelopeRecord
+	for _, r := range s.envByGroup[groupID] {
+		if r.Seq <= afterSeq {
+			continue
+		}
+		out = append(out, r)
+		if len(out) >= maxCount {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *MockStorage) GetLatestSeq(groupID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nextEnvID[groupID], nil
+}
+
+func (s *MockStorage) PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (int, error) {
+	_ = cutoffUnix
+	_ = maxPerGroup
+	return 0, nil
+}
+
+func (s *MockStorage) RecordSyncAck(peerID, groupID string, ackedSeq int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.syncAcks[groupID] == nil {
+		s.syncAcks[groupID] = make(map[string]int64)
+	}
+	if ackedSeq > s.syncAcks[groupID][peerID] {
+		s.syncAcks[groupID][peerID] = ackedSeq
+	}
+	return nil
+}
+
+func (s *MockStorage) GetSyncAck(peerID, groupID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.syncAcks[groupID] == nil {
+		return 0, nil
+	}
+	return s.syncAcks[groupID][peerID], nil
+}
+
+func (s *MockStorage) GetMinAckedSeq(groupID string, peerIDs []string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(peerIDs) == 0 {
+		return 0, nil
+	}
+	var min int64 = -1
+	for _, pid := range peerIDs {
+		ack := int64(0)
+		if s.syncAcks[groupID] != nil {
+			ack = s.syncAcks[groupID][pid]
+		}
+		if min < 0 || ack < min {
+			min = ack
+		}
+	}
+	if min < 0 {
+		return 0, nil
+	}
+	return min, nil
+}
+
+func (s *MockStorage) EnqueuePendingDeliveryAck(targetPeerID, groupID string, ackedSeq int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingAck = append(s.pendingAck, PendingDeliveryAckRow{
+		ID: int64(len(s.pendingAck) + 1), TargetPeerID: targetPeerID, GroupID: groupID, AckedSeq: ackedSeq,
+	})
+	return nil
+}
+
+func (s *MockStorage) ListPendingDeliveryAcksForTarget(targetPeerID string) ([]PendingDeliveryAckRow, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []PendingDeliveryAckRow
+	for _, r := range s.pendingAck {
+		if r.TargetPeerID == targetPeerID {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (s *MockStorage) DeletePendingDeliveryAck(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []PendingDeliveryAckRow
+	for _, r := range s.pendingAck {
+		if r.ID != id {
+			kept = append(kept, r)
+		}
+	}
+	s.pendingAck = kept
+	return nil
+}
+
+func (s *MockStorage) GetOfflinePullCursor(groupID, remotePeerID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pullCursor[groupID+"|"+remotePeerID], nil
+}
+
+func (s *MockStorage) SetOfflinePullCursor(groupID, remotePeerID string, lastRemoteSeq int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pullCursor[groupID+"|"+remotePeerID] = lastRemoteSeq
+	return nil
 }

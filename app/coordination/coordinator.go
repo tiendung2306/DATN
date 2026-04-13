@@ -218,9 +218,9 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 	case MsgProposal:
 		c.handleProposalLocked(from, &env)
 	case MsgCommit:
-		c.handleCommitLocked(&env)
+		c.handleCommitLocked(&env, data)
 	case MsgApplication:
-		c.handleApplicationLocked(from, &env)
+		c.handleApplicationLocked(from, &env, data)
 	}
 }
 
@@ -264,7 +264,7 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 	}
 }
 
-func (c *Coordinator) handleCommitLocked(env *Envelope) {
+func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
@@ -290,9 +290,10 @@ func (c *Coordinator) handleCommitLocked(env *Envelope) {
 
 	c.advanceEpochLocked(newState, c.epoch+1, newTreeHash, commit.CommitData)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
+	c.appendOfflineEnvelopeLocked(wire)
 }
 
-func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope) {
+func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire []byte) {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
@@ -340,6 +341,7 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope) {
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
+	c.appendOfflineEnvelopeLocked(wire)
 }
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
@@ -408,9 +410,9 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 		case MsgProposal:
 			c.handleProposalLocked(peer.ID(env.From), &env)
 		case MsgCommit:
-			c.handleCommitLocked(&env)
+			c.handleCommitLocked(&env, raw)
 		case MsgApplication:
-			c.handleApplicationLocked(peer.ID(env.From), &env)
+			c.handleApplicationLocked(peer.ID(env.From), &env, raw)
 		}
 	}
 }
@@ -554,6 +556,58 @@ func (c *Coordinator) broadcastWithTimestampLocked(msgType MessageType, payload 
 		return
 	}
 	_ = c.transport.Publish(c.ctx, GroupTopic(c.groupID), envBytes)
+	if msgType == MsgCommit || msgType == MsgApplication {
+		c.appendOfflineEnvelopeLocked(envBytes)
+	}
+}
+
+func (c *Coordinator) appendOfflineEnvelopeLocked(wire []byte) {
+	if c.cfg == nil || !c.cfg.OfflineSyncEnabled || len(wire) == 0 {
+		return
+	}
+	var env Envelope
+	if err := json.Unmarshal(wire, &env); err != nil {
+		return
+	}
+	if env.Type != MsgCommit && env.Type != MsgApplication {
+		return
+	}
+	_, _ = c.storage.AppendEnvelope(c.groupID, env.Type, env.Epoch, env.Timestamp, wire)
+}
+
+// ReplayEnvelopes applies ciphertext envelopes from offline sync / DHT in order.
+// Caller must hold no Coordinator lock; this method is fully synchronized.
+func (c *Coordinator) ReplayEnvelopes(blobs [][]byte) (applied int, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.started {
+		return 0, fmt.Errorf("coordinator not started")
+	}
+
+	for _, raw := range blobs {
+		if len(raw) == 0 {
+			continue
+		}
+		var env Envelope
+		if jerr := json.Unmarshal(raw, &env); jerr != nil {
+			continue
+		}
+		if env.GroupID != c.groupID {
+			continue
+		}
+		switch env.Type {
+		case MsgCommit:
+			c.handleCommitLocked(&env, raw)
+			applied++
+		case MsgApplication:
+			c.handleApplicationLocked(peer.ID(env.From), &env, raw)
+			applied++
+		default:
+			continue
+		}
+	}
+	return applied, nil
 }
 
 // ─── Periodic Tasks ──────────────────────────────────────────────────────────

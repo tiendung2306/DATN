@@ -553,5 +553,8 @@ func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
 	// DHT PutValue needs peers in the routing table — retry KP advertisement
 	// whenever anyone connects (common on small LANs).
 	go h.rt.advertiseKeyPackage()
+	go h.rt.pullOfflineSyncFromPeer(p)
+	go h.rt.flushPendingDeliveryAcksTo(p)
+	go h.rt.pushOfflineDHTMailbox()
 }
 func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {}

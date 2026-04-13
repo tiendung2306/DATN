@@ -35,18 +35,30 @@ type CoordinatorConfig struct {
 	// Should be true for benchmarks and evaluation; may be false in production
 	// to reduce overhead if metrics are not needed.
 	MetricsEnabled bool
+
+	// OfflineSyncEnabled logs ciphertext envelopes for store-and-forward replay.
+	OfflineSyncEnabled bool
+
+	// EnvelopeLogTTL is how long envelope_log rows are retained (unix age prune).
+	EnvelopeLogTTL time.Duration
+
+	// EnvelopeLogMaxPerGroup caps rows per group_id after TTL prune.
+	EnvelopeLogMaxPerGroup int
 }
 
 // DefaultConfig returns production-ready defaults optimized for LAN/intranet
 // where network latency is typically <1ms.
 func DefaultConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
-		TokenHolderTimeout:  4 * time.Second,
-		HeartbeatInterval:   5 * time.Second,
-		PeerDeadAfter:       3,
-		MaxBatchedProposals: 10,
-		KeyRotationInterval: 5 * time.Minute,
-		MetricsEnabled:      true,
+		TokenHolderTimeout:     4 * time.Second,
+		HeartbeatInterval:      5 * time.Second,
+		PeerDeadAfter:          3,
+		MaxBatchedProposals:    10,
+		KeyRotationInterval:    5 * time.Minute,
+		MetricsEnabled:         true,
+		OfflineSyncEnabled:     true,
+		EnvelopeLogTTL:         7 * 24 * time.Hour,
+		EnvelopeLogMaxPerGroup: 10000,
 	}
 }
 
@@ -55,12 +67,15 @@ func DefaultConfig() *CoordinatorConfig {
 // so tests control epoch transitions explicitly.
 func TestConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
-		TokenHolderTimeout:  100 * time.Millisecond,
-		HeartbeatInterval:   50 * time.Millisecond,
-		PeerDeadAfter:       3,
-		MaxBatchedProposals: 10,
-		KeyRotationInterval: 0,
-		MetricsEnabled:      true,
+		TokenHolderTimeout:     100 * time.Millisecond,
+		HeartbeatInterval:      50 * time.Millisecond,
+		PeerDeadAfter:          3,
+		MaxBatchedProposals:    10,
+		KeyRotationInterval:    0,
+		MetricsEnabled:         true,
+		OfflineSyncEnabled:     true,
+		EnvelopeLogTTL:         7 * 24 * time.Hour,
+		EnvelopeLogMaxPerGroup: 10000,
 	}
 }
 
@@ -86,6 +101,14 @@ func (c *CoordinatorConfig) Validate() error {
 	if c.KeyRotationInterval < 0 {
 		return fmt.Errorf("%w: KeyRotationInterval must be >= 0, got %v",
 			ErrInvalidConfig, c.KeyRotationInterval)
+	}
+	if c.EnvelopeLogTTL < 0 {
+		return fmt.Errorf("%w: EnvelopeLogTTL must be >= 0, got %v",
+			ErrInvalidConfig, c.EnvelopeLogTTL)
+	}
+	if c.EnvelopeLogMaxPerGroup < 1 {
+		return fmt.Errorf("%w: EnvelopeLogMaxPerGroup must be >= 1, got %d",
+			ErrInvalidConfig, c.EnvelopeLogMaxPerGroup)
 	}
 	return nil
 }

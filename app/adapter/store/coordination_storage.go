@@ -208,3 +208,255 @@ func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coord
 	}
 	return msgs, rows.Err()
 }
+
+// ── Offline envelope log + ACKs ─────────────────────────────────────────────
+
+func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coordination.MessageType, epoch uint64, ts coordination.HLCTimestamp, envelope []byte) (int64, error) {
+	tx, err := s.db.Conn.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("AppendEnvelope begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var next int64
+	err = tx.QueryRow(
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM envelope_log WHERE group_id = ?`, groupID,
+	).Scan(&next)
+	if err != nil {
+		return 0, fmt.Errorf("AppendEnvelope seq: %w", err)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO envelope_log (group_id, seq, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		groupID, next, string(msgType), epoch, envelope,
+		ts.WallTimeMs, ts.Counter, ts.NodeID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("AppendEnvelope insert: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("AppendEnvelope commit: %w", err)
+	}
+	return next, nil
+}
+
+func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*coordination.EnvelopeRecord, error) {
+	if maxCount < 1 {
+		maxCount = 50
+	}
+	rows, err := s.db.Conn.Query(
+		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id
+		 FROM envelope_log
+		 WHERE group_id = ? AND seq > ?
+		 ORDER BY seq ASC
+		 LIMIT ?`,
+		groupID, afterSeq, maxCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetEnvelopesSince: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*coordination.EnvelopeRecord
+	for rows.Next() {
+		var r coordination.EnvelopeRecord
+		var mt string
+		if err := rows.Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
+			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID); err != nil {
+			return nil, fmt.Errorf("GetEnvelopesSince scan: %w", err)
+		}
+		r.MsgType = coordination.MessageType(mt)
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) GetLatestSeq(groupID string) (int64, error) {
+	var max sql.NullInt64
+	err := s.db.Conn.QueryRow(
+		`SELECT MAX(seq) FROM envelope_log WHERE group_id = ?`, groupID,
+	).Scan(&max)
+	if err != nil {
+		return 0, fmt.Errorf("GetLatestSeq: %w", err)
+	}
+	if !max.Valid {
+		return 0, nil
+	}
+	return max.Int64, nil
+}
+
+func (s *SQLiteCoordinationStorage) PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (removed int, err error) {
+	res, err := s.db.Conn.Exec(
+		`DELETE FROM envelope_log WHERE created_at < ?`, cutoffUnix,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("PruneEnvelopes age: %w", err)
+	}
+	n64, _ := res.RowsAffected()
+	removed += int(n64)
+
+	if maxPerGroup < 1 {
+		return removed, nil
+	}
+
+	// Per-group FIFO cap: delete oldest rows beyond maxPerGroup.
+	rows, err := s.db.Conn.Query(`SELECT DISTINCT group_id FROM envelope_log`)
+	if err != nil {
+		return removed, fmt.Errorf("PruneEnvelopes list groups: %w", err)
+	}
+	var groups []string
+	for rows.Next() {
+		var gid string
+		if err := rows.Scan(&gid); err != nil {
+			_ = rows.Close()
+			return removed, err
+		}
+		groups = append(groups, gid)
+	}
+	_ = rows.Close()
+
+	for _, gid := range groups {
+		var cnt int
+		if err := s.db.Conn.QueryRow(
+			`SELECT COUNT(*) FROM envelope_log WHERE group_id = ?`, gid,
+		).Scan(&cnt); err != nil {
+			return removed, err
+		}
+		for cnt > maxPerGroup {
+			_, err := s.db.Conn.Exec(
+				`DELETE FROM envelope_log WHERE id = (
+					SELECT id FROM envelope_log WHERE group_id = ? ORDER BY seq ASC LIMIT 1
+				)`, gid,
+			)
+			if err != nil {
+				return removed, fmt.Errorf("PruneEnvelopes cap: %w", err)
+			}
+			removed++
+			cnt--
+		}
+	}
+	return removed, nil
+}
+
+func (s *SQLiteCoordinationStorage) RecordSyncAck(peerID, groupID string, ackedSeq int64) error {
+	now := time.Now().Unix()
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO sync_acks (peer_id, group_id, acked_seq, acked_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(peer_id, group_id) DO UPDATE SET
+		   acked_seq = CASE WHEN excluded.acked_seq > sync_acks.acked_seq THEN excluded.acked_seq ELSE sync_acks.acked_seq END,
+		   acked_at = excluded.acked_at`,
+		peerID, groupID, ackedSeq, now,
+	)
+	if err != nil {
+		return fmt.Errorf("RecordSyncAck: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) GetSyncAck(peerID, groupID string) (int64, error) {
+	var ack int64
+	err := s.db.Conn.QueryRow(
+		`SELECT acked_seq FROM sync_acks WHERE peer_id = ? AND group_id = ?`,
+		peerID, groupID,
+	).Scan(&ack)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("GetSyncAck: %w", err)
+	}
+	return ack, nil
+}
+
+func (s *SQLiteCoordinationStorage) GetMinAckedSeq(groupID string, peerIDs []string) (int64, error) {
+	if len(peerIDs) == 0 {
+		return 0, nil
+	}
+	var minAck int64 = -1
+	for _, pid := range peerIDs {
+		ack, err := s.GetSyncAck(pid, groupID)
+		if err != nil {
+			return 0, err
+		}
+		if minAck < 0 || ack < minAck {
+			minAck = ack
+		}
+	}
+	if minAck < 0 {
+		return 0, nil
+	}
+	return minAck, nil
+}
+
+func (s *SQLiteCoordinationStorage) EnqueuePendingDeliveryAck(targetPeerID, groupID string, ackedSeq int64) error {
+	now := time.Now().Unix()
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO pending_delivery_acks (target_peer_id, group_id, acked_seq, created_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(target_peer_id, group_id) DO UPDATE SET
+		   acked_seq = CASE WHEN excluded.acked_seq > pending_delivery_acks.acked_seq THEN excluded.acked_seq ELSE pending_delivery_acks.acked_seq END,
+		   created_at = excluded.created_at`,
+		targetPeerID, groupID, ackedSeq, now,
+	)
+	if err != nil {
+		return fmt.Errorf("EnqueuePendingDeliveryAck: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ListPendingDeliveryAcksForTarget(targetPeerID string) ([]coordination.PendingDeliveryAckRow, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT id, target_peer_id, group_id, acked_seq FROM pending_delivery_acks WHERE target_peer_id = ?`,
+		targetPeerID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListPendingDeliveryAcksForTarget: %w", err)
+	}
+	defer rows.Close()
+
+	var out []coordination.PendingDeliveryAckRow
+	for rows.Next() {
+		var r coordination.PendingDeliveryAckRow
+		if err := rows.Scan(&r.ID, &r.TargetPeerID, &r.GroupID, &r.AckedSeq); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) DeletePendingDeliveryAck(id int64) error {
+	_, err := s.db.Conn.Exec(`DELETE FROM pending_delivery_acks WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteCoordinationStorage) GetOfflinePullCursor(groupID, remotePeerID string) (int64, error) {
+	var seq int64
+	err := s.db.Conn.QueryRow(
+		`SELECT last_remote_seq FROM offline_sync_pull_state WHERE group_id = ? AND remote_peer_id = ?`,
+		groupID, remotePeerID,
+	).Scan(&seq)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("GetOfflinePullCursor: %w", err)
+	}
+	return seq, nil
+}
+
+func (s *SQLiteCoordinationStorage) SetOfflinePullCursor(groupID, remotePeerID string, lastRemoteSeq int64) error {
+	now := time.Now().Unix()
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO offline_sync_pull_state (group_id, remote_peer_id, last_remote_seq, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(group_id, remote_peer_id) DO UPDATE SET
+		   last_remote_seq = excluded.last_remote_seq,
+		   updated_at = excluded.updated_at`,
+		groupID, remotePeerID, lastRemoteSeq, now,
+	)
+	if err != nil {
+		return fmt.Errorf("SetOfflinePullCursor: %w", err)
+	}
+	return nil
+}
