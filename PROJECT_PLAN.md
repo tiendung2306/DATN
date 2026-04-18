@@ -329,7 +329,7 @@
 
 **Goal:** Secure Identity Migration (Manual) and Offline Messaging (Store-and-Forward).
 
-**Trạng thái (đối chiếu code):** **5.1** và **5.2** đã implement (`.backup` + `SessionClaim` trong auth). **5.3** (offline DHT messaging) chưa làm.
+**Trạng thái (đối chiếu code):** **5.1**, **5.2** và **5.3** đã implement (`.backup` + `SessionClaim` + offline store-and-forward qua sync stream + DHT mailbox).
 
 ### 5.1. Secure Identity Export/Import (File-based) [COMPLETED ✅]
 - **CRITICAL DESIGN NOTE:** The `.backup` file MUST include the Libp2p private key in addition to the MLS key.
@@ -360,11 +360,18 @@
 
 **Implemented:** `app/adapter/p2p/session_claim.go`, `auth_protocol.go` (`AuthHandshakeMsg`), `app/service/session.go`, tests trong `session_claim_test.go`.
 
-### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage)
+### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage) [COMPLETED ✅]
 - **Task:** If recipient is offline: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.
 - **Task:** On recipient connect: `dht.Get(Key=Hash(MyID))` → retrieve and process buffered messages.
 - **Task:** Messages are encrypted with MLS group key — only the intended recipient's MLS state can decrypt.
 - **Task:** Automatic cleanup: DHT entries expire after configurable TTL.
+
+**Implemented:** `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`, `app/adapter/p2p/offline_dht.go`, `app/adapter/store/coordination_storage.go` + schema trong `app/adapter/store/db.go`.
+- Offline sync stream `/app/offline-sync/1.0.0`: pull envelope log theo `seq`, replay, và ACK cursor.
+- DHT mailbox theo sender `/app/inbox/{recipient}/{group}/{sender}`: push/fetch bundle ciphertext nén.
+- Runtime triggers: startup + peer connect + manual trigger + **ticker 60s** (`offlineDHTPushLoop`) + **ticker 90s** (`offlineDHTCheckLoop`) để đẩy/kéo mailbox liên tục.
+- Member discovery qua `GetKnownGroupMembers` (lịch sử `stored_messages`) thay vì ActiveView — đảm bảo push/pull đến cả peer đã offline lâu.
+- Push: cursor-based pagination, không hard-cap số lượng message; DHT auto-trim oldest nếu payload > 256 KiB.
 
 ---
 

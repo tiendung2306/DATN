@@ -208,6 +208,8 @@ func (r *Runtime) launchP2PNode() error {
 
 	go r.advertiseKeyPackage()
 	go r.checkOfflineDHTInboxOnce()
+	go r.offlineDHTPushLoop(nodeCtx)
+	go r.offlineDHTCheckLoop(nodeCtx)
 	go r.offlineEnvelopeGCLoop(nodeCtx)
 
 	return nil

@@ -286,6 +286,13 @@ func (r *Runtime) flushPendingDeliveryAcksTo(remote peer.ID) {
 	}
 }
 
+// pushOfflineDHTMailbox writes this node's unseen outbound envelopes to each
+// offline group member's DHT inbox slot. It uses GetKnownGroupMembers (based
+// on stored_messages history) so that members who have been offline long enough
+// to fall out of the in-memory ActiveView are still reached.
+//
+// Envelopes are fetched via cursor-based pagination (no hard window), and the
+// DHT layer auto-trims to the record size limit, always keeping newest messages.
 func (r *Runtime) pushOfflineDHTMailbox() {
 	r.mu.Lock()
 	node := r.node
@@ -310,74 +317,81 @@ func (r *Runtime) pushOfflineDHTMailbox() {
 
 	online := map[string]struct{}{}
 	if transport != nil {
-		for _, p := range transport.ConnectedPeers() {
-			online[p.String()] = struct{}{}
+		for _, pid := range transport.ConnectedPeers() {
+			online[pid.String()] = struct{}{}
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 45*time.Second)
+	ctx, cancel := context.WithTimeout(r.ctx, 90*time.Second)
 	defer cancel()
 
 	for gid, coord := range coords {
-		members := coord.ActiveMembers()
-		latest, err := cs.GetLatestSeq(gid)
-		if err != nil || latest == 0 {
-			continue
-		}
-		low := latest - 500
-		if low < 0 {
-			low = 0
-		}
-		recs, err := cs.GetEnvelopesSince(gid, low, 500)
-		if err != nil || len(recs) == 0 {
-			continue
+		// Prefer persisted member history; fall back to live active view.
+		memberStrs, err := cs.GetKnownGroupMembers(gid)
+		if err != nil || len(memberStrs) == 0 {
+			for _, m := range coord.ActiveMembers() {
+				memberStrs = append(memberStrs, m.String())
+			}
 		}
 
-		type envWrap struct {
-			seq int64
-			raw []byte
-		}
-		var mine []envWrap
-		for _, rec := range recs {
-			var env coordination.Envelope
-			if json.Unmarshal(rec.Envelope, &env) != nil {
+		for _, memberStr := range memberStrs {
+			if memberStr == localID.String() {
 				continue
 			}
-			if env.From != string(localID) {
+			// Skip currently connected peers — they receive via GossipSub directly.
+			if _, ok := online[memberStr]; ok {
 				continue
 			}
-			mine = append(mine, envWrap{seq: rec.Seq, raw: rec.Envelope})
-		}
-		if len(mine) > 50 {
-			mine = mine[len(mine)-50:]
-		}
 
-		for _, m := range members {
-			if m == localID {
-				continue
-			}
-			if _, ok := online[m.String()]; ok {
-				continue
-			}
-			acked, _ := cs.GetSyncAck(m.String(), gid)
+			// Cursor-based fetch: collect all my envelopes the member hasn't acked yet.
+			acked, _ := cs.GetSyncAck(memberStr, gid)
 			var seqs []int64
 			var envs [][]byte
-			for _, w := range mine {
-				if w.seq > acked {
-					seqs = append(seqs, w.seq)
-					envs = append(envs, w.raw)
+			afterSeq := acked
+			for {
+				const pageSize = 200
+				recs, err := cs.GetEnvelopesSince(gid, afterSeq, pageSize)
+				if err != nil || len(recs) == 0 {
+					break
 				}
+				for _, rec := range recs {
+					var env coordination.Envelope
+					if json.Unmarshal(rec.Envelope, &env) != nil {
+						continue
+					}
+					if env.From != string(localID) {
+						continue
+					}
+					seqs = append(seqs, rec.Seq)
+					envs = append(envs, rec.Envelope)
+				}
+				if len(recs) < pageSize {
+					break
+				}
+				afterSeq = recs[len(recs)-1].Seq
 			}
+
 			if len(seqs) == 0 {
 				continue
 			}
-			if err := p2p.StoreOfflineInboxBundle(ctx, node.DHT, m.String(), gid, localID, seqs, envs); err != nil {
-				slog.Debug("pushOfflineDHTMailbox", "err", err, "group", gid, "to", m)
+
+			pid, err := peer.Decode(memberStr)
+			if err != nil {
+				continue
+			}
+			if err := p2p.StoreOfflineInboxBundle(ctx, node.DHT, memberStr, gid, localID, seqs, envs); err != nil {
+				slog.Debug("pushOfflineDHTMailbox", "err", err, "group", gid, "to", pid)
 			}
 		}
 	}
 }
 
+// checkOfflineDHTInboxOnce fetches every known peer's DHT inbox slot for each
+// group and replays any envelopes that arrived while this node was offline.
+//
+// Member discovery uses GetKnownGroupMembers (history-based) so that senders
+// who are no longer in the live ActiveView are still checked — this is
+// intentional for the offline-recovery use case.
 func (r *Runtime) checkOfflineDHTInboxOnce() {
 	r.mu.Lock()
 	node := r.node
@@ -396,55 +410,60 @@ func (r *Runtime) checkOfflineDHTInboxOnce() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(r.ctx, 90*time.Second)
 	defer cancel()
 
-	for gid := range coords {
-		st, err := cs.GetCoordState(gid)
-		if err != nil {
-			continue
-		}
-		members := st.ActiveView
-		if len(members) == 0 {
-			members = coords[gid].ActiveMembers()
+	for gid, coord := range coords {
+		// Use persisted message history to find known senders; fall back to
+		// active view when a group is brand-new and has no stored messages yet.
+		memberStrs, err := cs.GetKnownGroupMembers(gid)
+		if err != nil || len(memberStrs) == 0 {
+			for _, m := range coord.ActiveMembers() {
+				memberStrs = append(memberStrs, m.String())
+			}
 		}
 
 		senderMax := make(map[string]int64)
 
-		for _, m := range members {
-			if m == localID {
+		for _, memberStr := range memberStrs {
+			if memberStr == localID.String() {
 				continue
 			}
-			seqs, envs, err := p2p.FetchOfflineInboxBundle(ctx, node.DHT, localID.String(), gid, m)
+			sender, err := peer.Decode(memberStr)
+			if err != nil {
+				continue
+			}
+
+			seqs, envs, err := p2p.FetchOfflineInboxBundle(ctx, node.DHT, localID.String(), gid, sender)
 			if err != nil || len(seqs) == 0 {
 				continue
 			}
+
+			// Sort by seq ascending before replay to maintain causal order.
 			type pair struct {
 				seq int64
 				env []byte
 			}
-			var pairs []pair
-			var max int64
+			pairs := make([]pair, len(seqs))
 			for i := range seqs {
-				pairs = append(pairs, pair{seq: seqs[i], env: envs[i]})
-				if seqs[i] > max {
-					max = seqs[i]
-				}
+				pairs[i] = pair{seq: seqs[i], env: envs[i]}
 			}
 			sort.Slice(pairs, func(i, j int) bool { return pairs[i].seq < pairs[j].seq })
-			blobs := make([][]byte, 0, len(pairs))
-			for _, p := range pairs {
-				blobs = append(blobs, p.env)
+
+			blobs := make([][]byte, len(pairs))
+			var maxSeq int64
+			for i, p := range pairs {
+				blobs[i] = p.env
+				if p.seq > maxSeq {
+					maxSeq = p.seq
+				}
 			}
-			coord := coords[gid]
-			if coord == nil {
-				continue
-			}
+
 			if _, err := coord.ReplayEnvelopes(blobs); err != nil {
-				slog.Warn("DHT inbox replay", "group", gid, "from", m, "err", err)
+				slog.Warn("DHT inbox replay", "group", gid, "from", sender, "err", err)
 				continue
 			}
-			senderMax[m.String()] = max
+			senderMax[memberStr] = maxSeq
 		}
 
 		for senderStr, mx := range senderMax {
@@ -454,6 +473,37 @@ func (r *Runtime) checkOfflineDHTInboxOnce() {
 			}
 			_ = cs.EnqueuePendingDeliveryAck(pid.String(), gid, mx)
 			go r.flushPendingDeliveryAcksTo(pid)
+		}
+	}
+}
+
+// offlineDHTPushLoop periodically pushes this node's unsent envelopes to the
+// DHT so offline members can retrieve them on reconnect.
+func (r *Runtime) offlineDHTPushLoop(ctx context.Context) {
+	t := time.NewTicker(60 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.pushOfflineDHTMailbox()
+		}
+	}
+}
+
+// offlineDHTCheckLoop periodically pulls this node's own DHT inbox so that
+// messages pushed by peers while this node was offline are consumed promptly
+// rather than waiting for a manual TriggerOfflineSync call.
+func (r *Runtime) offlineDHTCheckLoop(ctx context.Context) {
+	t := time.NewTicker(90 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.checkOfflineDHTInboxOnce()
 		}
 	}
 }

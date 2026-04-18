@@ -590,3 +590,19 @@ func (s *MockStorage) SetOfflinePullCursor(groupID, remotePeerID string, lastRem
 	s.pullCursor[groupID+"|"+remotePeerID] = lastRemoteSeq
 	return nil
 }
+
+func (s *MockStorage) GetKnownGroupMembers(groupID string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := make(map[string]struct{})
+	for _, msg := range s.messages {
+		if msg.GroupID == groupID {
+			seen[string(msg.SenderID)] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out, nil
+}

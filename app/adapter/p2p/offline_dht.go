@@ -23,37 +23,58 @@ type offlineInboxPayloadV1 struct {
 	Envelopes [][]byte `json:"envelopes"`
 }
 
-// StoreOfflineInboxBundle compresses and publishes up to one sender's pending ciphertext envelopes for a recipient.
-func StoreOfflineInboxBundle(ctx context.Context, d *dht.IpfsDHT, recipient string, groupID string, sender peer.ID, seqs []int64, envelopes [][]byte) error {
-	if len(seqs) != len(envelopes) || len(seqs) == 0 {
-		return nil
-	}
-	p := offlineInboxPayloadV1{V: 1, Seqs: seqs, Envelopes: envelopes}
+const dhtRecordLimit = 256 * 1024 // 256 KiB — Kademlia record size limit
+
+// compressInboxPayload serialises and zlib-compresses an offlineInboxPayloadV1.
+func compressInboxPayload(p offlineInboxPayloadV1) ([]byte, error) {
 	plain, err := json.Marshal(p)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var buf bytes.Buffer
 	zw := zlib.NewWriter(&buf)
 	if _, err := zw.Write(plain); err != nil {
 		_ = zw.Close()
-		return err
+		return nil, err
 	}
 	if err := zw.Close(); err != nil {
-		return err
+		return nil, err
 	}
-	compressed := buf.Bytes()
-	if len(compressed) > 256*1024 {
-		return fmt.Errorf("offline inbox blob too large: %d", len(compressed))
+	return buf.Bytes(), nil
+}
+
+// StoreOfflineInboxBundle compresses and publishes one sender's pending ciphertext
+// envelopes for a recipient into the DHT.
+//
+// If the compressed payload exceeds the DHT record limit (256 KiB) the oldest
+// envelopes are dropped (from the front of the slice) until it fits, ensuring
+// the most recent messages always reach the recipient.
+func StoreOfflineInboxBundle(ctx context.Context, d *dht.IpfsDHT, recipient string, groupID string, sender peer.ID, seqs []int64, envelopes [][]byte) error {
+	if len(seqs) != len(envelopes) || len(seqs) == 0 {
+		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	key := offlineInboxDHTKey(recipient, groupID, sender)
-	if err := d.PutValue(ctx, key, compressed); err != nil {
-		return fmt.Errorf("DHT StoreOfflineInboxBundle %q: %w", key, err)
+	// Trim oldest entries until the compressed payload fits within dhtRecordLimit.
+	for len(seqs) > 0 {
+		p := offlineInboxPayloadV1{V: 1, Seqs: seqs, Envelopes: envelopes}
+		compressed, err := compressInboxPayload(p)
+		if err != nil {
+			return err
+		}
+		if len(compressed) <= dhtRecordLimit {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			key := offlineInboxDHTKey(recipient, groupID, sender)
+			if err := d.PutValue(ctx, key, compressed); err != nil {
+				return fmt.Errorf("DHT StoreOfflineInboxBundle %q: %w", key, err)
+			}
+			return nil
+		}
+		// Drop the oldest envelope and retry.
+		seqs = seqs[1:]
+		envelopes = envelopes[1:]
 	}
-	return nil
+	return fmt.Errorf("all envelopes individually exceed DHT record size limit")
 }
 
 // FetchOfflineInboxBundle retrieves and decodes a per-sender inbox for (recipient, group, sender).

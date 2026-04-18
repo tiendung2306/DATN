@@ -163,4 +163,9 @@ type CoordinationStorage interface {
 
 	GetOfflinePullCursor(groupID, remotePeerID string) (lastRemoteSeq int64, err error)
 	SetOfflinePullCursor(groupID, remotePeerID string, lastRemoteSeq int64) error
+
+	// GetKnownGroupMembers returns the distinct sender IDs that have ever sent
+	// a message in the group (from stored_messages). Used to identify recipients
+	// for DHT offline mailbox push and senders to pull from.
+	GetKnownGroupMembers(groupID string) ([]string, error)
 }

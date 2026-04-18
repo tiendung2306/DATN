@@ -298,7 +298,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 ## 4. Current Progress
 
-### Phase 5.1 + 5.2 (Identity migration + session takeover) — COMPLETE ✅
+### Phase 5.1 + 5.2 + 5.3 (Identity migration + session takeover + offline messaging) — COMPLETE ✅
 
 #### Implemented in this update
 
@@ -316,6 +316,15 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
   - `app/adapter/p2p/session_claim.go` + tests; auth wire trong `app/adapter/p2p/auth_protocol.go` (`AuthHandshakeMsg { token, session }`, tương thích token-only cũ).
   - Session keys / flags: `app/service/session.go` (`buildLocalAuthHandshake`, `resetSessionStartedAt`, `killSessionPendingConfigKey`, …).
   - Node startup: `app/service/runtime.go` (`launchP2PNode`) + `app/adapter/p2p/host.go`.
+
+- **Offline messaging (Phase 5.3, store-and-forward):**
+  - Offline sync stream + ACK cursor: `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`.
+  - DHT inbox bundle store/fetch: `app/adapter/p2p/offline_dht.go`.
+  - Envelope log + sync ack persistence: `app/adapter/store/coordination_storage.go`, schema `envelope_log` / `sync_acks` / `pending_delivery_acks` / `offline_sync_pull_state` trong `app/adapter/store/db.go`.
+  - Runtime background loops: `offlineDHTPushLoop` (60s) đẩy mailbox DHT; `offlineDHTCheckLoop` (90s) kéo inbox DHT định kỳ — cả hai chạy song song từ `launchP2PNode`.
+  - `GetKnownGroupMembers` trong `CoordinationStorage`: member discovery dựa vào lịch sử `stored_messages` thay vì ActiveView, đảm bảo push/pull đến cả peer offline lâu không còn trong view.
+  - `pushOfflineDHTMailbox` dùng cursor-based pagination (không hard-cap), `checkOfflineDHTInboxOnce` không còn phụ thuộc `GetCoordState`.
+  - DHT auto-trim: nếu payload > 256 KiB, tự drop oldest cho đến khi vừa, luôn ưu tiên newest messages.
 
 #### Validation
 
@@ -405,9 +414,9 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Phase 5.3 trở đi + hardening
+## 6. Next Step — Hardening + Phase 6/7
 
-Phase 4 hoàn tất. **Phase 5.1 (backup `.backup`) và 5.2 (`SessionClaim` / single active device)** đã implement — xem §4.
+Phase 4 hoàn tất. **Phase 5.1 (`.backup`), 5.2 (`SessionClaim` / single active device), 5.3 (offline store-and-forward)** đã implement — xem §4.
 
 Hệ thống đã có:
 - OpenMLS (nhóm, tin nhắn, KeyPackage / AddMembers / Welcome, …) qua sidecar
@@ -421,11 +430,9 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Phase 5.3 — Offline messaging (DHT store-and-forward):** `dht.Put` / `dht.Get` theo thiết kế trong `PROJECT_PLAN.md` §5.3.
+1.  **Hardening Add Member / invite:** ràng buộc `newMemberPeerID` với identity trong KeyPackage trước khi add; giảm lộ `key_package_bundle_private` trên frontend (xử lý local an toàn hơn clipboard/state UI).
 
-2.  **Hardening Add Member / invite:** ràng buộc `newMemberPeerID` với identity trong KeyPackage trước khi add; giảm lộ `key_package_bundle_private` trên frontend (xử lý local an toàn hơn clipboard/state UI).
-
-3.  **Phase 6–7:** file transfer (MLS exporter), đánh giá đa node / partition / báo cáo luận văn.
+2.  **Phase 6–7:** file transfer (MLS exporter), đánh giá đa node / partition / báo cáo luận văn.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.

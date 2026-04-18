@@ -445,6 +445,25 @@ func (s *SQLiteCoordinationStorage) GetOfflinePullCursor(groupID, remotePeerID s
 	return seq, nil
 }
 
+func (s *SQLiteCoordinationStorage) GetKnownGroupMembers(groupID string) ([]string, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT DISTINCT sender_id FROM stored_messages WHERE group_id = ?`, groupID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetKnownGroupMembers: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func (s *SQLiteCoordinationStorage) SetOfflinePullCursor(groupID, remotePeerID string, lastRemoteSeq int64) error {
 	now := time.Now().Unix()
 	_, err := s.db.Conn.Exec(
