@@ -195,7 +195,7 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	// Prefer DHT (offline invitee), but on small LANs the routing table is often
 	// empty so PutValue/GetValue fails — fall back to a direct stream (Noise).
 	if node.AuthProtocol != nil {
-		node.AuthProtocol.InitiateHandshake(r.ctx, targetID)
+		node.AuthProtocol.InitiateHandshake(r.appCtx(), targetID)
 	}
 
 	slog.Info("Fetching KeyPackage", "target", targetID, "group", groupID)

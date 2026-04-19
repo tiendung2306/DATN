@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"app/admin"
 	"app/adapter/p2p"
+	"app/admin"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -56,7 +56,7 @@ func (r *Runtime) CreateBundle(req CreateBundleRequest) (string, error) {
 		return "", fmt.Errorf("create bundle: %w", err)
 	}
 
-	outPath, err := wailsRuntime.SaveFileDialog(r.ctx, wailsRuntime.SaveDialogOptions{
+	outPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
 		Title:           "Save Invitation Bundle",
 		DefaultFilename: req.DisplayName + ".bundle",
 		Filters: []wailsRuntime.FileFilter{

@@ -194,6 +194,13 @@ func (c *Coordinator) Stop() {
 
 // ─── Message Handling ────────────────────────────────────────────────────────
 
+// ReceiveDirectMessage applies a coordination envelope received on a libp2p
+// direct stream. Wire format matches GossipSub (JSON Envelope); each
+// coordinator ignores payloads for other groups.
+func (c *Coordinator) ReceiveDirectMessage(from peer.ID, data []byte) {
+	c.handleRawMessage(from, data)
+}
+
 func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 	if from == c.localID {
 		return

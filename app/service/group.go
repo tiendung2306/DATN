@@ -312,6 +312,7 @@ func (r *Runtime) initCoordinationStackLocked() {
 	}
 
 	r.transport = p2p.NewLibP2PTransport(r.node.Host, r.node.PubSub)
+	r.transport.SetDirectMessageHandler(r.dispatchDirectCoordination)
 	r.coordStorage = store.NewSQLiteCoordinationStorage(r.db)
 
 	if r.mlsClient != nil {

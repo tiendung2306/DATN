@@ -56,7 +56,7 @@ func (r *Runtime) GenerateKeys() (*OnboardingInfo, error) {
 	if has {
 		return nil, fmt.Errorf("key pair already exists; use GetOnboardingInfo to retrieve it")
 	}
-	if err := p2p.OnboardNewUser(r.ctx, r.db, r.mlsClient); err != nil {
+	if err := p2p.OnboardNewUser(r.appCtx(), r.db, r.mlsClient); err != nil {
 		return nil, fmt.Errorf("generate key pair: %w", err)
 	}
 	info, err := p2p.GetOnboardingInfo(r.db, r.privKey)
@@ -71,7 +71,7 @@ func (r *Runtime) OpenAndImportBundle() error {
 	if r.db == nil || r.privKey == nil {
 		return fmt.Errorf("app not initialized")
 	}
-	path, err := wailsRuntime.OpenFileDialog(r.ctx, wailsRuntime.OpenDialogOptions{
+	path, err := wailsRuntime.OpenFileDialog(r.appCtx(), wailsRuntime.OpenDialogOptions{
 		Title: "Select Invitation Bundle",
 		Filters: []wailsRuntime.FileFilter{
 			{DisplayName: "Bundle Files (*.bundle)", Pattern: "*.bundle"},
@@ -108,7 +108,7 @@ func (r *Runtime) ExportIdentity(passphrase string) error {
 		return err
 	}
 
-	outPath, err := wailsRuntime.SaveFileDialog(r.ctx, wailsRuntime.SaveDialogOptions{
+	outPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
 		Title:           "Save Identity Backup",
 		DefaultFilename: "identity.backup",
 		Filters: []wailsRuntime.FileFilter{
@@ -149,7 +149,7 @@ func (r *Runtime) ImportIdentityFromFile(passphrase string, force bool) error {
 		return fmt.Errorf("existing identity data found; set force=true to replace")
 	}
 
-	path, err := wailsRuntime.OpenFileDialog(r.ctx, wailsRuntime.OpenDialogOptions{
+	path, err := wailsRuntime.OpenFileDialog(r.appCtx(), wailsRuntime.OpenDialogOptions{
 		Title: "Select Identity Backup",
 		Filters: []wailsRuntime.FileFilter{
 			{DisplayName: "Identity Backup (*.backup)", Pattern: "*.backup"},

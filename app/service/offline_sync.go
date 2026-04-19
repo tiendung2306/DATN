@@ -175,7 +175,7 @@ func (r *Runtime) pullOfflineSyncFromPeer(remote peer.ID) {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.appCtx(), 90*time.Second)
 	defer cancel()
 
 	if node.AuthProtocol != nil {
@@ -267,7 +267,7 @@ func (r *Runtime) flushPendingDeliveryAcksTo(remote peer.ID) {
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.appCtx(), 30*time.Second)
 	defer cancel()
 	if node.AuthProtocol != nil {
 		node.AuthProtocol.InitiateHandshake(ctx, remote)
@@ -322,7 +322,7 @@ func (r *Runtime) pushOfflineDHTMailbox() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.appCtx(), 90*time.Second)
 	defer cancel()
 
 	for gid, coord := range coords {
@@ -410,7 +410,7 @@ func (r *Runtime) checkOfflineDHTInboxOnce() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.appCtx(), 90*time.Second)
 	defer cancel()
 
 	for gid, coord := range coords {

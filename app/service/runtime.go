@@ -15,6 +15,7 @@ import (
 	"app/mls_service"
 
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/grpc"
 )
 
@@ -30,7 +31,7 @@ type Runtime struct {
 	stopEngine func()
 	node       *p2p.P2PNode
 	nodeCancel context.CancelFunc
-	mu         sync.Mutex
+	mu         sync.RWMutex
 
 	uiEvents EventSink
 
@@ -62,15 +63,51 @@ func (r *Runtime) SetEventSink(s EventSink) {
 	r.uiEvents = s
 }
 
+// appCtx returns the Wails lifecycle context. Safe to call without holding r.mu;
+// callers must not retain the value across a concurrent SetContext/Startup.
+func (r *Runtime) appCtx() context.Context {
+	r.mu.RLock()
+	c := r.ctx
+	r.mu.RUnlock()
+	return c
+}
+
 func (r *Runtime) emit(event string, data map[string]interface{}) {
-	if r.uiEvents != nil && r.ctx != nil {
-		r.uiEvents.Emit(r.ctx, event, data)
+	r.mu.RLock()
+	sink := r.uiEvents
+	ctx := r.ctx
+	r.mu.RUnlock()
+	if sink != nil && ctx != nil {
+		sink.Emit(ctx, event, data)
+	}
+}
+
+// dispatchDirectCoordination forwards a direct-stream coordination payload to
+// every active group coordinator; each coordinator ignores other groups' IDs.
+func (r *Runtime) dispatchDirectCoordination(from peer.ID, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	r.mu.RLock()
+	if r.coordinators == nil {
+		r.mu.RUnlock()
+		return
+	}
+	coords := make([]*coordination.Coordinator, 0, len(r.coordinators))
+	for _, c := range r.coordinators {
+		coords = append(coords, c)
+	}
+	r.mu.RUnlock()
+	for _, c := range coords {
+		c.ReceiveDirectMessage(from, data)
 	}
 }
 
 // Startup is the Wails OnStartup hook.
 func (r *Runtime) Startup(ctx context.Context) {
+	r.mu.Lock()
 	r.ctx = ctx
+	r.mu.Unlock()
 
 	if err := os.MkdirAll(".local", 0700); err != nil {
 		slog.Error("Failed to create .local dir", "error", err)

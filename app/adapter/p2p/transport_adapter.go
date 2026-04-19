@@ -30,7 +30,10 @@ type LibP2PTransport struct {
 	topics   map[string]*pubsub.Topic
 	cancels  map[string]context.CancelFunc
 	handlers map[string]func(peer.ID, []byte)
-	closed   bool
+	// directHandler receives payloads from /coordination/direct/1.0.0 streams
+	// (same bytes as published on the group GossipSub topic).
+	directHandler func(peer.ID, []byte)
+	closed        bool
 }
 
 // NewLibP2PTransport creates a transport backed by a real libp2p host.
@@ -45,6 +48,14 @@ func NewLibP2PTransport(h host.Host, ps *pubsub.PubSub) *LibP2PTransport {
 	}
 	h.SetStreamHandler(CoordDirectProtocol, t.handleDirectStream)
 	return t
+}
+
+// SetDirectMessageHandler registers a callback for inbound direct coordination
+// streams. Pass nil to unregister (e.g. on shutdown).
+func (t *LibP2PTransport) SetDirectMessageHandler(h func(peer.ID, []byte)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.directHandler = h
 }
 
 func (t *LibP2PTransport) Publish(ctx context.Context, topic string, data []byte) error {
@@ -133,6 +144,7 @@ func (t *LibP2PTransport) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.closed = true
+	t.directHandler = nil
 
 	for topic, cancel := range t.cancels {
 		cancel()
@@ -177,8 +189,15 @@ func (t *LibP2PTransport) handleDirectStream(stream network.Stream) {
 		return
 	}
 
-	slog.Debug("received direct coordination message",
-		"from", stream.Conn().RemotePeer(), "size", len(data))
+	from := stream.Conn().RemotePeer()
+	slog.Debug("received direct coordination message", "from", from, "size", len(data))
 
-	_ = data
+	t.mu.Lock()
+	h := t.directHandler
+	t.mu.Unlock()
+	if h != nil {
+		h(from, data)
+	} else {
+		slog.Warn("direct coordination message dropped: no handler registered", "from", from)
+	}
 }
