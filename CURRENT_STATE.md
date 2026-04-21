@@ -319,12 +319,16 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 - **Offline messaging (Phase 5.3, store-and-forward):**
   - Offline sync stream + ACK cursor: `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`.
-  - DHT inbox bundle store/fetch: `app/adapter/p2p/offline_dht.go`.
   - Envelope log + sync ack persistence: `app/adapter/store/coordination_storage.go`, schema `envelope_log` / `sync_acks` / `pending_delivery_acks` / `offline_sync_pull_state` trong `app/adapter/store/db.go`.
-  - Runtime background loops: `offlineDHTPushLoop` (60s) đẩy mailbox DHT; `offlineDHTCheckLoop` (90s) kéo inbox DHT định kỳ — cả hai chạy song song từ `launchP2PNode`.
-  - `GetKnownGroupMembers` trong `CoordinationStorage`: member discovery dựa vào lịch sử `stored_messages` thay vì ActiveView, đảm bảo push/pull đến cả peer offline lâu không còn trong view.
-  - `pushOfflineDHTMailbox` dùng cursor-based pagination (không hard-cap), `checkOfflineDHTInboxOnce` không còn phụ thuộc `GetCoordState`.
-  - DHT auto-trim: nếu payload > 256 KiB, tự drop oldest cho đến khi vừa, luôn ưu tiên newest messages.
+  - Runtime trigger: peer connect + manual trigger (`TriggerOfflineSync`) để pull missed envelopes từ connected verified peers.
+  - `scheduleOfflineSyncPull` thêm retry/backoff ngắn để tránh race lúc peer vừa connect nhưng chưa advertise protocol.
+  - Đã bỏ hoàn toàn DHT mailbox data-path (`app/adapter/p2p/offline_dht.go`, `offlineDHTPushLoop`, `offlineDHTCheckLoop`).
+
+- **Invite offline store (KeyPackage / Welcome) — post-refactor:**
+  - DHT application-data path đã loại bỏ (`app/adapter/p2p/kp_dht.go` removed).
+  - Custom store protocols: `/app/kp-store/1.0.0`, `/app/kp-fetch/1.0.0`, `/app/welcome-store/1.0.0`, `/app/welcome-fetch/1.0.0` (wire: `app/adapter/p2p/invite_store_wire.go`).
+  - `invite.go` replicate public KeyPackage / Welcome tới verified store peers (fanout mặc định 3), fallback fetch qua store peers khi direct path không sẵn sàng.
+  - `CheckDHTWelcome` giữ tên để tương thích Wails UI cũ, nhưng implementation hiện fetch từ store peers (không còn gọi DHT).
 
 #### Validation
 
@@ -363,7 +367,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | **`GetGroups() []GroupInfo`** | **Danh sách groups đã tham gia** |
 | **`GetGroupStatus(groupID) map[string]interface{}`** | **Epoch, token holder, member count, metrics** |
 | `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage` | MLS / invite UI (ChatPanel) |
-| `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus` | Luồng invite offline-friendly |
+| `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus` | Luồng invite offline-friendly (store-peer based; `CheckDHTWelcome` là tên legacy API) |
 | `ExportIdentity`, `ImportIdentityFromFile` | Backup `.backup` (GUI) |
 
 *(Danh sách đầy đủ: `wails generate module` → `Runtime.d.ts`.)*

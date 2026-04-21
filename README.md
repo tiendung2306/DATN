@@ -155,7 +155,7 @@ HLCTimestamp = (L, C, NodeID)
 *   **Strict Onboarding:** No node can join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
 *   **Single Active Device:** A user account is valid on only ONE device at a time. Auth handshake includes a signed `SessionClaim`; peers reject stale sessions and keep only the newest active device.
 *   **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
-*   **Offline Handling:** Messages to offline peers must be stored in the DHT (Neighborhood Storage) encrypted.
+*   **Offline Handling:** Offline recovery must use authenticated direct stream synchronization + local envelope retention (SQLite). Kademlia DHT is reserved for discovery/routing, not application data storage.
 *   **Single-Writer Invariant:** At any given epoch, only the deterministically elected Token Holder may issue a Commit. All other nodes MUST route their Proposals through Gossip and wait for the Token Holder's Commit.
 *   **Epoch Monotonicity:** A node MUST NOT process any MLS Commit/Proposal with an epoch number lower than its current epoch.
 *   **PKI Rules (CRITICAL):**

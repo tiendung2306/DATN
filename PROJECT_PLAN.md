@@ -329,7 +329,7 @@
 
 **Goal:** Secure Identity Migration (Manual) and Offline Messaging (Store-and-Forward).
 
-**Trạng thái (đối chiếu code):** **5.1**, **5.2** và **5.3** đã implement (`.backup` + `SessionClaim` + offline store-and-forward qua sync stream + DHT mailbox).
+**Trạng thái (đối chiếu code):** **5.1**, **5.2** và **5.3** đã implement (`.backup` + `SessionClaim` + offline store-and-forward qua sync stream). DHT mailbox đã được thay thế bởi stream-sync + local retention.
 
 ### 5.1. Secure Identity Export/Import (File-based) [COMPLETED ✅]
 - **CRITICAL DESIGN NOTE:** The `.backup` file MUST include the Libp2p private key in addition to the MLS key.
@@ -360,18 +360,16 @@
 
 **Implemented:** `app/adapter/p2p/session_claim.go`, `auth_protocol.go` (`AuthHandshakeMsg`), `app/service/session.go`, tests trong `session_claim_test.go`.
 
-### 5.3. Offline Messaging (Store-and-Forward via Neighborhood Storage) [COMPLETED ✅]
-- **Task:** If recipient is offline: `dht.Put(Key=Hash(RecipientID), Value=EncryptedMsg)`.
-- **Task:** On recipient connect: `dht.Get(Key=Hash(MyID))` → retrieve and process buffered messages.
-- **Task:** Messages are encrypted with MLS group key — only the intended recipient's MLS state can decrypt.
-- **Task:** Automatic cleanup: DHT entries expire after configurable TTL.
+### 5.3. Offline Messaging (Store-and-Forward via Stream Sync + Local Retention) [COMPLETED ✅]
+- **Task:** If recipient is offline: sender (and peers who already received the envelope) persist encrypted envelopes in local SQLite `envelope_log`.
+- **Task:** On recipient reconnect: node pulls missed envelopes via authenticated direct stream `/app/offline-sync/1.0.0` and replays in-order.
+- **Task:** Messages are encrypted with MLS group key — only recipients with valid MLS state can decrypt.
+- **Task:** Automatic cleanup: envelope retention is bounded by TTL and per-group cap (`PruneEnvelopes`).
 
-**Implemented:** `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`, `app/adapter/p2p/offline_dht.go`, `app/adapter/store/coordination_storage.go` + schema trong `app/adapter/store/db.go`.
+**Implemented:** `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`, `app/adapter/store/coordination_storage.go` + schema trong `app/adapter/store/db.go`.
 - Offline sync stream `/app/offline-sync/1.0.0`: pull envelope log theo `seq`, replay, và ACK cursor.
-- DHT mailbox theo sender `/app/inbox/{recipient}/{group}/{sender}`: push/fetch bundle ciphertext nén.
-- Runtime triggers: startup + peer connect + manual trigger + **ticker 60s** (`offlineDHTPushLoop`) + **ticker 90s** (`offlineDHTCheckLoop`) để đẩy/kéo mailbox liên tục.
-- Member discovery qua `GetKnownGroupMembers` (lịch sử `stored_messages`) thay vì ActiveView — đảm bảo push/pull đến cả peer đã offline lâu.
-- Push: cursor-based pagination, không hard-cap số lượng message; DHT auto-trim oldest nếu payload > 256 KiB.
+- Runtime triggers: peer connect (`scheduleOfflineSyncPull` with short retry/backoff) + manual trigger (`TriggerOfflineSync`).
+- DHT application-data mailbox path đã loại bỏ (`app/adapter/p2p/offline_dht.go` removed). Kademlia DHT giữ vai trò discovery/routing.
 
 ---
 
