@@ -6,30 +6,37 @@ package service
 //
 //  Phase 1 — Advertisement (done once on P2P start, renewed after each use):
 //    Invitee generates a KeyPackage → stores private bundle in SQLite.
-//    Public KP bytes are published to DHT ("/app/kp/{peerID}").
-//    → Creator can fetch the KP at any time, even while invitee is offline.
+//    Public KP bytes are replicated to currently connected verified peers via
+//    custom store stream ("/app/kp-store/1.0.0").
+//    → Creator can fetch KP from the invitee directly (fast path) or from
+//      store peers when invitee is offline.
 //
 //  Phase 2 — Invite (creator, works while invitee is offline):
-//    Creator fetches public KP from DHT → coord.AddMember → gets Welcome bytes.
+//    Creator fetches public KP (direct or store peer) → coord.AddMember → gets
+//    Welcome bytes.
 //    Welcome stored in SQLite (pending_welcomes_out) for retry.
-//    Welcome ALSO pushed to DHT ("/app/welcome/{inviteePeerID}/{groupID}") for
+//    Welcome ALSO replicated to store peers ("/app/welcome-store/1.0.0") for
 //    the invitee to pull on next startup.
 //    If invitee happens to be online: also send directly via stream (fast path).
 //
 //  Phase 3 — Delivery (invitee, online or reconnecting):
-//    On startup:  pull own pending Welcomes from DHT → auto-join.
+//    On startup/manual: pull own pending Welcomes from connected store peers
+//    → auto-join.
 //    On connect:  creator retries undelivered Welcomes via direct stream.
 //    Stream handler "/app/welcome-delivery/1.0.0": receive Welcome → auto-join.
 //    After join: regenerate + re-advertise a fresh KP so the next invite works.
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,8 +49,9 @@ import (
 )
 
 const (
-	welcomeDeliveryProtocol = protocol.ID("/app/welcome-delivery/1.0.0")
-	maxWelcomeFrame         = 4 << 20 // 4 MiB
+	welcomeDeliveryProtocol  = protocol.ID("/app/welcome-delivery/1.0.0")
+	maxWelcomeFrame          = 4 << 20 // 4 MiB
+	defaultReplicationFanout = 3
 )
 
 // welcomeDeliveryWire is the JSON payload for /app/welcome-delivery/1.0.0.
@@ -92,7 +100,7 @@ func readWelcomeFrame(r io.Reader) (*welcomeDeliveryWire, error) {
 // ── Phase 1: KeyPackage advertisement ─────────────────────────────────────────
 
 // advertiseKeyPackage generates (or reuses) the local KeyPackage, stores the
-// private bundle in SQLite, and publishes the public bytes to DHT.
+// private bundle in SQLite, and replicates the public bytes to verified peers.
 // Safe to call multiple times — regenerates only when the existing KP is absent.
 func (r *Runtime) advertiseKeyPackage() {
 	r.mu.Lock()
@@ -108,14 +116,7 @@ func (r *Runtime) advertiseKeyPackage() {
 	// Reuse existing KP if already advertised.
 	existing, _, err := database.GetKPBundle(localID.String())
 	if err == nil && len(existing) > 0 {
-		// Re-push to DHT in case the entry expired.
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err2 := p2p.AdvertiseKeyPackage(ctx, node.DHT, localID, existing); err2 != nil {
-			slog.Warn("Re-advertise KP to DHT failed (will retry later)", "err", err2)
-		} else {
-			slog.Info("KeyPackage re-advertised to DHT", "peer", localID)
-		}
+		r.replicateKeyPackageToStorePeers(existing)
 		return
 	}
 
@@ -133,12 +134,62 @@ func (r *Runtime) advertiseKeyPackage() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := p2p.AdvertiseKeyPackage(ctx, node.DHT, localID, publicKP); err != nil {
-		slog.Warn("advertiseKeyPackage: DHT put failed (will retry on next start)", "err", err)
-	} else {
-		slog.Info("KeyPackage advertised to DHT", "peer", localID)
+	r.replicateKeyPackageToStorePeers(publicKP)
+}
+
+func (r *Runtime) selectStorePeersLocked(localID peer.ID) []peer.ID {
+	if r.node == nil || r.node.AuthProtocol == nil {
+		return nil
+	}
+	peers := r.node.Host.Network().Peers()
+	out := make([]peer.ID, 0, len(peers))
+	for _, pid := range peers {
+		if pid == localID {
+			continue
+		}
+		if !r.node.AuthProtocol.IsVerified(pid) {
+			continue
+		}
+		out = append(out, pid)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	if len(out) > defaultReplicationFanout {
+		out = out[:defaultReplicationFanout]
+	}
+	return out
+}
+
+func (r *Runtime) replicateKeyPackageToStorePeers(publicKP []byte) {
+	r.mu.Lock()
+	node := r.node
+	database := r.db
+	localID := peer.ID("")
+	if node != nil {
+		localID = node.Host.ID()
+	}
+	peers := r.selectStorePeersLocked(localID)
+	r.mu.Unlock()
+	if node == nil || database == nil || localID == "" || len(publicKP) == 0 {
+		return
+	}
+
+	_ = database.SaveStoredKeyPackage(localID.String(), publicKP, localID.String())
+
+	req := p2p.KPStoreRequestV1{
+		V:        1,
+		PeerID:   localID.String(),
+		PublicKP: publicKP,
+	}
+	for _, pid := range peers {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		s, err := node.Host.NewStream(ctx, pid, p2p.KPStoreProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		_ = p2p.WriteInviteStoreJSONFrame(s, &req)
+		_ = s.Close()
 	}
 }
 
@@ -192,27 +243,18 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 		return fmt.Errorf("cannot invite yourself")
 	}
 
-	// Prefer DHT (offline invitee), but on small LANs the routing table is often
-	// empty so PutValue/GetValue fails — fall back to a direct stream (Noise).
+	// Prefer direct stream from invitee if connected; fall back to store peers.
 	if node.AuthProtocol != nil {
 		node.AuthProtocol.InitiateHandshake(r.appCtx(), targetID)
 	}
 
 	slog.Info("Fetching KeyPackage", "target", targetID, "group", groupID)
-	kpBytes, dhtErr := p2p.FetchKeyPackage(context.Background(), node.DHT, targetID)
-	if dhtErr != nil {
-		slog.Warn("DHT KeyPackage fetch failed, trying direct kp-offer stream",
-			"target", targetID, "dht_err", dhtErr)
-		var directErr error
-		kpBytes, directErr = p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID)
-		if directErr != nil {
-			return fmt.Errorf(
-				"could not get KeyPackage for %s: DHT: %v; direct stream: %w.\n\n"+
-					"Ensure both nodes show as connected in the Dashboard, wait a few seconds after connect, then retry. "+
-					"On small LANs the DHT routing table may be empty — direct fetch needs an active libp2p connection.",
-				targetID, dhtErr, directErr)
-		}
-		slog.Info("KeyPackage fetched via direct stream", "target", targetID)
+	kpBytes, err := r.fetchPeerKeyPackage(targetID)
+	if err != nil {
+		return fmt.Errorf(
+			"could not get KeyPackage for %s: %w.\n\n"+
+				"Ensure at least one verified peer is online to act as a store node, or bring the invitee online and retry.",
+			targetID, err)
 	}
 
 	// AddMembers (Coordinator + MLS engine).
@@ -226,16 +268,149 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 		slog.Warn("SavePendingWelcome failed", "err", err)
 	}
 
-	// Push Welcome to DHT so invitee can pull it on reconnect.
-	if dhtErr := p2p.StoreWelcomeInDHT(context.Background(), node.DHT, targetID, groupID, welcome); dhtErr != nil {
-		slog.Warn("StoreWelcomeInDHT failed (SQLite retry still active)", "err", dhtErr)
-	}
+	// Replicate Welcome to currently connected verified peers.
+	r.replicateWelcomeToStorePeers(targetID, groupID, welcome)
 
 	// Fast path: deliver immediately if peer is currently online.
 	go r.deliverWelcome(targetID, groupID, welcome)
 
 	slog.Info("Group invite sent", "group", groupID, "target", targetID)
 	return nil
+}
+
+func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
+	r.mu.Lock()
+	node := r.node
+	database := r.db
+	localID := peer.ID("")
+	if node != nil {
+		localID = node.Host.ID()
+	}
+	storePeers := r.selectStorePeersLocked(localID)
+	r.mu.Unlock()
+	if node == nil || database == nil {
+		return nil, fmt.Errorf("runtime not ready")
+	}
+
+	if kp, err := p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID); err == nil && len(kp) > 0 {
+		_ = database.SaveStoredKeyPackage(targetID.String(), kp, targetID.String())
+		return kp, nil
+	}
+
+	localCopy, err := database.GetStoredKeyPackage(targetID.String())
+	if err == nil && len(localCopy) > 0 {
+		return localCopy, nil
+	}
+
+	req := p2p.KPFetchRequestV1{V: 1, PeerID: targetID.String()}
+	for _, pid := range storePeers {
+		if pid == targetID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		s, err := node.Host.NewStream(ctx, pid, p2p.KPFetchProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		if err := p2p.WriteInviteStoreJSONFrame(s, &req); err != nil {
+			_ = s.Close()
+			continue
+		}
+		var resp p2p.KPFetchResponseV1
+		if err := p2p.ReadInviteStoreJSONFrame(s, &resp); err == nil && resp.V == 1 && resp.Found && len(resp.PublicKP) > 0 {
+			_ = s.Close()
+			_ = database.SaveStoredKeyPackage(targetID.String(), resp.PublicKP, pid.String())
+			return resp.PublicKP, nil
+		}
+		_ = s.Close()
+	}
+
+	return nil, fmt.Errorf("key package not found from direct stream or store peers")
+}
+
+func (r *Runtime) replicateWelcomeToStorePeers(inviteeID peer.ID, groupID string, welcome []byte) {
+	r.mu.Lock()
+	node := r.node
+	database := r.db
+	localID := peer.ID("")
+	if node != nil {
+		localID = node.Host.ID()
+	}
+	peers := r.selectStorePeersLocked(localID)
+	r.mu.Unlock()
+	if node == nil || database == nil || localID == "" || len(welcome) == 0 {
+		return
+	}
+	_ = database.SaveStoredWelcome(inviteeID.String(), groupID, welcome, localID.String())
+
+	req := p2p.WelcomeStoreRequestV1{
+		V:             1,
+		InviteePeerID: inviteeID.String(),
+		GroupID:       groupID,
+		Welcome:       welcome,
+	}
+	for _, pid := range peers {
+		if pid == inviteeID {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		s, err := node.Host.NewStream(ctx, pid, p2p.WelcomeStoreProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		_ = p2p.WriteInviteStoreJSONFrame(s, &req)
+		_ = s.Close()
+	}
+}
+
+func (r *Runtime) fetchWelcomeFromStorePeers(groupID string) ([]byte, error) {
+	r.mu.Lock()
+	node := r.node
+	database := r.db
+	localID := peer.ID("")
+	if node != nil {
+		localID = node.Host.ID()
+	}
+	storePeers := r.selectStorePeersLocked(localID)
+	r.mu.Unlock()
+	if node == nil || database == nil || localID == "" {
+		return nil, fmt.Errorf("runtime not ready")
+	}
+
+	if wb, err := database.GetStoredWelcome(localID.String(), groupID); err == nil && len(wb) > 0 {
+		return wb, nil
+	}
+
+	req := p2p.WelcomeFetchRequestV1{
+		V:             1,
+		InviteePeerID: localID.String(),
+		GroupID:       groupID,
+	}
+	for _, pid := range storePeers {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		s, err := node.Host.NewStream(ctx, pid, p2p.WelcomeFetchProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		if err := p2p.WriteInviteStoreJSONFrame(s, &req); err != nil {
+			_ = s.Close()
+			continue
+		}
+		var resp p2p.WelcomeFetchResponseV1
+		if err := p2p.ReadInviteStoreJSONFrame(s, &resp); err == nil && resp.V == 1 && resp.Found && len(resp.Welcome) > 0 {
+			_ = s.Close()
+			_ = database.SaveStoredWelcome(localID.String(), groupID, resp.Welcome, pid.String())
+			return resp.Welcome, nil
+		}
+		_ = s.Close()
+	}
+	return nil, fmt.Errorf("welcome not found from store peers")
 }
 
 // ── Phase 3a: Welcome delivery (creator → invitee, direct stream) ─────────────
@@ -391,6 +566,156 @@ func (r *Runtime) removeKPOfferHandler() {
 	r.node.Host.RemoveStreamHandler(p2p.KPOfferProtocol)
 }
 
+func (r *Runtime) handleKPStoreStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if r.node != nil {
+		ap = r.node.AuthProtocol
+	}
+	database := r.db
+	r.mu.Unlock()
+	if database == nil {
+		return
+	}
+	if ap != nil && !ap.IsVerified(remote) {
+		return
+	}
+
+	var req p2p.KPStoreRequestV1
+	if err := p2p.ReadInviteStoreJSONFrame(s, &req); err != nil || req.V != 1 || req.PeerID == "" || len(req.PublicKP) == 0 {
+		return
+	}
+	_ = database.SaveStoredKeyPackage(req.PeerID, req.PublicKP, remote.String())
+}
+
+func (r *Runtime) handleKPFetchStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if r.node != nil {
+		ap = r.node.AuthProtocol
+	}
+	database := r.db
+	r.mu.Unlock()
+	if database == nil {
+		return
+	}
+	if ap != nil && !ap.IsVerified(remote) {
+		return
+	}
+
+	var req p2p.KPFetchRequestV1
+	if err := p2p.ReadInviteStoreJSONFrame(s, &req); err != nil || req.V != 1 || req.PeerID == "" {
+		return
+	}
+
+	resp := p2p.KPFetchResponseV1{V: 1, Found: false}
+	if kp, err := database.GetStoredKeyPackage(req.PeerID); err == nil && len(kp) > 0 {
+		resp.Found = true
+		resp.PublicKP = kp
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		resp.Error = err.Error()
+	}
+	_ = p2p.WriteInviteStoreJSONFrame(s, &resp)
+}
+
+func (r *Runtime) handleWelcomeStoreStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if r.node != nil {
+		ap = r.node.AuthProtocol
+	}
+	database := r.db
+	r.mu.Unlock()
+	if database == nil {
+		return
+	}
+	if ap != nil && !ap.IsVerified(remote) {
+		return
+	}
+
+	var req p2p.WelcomeStoreRequestV1
+	if err := p2p.ReadInviteStoreJSONFrame(s, &req); err != nil ||
+		req.V != 1 || req.InviteePeerID == "" || req.GroupID == "" || len(req.Welcome) == 0 {
+		return
+	}
+	_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.Welcome, remote.String())
+}
+
+func (r *Runtime) handleWelcomeFetchStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if r.node != nil {
+		ap = r.node.AuthProtocol
+	}
+	database := r.db
+	r.mu.Unlock()
+	if database == nil {
+		return
+	}
+	if ap != nil && !ap.IsVerified(remote) {
+		return
+	}
+
+	var req p2p.WelcomeFetchRequestV1
+	if err := p2p.ReadInviteStoreJSONFrame(s, &req); err != nil ||
+		req.V != 1 || req.InviteePeerID == "" || req.GroupID == "" {
+		return
+	}
+
+	resp := p2p.WelcomeFetchResponseV1{V: 1, Found: false}
+	if wb, err := database.GetStoredWelcome(req.InviteePeerID, req.GroupID); err == nil && len(wb) > 0 {
+		resp.Found = true
+		resp.Welcome = wb
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		resp.Error = err.Error()
+	}
+	_ = p2p.WriteInviteStoreJSONFrame(s, &resp)
+}
+
+func (r *Runtime) registerInviteStoreHandlers() {
+	if r.node == nil {
+		return
+	}
+	r.node.Host.SetStreamHandler(p2p.KPStoreProtocol, func(s network.Stream) {
+		go r.handleKPStoreStream(s)
+	})
+	r.node.Host.SetStreamHandler(p2p.KPFetchProtocol, func(s network.Stream) {
+		go r.handleKPFetchStream(s)
+	})
+	r.node.Host.SetStreamHandler(p2p.WelcomeStoreProtocol, func(s network.Stream) {
+		go r.handleWelcomeStoreStream(s)
+	})
+	r.node.Host.SetStreamHandler(p2p.WelcomeFetchProtocol, func(s network.Stream) {
+		go r.handleWelcomeFetchStream(s)
+	})
+}
+
+func (r *Runtime) removeInviteStoreHandlers() {
+	if r.node == nil {
+		return
+	}
+	r.node.Host.RemoveStreamHandler(p2p.KPStoreProtocol)
+	r.node.Host.RemoveStreamHandler(p2p.KPFetchProtocol)
+	r.node.Host.RemoveStreamHandler(p2p.WelcomeStoreProtocol)
+	r.node.Host.RemoveStreamHandler(p2p.WelcomeFetchProtocol)
+}
+
 // registerWelcomeDeliveryHandler registers the stream handler so the invitee
 // auto-joins groups when a Welcome is pushed by the creator.
 func (r *Runtime) registerWelcomeDeliveryHandler() {
@@ -426,16 +751,9 @@ func (r *Runtime) handleWelcomeDelivery(s network.Stream) {
 	}
 }
 
-// checkDHTWelcomes is called on startup; fetches any Welcome stored in DHT for
-// groups the local node has been invited to but hasn't joined yet.
-// Since DHT keys include the group ID, we build the key list from pending_welcomes_out
-// rows where we are the invitee — but that table lives on the creator side.
-// Instead, we probe a small set of well-known group IDs passed by the coordinator
-// (e.g., the group IDs we see in GossipSub announces from peers).
-//
-// Practical approach: the Wails binding also exposes CheckDHTWelcome(groupID)
-// so the UI (or user) can manually poll once after receiving a verbal invite.
-func (r *Runtime) checkDHTWelcomes(groupIDs []string) {
+// checkStoredWelcomes tries to fetch pending Welcome objects from connected store
+// peers for group IDs not joined yet.
+func (r *Runtime) checkStoredWelcomes(groupIDs []string) {
 	r.mu.Lock()
 	node := r.node
 	r.mu.Unlock()
@@ -451,12 +769,12 @@ func (r *Runtime) checkDHTWelcomes(groupIDs []string) {
 			continue
 		}
 
-		wb, err := p2p.FetchWelcomeFromDHT(context.Background(), node.DHT, node.Host.ID(), gid)
+		wb, err := r.fetchWelcomeFromStorePeers(gid)
 		if err != nil {
 			continue // not found yet
 		}
 		if err := r.applyWelcome(gid, hex.EncodeToString(wb)); err != nil {
-			slog.Warn("checkDHTWelcomes: apply failed", "group", gid, "err", err)
+			slog.Warn("checkStoredWelcomes: apply failed", "group", gid, "err", err)
 		}
 	}
 }
@@ -498,9 +816,8 @@ func (r *Runtime) applyWelcome(groupID, welcomeHex string) error {
 
 // ── Wails bindings ────────────────────────────────────────────────────────────
 
-// CheckDHTWelcome checks the DHT for a pending Welcome for the given groupID
-// and auto-joins if found. Useful when the user knows they were invited to a
-// specific group but the direct delivery stream was missed.
+// CheckDHTWelcome is kept for backward compatibility with existing UI bindings.
+// It now checks pending Welcome replicas from connected peers (not DHT).
 func (r *Runtime) CheckDHTWelcome(groupID string) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
@@ -513,9 +830,9 @@ func (r *Runtime) CheckDHTWelcome(groupID string) error {
 		return fmt.Errorf("P2P node not running")
 	}
 
-	wb, err := p2p.FetchWelcomeFromDHT(context.Background(), node.DHT, node.Host.ID(), groupID)
+	wb, err := r.fetchWelcomeFromStorePeers(groupID)
 	if err != nil {
-		return fmt.Errorf("no pending invite found for group %q in DHT", groupID)
+		return fmt.Errorf("no pending invite found for group %q from connected peers", groupID)
 	}
 	return r.applyWelcome(groupID, hex.EncodeToString(wb))
 }
@@ -550,11 +867,9 @@ func (h *peerConnectedHook) ListenClose(network.Network, ma.Multiaddr) {}
 func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
 	p := c.RemotePeer()
 	go h.rt.retryPendingWelcomes(p)
-	// DHT PutValue needs peers in the routing table — retry KP advertisement
-	// whenever anyone connects (common on small LANs).
+	// Keep key package replicas fresh whenever a verified peer connects.
 	go h.rt.advertiseKeyPackage()
-	go h.rt.pullOfflineSyncFromPeer(p)
+	go h.rt.scheduleOfflineSyncPull(p)
 	go h.rt.flushPendingDeliveryAcksTo(p)
-	go h.rt.pushOfflineDHTMailbox()
 }
 func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {}

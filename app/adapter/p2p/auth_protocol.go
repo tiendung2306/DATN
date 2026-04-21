@@ -59,12 +59,13 @@ type verifiedPeerState struct {
 //   - This ensures reconnecting peers always go through a full handshake rather
 //     than hitting stale in-memory state from a previous session.
 type AuthProtocol struct {
-	host          host.Host
-	gater         *AuthGater
-	localToken    *admin.InvitationToken
-	localHandshake *AuthHandshakeMsg
-	rootPublicKey ed25519.PublicKey
-	verifiedPeers sync.Map // peer.ID → *verifiedPeerState
+	host             host.Host
+	gater            *AuthGater
+	localToken       *admin.InvitationToken
+	localHandshake   *AuthHandshakeMsg
+	rootPublicKey    ed25519.PublicKey
+	verifiedPeers    sync.Map // peer.ID → *verifiedPeerState
+	handshakingPeers sync.Map // peer.ID → struct{} (outbound handshake in progress)
 }
 
 // NewAuthProtocol registers the stream handler and returns the AuthProtocol.
@@ -76,11 +77,11 @@ func NewAuthProtocol(
 	localHandshake *AuthHandshakeMsg,
 ) *AuthProtocol {
 	ap := &AuthProtocol{
-		host:          h,
-		gater:         gater,
-		localToken:    localToken,
+		host:           h,
+		gater:          gater,
+		localToken:     localToken,
 		localHandshake: localHandshake,
-		rootPublicKey: ed25519.PublicKey(rootPubKey),
+		rootPublicKey:  ed25519.PublicKey(rootPubKey),
 	}
 	h.SetStreamHandler(AuthProtocolID, ap.handleIncoming)
 	return ap
@@ -120,7 +121,7 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 	// Server reads first.
 	peerHandshake, err := readHandshake(s)
 	if err != nil {
-		slog.Warn("auth: transient read error (inbound)", "peer", peerID, "err", err)
+		slog.Debug("auth: transient read error (inbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
@@ -149,7 +150,7 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 
 	// Server sends own token.
 	if err := writeHandshake(s, ap.localHandshake); err != nil {
-		slog.Warn("auth: transient write error (inbound)", "peer", peerID, "err", err)
+		slog.Debug("auth: transient write error (inbound)", "peer", peerID, "err", err)
 		ap.rejectTransient(s)
 		return
 	}
@@ -172,12 +173,16 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 	if ap.IsVerified(peerID) {
 		return // already verified on this active session
 	}
+	if _, loaded := ap.handshakingPeers.LoadOrStore(peerID, struct{}{}); loaded {
+		return // another outbound handshake is already in progress
+	}
+	defer ap.handshakingPeers.Delete(peerID)
 
 	s, err := ap.host.NewStream(ctx, peerID, AuthProtocolID)
 	if err != nil {
 		// Transient: stream open can fail if the remote is still initializing.
 		// Never blacklist here — it would permanently block a legitimate peer.
-		slog.Warn("auth: transient stream open failure (outbound)", "peer", peerID, "err", err)
+		slog.Debug("auth: transient stream open failure (outbound)", "peer", peerID, "err", err)
 		return
 	}
 	defer s.Close()
@@ -188,7 +193,11 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 
 	// Client sends first.
 	if err := writeHandshake(s, ap.localHandshake); err != nil {
-		slog.Warn("auth: transient write error (outbound)", "peer", peerID, "err", err)
+		if ap.IsVerified(peerID) {
+			slog.Debug("auth: transient write ignored after verify (outbound)", "peer", peerID, "err", err)
+		} else {
+			slog.Debug("auth: transient write error (outbound)", "peer", peerID, "err", err)
+		}
 		ap.rejectTransient(s)
 		return
 	}
@@ -196,7 +205,11 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 	// Client reads peer's token.
 	peerHandshake, err := readHandshake(s)
 	if err != nil {
-		slog.Warn("auth: transient read error (outbound)", "peer", peerID, "err", err)
+		if ap.IsVerified(peerID) {
+			slog.Debug("auth: transient read ignored after verify (outbound)", "peer", peerID, "err", err)
+		} else {
+			slog.Debug("auth: transient read error (outbound)", "peer", peerID, "err", err)
+		}
 		ap.rejectTransient(s)
 		return
 	}
@@ -273,8 +286,8 @@ func (ap *AuthProtocol) verifyPeerToken(token *admin.InvitationToken, authentica
 // Blacklists the peer (with TTL) and closes the connection.
 // Only call when verifyPeerToken returns an error.
 func (ap *AuthProtocol) rejectSecurity(s network.Stream, peerID peer.ID, reason string) {
-	s.Reset()                          //nolint:errcheck
-	ap.gater.Blacklist(peerID, reason) // TTL-based; peer can retry after expiry
+	s.Reset()                           //nolint:errcheck
+	ap.gater.Blacklist(peerID, reason)  // TTL-based; peer can retry after expiry
 	ap.host.Network().ClosePeer(peerID) //nolint:errcheck
 }
 

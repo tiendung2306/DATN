@@ -10,11 +10,12 @@ import (
 	"syscall"
 	"time"
 
-	"app/config"
 	"app/adapter/p2p"
 	"app/adapter/store"
+	"app/config"
 
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // StartCLIHeadlessNode determines app state and either prints guidance or runs the P2P node until SIGINT.
@@ -100,6 +101,10 @@ func connectBootstrap(ctx context.Context, node *p2p.P2PNode, flagAddr, bundleAd
 		return
 	}
 	go func() {
+		if info, err := peer.AddrInfoFromString(addr); err == nil && info.ID == node.Host.ID() {
+			slog.Debug("Skipping self bootstrap address", "addr", addr)
+			return
+		}
 		slog.Info("Connecting to bootstrap peer", "addr", addr)
 		if err := node.ConnectToPeer(ctx, addr); err != nil {
 			slog.Warn("Bootstrap connection failed", "error", err)

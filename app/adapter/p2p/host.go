@@ -27,18 +27,6 @@ import (
 // "app" namespace would fail validation. A custom prefix skips that check.
 const AppDHTProtocolPrefix = protocol.ID("/datn")
 
-// appDHTValidator accepts all values stored under the "/app/" namespace.
-// Data integrity is handled by MLS signatures — DHT just acts as a store.
-type appDHTValidator struct{}
-
-func (appDHTValidator) Validate(_ string, _ []byte) error { return nil }
-func (appDHTValidator) Select(_ string, vals [][]byte) (int, error) {
-	if len(vals) == 0 {
-		return 0, fmt.Errorf("no values to select")
-	}
-	return 0, nil
-}
-
 type P2PNode struct {
 	Host         host.Host
 	DHT          *dht.IpfsDHT
@@ -96,11 +84,10 @@ func NewP2PNode(
 	}
 	slog.Info("Libp2p Host started", "id", h.ID().String(), "addrs", h.Addrs())
 
-	// 3. Initialize Kademlia DHT + "/app/" record namespace for KP / Welcome storage.
+	// 3. Initialize Kademlia DHT for peer discovery/routing only.
 	kademliaDHT, err := dht.New(ctx, h,
 		dht.Mode(dht.ModeAutoServer),
 		dht.ProtocolPrefix(AppDHTProtocolPrefix),
-		dht.NamespacedValidator("app", appDHTValidator{}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DHT: %w", err)
@@ -175,7 +162,7 @@ func (n *P2PNode) Close() error {
 	return n.Host.Close()
 }
 
-// GetBestLocalIP tries to find the best outbound IP using UDP trick, 
+// GetBestLocalIP tries to find the best outbound IP using UDP trick,
 // and falls back to interface scanning if offline.
 func GetBestLocalIP() string {
 	// 1. Try UDP trick (requires internet or a route to 8.8.8.8)
@@ -205,9 +192,9 @@ func GetBestLocalIP() string {
 
 		// Filter out common virtual interface names
 		name := strings.ToLower(iface.Name)
-		if strings.Contains(name, "docker") || strings.Contains(name, "veth") || 
-		   strings.Contains(name, "wsl") || strings.Contains(name, "virtual") ||
-		   strings.Contains(name, "vmware") {
+		if strings.Contains(name, "docker") || strings.Contains(name, "veth") ||
+			strings.Contains(name, "wsl") || strings.Contains(name, "virtual") ||
+			strings.Contains(name, "vmware") {
 			continue
 		}
 
@@ -239,4 +226,3 @@ func GetBestLocalIP() string {
 
 	return "0.0.0.0"
 }
-

@@ -23,22 +23,22 @@ type StreamWriter interface {
 	Write(p []byte) (n int, err error)
 }
 
-// KeyPackageFetcher retrieves a peer's public KeyPackage bytes (DHT or direct).
+// KeyPackageFetcher retrieves a peer's public KeyPackage bytes (direct/store peers).
 type KeyPackageFetcher interface {
 	FetchKeyPackage(ctx context.Context, target peer.ID) ([]byte, error)
 }
 
-// WelcomePublisher stores Welcome for offline pickup (e.g. DHT).
+// WelcomePublisher stores Welcome replicas for offline pickup by invitee.
 type WelcomePublisher interface {
-	StoreWelcomeInDHT(ctx context.Context, invitee peer.ID, groupID string, welcome []byte) error
+	StoreWelcomeReplica(ctx context.Context, invitee peer.ID, groupID string, welcome []byte) error
 }
 
-// WelcomeLookup pulls a Welcome from DHT for (localPeer, groupID).
+// WelcomeLookup pulls a Welcome replica for (localPeer, groupID).
 type WelcomeLookup interface {
-	FetchWelcomeFromDHT(ctx context.Context, local peer.ID, groupID string) ([]byte, error)
+	FetchWelcome(ctx context.Context, local peer.ID, groupID string) ([]byte, error)
 }
 
-// KPAdvertiser publishes local public KeyPackage to DHT.
+// KPAdvertiser replicates local public KeyPackage to store peers.
 type KPAdvertiser interface {
-	AdvertiseKeyPackage(ctx context.Context, local peer.ID, publicKP []byte) error
+	ReplicateKeyPackage(ctx context.Context, local peer.ID, publicKP []byte) error
 }
