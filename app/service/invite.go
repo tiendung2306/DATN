@@ -174,6 +174,7 @@ func (r *Runtime) replicateKeyPackageToStorePeers(publicKP []byte) {
 	}
 
 	_ = database.SaveStoredKeyPackage(localID.String(), publicKP, localID.String())
+	go r.publishBlindStoreKeyPackage(localID.String(), publicKP)
 
 	req := p2p.KPStoreRequestV1{
 		V:        1,
@@ -211,10 +212,10 @@ func (r *Runtime) refreshKeyPackage() {
 
 // ── Phase 2: Invite (creator, offline-capable) ────────────────────────────────
 
-// InvitePeerToGroup fetches the target peer's public KeyPackage from the DHT
-// (works even if the peer is offline), performs MLS AddMembers, stores the
-// resulting Welcome in both SQLite and DHT, and attempts immediate direct
-// delivery if the peer is currently connected.
+// InvitePeerToGroup fetches the target peer's public KeyPackage via direct
+// stream or verified store peers (works even if the peer is offline), performs
+// MLS AddMembers, stores the resulting Welcome in SQLite + store peers, and
+// attempts immediate direct delivery if the peer is currently connected.
 func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	peerIDStr = strings.TrimSpace(peerIDStr)
 	groupID = strings.TrimSpace(groupID)
@@ -291,6 +292,7 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 	if node == nil || database == nil {
 		return nil, fmt.Errorf("runtime not ready")
 	}
+	blindPeers := r.blindStoreFetchCandidates(localID, "kp:"+targetID.String())
 
 	if kp, err := p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID); err == nil && len(kp) > 0 {
 		_ = database.SaveStoredKeyPackage(targetID.String(), kp, targetID.String())
@@ -302,8 +304,31 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 		return localCopy, nil
 	}
 
-	req := p2p.KPFetchRequestV1{V: 1, PeerID: targetID.String()}
+	peerSet := make(map[peer.ID]struct{})
+	ordered := make([]peer.ID, 0, len(blindPeers)+len(storePeers))
+	for _, pid := range blindPeers {
+		if pid == targetID {
+			continue
+		}
+		if _, ok := peerSet[pid]; ok {
+			continue
+		}
+		peerSet[pid] = struct{}{}
+		ordered = append(ordered, pid)
+	}
 	for _, pid := range storePeers {
+		if pid == targetID {
+			continue
+		}
+		if _, ok := peerSet[pid]; ok {
+			continue
+		}
+		peerSet[pid] = struct{}{}
+		ordered = append(ordered, pid)
+	}
+
+	req := p2p.KPFetchRequestV1{V: 1, PeerID: targetID.String()}
+	for _, pid := range ordered {
 		if pid == targetID {
 			continue
 		}
@@ -344,6 +369,7 @@ func (r *Runtime) replicateWelcomeToStorePeers(inviteeID peer.ID, groupID string
 		return
 	}
 	_ = database.SaveStoredWelcome(inviteeID.String(), groupID, welcome, localID.String())
+	go r.publishBlindStoreWelcome(inviteeID.String(), groupID, welcome)
 
 	req := p2p.WelcomeStoreRequestV1{
 		V:             1,
@@ -380,9 +406,27 @@ func (r *Runtime) fetchWelcomeFromStorePeers(groupID string) ([]byte, error) {
 	if node == nil || database == nil || localID == "" {
 		return nil, fmt.Errorf("runtime not ready")
 	}
+	blindPeers := r.blindStoreFetchCandidates(localID, "welcome:"+localID.String()+":"+groupID)
 
 	if wb, err := database.GetStoredWelcome(localID.String(), groupID); err == nil && len(wb) > 0 {
 		return wb, nil
+	}
+
+	peerSet := make(map[peer.ID]struct{})
+	ordered := make([]peer.ID, 0, len(blindPeers)+len(storePeers))
+	for _, pid := range blindPeers {
+		if _, ok := peerSet[pid]; ok {
+			continue
+		}
+		peerSet[pid] = struct{}{}
+		ordered = append(ordered, pid)
+	}
+	for _, pid := range storePeers {
+		if _, ok := peerSet[pid]; ok {
+			continue
+		}
+		peerSet[pid] = struct{}{}
+		ordered = append(ordered, pid)
 	}
 
 	req := p2p.WelcomeFetchRequestV1{
@@ -390,7 +434,7 @@ func (r *Runtime) fetchWelcomeFromStorePeers(groupID string) ([]byte, error) {
 		InviteePeerID: localID.String(),
 		GroupID:       groupID,
 	}
-	for _, pid := range storePeers {
+	for _, pid := range ordered {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		s, err := node.Host.NewStream(ctx, pid, p2p.WelcomeFetchProtocol)
 		cancel()

@@ -1,6 +1,7 @@
 package coordination
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -366,10 +367,14 @@ type MockStorage struct {
 	messages []*StoredMessage
 
 	envByGroup map[string][]*EnvelopeRecord
+	appliedEnv map[string]map[string]struct{}
 	syncAcks   map[string]map[string]int64 // groupID -> peerID -> ackedSeq
 	pendingAck []PendingDeliveryAckRow
 	pullCursor map[string]int64 // "groupID|remotePeerID"
 	nextEnvID  map[string]int64 // groupID -> next seq
+
+	failApplyCommitOnce      bool
+	failApplyApplicationOnce bool
 }
 
 var _ CoordinationStorage = (*MockStorage)(nil)
@@ -379,10 +384,23 @@ func NewMockStorage() *MockStorage {
 		groups:     make(map[string]*GroupRecord),
 		coords:     make(map[string]*CoordState),
 		envByGroup: make(map[string][]*EnvelopeRecord),
+		appliedEnv: make(map[string]map[string]struct{}),
 		syncAcks:   make(map[string]map[string]int64),
 		pullCursor: make(map[string]int64),
 		nextEnvID:  make(map[string]int64),
 	}
+}
+
+func (s *MockStorage) FailNextApplyCommit() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failApplyCommitOnce = true
+}
+
+func (s *MockStorage) FailNextApplyApplication() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failApplyApplicationOnce = true
 }
 
 func (s *MockStorage) GetGroupRecord(groupID string) (*GroupRecord, error) {
@@ -432,8 +450,91 @@ func (s *MockStorage) SaveCoordState(state *CoordState) error {
 func (s *MockStorage) SaveMessage(msg *StoredMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(msg.EnvelopeHash) > 0 {
+		for _, existing := range s.messages {
+			if msg.GroupID == existing.GroupID && bytes.Equal(msg.EnvelopeHash, existing.EnvelopeHash) {
+				return nil
+			}
+		}
+	}
 	s.messages = append(s.messages, msg)
 	return nil
+}
+
+func (s *MockStorage) HasAppliedEnvelope(groupID string, envelopeHash []byte) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(envelopeHash) == 0 || s.appliedEnv[groupID] == nil {
+		return false, nil
+	}
+	_, ok := s.appliedEnv[groupID][string(envelopeHash)]
+	return ok, nil
+}
+
+func (s *MockStorage) MarkEnvelopeApplied(groupID string, msgType MessageType, epoch uint64, envelopeHash []byte) error {
+	_ = msgType
+	_ = epoch
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	if s.appliedEnv[groupID] == nil {
+		s.appliedEnv[groupID] = make(map[string]struct{})
+	}
+	s.appliedEnv[groupID][string(envelopeHash)] = struct{}{}
+	return nil
+}
+
+func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp) (bool, int64, error) {
+	hash := sha256.Sum256(envelope)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failApplyCommitOnce {
+		s.failApplyCommitOnce = false
+		return false, 0, fmt.Errorf("mock apply commit failure")
+	}
+	if s.appliedEnv[rec.GroupID] == nil {
+		s.appliedEnv[rec.GroupID] = make(map[string]struct{})
+	}
+	key := string(hash[:])
+	if _, ok := s.appliedEnv[rec.GroupID][key]; ok {
+		return false, 0, nil
+	}
+	s.groups[rec.GroupID] = rec
+	s.appliedEnv[rec.GroupID][key] = struct{}{}
+	s.nextEnvID[rec.GroupID]++
+	seq := s.nextEnvID[rec.GroupID]
+	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
+		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+	})
+	return true, seq, nil
+}
+
+func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp) (bool, int64, error) {
+	hash := sha256.Sum256(envelope)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failApplyApplicationOnce {
+		s.failApplyApplicationOnce = false
+		return false, 0, fmt.Errorf("mock apply application failure")
+	}
+	if s.appliedEnv[rec.GroupID] == nil {
+		s.appliedEnv[rec.GroupID] = make(map[string]struct{})
+	}
+	key := string(hash[:])
+	if _, ok := s.appliedEnv[rec.GroupID][key]; ok {
+		return false, 0, nil
+	}
+	s.groups[rec.GroupID] = rec
+	s.messages = append(s.messages, msg)
+	s.appliedEnv[rec.GroupID][key] = struct{}{}
+	s.nextEnvID[rec.GroupID]++
+	seq := s.nextEnvID[rec.GroupID]
+	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
+		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+	})
+	return true, seq, nil
 }
 
 func (s *MockStorage) GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error) {
@@ -597,7 +698,7 @@ func (s *MockStorage) GetKnownGroupMembers(groupID string) ([]string, error) {
 	seen := make(map[string]struct{})
 	for _, msg := range s.messages {
 		if msg.GroupID == groupID {
-			seen[string(msg.SenderID)] = struct{}{}
+			seen[msg.SenderID.String()] = struct{}{}
 		}
 	}
 	out := make([]string, 0, len(seen))

@@ -60,7 +60,7 @@ type OfflineSyncAckGroupV1 struct {
 	AckedSeq int64  `json:"acked_seq"`
 }
 
-// OfflineDeliveryAckV1 notifies senders after DHT (or sync) consumption.
+// OfflineDeliveryAckV1 notifies senders after offline sync consumption.
 type OfflineDeliveryAckV1 struct {
 	V         int                         `json:"v"`
 	Recipient string                      `json:"recipient"` // consumer peer ID string

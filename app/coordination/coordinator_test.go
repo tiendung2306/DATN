@@ -156,6 +156,40 @@ func TestCoordinator_SendAndReceiveMessage(t *testing.T) {
 	}
 }
 
+func TestCoordinator_ReplayEnvelopes_DeduplicatesDuplicateApplication(t *testing.T) {
+	nodes, _, _ := setupCluster(t, 2, "grp-replay")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+
+	if _, err := nodes[0].coord.SendMessage([]byte("offline hello")); err != nil {
+		t.Fatal(err)
+	}
+
+	recs, err := nodes[0].storage.GetEnvelopesSince("grp-replay", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEnvelopesSince: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("expected exactly 1 local envelope, got %d", len(recs))
+	}
+
+	applied, err := nodes[1].coord.ReplayEnvelopes([][]byte{recs[0].Envelope, recs[0].Envelope})
+	if err != nil {
+		t.Fatalf("ReplayEnvelopes: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("ReplayEnvelopes applied=%d, want 1", applied)
+	}
+
+	msgs := nodes[1].storage.Messages()
+	if len(msgs) != 1 {
+		t.Fatalf("recipient stored %d messages, want 1", len(msgs))
+	}
+	if string(msgs[0].Content) != "offline hello" {
+		t.Fatalf("recipient content=%q, want %q", msgs[0].Content, "offline hello")
+	}
+}
+
 func TestCoordinator_ProposalCommitFlow(t *testing.T) {
 	nodes, network, _ := setupCluster(t, 2, "grp-commit")
 	createAndShareGroup(t, nodes)
@@ -391,5 +425,33 @@ func TestCoordinator_ForkDetection(t *testing.T) {
 	snap := nodes[1].coord.GetMetrics()
 	if snap.PartitionsDetected != 1 {
 		t.Errorf("bob should detect 1 partition, got %d", snap.PartitionsDetected)
+	}
+}
+
+func TestCoordinator_DoesNotAdvanceEpochWhenCommitPersistFails(t *testing.T) {
+	nodes, network, _ := setupCluster(t, 2, "grp-persist-fail")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+			break
+		}
+	}
+	if holder == nil {
+		t.Fatal("no token holder found")
+	}
+
+	holder.storage.FailNextApplyCommit()
+	if err := holder.coord.ProposeUpdate([]byte("advance")); err != nil {
+		t.Fatal(err)
+	}
+	network.DrainAll()
+
+	if holder.coord.CurrentEpoch() != 0 {
+		t.Fatalf("holder epoch advanced despite persist failure: got %d want 0", holder.coord.CurrentEpoch())
 	}
 }

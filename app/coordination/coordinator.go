@@ -24,6 +24,10 @@ type CoordinatorOpts struct {
 
 	OnMessage     func(*StoredMessage) // called when an application message is decrypted
 	OnEpochChange func(uint64)         // called when the group advances to a new epoch
+	// OnEnvelopeBroadcast is called when this local node publishes a commit or
+	// application envelope to the group topic. Intended for offline replication
+	// layers (e.g. blind-store) and not invoked for replayed remote envelopes.
+	OnEnvelopeBroadcast func(MessageType, string, []byte)
 }
 
 // Coordinator orchestrates the Decentralized Coordination Protocol for a
@@ -49,6 +53,7 @@ type Coordinator struct {
 
 	onMessage     func(*StoredMessage)
 	onEpochChange func(uint64)
+	onEnvelope    func(MessageType, string, []byte)
 
 	// Mutable state (protected by mu)
 	mu           sync.Mutex
@@ -81,10 +86,11 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		localID:       opts.LocalID,
 		groupID:       opts.GroupID,
 		signingKey:    opts.SigningKey,
-		hlc:           NewHLC(opts.Clock, string(opts.LocalID)),
+		hlc:           NewHLC(opts.Clock, opts.LocalID.String()),
 		metrics:       NewMetrics(),
 		onMessage:     opts.OnMessage,
 		onEpochChange: opts.OnEpochChange,
+		onEnvelope:    opts.OnEnvelopeBroadcast,
 	}
 
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, nil)
@@ -271,84 +277,122 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 	}
 }
 
-func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) {
+func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
 		c.metrics.IncrDuplicateEpochDetected()
-		return
+		return false
 	case ActionBufferFuture:
 		raw, _ := json.Marshal(env)
 		c.epochTracker.BufferFuture(env.Epoch, raw)
-		return
+		return false
 	}
 
 	var commit CommitMsg
 	if err := json.Unmarshal(env.Payload, &commit); err != nil {
-		return
+		return false
+	}
+
+	_, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
+	if alreadyApplied {
+		return false
 	}
 
 	start := c.clock.Now()
 
 	newState, newTreeHash, err := c.mls.ProcessCommit(c.ctx, c.groupState, commit.CommitData)
 	if err != nil {
-		return
+		return false
+	}
+	nextEpoch := c.epoch + 1
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      nextEpoch,
+		TreeHash:   newTreeHash,
+		UpdatedAt:  now,
+	}, env.Type, wire, env.Timestamp)
+	if err != nil {
+		slog.Error("Failed to persist commit apply", "group", c.groupID, "error", err)
+		return false
+	}
+	if !applied {
+		return false
 	}
 
-	c.advanceEpochLocked(newState, c.epoch+1, newTreeHash, commit.CommitData)
+	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
-	c.appendOfflineEnvelopeLocked(wire)
+	return true
 }
 
-func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire []byte) {
+func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire []byte) bool {
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
 		slog.Warn("Rejected stale message", "group", c.groupID, "msgEpoch", env.Epoch, "currentEpoch", c.epoch)
-		return
+		return false
 	case ActionBufferFuture:
 		slog.Info("Buffered future-epoch message", "group", c.groupID, "msgEpoch", env.Epoch)
 		raw, _ := json.Marshal(env)
 		c.epochTracker.BufferFuture(env.Epoch, raw)
-		return
+		return false
 	}
 
 	var appMsg ApplicationMsg
 	if err := json.Unmarshal(env.Payload, &appMsg); err != nil {
-		return
+		return false
+	}
+
+	envelopeHash, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
+	if alreadyApplied {
+		return false
 	}
 
 	localTs := c.hlc.Update(env.Timestamp)
 	if localTs.NodeID == "" {
-		localTs.NodeID = string(c.localID)
+		localTs.NodeID = c.localID.String()
 	}
 
 	plaintext, newState, err := c.mls.DecryptMessage(c.ctx, c.groupState, appMsg.Ciphertext)
 	if err != nil {
 		slog.Error("Failed to decrypt message", "group", c.groupID, "from", env.From, "error", err)
-		return
+		return false
+	}
+
+	sender := decodeEnvelopePeerID(env.From, from)
+
+	msg := &StoredMessage{
+		GroupID:      c.groupID,
+		Epoch:        env.Epoch,
+		SenderID:     sender,
+		Content:      plaintext,
+		Timestamp:    localTs,
+		EnvelopeHash: envelopeHash,
+	}
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyApplication(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      c.epoch,
+		TreeHash:   c.treeHash,
+		UpdatedAt:  now,
+	}, msg, env.Type, wire, env.Timestamp)
+	if err != nil {
+		slog.Error("Failed to persist decrypted message", "group", c.groupID, "from", env.From, "error", err)
+		return false
+	}
+	if !applied {
+		return false
 	}
 	c.groupState = newState
 	slog.Info("Message received", "group", c.groupID, "epoch", env.Epoch, "from", env.From, "ts", localTs.WallTimeMs)
 
-	sender := peer.ID(env.From)
-	if sender == "" {
-		sender = from
-	}
-
-	msg := &StoredMessage{
-		GroupID:   c.groupID,
-		Epoch:     env.Epoch,
-		SenderID:  sender,
-		Content:   plaintext,
-		Timestamp: localTs,
-	}
-	_ = c.storage.SaveMessage(msg)
-
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
-	c.appendOfflineEnvelopeLocked(wire)
+	return true
 }
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
@@ -369,9 +413,26 @@ func (c *Coordinator) tryCommitLocked() {
 		CommitData:  commitBytes,
 		NewTreeHash: newTreeHash,
 	}
-	c.broadcastLocked(MsgCommit, commitMsg)
+	ts := c.hlc.Now()
+	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
+	if len(envBytes) == 0 {
+		return
+	}
+	nextEpoch := c.epoch + 1
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      nextEpoch,
+		TreeHash:   newTreeHash,
+		UpdatedAt:  now,
+	}, MsgCommit, envBytes, ts)
+	if err != nil || !applied {
+		return
+	}
+	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
-	c.advanceEpochLocked(newState, c.epoch+1, newTreeHash, commitBytes)
+	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 }
@@ -396,14 +457,6 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 		CommitHash:  commitHash,
 	})
 
-	_ = c.storage.SaveGroupRecord(&GroupRecord{
-		GroupID:    c.groupID,
-		GroupState: newState,
-		Epoch:      newEpoch,
-		TreeHash:   newTreeHash,
-		UpdatedAt:  c.clock.Now(),
-	})
-
 	if c.onEpochChange != nil {
 		c.onEpochChange(newEpoch)
 	}
@@ -415,11 +468,11 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 		}
 		switch env.Type {
 		case MsgProposal:
-			c.handleProposalLocked(peer.ID(env.From), &env)
+			c.handleProposalLocked(decodeEnvelopePeerID(env.From, ""), &env)
 		case MsgCommit:
 			c.handleCommitLocked(&env, raw)
 		case MsgApplication:
-			c.handleApplicationLocked(peer.ID(env.From), &env, raw)
+			c.handleApplicationLocked(decodeEnvelopePeerID(env.From, ""), &env, raw)
 		}
 	}
 }
@@ -451,9 +504,29 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 		CommitData:  commitBytes,
 		NewTreeHash: newTreeHash,
 	}
-	c.broadcastLocked(MsgCommit, commitMsg)
+	ts := c.hlc.Now()
+	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
+	if len(envBytes) == 0 {
+		return nil, fmt.Errorf("failed to encode commit envelope")
+	}
+	nextEpoch := c.epoch + 1
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      nextEpoch,
+		TreeHash:   newTreeHash,
+		UpdatedAt:  now,
+	}, MsgCommit, envBytes, ts)
+	if err != nil {
+		return nil, fmt.Errorf("persist commit: %w", err)
+	}
+	if !applied {
+		return nil, fmt.Errorf("commit envelope already applied")
+	}
+	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
-	c.advanceEpochLocked(newState, c.epoch+1, newTreeHash, commitBytes)
+	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 
@@ -472,7 +545,7 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 
 	ts := c.hlc.Now()
 	if ts.NodeID == "" {
-		ts.NodeID = string(c.localID)
+		ts.NodeID = c.localID.String()
 	}
 
 	ciphertext, newState, err := c.mls.EncryptMessage(c.ctx, c.groupState, plaintext)
@@ -480,19 +553,37 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 		slog.Error("Failed to encrypt message", "group", c.groupID, "error", err)
 		return nil, fmt.Errorf("encrypt: %w", err)
 	}
-	c.groupState = newState
-
-	c.broadcastWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
-	slog.Info("Message sent", "group", c.groupID, "epoch", c.epoch, "ts", ts.WallTimeMs)
+	envBytes := c.buildEnvelopeWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
+	if len(envBytes) == 0 {
+		return nil, fmt.Errorf("encode envelope")
+	}
+	envelopeHash := hashEnvelope(envBytes)
 
 	msg := &StoredMessage{
-		GroupID:   c.groupID,
-		Epoch:     c.epoch,
-		SenderID:  c.localID,
-		Content:   plaintext,
-		Timestamp: ts,
+		GroupID:      c.groupID,
+		Epoch:        c.epoch,
+		SenderID:     c.localID,
+		Content:      plaintext,
+		Timestamp:    ts,
+		EnvelopeHash: envelopeHash,
 	}
-	_ = c.storage.SaveMessage(msg)
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyApplication(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      c.epoch,
+		TreeHash:   c.treeHash,
+		UpdatedAt:  now,
+	}, msg, MsgApplication, envBytes, ts)
+	if err != nil {
+		return nil, fmt.Errorf("persist application: %w", err)
+	}
+	if !applied {
+		return nil, fmt.Errorf("application envelope already applied")
+	}
+	c.groupState = newState
+	c.publishPreparedEnvelopeLocked(MsgApplication, envBytes)
+	slog.Info("Message sent", "group", c.groupID, "epoch", c.epoch, "ts", ts.WallTimeMs)
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
@@ -542,29 +633,42 @@ func (c *Coordinator) propose(pType ProposalType, data []byte) error {
 // ─── Broadcasting ────────────────────────────────────────────────────────────
 
 func (c *Coordinator) broadcastLocked(msgType MessageType, payload interface{}) {
-	c.broadcastWithTimestampLocked(msgType, payload, c.hlc.Now())
+	_ = c.broadcastWithTimestampLocked(msgType, payload, c.hlc.Now())
 }
 
-func (c *Coordinator) broadcastWithTimestampLocked(msgType MessageType, payload interface{}, ts HLCTimestamp) {
+func (c *Coordinator) broadcastWithTimestampLocked(msgType MessageType, payload interface{}, ts HLCTimestamp) []byte {
+	envBytes := c.buildEnvelopeWithTimestampLocked(msgType, payload, ts)
+	if len(envBytes) == 0 {
+		return nil
+	}
+	c.publishPreparedEnvelopeLocked(msgType, envBytes)
+	return envBytes
+}
+
+func (c *Coordinator) buildEnvelopeWithTimestampLocked(msgType MessageType, payload interface{}, ts HLCTimestamp) []byte {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return
+		return nil
 	}
 	env := Envelope{
 		Type:      msgType,
 		GroupID:   c.groupID,
 		Epoch:     c.epoch,
-		From:      string(c.localID),
+		From:      c.localID.String(),
 		Timestamp: ts,
 		Payload:   payloadBytes,
 	}
 	envBytes, err := json.Marshal(env)
 	if err != nil {
-		return
+		return nil
 	}
+	return envBytes
+}
+
+func (c *Coordinator) publishPreparedEnvelopeLocked(msgType MessageType, envBytes []byte) {
 	_ = c.transport.Publish(c.ctx, GroupTopic(c.groupID), envBytes)
-	if msgType == MsgCommit || msgType == MsgApplication {
-		c.appendOfflineEnvelopeLocked(envBytes)
+	if c.onEnvelope != nil && (msgType == MsgCommit || msgType == MsgApplication) {
+		c.onEnvelope(msgType, c.groupID, envBytes)
 	}
 }
 
@@ -605,16 +709,50 @@ func (c *Coordinator) ReplayEnvelopes(blobs [][]byte) (applied int, err error) {
 		}
 		switch env.Type {
 		case MsgCommit:
-			c.handleCommitLocked(&env, raw)
-			applied++
+			if c.handleCommitLocked(&env, raw) {
+				applied++
+			}
 		case MsgApplication:
-			c.handleApplicationLocked(peer.ID(env.From), &env, raw)
-			applied++
+			if c.handleApplicationLocked(decodeEnvelopePeerID(env.From, ""), &env, raw) {
+				applied++
+			}
 		default:
 			continue
 		}
 	}
 	return applied, nil
+}
+
+func (c *Coordinator) checkAppliedEnvelopeLocked(env *Envelope, wire []byte) ([]byte, bool) {
+	if len(wire) == 0 || (env.Type != MsgCommit && env.Type != MsgApplication) {
+		return nil, false
+	}
+	envelopeHash := hashEnvelope(wire)
+	applied, err := c.storage.HasAppliedEnvelope(c.groupID, envelopeHash)
+	if err != nil {
+		slog.Warn("Failed to query applied envelope", "group", c.groupID, "type", env.Type, "err", err)
+		return envelopeHash, false
+	}
+	return envelopeHash, applied
+}
+
+func hashEnvelope(wire []byte) []byte {
+	if len(wire) == 0 {
+		return nil
+	}
+	sum := sha256.Sum256(wire)
+	return sum[:]
+}
+
+func decodeEnvelopePeerID(raw string, fallback peer.ID) peer.ID {
+	if raw == "" {
+		return fallback
+	}
+	id, err := peer.Decode(raw)
+	if err != nil {
+		return fallback
+	}
+	return id
 }
 
 // ─── Periodic Tasks ──────────────────────────────────────────────────────────

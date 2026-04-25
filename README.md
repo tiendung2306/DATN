@@ -155,7 +155,7 @@ HLCTimestamp = (L, C, NodeID)
 *   **Strict Onboarding:** No node can join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
 *   **Single Active Device:** A user account is valid on only ONE device at a time. Auth handshake includes a signed `SessionClaim`; peers reject stale sessions and keep only the newest active device.
 *   **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
-*   **Offline Handling:** Offline recovery must use authenticated direct stream synchronization + local envelope retention (SQLite). Kademlia DHT is reserved for discovery/routing, not application data storage.
+*   **Offline Handling:** Offline recovery uses authenticated direct stream synchronization + local envelope retention (SQLite). The app also supports a global blind-store replication topic (`/org/offline-store/v1`): regular nodes selectively retain only targeted `k`-nearest replicas, while `--store-node` nodes retain all blind-store objects. Kademlia DHT is used for discovery/routing and replica target selection, not as an application mailbox.
 *   **Single-Writer Invariant:** At any given epoch, only the deterministically elected Token Holder may issue a Commit. All other nodes MUST route their Proposals through Gossip and wait for the Token Holder's Commit.
 *   **Epoch Monotonicity:** A node MUST NOT process any MLS Commit/Proposal with an epoch number lower than its current epoch.
 *   **PKI Rules (CRITICAL):**
@@ -445,6 +445,24 @@ go run . --headless --db .local/node1.db --p2p-port 4001 --write-bootstrap .loca
 # Node 2 (after importing a bundle for its PeerID)
 go run . --headless --db .local/node2.db --p2p-port 4002
 ```
+
+**Wails multi-instance helper scripts (Windows):**
+
+```powershell
+# Node 1 (GUI dev): generate bootstrap file for sibling peers
+cd app
+wails dev -appargs "-write-bootstrap .local\dev-bootstrap.txt"
+
+# Node 2 / 3 / 4 from repo root (auto-build enabled by default)
+.\scripts\dev-second-instance.cmd
+.\scripts\dev-third-instance.cmd
+.\scripts\dev-fourth-instance.cmd
+```
+
+Notes:
+- The `dev-*-instance.ps1` scripts default to `-AutoBuild` (run `wails build` before launching exe) so each launch uses the latest source build.
+- Use `-AutoBuild:$false` to skip build when iterating quickly.
+- Use `-UseGoRun` to run directly from source instead of `build\bin\SecureP2P.exe`.
 
 **All available flags:**
 

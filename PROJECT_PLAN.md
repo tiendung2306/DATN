@@ -371,6 +371,20 @@
 - Runtime triggers: peer connect (`scheduleOfflineSyncPull` with short retry/backoff) + manual trigger (`TriggerOfflineSync`).
 - DHT application-data mailbox path đã loại bỏ (`app/adapter/p2p/offline_dht.go` removed). Kademlia DHT giữ vai trò discovery/routing.
 
+### 5.4. Universal Blind-Store Layer + Store Node Role [COMPLETED ✅]
+- **Task:** Add a global blind-store topic for offline replication artifacts: `/org/offline-store/v1`.
+- **Task:** Support runtime roles:
+  - regular nodes subscribe by default and persist only when selected as replica target.
+  - `--store-node`: always persist blind-store objects.
+  - `--blind-store-participant=false`: explicit opt-out from selective replica storage.
+  - `--offline-replica-k`: number of non-store replica targets.
+- **Task:** Publish local `MsgCommit` / `MsgApplication` envelopes to blind-store via coordinator callback hook.
+- **Task:** Replicate invite artifacts (`KeyPackage`, `Welcome`) through blind-store in addition to existing store streams.
+- **Task:** Select replica targets using Kademlia proximity (`GetClosestPeers`) with XOR-distance fallback.
+- **Task:** Add envelope dedup persistence to avoid duplicate replay (`envelope_dedup` + `AppendEnvelope` dedup path).
+
+**Implemented:** `app/service/blind_store.go`, `app/coordination/coordinator.go` (`OnEnvelopeBroadcast`), `app/config/config.go` (new flags), `app/service/invite.go` (blind-store publish + fetch candidates), `app/adapter/store/db.go` + `app/adapter/store/coordination_storage.go` (dedup).
+
 ---
 
 ## 6. FILE TRANSFER & FINALIZATION (Weeks 15-16)

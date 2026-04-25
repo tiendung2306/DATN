@@ -87,6 +87,9 @@ func (r *Runtime) CreateGroupChat(groupID string) error {
 		SigningKey:    identity.SigningKeyPrivate,
 		OnMessage:     r.makeMessageHandler(groupID),
 		OnEpochChange: r.makeEpochHandler(groupID),
+		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
+			r.publishBlindStoreEnvelope(mt, gid, wire)
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -239,6 +242,9 @@ func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		SigningKey:    identity.SigningKeyPrivate,
 		OnMessage:     r.makeMessageHandler(groupID),
 		OnEpochChange: r.makeEpochHandler(groupID),
+		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
+			r.publishBlindStoreEnvelope(mt, gid, wire)
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -353,6 +359,9 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			SigningKey:    identity.SigningKeyPrivate,
 			OnMessage:     r.makeMessageHandler(rec.GroupID),
 			OnEpochChange: r.makeEpochHandler(rec.GroupID),
+			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
+				r.publishBlindStoreEnvelope(mt, gid, wire)
+			},
 		})
 		if err != nil {
 			slog.Warn("Failed to create coordinator for existing group",

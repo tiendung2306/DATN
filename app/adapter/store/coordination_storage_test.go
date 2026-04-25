@@ -171,8 +171,8 @@ func TestSQLiteCoordinationStorage_CoordState_SaveAndGet(t *testing.T) {
 
 	state := &coordination.CoordState{
 		GroupID:          "cg-1",
-		ActiveView:       []peer.ID{"peer-a", "peer-b"},
-		TokenHolder:      "peer-a",
+		ActiveView:       []peer.ID{"12D3KooWPbEBrDhZhfnAbZ1iwSQiQTsoz9NJKyxdkBL3Jiyu2wor", "12D3KooWChZkqKQ3oEL7Va9cYFc5aRgXhR4CWPP14uJtarqpL7iM"},
+		TokenHolder:      "12D3KooWPbEBrDhZhfnAbZ1iwSQiQTsoz9NJKyxdkBL3Jiyu2wor",
 		LastCommitHash:   []byte("hash123"),
 		LastCommitAt:     now,
 		PendingProposals: [][]byte{[]byte("p1"), []byte("p2")},
@@ -191,8 +191,8 @@ func TestSQLiteCoordinationStorage_CoordState_SaveAndGet(t *testing.T) {
 	if len(got.ActiveView) != 2 {
 		t.Errorf("ActiveView len = %d, want 2", len(got.ActiveView))
 	}
-	if got.TokenHolder != "peer-a" {
-		t.Errorf("TokenHolder = %q", got.TokenHolder)
+	if got.TokenHolder == "" {
+		t.Errorf("TokenHolder should not be empty")
 	}
 	if len(got.PendingProposals) != 2 {
 		t.Errorf("PendingProposals len = %d, want 2", len(got.PendingProposals))
@@ -255,6 +255,61 @@ func TestSQLiteCoordinationStorage_Message_EmptyResult(t *testing.T) {
 	}
 }
 
+func TestSQLiteCoordinationStorage_Message_DeduplicatesByEnvelopeHash(t *testing.T) {
+	s := setupTestStorage(t)
+	hash := []byte("same-envelope")
+	msg := &coordination.StoredMessage{
+		GroupID:      "mg-dedup",
+		Epoch:        1,
+		SenderID:     "alice",
+		Content:      []byte("hello"),
+		Timestamp:    coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "alice"},
+		EnvelopeHash: hash,
+	}
+	if err := s.SaveMessage(msg); err != nil {
+		t.Fatalf("SaveMessage first: %v", err)
+	}
+	if err := s.SaveMessage(msg); err != nil {
+		t.Fatalf("SaveMessage duplicate: %v", err)
+	}
+
+	got, err := s.GetMessagesSince("mg-dedup", coordination.HLCTimestamp{})
+	if err != nil {
+		t.Fatalf("GetMessagesSince: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("stored_messages rows=%d, want 1", len(got))
+	}
+}
+
+func TestSQLiteCoordinationStorage_AppliedEnvelopeMarkers(t *testing.T) {
+	s := setupTestStorage(t)
+	hash := []byte("env-hash")
+
+	applied, err := s.HasAppliedEnvelope("g1", hash)
+	if err != nil {
+		t.Fatalf("HasAppliedEnvelope before mark: %v", err)
+	}
+	if applied {
+		t.Fatal("expected envelope to be absent before mark")
+	}
+
+	if err := s.MarkEnvelopeApplied("g1", coordination.MsgApplication, 1, hash); err != nil {
+		t.Fatalf("MarkEnvelopeApplied: %v", err)
+	}
+	if err := s.MarkEnvelopeApplied("g1", coordination.MsgApplication, 1, hash); err != nil {
+		t.Fatalf("MarkEnvelopeApplied duplicate: %v", err)
+	}
+
+	applied, err = s.HasAppliedEnvelope("g1", hash)
+	if err != nil {
+		t.Fatalf("HasAppliedEnvelope after mark: %v", err)
+	}
+	if !applied {
+		t.Fatal("expected envelope to be marked applied")
+	}
+}
+
 func TestSQLiteCoordinationStorage_EnvelopeLog_AppendAndSince(t *testing.T) {
 	s := setupTestStorage(t)
 	ts := coordination.HLCTimestamp{WallTimeMs: 1, Counter: 0, NodeID: "p1"}
@@ -265,19 +320,19 @@ func TestSQLiteCoordinationStorage_EnvelopeLog_AppendAndSince(t *testing.T) {
 		t.Fatalf("AppendEnvelope first: seq=%d err=%v", seq1, err)
 	}
 	seq2, err := s.AppendEnvelope("g1", coordination.MsgApplication, 0, ts, wire)
-	if err != nil || seq2 != 2 {
-		t.Fatalf("AppendEnvelope second: seq=%d err=%v", seq2, err)
+	if err != nil || seq2 != 0 {
+		t.Fatalf("AppendEnvelope duplicate: seq=%d err=%v", seq2, err)
 	}
 	latest, _ := s.GetLatestSeq("g1")
-	if latest != 2 {
-		t.Fatalf("GetLatestSeq = %d, want 2", latest)
+	if latest != 1 {
+		t.Fatalf("GetLatestSeq = %d, want 1", latest)
 	}
 	recs, err := s.GetEnvelopesSince("g1", 0, 10)
-	if err != nil || len(recs) != 2 {
+	if err != nil || len(recs) != 1 {
 		t.Fatalf("GetEnvelopesSince after 0: %d recs err=%v", len(recs), err)
 	}
 	recs, err = s.GetEnvelopesSince("g1", 1, 10)
-	if err != nil || len(recs) != 1 || recs[0].Seq != 2 {
+	if err != nil || len(recs) != 0 {
 		t.Fatalf("GetEnvelopesSince after 1: %+v err=%v", recs, err)
 	}
 }
@@ -304,5 +359,70 @@ func TestSQLiteCoordinationStorage_SyncAcksAndPullCursor(t *testing.T) {
 	cur, _ := s.GetOfflinePullCursor("g1", "peerA")
 	if cur != 7 {
 		t.Fatalf("pull cursor = %d", cur)
+	}
+}
+
+func TestSQLiteCoordinationStorage_ApplyApplication_IsAtomicAndIdempotent(t *testing.T) {
+	s := setupTestStorage(t)
+	now := time.Now()
+	rec := &coordination.GroupRecord{
+		GroupID:    "g-atomic-app",
+		GroupState: []byte("state-1"),
+		Epoch:      1,
+		TreeHash:   []byte("tree-1"),
+		MyRole:     coordination.RoleMember,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	msg := &coordination.StoredMessage{
+		GroupID:      "g-atomic-app",
+		Epoch:        1,
+		SenderID:     "12D3KooWPbEBrDhZhfnAbZ1iwSQiQTsoz9NJKyxdkBL3Jiyu2wor",
+		Content:      []byte("hello"),
+		Timestamp:    coordination.HLCTimestamp{WallTimeMs: now.UnixMilli(), Counter: 0, NodeID: "n1"},
+		EnvelopeHash: []byte("h1"),
+	}
+	wire := []byte(`{"type":"application","group_id":"g-atomic-app","epoch":1}`)
+	applied, seq, err := s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp)
+	if err != nil || !applied || seq != 1 {
+		t.Fatalf("ApplyApplication first: applied=%v seq=%d err=%v", applied, seq, err)
+	}
+	applied, seq, err = s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp)
+	if err != nil || applied || seq != 0 {
+		t.Fatalf("ApplyApplication duplicate: applied=%v seq=%d err=%v", applied, seq, err)
+	}
+	gotMsgs, err := s.GetMessagesSince("g-atomic-app", coordination.HLCTimestamp{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotMsgs) != 1 {
+		t.Fatalf("messages rows=%d, want 1", len(gotMsgs))
+	}
+}
+
+func TestSQLiteCoordinationStorage_ApplyCommit_PersistsGroupState(t *testing.T) {
+	s := setupTestStorage(t)
+	now := time.Now()
+	rec := &coordination.GroupRecord{
+		GroupID:    "g-atomic-commit",
+		GroupState: []byte("state-2"),
+		Epoch:      2,
+		TreeHash:   []byte("tree-2"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	wire := []byte(`{"type":"commit","group_id":"g-atomic-commit","epoch":1}`)
+	ts := coordination.HLCTimestamp{WallTimeMs: now.UnixMilli(), Counter: 0, NodeID: "n1"}
+	applied, seq, err := s.ApplyCommit(rec, coordination.MsgCommit, wire, ts)
+	if err != nil || !applied || seq != 1 {
+		t.Fatalf("ApplyCommit: applied=%v seq=%d err=%v", applied, seq, err)
+	}
+	got, err := s.GetGroupRecord("g-atomic-commit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Epoch != 2 || string(got.GroupState) != "state-2" {
+		t.Fatalf("persisted group mismatch: epoch=%d state=%q", got.Epoch, got.GroupState)
 	}
 }

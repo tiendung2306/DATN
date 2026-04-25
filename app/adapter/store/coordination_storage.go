@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -108,12 +109,22 @@ func (s *SQLiteCoordinationStorage) GetCoordState(groupID string) (*coordination
 		return nil, fmt.Errorf("GetCoordState(%q): %w", groupID, err)
 	}
 
-	state.TokenHolder = peer.ID(tokenHolder)
+	if tokenHolder != "" {
+		if pid, err := peer.Decode(tokenHolder); err == nil {
+			state.TokenHolder = pid
+		} else {
+			state.TokenHolder = peer.ID(tokenHolder)
+		}
+	}
 
 	var peerIDs []string
 	if err := json.Unmarshal([]byte(viewJSON), &peerIDs); err == nil {
 		for _, id := range peerIDs {
-			state.ActiveView = append(state.ActiveView, peer.ID(id))
+			if pid, derr := peer.Decode(id); derr == nil {
+				state.ActiveView = append(state.ActiveView, pid)
+			} else {
+				state.ActiveView = append(state.ActiveView, peer.ID(id))
+			}
 		}
 	}
 
@@ -132,7 +143,7 @@ func (s *SQLiteCoordinationStorage) GetCoordState(groupID string) (*coordination
 func (s *SQLiteCoordinationStorage) SaveCoordState(state *coordination.CoordState) error {
 	peerIDs := make([]string, len(state.ActiveView))
 	for i, pid := range state.ActiveView {
-		peerIDs[i] = string(pid)
+		peerIDs[i] = pid.String()
 	}
 	viewJSON, _ := json.Marshal(peerIDs)
 	proposalJSON, _ := json.Marshal(state.PendingProposals)
@@ -152,7 +163,7 @@ func (s *SQLiteCoordinationStorage) SaveCoordState(state *coordination.CoordStat
 		     last_commit_hash  = excluded.last_commit_hash,
 		     last_commit_at    = excluded.last_commit_at,
 		     pending_proposals = excluded.pending_proposals`,
-		state.GroupID, string(viewJSON), string(state.TokenHolder),
+		state.GroupID, string(viewJSON), state.TokenHolder.String(),
 		state.LastCommitHash, commitAtStr, string(proposalJSON),
 	)
 	if err != nil {
@@ -165,13 +176,127 @@ func (s *SQLiteCoordinationStorage) SaveCoordState(state *coordination.CoordStat
 
 func (s *SQLiteCoordinationStorage) SaveMessage(msg *coordination.StoredMessage) error {
 	_, err := s.db.Conn.Exec(
-		`INSERT INTO stored_messages (group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		msg.GroupID, msg.Epoch, string(msg.SenderID), msg.Content,
-		msg.Timestamp.WallTimeMs, msg.Timestamp.Counter, msg.Timestamp.NodeID,
+		`INSERT OR IGNORE INTO stored_messages (
+			group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash
+		 )
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		msg.GroupID, msg.Epoch, msg.SenderID.String(), msg.Content,
+		msg.Timestamp.WallTimeMs, msg.Timestamp.Counter, msg.Timestamp.NodeID, msg.EnvelopeHash,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveMessage: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ApplyCommit(rec *coordination.GroupRecord, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp) (bool, int64, error) {
+	if rec == nil || rec.GroupID == "" || len(envelope) == 0 {
+		return false, 0, fmt.Errorf("ApplyCommit: invalid input")
+	}
+	tx, err := s.db.Conn.Begin()
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	hash := sha256.Sum256(envelope)
+	applied, err := hasAppliedEnvelopeTx(tx, rec.GroupID, hash[:])
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit has-applied: %w", err)
+	}
+	if applied {
+		if err := tx.Commit(); err != nil {
+			return false, 0, fmt.Errorf("ApplyCommit commit-noop: %w", err)
+		}
+		return false, 0, nil
+	}
+
+	if err := saveGroupRecordTx(tx, rec); err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit save-group: %w", err)
+	}
+	if err := markEnvelopeAppliedTx(tx, rec.GroupID, msgType, rec.Epoch, hash[:]); err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit mark-applied: %w", err)
+	}
+	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, rec.Epoch, ts, envelope)
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit append-envelope: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, 0, fmt.Errorf("ApplyCommit commit: %w", err)
+	}
+	return true, seq, nil
+}
+
+func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupRecord, msg *coordination.StoredMessage, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp) (bool, int64, error) {
+	if rec == nil || msg == nil || rec.GroupID == "" || msg.GroupID == "" || len(envelope) == 0 {
+		return false, 0, fmt.Errorf("ApplyApplication: invalid input")
+	}
+	tx, err := s.db.Conn.Begin()
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	hash := sha256.Sum256(envelope)
+	applied, err := hasAppliedEnvelopeTx(tx, rec.GroupID, hash[:])
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication has-applied: %w", err)
+	}
+	if applied {
+		if err := tx.Commit(); err != nil {
+			return false, 0, fmt.Errorf("ApplyApplication commit-noop: %w", err)
+		}
+		return false, 0, nil
+	}
+
+	if err := saveGroupRecordTx(tx, rec); err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication save-group: %w", err)
+	}
+	if err := saveMessageTx(tx, msg); err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication save-message: %w", err)
+	}
+	if err := markEnvelopeAppliedTx(tx, rec.GroupID, msgType, rec.Epoch, hash[:]); err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication mark-applied: %w", err)
+	}
+	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, rec.Epoch, ts, envelope)
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication append-envelope: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, 0, fmt.Errorf("ApplyApplication commit: %w", err)
+	}
+	return true, seq, nil
+}
+
+func (s *SQLiteCoordinationStorage) HasAppliedEnvelope(groupID string, envelopeHash []byte) (bool, error) {
+	if len(envelopeHash) == 0 {
+		return false, nil
+	}
+	var exists int
+	err := s.db.Conn.QueryRow(
+		`SELECT 1 FROM applied_envelopes WHERE group_id = ? AND envelope_hash = ? LIMIT 1`,
+		groupID, envelopeHash,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("HasAppliedEnvelope: %w", err)
+	}
+	return true, nil
+}
+
+func (s *SQLiteCoordinationStorage) MarkEnvelopeApplied(groupID string, msgType coordination.MessageType, epoch uint64, envelopeHash []byte) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	_, err := s.db.Conn.Exec(
+		`INSERT OR IGNORE INTO applied_envelopes (group_id, envelope_hash, msg_type, epoch, applied_at)
+		 VALUES (?, ?, ?, ?, strftime('%s','now'))`,
+		groupID, envelopeHash, string(msgType), epoch,
+	)
+	if err != nil {
+		return fmt.Errorf("MarkEnvelopeApplied: %w", err)
 	}
 	return nil
 }
@@ -203,7 +328,11 @@ func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coord
 			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID); err != nil {
 			return nil, fmt.Errorf("GetMessagesSince scan: %w", err)
 		}
-		m.SenderID = peer.ID(senderID)
+		if pid, err := peer.Decode(senderID); err == nil {
+			m.SenderID = pid
+		} else {
+			m.SenderID = peer.ID(senderID)
+		}
 		msgs = append(msgs, &m)
 	}
 	return msgs, rows.Err()
@@ -217,6 +346,20 @@ func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coord
 		return 0, fmt.Errorf("AppendEnvelope begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	hash := sha256.Sum256(envelope)
+	res, err := tx.Exec(
+		`INSERT OR IGNORE INTO envelope_dedup (group_id, envelope_hash, created_at)
+		 VALUES (?, ?, strftime('%s','now'))`,
+		groupID, hash[:],
+	)
+	if err != nil {
+		return 0, fmt.Errorf("AppendEnvelope dedup: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Duplicate envelope (same bytes) already stored for this group.
+		return 0, nil
+	}
 
 	var next int64
 	err = tx.QueryRow(
@@ -237,6 +380,88 @@ func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coord
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("AppendEnvelope commit: %w", err)
+	}
+	return next, nil
+}
+
+func hasAppliedEnvelopeTx(tx *sql.Tx, groupID string, envelopeHash []byte) (bool, error) {
+	var exists int
+	err := tx.QueryRow(
+		`SELECT 1 FROM applied_envelopes WHERE group_id = ? AND envelope_hash = ? LIMIT 1`,
+		groupID, envelopeHash,
+	).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func saveGroupRecordTx(tx *sql.Tx, rec *coordination.GroupRecord) error {
+	_, err := tx.Exec(
+		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(group_id) DO UPDATE SET
+		     group_state = excluded.group_state,
+		     epoch       = excluded.epoch,
+		     tree_hash   = excluded.tree_hash,
+		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
+		     updated_at  = excluded.updated_at`,
+		rec.GroupID, rec.GroupState, rec.Epoch, rec.TreeHash,
+		string(rec.MyRole), rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),
+	)
+	return err
+}
+
+func saveMessageTx(tx *sql.Tx, msg *coordination.StoredMessage) error {
+	_, err := tx.Exec(
+		`INSERT OR IGNORE INTO stored_messages (
+			group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash
+		 )
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		msg.GroupID, msg.Epoch, msg.SenderID.String(), msg.Content,
+		msg.Timestamp.WallTimeMs, msg.Timestamp.Counter, msg.Timestamp.NodeID, msg.EnvelopeHash,
+	)
+	return err
+}
+
+func markEnvelopeAppliedTx(tx *sql.Tx, groupID string, msgType coordination.MessageType, epoch uint64, envelopeHash []byte) error {
+	_, err := tx.Exec(
+		`INSERT OR IGNORE INTO applied_envelopes (group_id, envelope_hash, msg_type, epoch, applied_at)
+		 VALUES (?, ?, ?, ?, strftime('%s','now'))`,
+		groupID, envelopeHash, string(msgType), epoch,
+	)
+	return err
+}
+
+func appendEnvelopeTx(tx *sql.Tx, groupID string, msgType coordination.MessageType, epoch uint64, ts coordination.HLCTimestamp, envelope []byte) (int64, error) {
+	hash := sha256.Sum256(envelope)
+	res, err := tx.Exec(
+		`INSERT OR IGNORE INTO envelope_dedup (group_id, envelope_hash, created_at)
+		 VALUES (?, ?, strftime('%s','now'))`,
+		groupID, hash[:],
+	)
+	if err != nil {
+		return 0, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return 0, nil
+	}
+
+	var next int64
+	if err := tx.QueryRow(
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM envelope_log WHERE group_id = ?`, groupID,
+	).Scan(&next); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO envelope_log (group_id, seq, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		groupID, next, string(msgType), epoch, envelope, ts.WallTimeMs, ts.Counter, ts.NodeID,
+	); err != nil {
+		return 0, err
 	}
 	return next, nil
 }
@@ -295,6 +520,7 @@ func (s *SQLiteCoordinationStorage) PruneEnvelopes(cutoffUnix int64, maxPerGroup
 	}
 	n64, _ := res.RowsAffected()
 	removed += int(n64)
+	_, _ = s.db.Conn.Exec(`DELETE FROM envelope_dedup WHERE created_at < ?`, cutoffUnix)
 
 	if maxPerGroup < 1 {
 		return removed, nil

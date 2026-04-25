@@ -137,6 +137,24 @@ type CoordinationStorage interface {
 	// SaveMessage stores a decrypted message for UI display and history.
 	SaveMessage(msg *StoredMessage) error
 
+	// HasAppliedEnvelope reports whether the raw envelope has already been
+	// applied to local state, allowing replay to remain idempotent.
+	HasAppliedEnvelope(groupID string, envelopeHash []byte) (bool, error)
+
+	// MarkEnvelopeApplied records a successfully applied commit/application
+	// envelope so future duplicates are skipped before side effects run.
+	MarkEnvelopeApplied(groupID string, msgType MessageType, epoch uint64, envelopeHash []byte) error
+
+	// ApplyCommit atomically persists a processed commit outcome:
+	// group state advance + applied marker + optional envelope log append.
+	// Returns applied=false when the envelope was already applied.
+	ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp) (applied bool, seq int64, err error)
+
+	// ApplyApplication atomically persists a processed application outcome:
+	// group state advance + stored message + applied marker + optional envelope log append.
+	// Returns applied=false when the envelope was already applied.
+	ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp) (applied bool, seq int64, err error)
+
 	// GetMessagesSince retrieves messages for a group with HLC timestamps
 	// after the given lower bound, sorted by HLC ascending.
 	GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error)
@@ -166,6 +184,6 @@ type CoordinationStorage interface {
 
 	// GetKnownGroupMembers returns the distinct sender IDs that have ever sent
 	// a message in the group (from stored_messages). Used to identify recipients
-	// for DHT offline mailbox push and senders to pull from.
+	// for pending delivery-ack tracking and offline sync partner selection.
 	GetKnownGroupMembers(groupID string) ([]string, error)
 }

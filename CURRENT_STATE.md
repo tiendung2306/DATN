@@ -302,6 +302,30 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 #### Implemented in this update
 
+- **MLS Atomic Apply (consistency hardening):**
+  - Root cause fixed: `SQLITE_BUSY` during `SaveMessage` could previously leave MLS message-key consumption and DB persistence out of sync, causing replay-time `SecretReuseError`.
+  - New atomic persistence API in coordination storage (`app/coordination/interfaces.go`):
+    - `ApplyCommit(...)`
+    - `ApplyApplication(...)`
+  - SQLite implementation (`app/adapter/store/coordination_storage.go`) now persists group-state/message/applied-marker/envelope-log in one transaction for commit/application apply paths.
+  - Coordinator refactor (`app/coordination/coordinator.go`):
+    - in-memory state is updated only after atomic DB apply succeeds;
+    - local send/commit paths persist first, then publish/emit;
+    - inbound replay paths share the same idempotent apply boundary.
+  - PeerID serialization cleanup:
+    - canonical `peer.ID.String()` in envelope sender and storage write paths;
+    - decode fallback for legacy/non-canonical values remains in read paths.
+  - Regression coverage:
+    - atomic apply/idempotency tests in `app/adapter/store/coordination_storage_test.go`;
+    - coordinator guard test for persist-failure non-advancement in `app/coordination/coordinator_test.go`.
+
+- **SQLite contention hardening:**
+  - `app/adapter/store/db.go` now sets `WAL`, `busy_timeout`, and a single-writer pool (`SetMaxOpenConns(1)`) to reduce write contention bursts under concurrent goroutines.
+
+- **Dev multi-instance scripts (Windows) now default to latest build:**
+  - `scripts/dev-second-instance.ps1`, `scripts/dev-third-instance.ps1`, `scripts/dev-fourth-instance.ps1` support `-AutoBuild` (default true).
+  - Default launch behavior: run `wails build` before starting node 2/3/4 exe; can disable via `-AutoBuild:$false`.
+
 - **Identity backup/import (Phase 5.1, Go-side):**
   - Implementation: `app/service/identity_backup.go` (+ tests `identity_backup_test.go`)
     - `ExportIdentityBackup(...)` and `ImportIdentityBackup(...)`
@@ -319,7 +343,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 - **Offline messaging (Phase 5.3, store-and-forward):**
   - Offline sync stream + ACK cursor: `app/service/offline_sync.go`, `app/adapter/p2p/offline_wire.go`.
-  - Envelope log + sync ack persistence: `app/adapter/store/coordination_storage.go`, schema `envelope_log` / `sync_acks` / `pending_delivery_acks` / `offline_sync_pull_state` trong `app/adapter/store/db.go`.
+  - Envelope log + sync ack persistence: `app/adapter/store/coordination_storage.go`, schema `envelope_log` / `envelope_dedup` / `sync_acks` / `pending_delivery_acks` / `offline_sync_pull_state` trong `app/adapter/store/db.go`.
   - Runtime trigger: peer connect + manual trigger (`TriggerOfflineSync`) để pull missed envelopes từ connected verified peers.
   - `scheduleOfflineSyncPull` thêm retry/backoff ngắn để tránh race lúc peer vừa connect nhưng chưa advertise protocol.
   - Đã bỏ hoàn toàn DHT mailbox data-path (`app/adapter/p2p/offline_dht.go`, `offlineDHTPushLoop`, `offlineDHTCheckLoop`).
@@ -327,8 +351,15 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 - **Invite offline store (KeyPackage / Welcome) — post-refactor:**
   - DHT application-data path đã loại bỏ (`app/adapter/p2p/kp_dht.go` removed).
   - Custom store protocols: `/app/kp-store/1.0.0`, `/app/kp-fetch/1.0.0`, `/app/welcome-store/1.0.0`, `/app/welcome-fetch/1.0.0` (wire: `app/adapter/p2p/invite_store_wire.go`).
-  - `invite.go` replicate public KeyPackage / Welcome tới verified store peers (fanout mặc định 3), fallback fetch qua store peers khi direct path không sẵn sàng.
+  - `invite.go` vẫn replicate qua store streams (fanout mặc định 3), đồng thời publish blind-store object để tăng xác suất lưu hộ khi peer đích offline.
   - `CheckDHTWelcome` giữ tên để tương thích Wails UI cũ, nhưng implementation hiện fetch từ store peers (không còn gọi DHT).
+
+- **Universal Blind-Store layer (new):**
+  - Topic global: `/org/offline-store/v1` (`app/service/blind_store.go`).
+  - Object types: `group-envelope`, `key-package`, `welcome`.
+  - Runtime policy: regular nodes subscribe blind-store by default and only retain targeted replica objects; `--store-node` retains all objects; `--blind-store-participant=false` explicitly opts out (`app/config/config.go`).
+  - Replica selection: ưu tiên Kademlia `GetClosestPeers(routingKey)` + fallback XOR-distance; chỉ nhận từ verified peers.
+  - Coordinator hook: `OnEnvelopeBroadcast` publish `MsgCommit/MsgApplication` sang blind-store khi local node broadcast.
 
 #### Validation
 

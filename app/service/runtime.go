@@ -39,6 +39,7 @@ type Runtime struct {
 	coordStorage *store.SQLiteCoordinationStorage
 	mlsEngine    coordination.MLSEngine
 	coordinators map[string]*coordination.Coordinator
+	blindStore   *blindStoreLayer
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
@@ -181,6 +182,10 @@ func (r *Runtime) teardown() {
 		r.removeWelcomeDeliveryHandler()
 		r.removeInviteStoreHandlers()
 		r.removeOfflineSyncHandlers()
+		if r.blindStore != nil {
+			r.blindStore.Close()
+			r.blindStore = nil
+		}
 		r.node.Close()
 		r.node = nil
 	}
@@ -239,6 +244,9 @@ func (r *Runtime) launchP2PNode() error {
 	slog.Info("P2P node started via GUI", "peerID", node.Host.ID().String())
 
 	r.initCoordinationStackLocked()
+	if err := r.initBlindStoreLocked(nodeCtx); err != nil {
+		slog.Warn("Blind-store layer disabled", "error", err)
+	}
 	r.registerKPOfferHandler()
 	r.registerWelcomeDeliveryHandler()
 	r.registerInviteStoreHandlers()

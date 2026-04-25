@@ -32,7 +32,7 @@ This document outlines the core principles, mandates, and operational guidelines
 5. **Strict Onboarding:** No node can join the Gossip network without a valid `InvitationToken` signed by the Root Admin Key.
 6. **Single Active Device:** A user account is valid on only ONE device at a time.
 7. **Manual Identity Migration:** Private Keys are NEVER sent over the network (even encrypted). They must be exported to a file (`.backup`) encrypted with a Passphrase and manually transferred.
-8. **Offline Handling:** Messages to offline peers must be stored in the DHT (Neighborhood Storage) encrypted.
+8. **Offline Handling:** Messages to offline peers must use encrypted local envelope retention and authenticated direct stream synchronization. The app also supports blind-store replication on `/org/offline-store/v1`: regular nodes retain targeted `k`-nearest replicas by default, while `--store-node` nodes retain all blind-store objects. Kademlia DHT is reserved for discovery/routing and replica target selection, not application mailbox storage.
 
 ## Coordination Protocol Rules (CRITICAL for Phase 4+)
 

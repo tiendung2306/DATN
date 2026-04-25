@@ -458,8 +458,8 @@ export default function ChatPanel() {
                     Check for pending invite
                   </h3>
                   <p className="text-[10px] text-gray-500 mb-2 leading-relaxed">
-                    If you were invited while offline, enter the group name and pull the Welcome from the DHT.
-                    You usually don't need this — delivery is automatic when you reconnect.
+                    If you were invited while offline, enter the group name and pull the Welcome from connected
+                    verified store peers. You usually don't need this — delivery is automatic when you reconnect.
                   </p>
                   <div className="flex gap-2">
                     <input

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -41,9 +42,22 @@ func InitDB(path string) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+	// Keep a single writer connection in-process and wait on busy locks
+	// to reduce SQLITE_BUSY under concurrent goroutines.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL;`); err != nil {
+		return nil, fmt.Errorf("set pragma journal_mode=WAL: %w", err)
+	}
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000;`); err != nil {
+		return nil, fmt.Errorf("set pragma busy_timeout: %w", err)
+	}
+	if _, err := db.Exec(`PRAGMA synchronous=NORMAL;`); err != nil {
+		return nil, fmt.Errorf("set pragma synchronous: %w", err)
 	}
 
 	d := &Database{Conn: db}
@@ -138,7 +152,8 @@ func (d *Database) createTables() error {
 			content          BLOB    NOT NULL,
 			hlc_wall_time_ms INTEGER NOT NULL,
 			hlc_counter      INTEGER NOT NULL,
-			hlc_node_id      TEXT    NOT NULL
+			hlc_node_id      TEXT    NOT NULL,
+			envelope_hash    BLOB
 		);`,
 
 		`CREATE INDEX IF NOT EXISTS idx_stored_messages_group_hlc
@@ -182,6 +197,20 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_envelope_log_group_seq
 			ON envelope_log(group_id, seq);`,
+		`CREATE TABLE IF NOT EXISTS envelope_dedup (
+			group_id      TEXT    NOT NULL,
+			envelope_hash BLOB    NOT NULL,
+			created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (group_id, envelope_hash)
+		);`,
+		`CREATE TABLE IF NOT EXISTS applied_envelopes (
+			group_id      TEXT    NOT NULL,
+			envelope_hash BLOB    NOT NULL,
+			msg_type      TEXT    NOT NULL,
+			epoch         INTEGER NOT NULL,
+			applied_at    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (group_id, envelope_hash)
+		);`,
 
 		`CREATE TABLE IF NOT EXISTS sync_acks (
 			peer_id   TEXT    NOT NULL,
@@ -229,6 +258,49 @@ func (d *Database) createTables() error {
 		if _, err := d.Conn.Exec(q); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
 		}
+	}
+	if err := d.ensureColumnExists("stored_messages", "envelope_hash", "BLOB"); err != nil {
+		return err
+	}
+	if _, err := d.Conn.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_messages_group_envelope_hash
+		 ON stored_messages(group_id, envelope_hash)
+		 WHERE envelope_hash IS NOT NULL`,
+	); err != nil {
+		return fmt.Errorf("create stored_messages envelope_hash index: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) ensureColumnExists(tableName, columnName, columnType string) error {
+	rows, err := d.Conn.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
+	if err != nil {
+		return fmt.Errorf("table info %s: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			typ        string
+			notNull    int
+			defaultV   sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultV, &primaryKey); err != nil {
+			return fmt.Errorf("scan table info %s: %w", tableName, err)
+		}
+		if strings.EqualFold(name, columnName) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate table info %s: %w", tableName, err)
+	}
+
+	if _, err := d.Conn.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, tableName, columnName, columnType)); err != nil {
+		return fmt.Errorf("add column %s.%s: %w", tableName, columnName, err)
 	}
 	return nil
 }
@@ -503,6 +575,23 @@ func (d *Database) SaveStoredKeyPackage(peerID string, publicKP []byte, sourcePe
 	return nil
 }
 
+// SaveStoredKeyPackageIfNewer upserts only when publishedAt is newer.
+func (d *Database) SaveStoredKeyPackageIfNewer(peerID string, publicKP []byte, sourcePeerID string, publishedAt int64) error {
+	_, err := d.Conn.Exec(
+		`INSERT INTO stored_keypackages (peer_id, public_kp, source_peer_id, updated_at)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(peer_id) DO UPDATE SET
+		   public_kp = CASE WHEN excluded.updated_at >= stored_keypackages.updated_at THEN excluded.public_kp ELSE stored_keypackages.public_kp END,
+		   source_peer_id = CASE WHEN excluded.updated_at >= stored_keypackages.updated_at THEN excluded.source_peer_id ELSE stored_keypackages.source_peer_id END,
+		   updated_at = CASE WHEN excluded.updated_at >= stored_keypackages.updated_at THEN excluded.updated_at ELSE stored_keypackages.updated_at END`,
+		peerID, publicKP, sourcePeerID, publishedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveStoredKeyPackageIfNewer: %w", err)
+	}
+	return nil
+}
+
 // GetStoredKeyPackage fetches a replicated public KeyPackage for peerID.
 func (d *Database) GetStoredKeyPackage(peerID string) ([]byte, error) {
 	var kp []byte
@@ -527,6 +616,23 @@ func (d *Database) SaveStoredWelcome(inviteePeerID, groupID string, welcome []by
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcome: %w", err)
+	}
+	return nil
+}
+
+// SaveStoredWelcomeIfNewer upserts only when publishedAt is newer.
+func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID string, welcome []byte, sourcePeerID string, publishedAt int64) error {
+	_, err := d.Conn.Exec(
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, welcome_bytes, source_peer_id, created_at)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
+		   welcome_bytes = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.welcome_bytes ELSE stored_welcomes.welcome_bytes END,
+		   source_peer_id = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
+		   created_at = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.created_at ELSE stored_welcomes.created_at END`,
+		inviteePeerID, groupID, welcome, sourcePeerID, publishedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveStoredWelcomeIfNewer: %w", err)
 	}
 	return nil
 }

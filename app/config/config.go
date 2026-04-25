@@ -25,6 +25,10 @@ type Config struct {
 	BundlePeerID    string
 	BundlePubKey    string
 	BundleOutput    string
+
+	StoreNode             bool
+	BlindStoreParticipant bool
+	OfflineReplicaK       int
 }
 
 // Parse parses command-line flags into Config. Call once from main.
@@ -52,8 +56,17 @@ func Parse() *Config {
 	flag.StringVar(&cfg.BundlePeerID, "bundle-peer-id", "", "Libp2p PeerID of the new user (used with --create-bundle)")
 	flag.StringVar(&cfg.BundlePubKey, "bundle-pub-key", "", "Hex MLS public key of the new user (used with --create-bundle)")
 	flag.StringVar(&cfg.BundleOutput, "bundle-output", ".local/invite.bundle", "Output path for the generated .bundle file")
+	flag.BoolVar(&cfg.StoreNode, "store-node", false, "Enable store-node mode: always persist blind-store envelopes for offline recovery")
+	flag.BoolVar(&cfg.BlindStoreParticipant, "blind-store-participant", true, "Enable selective blind-store participation for non-store nodes")
+	flag.IntVar(&cfg.OfflineReplicaK, "offline-replica-k", 2, "Number of non-store blind-store peers targeted for replica persistence")
 
 	flag.Parse()
+	if cfg.StoreNode {
+		cfg.BlindStoreParticipant = true
+	}
+	if cfg.OfflineReplicaK < 0 {
+		cfg.OfflineReplicaK = 0
+	}
 	return cfg
 }
 

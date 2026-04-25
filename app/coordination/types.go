@@ -152,6 +152,8 @@ type StoredMessage struct {
 	SenderID  peer.ID
 	Content   []byte
 	Timestamp HLCTimestamp
+	// EnvelopeHash keys exactly-once application for replayed envelopes.
+	EnvelopeHash []byte
 }
 
 // EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).
@@ -166,10 +168,10 @@ type EnvelopeRecord struct {
 
 // PendingDeliveryAckRow is a queued delivery ACK to send to target_peer_id.
 type PendingDeliveryAckRow struct {
-	ID             int64
-	TargetPeerID   string
-	GroupID        string
-	AckedSeq       int64
+	ID           int64
+	TargetPeerID string
+	GroupID      string
+	AckedSeq     int64
 }
 
 // ─── Enum Types ──────────────────────────────────────────────────────────────
@@ -188,9 +190,9 @@ const (
 type EpochAction int
 
 const (
-	ActionProcess     EpochAction = iota // epoch matches — process normally
-	ActionRejectStale                    // sender is behind — send EpochNotification
-	ActionBufferFuture                   // sender is ahead — buffer and request sync
+	ActionProcess      EpochAction = iota // epoch matches — process normally
+	ActionRejectStale                     // sender is behind — send EpochNotification
+	ActionBufferFuture                    // sender is ahead — buffer and request sync
 )
 
 // BranchResult is the outcome of comparing two branches during fork healing.

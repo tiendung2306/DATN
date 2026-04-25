@@ -34,6 +34,8 @@ param(
 
     [switch] $UseGoRun,
 
+    [switch] $AutoBuild,
+
     [switch] $NoNewWindow
 )
 
@@ -43,6 +45,9 @@ $AppDir = Join-Path $RepoRoot 'app'
 $LocalInApp = [System.IO.Path]::GetFullPath((Join-Path $AppDir '.local'))
 $db = [System.IO.Path]::GetFullPath((Join-Path $LocalInApp 'dev-wails-peer3.db'))
 $port = 4003
+if (-not $PSBoundParameters.ContainsKey('AutoBuild')) {
+    $AutoBuild = $true
+}
 
 function Resolve-FromAppDir([string] $PathLike) {
     if ([string]::IsNullOrWhiteSpace($PathLike)) { return $PathLike }
@@ -83,6 +88,18 @@ if ($Exe -eq '') {
 }
 
 $hasExe = Test-Path -LiteralPath $Exe
+
+if (-not $UseGoRun -and $AutoBuild) {
+    Write-Host "Auto build: wails build (instance 3)" -ForegroundColor DarkGray
+    Push-Location $AppDir
+    try {
+        & wails build
+    }
+    finally {
+        Pop-Location
+    }
+    $hasExe = Test-Path -LiteralPath $Exe
+}
 
 if (-not $hasExe -and -not $UseGoRun) {
     Write-Host "Chưa thấy exe: $Exe" -ForegroundColor Yellow
