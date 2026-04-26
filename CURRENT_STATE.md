@@ -153,8 +153,10 @@ if token.PeerID != authenticatedPeerID.String() {
 
 ```go
 type AuthHandshakeMsg struct {
-  Token   *InvitationToken
-  Session SessionClaim // started_at + nonce + MLS-signed proof
+  Token              *InvitationToken
+  Session            SessionClaim // started_at + nonce + MLS-signed proof
+  Error              string       // optional stale-session response
+  SupersedingSession SessionClaim // newer same-identity proof for local lockout
 }
 ```
 
@@ -217,7 +219,8 @@ identity.backup (mã hóa AES-256-GCM + Argon2id)
 ├── mls_groups           ← serialized group_state snapshot
 ├── stored_messages      ← local decrypted chat history
 ├── kp_bundles           ← pending invite private material
-└── pending_welcomes_out ← welcomes chưa giao
+├── pending_welcomes_out ← welcomes chưa giao
+└── pending_invites      ← invitee-side pending invite UI state
 ```
 Implementation note: backup/import is now fully handled in Go (no Rust `ExportIdentity/ImportIdentity` RPC required).
 
@@ -361,6 +364,27 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
   - Replica selection: ưu tiên Kademlia `GetClosestPeers(routingKey)` + fallback XOR-distance; chỉ nhận từ verified peers.
   - Coordinator hook: `OnEnvelopeBroadcast` publish `MsgCommit/MsgApplication` sang blind-store khi local node broadcast.
 
+### Phase 6 P0 Backend Productization — COMPLETE ✅
+
+- **Invite / pending invite lifecycle:**
+  - Wails APIs: `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`.
+  - SQLite `pending_invites` tracks invitee-side UI lifecycle; Welcome discovery now supports `/app/welcome-list/1.0.0`.
+  - Pending invites are included in identity backup/import.
+- **Group membership lifecycle:**
+  - `LeaveGroup` implements soft leave: stop local participation, keep local history.
+  - `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is productized end-to-end.
+- **Session takeover lifecycle:**
+  - APIs: `GetSessionStatus`, `AcknowledgeSessionReplaced`.
+  - Old sessions only enter `replaced` state after verifying a newer same-identity `SessionClaim` signed by the local MLS key; normal peer arbitration/disconnects do not trigger lockout.
+  - Mutating/network actions are guarded by `ErrSessionReplaced`; read-only local history remains accessible.
+- **Startup/runtime health:**
+  - API: `GetRuntimeHealth`.
+  - Events: `startup:progress`, `startup:error`, `p2p:status`, `offline_sync:status`, `runtime:health`.
+- **Admin issuance readiness:**
+  - APIs: `GetAdminStatus`, `ParseDeviceRequestJSON`, `CreateBundleFromRequest`.
+  - P0 keeps passphrase-per-sign; no in-memory admin private-key cache.
+  - Request validation checks JSON version, libp2p PeerID, and Ed25519 MLS public-key hex length.
+
 #### Validation
 
 - `go test ./...` PASS
@@ -391,14 +415,17 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | `CreateAndImportSelfBundle(name, passphrase) error` | Admin tự cấp bundle cho mình |
 | `InitAdminKey(passphrase) error` | Khởi tạo Root Admin key |
 | `CreateBundle(req) (string, error)` | Tạo bundle cho user mới → save dialog |
+| `GetAdminStatus`, `ParseDeviceRequestJSON`, `CreateBundleFromRequest` | Admin issuance UI: trạng thái key, parse request JSON, ký bundle passphrase-per-sign |
 | `GetNodeStatus() NodeStatus` | State, PeerID, DisplayName, ConnectedPeers |
+| `GetRuntimeHealth() RuntimeHealth` | Startup/app/P2P/crypto health cho loading/error screens |
+| `GetSessionStatus`, `AcknowledgeSessionReplaced` | Single-active-device UX; route old device sang Session Replaced screen |
 | **`CreateGroupChat(groupID) error`** | **Tạo MLS group + Coordinator + subscribe GossipSub** |
 | **`SendGroupMessage(groupID, text) error`** | **Encrypt + broadcast qua Coordinator** |
 | **`GetGroupMessages(groupID) []MessageInfo`** | **Lấy messages sorted by HLC** |
 | **`GetGroups() []GroupInfo`** | **Danh sách groups đã tham gia** |
 | **`GetGroupStatus(groupID) map[string]interface{}`** | **Epoch, token holder, member count, metrics** |
-| `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage` | MLS / invite UI (ChatPanel) |
-| `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus` | Luồng invite offline-friendly (store-peer based; `CheckDHTWelcome` là tên legacy API) |
+| `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage`, `LeaveGroup`, `RemoveMemberFromGroup` | MLS / group lifecycle UI; remove member explicitly deferred |
+| `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus`, `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite` | Luồng invite offline-friendly (store-peer based; `CheckDHTWelcome` là tên legacy API) |
 | `ExportIdentity`, `ImportIdentityFromFile` | Backup `.backup` (GUI) |
 
 *(Danh sách đầy đủ: `wails generate module` → `Runtime.d.ts`.)*
@@ -449,18 +476,19 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Backend Productization → Frontend → File Transfer
+## 6. Next Step — Frontend Productization → P1 Backend → File Transfer
 
-Phase 4 hoàn tất. **Phase 5.1 (`.backup`), 5.2 (`SessionClaim` / single active device), 5.3 (offline store-and-forward)** đã implement — xem §4.
+Phase 4 hoàn tất. **Phase 5.1 (`.backup`), 5.2 (`SessionClaim` / single active device), 5.3 (offline store-and-forward)** và **Phase 6 P0 backend productization** đã implement — xem §4.
 
 Hệ thống đã có:
 - OpenMLS (nhóm, tin nhắn, KeyPackage / AddMembers / Welcome, …) qua sidecar
 - Coordination đầy đủ (Single-Writer, Epoch, Fork healing, HLC); **`go test ./...`** và **`cargo test`** để xác minh
 - Offline sync + blind-store nền tảng cho envelope / KeyPackage / Welcome
 - Identity migration `.backup` + session claim foundation
+- P0 frontend-safe backend APIs cho invite lifecycle, membership lifecycle, session replaced lockout, runtime health, admin issuance readiness
 
 **Roadmap tài liệu hiện tại:**
-- `PROJECT_PLAN.md`: roadmap tổng thể đã đổi thành Phase 6 backend productization, Phase 7 frontend, Phase 8 file transfer, Phase 9 evaluation.
+- `PROJECT_PLAN.md`: roadmap tổng thể: Phase 6 backend productization, Phase 7 frontend, Phase 8 file transfer, Phase 9 evaluation.
 - `BACKEND_IMPLEMENTATION_PLAN.md`: kế hoạch backend chi tiết cần làm trước frontend.
 - `FRONTEND_IMPLEMENTATION_PLAN.md`: đặc tả màn hình / luồng UI production-ready.
 
@@ -472,12 +500,9 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Phase 6 — Backend Productization trước frontend (P0):**
-    - Invite / Pending Invite lifecycle: `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`.
-    - Group membership lifecycle: `LeaveGroup`, `RemoveMemberFromGroup` hoặc policy disable rõ ràng nếu defer role/remove.
-    - Session takeover lifecycle: `GetSessionStatus`, event `session:replaced`, local replaced/lockout state.
-    - Startup/runtime health: `GetRuntimeHealth`, startup progress/error events, P2P status events.
-    - Admin issuance readiness: parse `request.json`, validate PeerID/PublicKey, admin signing flow rõ ràng.
+1.  **Phase 7 — Frontend Application UI:**
+    - Rebuild UI từ dev/test sang product UI theo `FRONTEND_IMPLEMENTATION_PLAN.md`.
+    - Dùng real backend APIs vừa hoàn tất cho invite, membership, session replaced, runtime health, admin issuance.
 
 2.  **Phase 6 — Backend Productization (P1, có thể làm song song frontend):**
     - Network/bootstrap runtime controls: local multiaddr, validate/set bootstrap, reconnect.
@@ -485,11 +510,7 @@ Hệ thống đã có:
     - Message status/retry model nếu UI cần failed-message recovery.
     - Admin issuance history nếu audit table vào scope.
 
-3.  **Phase 7 — Frontend Application UI:**
-    - Rebuild UI từ dev/test sang product UI theo `FRONTEND_IMPLEMENTATION_PLAN.md`.
-    - Không fake critical backend behavior; nếu backend gap còn thiếu thì disable/mark planned rõ ràng.
-
-4.  **Phase 8–9:** file transfer (MLS exporter / swarming), evaluation đa node / partition / báo cáo luận văn.
+3.  **Phase 8–9:** file transfer (MLS exporter / swarming), evaluation đa node / partition / báo cáo luận văn.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.

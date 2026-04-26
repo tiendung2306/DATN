@@ -387,7 +387,7 @@
 
 ---
 
-## 6. BACKEND PRODUCTIZATION BEFORE FRONTEND (Weeks 15-16)
+## 6. BACKEND PRODUCTIZATION BEFORE FRONTEND (Weeks 15-16) [P0 COMPLETED ✅]
 
 **Goal:** Complete the core backend product flows required by the production frontend. The current backend already has the protocol, MLS, onboarding, offline sync, blind-store, and backup foundations. This phase turns those foundations into stable Wails-facing product APIs so the frontend does not need to fake critical behavior.
 
@@ -402,6 +402,7 @@
 - **Task:** Persist enough pending invite metadata for the UI: invite id, group id/name if known, inviter if known, received time, status.
 - **Task:** Make invite accept idempotent and return stable errors for expired/stale invites, identity mismatch, and already-joined groups.
 - **Success Criteria:** User can generate a join code, another member can invite them, and the invitee can accept/reject from a pending invite list without manually typing a group id.
+- **Status:** Completed with `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`, pending invite persistence, Welcome list discovery, and backup/import support.
 
 ### 6.2. Group Membership Lifecycle [P0]
 - **Task:** Add Runtime-facing APIs for:
@@ -411,6 +412,7 @@
   - recommended: soft leave by default (stop active participation, keep local history).
 - **Task:** Emit group/member change events for frontend refresh.
 - **Success Criteria:** Group Info UI can perform real leave/remove actions or display a truthful disabled state backed by backend policy.
+- **Status:** Completed. `LeaveGroup` performs soft leave and keeps local history; `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is productized.
 
 ### 6.3. Session Takeover Lifecycle [P0]
 - **Task:** Productize the existing `SessionClaim` single-active-device mechanism into explicit runtime state/events.
@@ -420,6 +422,7 @@
   - local replaced/lockout flag if needed.
 - **Task:** Decide and implement old-device behavior after takeover. Recommended high-security default: block normal app access after session replacement, but do not claim secure deletion unless implemented.
 - **Success Criteria:** Frontend can route to a real Session Replaced screen and the old device cannot continue normal P2P operations.
+- **Status:** Completed with `GetSessionStatus`, `AcknowledgeSessionReplaced`, persisted replaced state, `session:replaced`, mutating-action guards, and verified newer same-identity `SessionClaim` proof before old-device lockout.
 
 ### 6.4. Startup & Runtime Health Events [P0]
 - **Task:** Expose startup/runtime health to UI:
@@ -431,6 +434,7 @@
 - **Task:** Add stable error codes for database, crypto engine, IPC, identity, and P2P failures.
 - **Task:** Add `GetRuntimeHealth` and/or startup events such as `startup:progress`, `startup:error`, `p2p:status`.
 - **Success Criteria:** Splash screen and fatal error UI can show real backend state instead of guessing.
+- **Status:** Completed with `GetRuntimeHealth`, `startup:progress`, `startup:error`, `p2p:status`, `offline_sync:status`, and `runtime:health`.
 
 ### 6.5. Admin Issuance Readiness [P0]
 - **Task:** Make Admin flow safer for UI:
@@ -442,6 +446,7 @@
   - later: explicit `UnlockAdmin` / `LockAdmin` session.
 - **Task:** Keep or extend `CreateBundle` so the UI can issue `.bundle` from parsed request data.
 - **Success Criteria:** Admin can issue a signed bundle from `request.json` without manually copying long strings.
+- **Status:** Completed for P0 with passphrase-per-sign `GetAdminStatus`, `ParseDeviceRequestJSON`, and `CreateBundleFromRequest`. In-memory `UnlockAdmin`/`LockAdmin` remains deferred.
 
 ### 6.6. Network, Diagnostics, Message State, and Audit [P1]
 - **Task:** Add runtime network/bootstrap controls:
@@ -461,7 +466,8 @@
   - session replaced state/event exists
   - startup/runtime health exists
   - admin request JSON issuance path exists.
-- **Verification:** `cd app && go test ./...` must pass after each backend slice.
+- **Status:** P0 readiness gate passed for backend APIs. Remaining P1/P2 backend items can be implemented alongside/after frontend productization.
+- **Verification:** `cd app && go test ./...` must pass after each backend slice; after exported API changes run `wails generate module` and frontend build.
 
 ---
 

@@ -14,6 +14,7 @@ const (
 	KPFetchProtocol      = protocol.ID("/app/kp-fetch/1.0.0")
 	WelcomeStoreProtocol = protocol.ID("/app/welcome-store/1.0.0")
 	WelcomeFetchProtocol = protocol.ID("/app/welcome-fetch/1.0.0")
+	WelcomeListProtocol  = protocol.ID("/app/welcome-list/1.0.0")
 )
 
 const inviteStoreMaxFrame = 4 << 20 // 4 MiB
@@ -54,6 +55,24 @@ type WelcomeFetchResponseV1 struct {
 	Found   bool   `json:"found"`
 	Welcome []byte `json:"welcome,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+type WelcomeListRequestV1 struct {
+	V             int    `json:"v"`
+	InviteePeerID string `json:"invitee_peer_id"`
+}
+
+type WelcomeListItemV1 struct {
+	GroupID      string `json:"group_id"`
+	Welcome      []byte `json:"welcome"`
+	SourcePeerID string `json:"source_peer_id,omitempty"`
+	CreatedAt    int64  `json:"created_at,omitempty"`
+}
+
+type WelcomeListResponseV1 struct {
+	V       int                 `json:"v"`
+	Invites []WelcomeListItemV1 `json:"invites,omitempty"`
+	Error   string              `json:"error,omitempty"`
 }
 
 func WriteInviteStoreJSONFrame(w io.Writer, v interface{}) error {

@@ -26,13 +26,16 @@ const (
 )
 
 type AuthHandshakeMsg struct {
-	Token   *admin.InvitationToken `json:"token"`
-	Session SessionClaim           `json:"session"`
+	Token              *admin.InvitationToken `json:"token"`
+	Session            SessionClaim           `json:"session"`
+	Error              string                 `json:"error,omitempty"`
+	SupersedingSession SessionClaim           `json:"superseding_session,omitempty"`
 }
 
 type verifiedPeerState struct {
 	Token          *admin.InvitationToken
 	SessionStarted int64
+	Session        SessionClaim
 }
 
 // AuthProtocol manages the auth handshake on the /app/auth/1.0.0 stream.
@@ -66,7 +69,11 @@ type AuthProtocol struct {
 	rootPublicKey    ed25519.PublicKey
 	verifiedPeers    sync.Map // peer.ID → *verifiedPeerState
 	handshakingPeers sync.Map // peer.ID → struct{} (outbound handshake in progress)
+
+	onLocalSessionReplaced func(SessionClaim)
 }
+
+const authErrorSessionReplaced = "session_replaced"
 
 // NewAuthProtocol registers the stream handler and returns the AuthProtocol.
 func NewAuthProtocol(
@@ -101,6 +108,12 @@ func (ap *AuthProtocol) GetVerifiedToken(id peer.ID) *admin.InvitationToken {
 		return nil
 	}
 	return v.(*verifiedPeerState).Token
+}
+
+// SetLocalSessionReplacedHandler registers a callback fired when a verified peer
+// proves that this local identity has a newer active session elsewhere.
+func (ap *AuthProtocol) SetLocalSessionReplacedHandler(fn func(SessionClaim)) {
+	ap.onLocalSessionReplaced = fn
 }
 
 // handleIncoming is the server-side handler: reads peer token first, then sends own.
@@ -142,8 +155,9 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 		}
 	}
 
-	if !ap.acceptSession(peerID, sessionStarted, s.Conn()) {
+	if ok, superseding := ap.acceptSession(peerID, sessionStarted, s.Conn()); !ok {
 		slog.Warn("auth: rejecting stale session", "peer", peerID, "started_at", peerHandshake.Session.StartedAt)
+		_ = writeHandshake(s, ap.staleSessionResponse(superseding))
 		ap.rejectTransient(s)
 		return
 	}
@@ -158,6 +172,7 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 	ap.verifiedPeers.Store(peerID, &verifiedPeerState{
 		Token:          peerToken,
 		SessionStarted: sessionStarted,
+		Session:        peerHandshake.Session,
 	})
 	slog.Info("auth: peer verified (inbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
@@ -220,6 +235,15 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 		ap.rejectSecurity(s, peerID, err.Error())
 		return
 	}
+	if peerHandshake.Error == authErrorSessionReplaced {
+		if ap.verifySupersedingLocalSession(peerHandshake.SupersedingSession) {
+			if ap.onLocalSessionReplaced != nil {
+				ap.onLocalSessionReplaced(peerHandshake.SupersedingSession)
+			}
+		}
+		ap.rejectTransient(s)
+		return
+	}
 
 	sessionStarted := peerHandshake.Session.StartedAt
 	if sessionStarted > 0 {
@@ -229,7 +253,7 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 			return
 		}
 	}
-	if !ap.acceptSession(peerID, sessionStarted, s.Conn()) {
+	if ok, _ := ap.acceptSession(peerID, sessionStarted, s.Conn()); !ok {
 		slog.Warn("auth: rejecting stale session (outbound)", "peer", peerID, "started_at", peerHandshake.Session.StartedAt)
 		ap.rejectTransient(s)
 		return
@@ -238,16 +262,17 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 	ap.verifiedPeers.Store(peerID, &verifiedPeerState{
 		Token:          peerToken,
 		SessionStarted: sessionStarted,
+		Session:        peerHandshake.Session,
 	})
 	slog.Info("auth: peer verified (outbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 
-func (ap *AuthProtocol) acceptSession(peerID peer.ID, startedAt int64, acceptedConn network.Conn) bool {
+func (ap *AuthProtocol) acceptSession(peerID peer.ID, startedAt int64, acceptedConn network.Conn) (bool, SessionClaim) {
 	v, ok := ap.verifiedPeers.Load(peerID)
 	if ok {
 		existing := v.(*verifiedPeerState)
 		if startedAt < existing.SessionStarted {
-			return false
+			return false, existing.Session
 		}
 	}
 
@@ -259,6 +284,27 @@ func (ap *AuthProtocol) acceptSession(peerID peer.ID, startedAt int64, acceptedC
 		if err := conn.Close(); err != nil {
 			slog.Debug("auth: close old conn failed", "peer", peerID, "err", err)
 		}
+	}
+	return true, SessionClaim{}
+}
+
+func (ap *AuthProtocol) staleSessionResponse(superseding SessionClaim) *AuthHandshakeMsg {
+	resp := *ap.localHandshake
+	resp.Error = authErrorSessionReplaced
+	resp.SupersedingSession = superseding
+	return &resp
+}
+
+func (ap *AuthProtocol) verifySupersedingLocalSession(claim SessionClaim) bool {
+	if ap.localToken == nil || ap.localHandshake == nil {
+		return false
+	}
+	if claim.StartedAt <= ap.localHandshake.Session.StartedAt {
+		return false
+	}
+	if err := VerifySessionClaim(claim, ap.localToken.PeerID, ap.localToken.PublicKey); err != nil {
+		slog.Warn("auth: invalid superseding local session proof", "err", err)
+		return false
 	}
 	return true
 }

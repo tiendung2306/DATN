@@ -359,11 +359,15 @@ func (r *Runtime) TriggerOfflineSync() error {
 	tr := r.transport
 	r.mu.Unlock()
 	if tr == nil {
+		r.emit("offline_sync:status", map[string]interface{}{"status": "error", "message": "transport not ready"})
 		return errors.New("transport not ready")
 	}
-	for _, p := range tr.ConnectedPeers() {
+	peers := tr.ConnectedPeers()
+	r.emit("offline_sync:status", map[string]interface{}{"status": "started", "peer_count": len(peers)})
+	for _, p := range peers {
 		go r.pullOfflineSyncFromPeer(p)
 	}
+	r.emit("offline_sync:status", map[string]interface{}{"status": "scheduled", "peer_count": len(peers)})
 	return nil
 }
 

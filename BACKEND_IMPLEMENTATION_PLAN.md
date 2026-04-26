@@ -61,13 +61,13 @@ The backend already has strong foundations:
 - Identity migration: `ExportIdentity`, `ImportIdentityFromFile`.
 - Blind-store/offline replication foundation.
 
-The remaining work is mostly about turning backend primitives into stable product flows and frontend-safe APIs.
+Phase 6 P0 is now implemented. The remaining backend work is mostly P1/P2 hardening that can run alongside the production frontend rebuild.
 
 ---
 
 ## 3. Priority Levels
 
-### P0 - Must Finish Before Frontend Rebuild
+### P0 - Must Finish Before Frontend Rebuild [COMPLETED ✅]
 
 These are core product/security flows. The production frontend should not be built around mocks for these.
 
@@ -97,6 +97,8 @@ These belong after chat/group/migration/admin UX is stable.
 ---
 
 ## 4. P0 Workstream A - Invite & Pending Invite Lifecycle
+
+**Status:** Completed. Implemented `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`, pending invite persistence, Welcome list discovery, and backup/import support.
 
 ### Goal
 
@@ -185,6 +187,8 @@ Frontend copy should be user-friendly:
 
 ## 5. P0 Workstream B - Group Membership Lifecycle
 
+**Status:** Completed. Implemented `LeaveGroup` as soft leave with history retained. `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is implemented end-to-end.
+
 ### Goal
 
 Complete group lifecycle actions beyond create/send/add:
@@ -242,6 +246,8 @@ Recommended for product UX: soft leave by default, with optional "delete local h
 
 ## 6. P0 Workstream C - Session Takeover Lifecycle
 
+**Status:** Completed. Implemented `GetSessionStatus`, `AcknowledgeSessionReplaced`, `session:replaced`, persisted replacement state, P2P/coordinator shutdown on replacement, and action guards via `ErrSessionReplaced`.
+
 ### Goal
 
 Productize single active device behavior so frontend can lock old sessions correctly.
@@ -274,6 +280,7 @@ session:replaced
 ### Implementation Notes
 
 - Avoid describing this as a "kill signal". It is session arbitration via signed `SessionClaim`.
+- Local replacement is only accepted when a verified peer returns a newer same-identity `SessionClaim` that verifies against the local MLS public key.
 - Decide and implement local lockout behavior:
   - high-security default: block normal app access after replacement
   - local DB remains on disk unless explicit secure deletion is implemented
@@ -296,6 +303,8 @@ session:replaced
 ---
 
 ## 7. P0 Workstream D - Startup & Runtime Health Events
+
+**Status:** Completed. Implemented `GetRuntimeHealth`, startup progress/error tracking, P2P status events, offline sync status events, and runtime health events.
 
 ### Goal
 
@@ -366,6 +375,8 @@ type RuntimeHealth struct {
 
 ## 8. P0 Workstream E - Admin Issuance Readiness
 
+**Status:** Completed for P0. Implemented passphrase-per-sign `GetAdminStatus`, `ParseDeviceRequestJSON`, and `CreateBundleFromRequest`. Explicit in-memory `UnlockAdmin` / `LockAdmin` remains deferred.
+
 ### Goal
 
 Make Admin issuance safe and efficient for production UI.
@@ -385,8 +396,6 @@ Current `CreateBundle` unlocks the admin key using passphrase on each call. This
 
 ```go
 func (r *Runtime) GetAdminStatus() (AdminStatus, error)
-func (r *Runtime) UnlockAdmin(passphrase string) error
-func (r *Runtime) LockAdmin() error
 func (r *Runtime) ParseDeviceRequestJSON(data string) (DeviceAccessRequest, error)
 func (r *Runtime) CreateBundleFromRequest(req IssueBundleRequest) (string, error)
 ```
@@ -407,6 +416,7 @@ type IssueBundleRequest struct {
     DisplayName string `json:"display_name"`
     PeerID      string `json:"peer_id"`
     PublicKeyHex string `json:"public_key_hex"`
+    AdminPassphrase string `json:"admin_passphrase"`
     ExpiresAt   int64  `json:"expires_at,omitempty"`
     Note        string `json:"note,omitempty"`
 }
@@ -716,19 +726,19 @@ Why last:
 
 Minimum backend readiness:
 
-- [ ] User can generate identity and import signed bundle.
-- [ ] Admin can create bundle from request JSON safely.
-- [ ] User can create group and send/receive messages.
-- [ ] User can generate join code.
-- [ ] Existing member can invite user.
-- [ ] Invitee can list and accept/reject pending invite.
-- [ ] User can leave group or feature is explicitly disabled with backend error.
-- [ ] Member removal policy is implemented or explicitly deferred.
-- [ ] Offline sync status can be queried.
-- [ ] Session replaced state/event exists.
-- [ ] Startup/runtime health can be queried by UI.
-- [ ] Network status can distinguish running/no peers/syncing/offline enough for UI.
-- [ ] Backup export/import works with clear errors.
+- [x] User can generate identity and import signed bundle.
+- [x] Admin can create bundle from request JSON safely.
+- [x] User can create group and send/receive messages.
+- [x] User can generate join code.
+- [x] Existing member can invite user.
+- [x] Invitee can list and accept/reject pending invite.
+- [x] User can leave group or feature is explicitly disabled with backend error.
+- [x] Member removal policy is implemented or explicitly deferred.
+- [x] Offline sync status can be queried.
+- [x] Session replaced state/event exists.
+- [x] Startup/runtime health can be queried by UI.
+- [x] Network status can distinguish running/no peers/syncing/offline enough for UI.
+- [x] Backup export/import works with clear errors.
 - [ ] Developer diagnostics snapshot exists or is explicitly deferred.
 
 Do not start full frontend polish until the first 10 items are real.

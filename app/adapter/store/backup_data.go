@@ -3,11 +3,13 @@ package store
 import "fmt"
 
 type BackupGroupRecord struct {
-	GroupID    string
-	GroupState []byte
-	Epoch      uint64
-	TreeHash   []byte
-	MyRole     string
+	GroupID         string
+	GroupState      []byte
+	Epoch           uint64
+	TreeHash        []byte
+	MyRole          string
+	LifecycleStatus string
+	LeftAt          int64
 }
 
 type BackupStoredMessage struct {
@@ -32,8 +34,20 @@ type BackupPendingWelcome struct {
 	WelcomeBytes []byte
 }
 
+type BackupPendingInvite struct {
+	ID            string
+	GroupID       string
+	GroupName     string
+	InviterPeerID string
+	WelcomeBytes  []byte
+	SourcePeerID  string
+	Status        string
+	ReceivedAt    int64
+	UpdatedAt     int64
+}
+
 func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
-	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role FROM mls_groups`)
+	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role, lifecycle_status, left_at FROM mls_groups`)
 	if err != nil {
 		return nil, fmt.Errorf("GetAllGroupsForBackup: %w", err)
 	}
@@ -42,7 +56,7 @@ func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
 	var out []BackupGroupRecord
 	for rows.Next() {
 		var rec BackupGroupRecord
-		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole); err != nil {
+		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole, &rec.LifecycleStatus, &rec.LeftAt); err != nil {
 			return nil, fmt.Errorf("GetAllGroupsForBackup scan: %w", err)
 		}
 		out = append(out, rec)
@@ -116,6 +130,38 @@ func (d *Database) GetAllPendingWelcomesForBackup() ([]BackupPendingWelcome, err
 	return out, rows.Err()
 }
 
+func (d *Database) GetAllPendingInvitesForBackup() ([]BackupPendingInvite, error) {
+	rows, err := d.Conn.Query(
+		`SELECT id, group_id, group_name, inviter_peer_id, welcome_bytes, source_peer_id, status, received_at, updated_at
+		 FROM pending_invites
+		 ORDER BY received_at ASC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetAllPendingInvitesForBackup: %w", err)
+	}
+	defer rows.Close()
+
+	var out []BackupPendingInvite
+	for rows.Next() {
+		var rec BackupPendingInvite
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.GroupID,
+			&rec.GroupName,
+			&rec.InviterPeerID,
+			&rec.WelcomeBytes,
+			&rec.SourcePeerID,
+			&rec.Status,
+			&rec.ReceivedAt,
+			&rec.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("GetAllPendingInvitesForBackup scan: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
 func (d *Database) ClearApplicationDataForIdentityImport() error {
 	// Clear volatile + content tables; identity tables are overwritten separately.
 	queries := []string{
@@ -123,6 +169,7 @@ func (d *Database) ClearApplicationDataForIdentityImport() error {
 		`DELETE FROM stored_messages`,
 		`DELETE FROM kp_bundles`,
 		`DELETE FROM pending_welcomes_out`,
+		`DELETE FROM pending_invites`,
 		`DELETE FROM mls_groups`,
 	}
 	for _, q := range queries {
@@ -135,16 +182,22 @@ func (d *Database) ClearApplicationDataForIdentityImport() error {
 
 func (d *Database) RestoreGroupsFromBackup(groups []BackupGroupRecord) error {
 	for _, g := range groups {
+		status := g.LifecycleStatus
+		if status == "" {
+			status = GroupLifecycleActive
+		}
 		_, err := d.Conn.Exec(
-			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role)
-			 VALUES (?, ?, ?, ?, ?)
+			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, lifecycle_status, left_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(group_id) DO UPDATE SET
 			     group_state = excluded.group_state,
 			     epoch = excluded.epoch,
 			     tree_hash = excluded.tree_hash,
 			     my_role = excluded.my_role,
+			     lifecycle_status = excluded.lifecycle_status,
+			     left_at = excluded.left_at,
 			     updated_at = CURRENT_TIMESTAMP`,
-			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole,
+			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole, status, g.LeftAt,
 		)
 		if err != nil {
 			return fmt.Errorf("RestoreGroupsFromBackup(%s): %w", g.GroupID, err)
@@ -180,6 +233,39 @@ func (d *Database) RestorePendingWelcomesFromBackup(records []BackupPendingWelco
 	for _, r := range records {
 		if err := d.SavePendingWelcome(r.TargetPeerID, r.GroupID, r.WelcomeBytes); err != nil {
 			return fmt.Errorf("RestorePendingWelcomesFromBackup(%s,%s): %w", r.TargetPeerID, r.GroupID, err)
+		}
+	}
+	return nil
+}
+
+func (d *Database) RestorePendingInvitesFromBackup(records []BackupPendingInvite) error {
+	for _, r := range records {
+		if err := d.SavePendingInvite(&PendingInvite{
+			ID:            r.ID,
+			GroupID:       r.GroupID,
+			GroupName:     r.GroupName,
+			InviterPeerID: r.InviterPeerID,
+			WelcomeBytes:  r.WelcomeBytes,
+			SourcePeerID:  r.SourcePeerID,
+			Status:        r.Status,
+			ReceivedAt:    r.ReceivedAt,
+			UpdatedAt:     r.UpdatedAt,
+		}); err != nil {
+			return fmt.Errorf("RestorePendingInvitesFromBackup(%s): %w", r.GroupID, err)
+		}
+		id := r.ID
+		if id == "" {
+			id = PendingInviteID(r.GroupID, r.WelcomeBytes)
+		}
+		if r.Status == PendingInviteStatusAccepted {
+			if err := d.MarkPendingInviteAccepted(id); err != nil {
+				return fmt.Errorf("RestorePendingInvitesFromBackup accepted(%s): %w", r.GroupID, err)
+			}
+		}
+		if r.Status == PendingInviteStatusRejected {
+			if err := d.MarkPendingInviteRejected(id); err != nil {
+				return fmt.Errorf("RestorePendingInvitesFromBackup rejected(%s): %w", r.GroupID, err)
+			}
 		}
 	}
 	return nil

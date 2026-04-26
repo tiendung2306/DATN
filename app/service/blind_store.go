@@ -203,6 +203,9 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 			return
 		}
 		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.Welcome, from.String(), msg.PublishedAt)
+		if node != nil && msg.InviteePeerID == node.Host.ID().String() {
+			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.Welcome, from.String())
+		}
 	}
 }
 

@@ -91,7 +91,12 @@ func (r *Runtime) OpenAndImportBundle() error {
 	if err := p2p.ImportInvitationBundle(r.db, r.privKey, data); err != nil {
 		return err
 	}
-	return r.launchP2PNode()
+	if err := r.launchP2PNode(); err != nil {
+		r.setP2PStatus(false, "P2P startup failed")
+		return err
+	}
+	r.setP2PStatus(true, "P2P node running")
+	return nil
 }
 
 // ExportIdentity exports local identity data to an encrypted .backup file.

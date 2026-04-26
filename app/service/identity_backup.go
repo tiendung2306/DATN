@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"io"
 
-	"app/adapter/store"
 	"app/adapter/p2p"
+	"app/adapter/store"
 
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	p2pPeer "github.com/libp2p/go-libp2p/core/peer"
@@ -55,6 +55,7 @@ type BackupPayload struct {
 	StoredMessages  []store.BackupStoredMessage  `json:"stored_messages,omitempty"`
 	KPBundles       []store.BackupKPBundle       `json:"kp_bundles,omitempty"`
 	PendingWelcomes []store.BackupPendingWelcome `json:"pending_welcomes,omitempty"`
+	PendingInvites  []store.BackupPendingInvite  `json:"pending_invites,omitempty"`
 }
 
 // ExportIdentityBackup reads local identity material from DB and encrypts it
@@ -102,6 +103,10 @@ func ExportIdentityBackup(database *store.Database, privKey p2pCrypto.PrivKey, p
 	if err != nil {
 		return nil, err
 	}
+	pendingInvites, err := database.GetAllPendingInvitesForBackup()
+	if err != nil {
+		return nil, err
+	}
 
 	payload := BackupPayload{
 		Version:           backupFormatVersionV2,
@@ -122,6 +127,7 @@ func ExportIdentityBackup(database *store.Database, privKey p2pCrypto.PrivKey, p
 		StoredMessages:    messages,
 		KPBundles:         kpBundles,
 		PendingWelcomes:   pendingWelcomes,
+		PendingInvites:    pendingInvites,
 	}
 
 	plaintext, err := json.Marshal(payload)
@@ -194,6 +200,9 @@ func ImportIdentityBackup(database *store.Database, encrypted []byte, passphrase
 			return nil, err
 		}
 		if err := database.RestorePendingWelcomesFromBackup(payload.PendingWelcomes); err != nil {
+			return nil, err
+		}
+		if err := database.RestorePendingInvitesFromBackup(payload.PendingInvites); err != nil {
 			return nil, err
 		}
 	}

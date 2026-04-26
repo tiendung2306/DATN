@@ -66,7 +66,9 @@ func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecor
 
 func (s *SQLiteCoordinationStorage) ListGroups() ([]*coordination.GroupRecord, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, group_state, epoch, tree_hash, my_role, created_at, updated_at FROM mls_groups`,
+		`SELECT group_id, group_state, epoch, tree_hash, my_role, created_at, updated_at
+		 FROM mls_groups
+		 WHERE lifecycle_status = 'active'`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ListGroups: %w", err)

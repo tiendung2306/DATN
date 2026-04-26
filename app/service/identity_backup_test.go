@@ -84,6 +84,11 @@ func TestIdentityBackupRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RestorePendingWelcomesFromBackup seed: %v", err)
 	}
+	if err := database.RestorePendingInvitesFromBackup([]store.BackupPendingInvite{
+		{GroupID: "g2", WelcomeBytes: []byte("welcome-2"), SourcePeerID: "store-peer", Status: store.PendingInviteStatusPending},
+	}); err != nil {
+		t.Fatalf("RestorePendingInvitesFromBackup seed: %v", err)
+	}
 
 	backupBytes, err := ExportIdentityBackup(database, priv, "passphrase")
 	if err != nil {
@@ -144,6 +149,13 @@ func TestIdentityBackupRoundTrip(t *testing.T) {
 	}
 	if len(gotMsgs) != 1 || string(gotMsgs[0].Content) != "hello" {
 		t.Fatalf("message restore mismatch: %+v", gotMsgs)
+	}
+	gotInvites, err := database.ListPendingInvites(false)
+	if err != nil {
+		t.Fatalf("ListPendingInvites: %v", err)
+	}
+	if len(gotInvites) != 1 || gotInvites[0].GroupID != "g2" {
+		t.Fatalf("pending invite restore mismatch: %+v", gotInvites)
 	}
 }
 

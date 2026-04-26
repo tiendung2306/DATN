@@ -14,6 +14,9 @@ func (r *Runtime) SendGroupMessage(groupID string, text string) error {
 	if text == "" {
 		return nil
 	}
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
 
 	slog.Info("Sending group message", "group", groupID, "len", len(text))
 

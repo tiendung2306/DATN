@@ -54,6 +54,9 @@ func (r *Runtime) CreateGroupChat(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
 	}
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -153,6 +156,9 @@ func (r *Runtime) GenerateKeyPackage() (KeyPackageResult, error) {
 // AddMemberToGroup runs MLS AddMembers as the Token Holder and returns the
 // Welcome message as hex for out-of-band delivery to the invitee.
 func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex string) (welcomeHex string, err error) {
+	if err := r.ensureSessionActive(); err != nil {
+		return "", err
+	}
 	raw, err := hex.DecodeString(strings.TrimSpace(keyPackageHex))
 	if err != nil {
 		return "", fmt.Errorf("decode key package hex: %w", err)
@@ -182,6 +188,9 @@ func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
+	}
+	if err := r.ensureSessionActive(); err != nil {
+		return err
 	}
 	welcomeRaw, err := hex.DecodeString(strings.TrimSpace(welcomeHex))
 	if err != nil {

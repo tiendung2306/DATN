@@ -41,6 +41,7 @@ import (
 	"time"
 
 	"app/adapter/p2p"
+	"app/adapter/store"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -221,6 +222,9 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	groupID = strings.TrimSpace(groupID)
 	if peerIDStr == "" || groupID == "" {
 		return fmt.Errorf("peer ID and group ID are required")
+	}
+	if err := r.ensureSessionActive(); err != nil {
+		return err
 	}
 
 	targetID, err := peer.Decode(peerIDStr)
@@ -409,6 +413,7 @@ func (r *Runtime) fetchWelcomeFromStorePeers(groupID string) ([]byte, error) {
 	blindPeers := r.blindStoreFetchCandidates(localID, "welcome:"+localID.String()+":"+groupID)
 
 	if wb, err := database.GetStoredWelcome(localID.String(), groupID); err == nil && len(wb) > 0 {
+		_ = r.savePendingInviteFromWelcome(groupID, wb, localID.String())
 		return wb, nil
 	}
 
@@ -450,11 +455,125 @@ func (r *Runtime) fetchWelcomeFromStorePeers(groupID string) ([]byte, error) {
 		if err := p2p.ReadInviteStoreJSONFrame(s, &resp); err == nil && resp.V == 1 && resp.Found && len(resp.Welcome) > 0 {
 			_ = s.Close()
 			_ = database.SaveStoredWelcome(localID.String(), groupID, resp.Welcome, pid.String())
+			_ = r.savePendingInviteFromWelcome(groupID, resp.Welcome, pid.String())
 			return resp.Welcome, nil
 		}
 		_ = s.Close()
 	}
 	return nil, fmt.Errorf("welcome not found from store peers")
+}
+
+func (r *Runtime) savePendingInviteFromWelcome(groupID string, welcome []byte, sourcePeerID string) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || len(welcome) == 0 {
+		return fmt.Errorf("group ID and welcome are required")
+	}
+
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	localID := ""
+	if node != nil {
+		localID = node.Host.ID().String()
+	}
+	r.mu.RUnlock()
+	if database == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	joined, err := database.HasGroup(groupID)
+	if err != nil {
+		return err
+	}
+	if joined {
+		return nil
+	}
+	if localID != "" {
+		_ = database.SaveStoredWelcome(localID, groupID, welcome, sourcePeerID)
+	}
+
+	inv := &store.PendingInvite{
+		GroupID:      groupID,
+		WelcomeBytes: append([]byte(nil), welcome...),
+		SourcePeerID: sourcePeerID,
+		Status:       store.PendingInviteStatusPending,
+	}
+	if err := database.SavePendingInvite(inv); err != nil {
+		return err
+	}
+	id := store.PendingInviteID(groupID, welcome)
+	r.emit("invite:received", map[string]interface{}{
+		"id":       id,
+		"group_id": groupID,
+	})
+	return nil
+}
+
+func (r *Runtime) refreshPendingInvites(ctx context.Context) error {
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	localID := peer.ID("")
+	if node != nil {
+		localID = node.Host.ID()
+	}
+	storePeers := r.selectStorePeersLocked(localID)
+	r.mu.RUnlock()
+	if database == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if localID == "" {
+		return nil
+	}
+
+	localWelcomes, err := database.ListStoredWelcomesFor(localID.String())
+	if err != nil {
+		return err
+	}
+	for _, item := range localWelcomes {
+		_ = r.savePendingInviteFromWelcome(item.GroupID, item.WelcomeBytes, item.SourcePeerID)
+	}
+	if node == nil {
+		return nil
+	}
+
+	req := p2p.WelcomeListRequestV1{V: 1, InviteePeerID: localID.String()}
+	for _, pid := range storePeers {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		streamCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		s, err := node.Host.NewStream(streamCtx, pid, p2p.WelcomeListProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		if err := p2p.WriteInviteStoreJSONFrame(s, &req); err != nil {
+			_ = s.Close()
+			continue
+		}
+		var resp p2p.WelcomeListResponseV1
+		if err := p2p.ReadInviteStoreJSONFrame(s, &resp); err != nil || resp.V != 1 {
+			_ = s.Close()
+			continue
+		}
+		_ = s.Close()
+		for _, item := range resp.Invites {
+			if item.GroupID == "" || len(item.Welcome) == 0 {
+				continue
+			}
+			source := item.SourcePeerID
+			if source == "" {
+				source = pid.String()
+			}
+			_ = database.SaveStoredWelcome(localID.String(), item.GroupID, item.Welcome, source)
+			_ = r.savePendingInviteFromWelcome(item.GroupID, item.Welcome, source)
+		}
+	}
+	return nil
 }
 
 // ── Phase 3a: Welcome delivery (creator → invitee, direct stream) ─────────────
@@ -677,8 +796,10 @@ func (r *Runtime) handleWelcomeStoreStream(s network.Stream) {
 
 	r.mu.Lock()
 	var ap *p2p.AuthProtocol
+	localID := peer.ID("")
 	if r.node != nil {
 		ap = r.node.AuthProtocol
+		localID = r.node.Host.ID()
 	}
 	database := r.db
 	r.mu.Unlock()
@@ -695,6 +816,9 @@ func (r *Runtime) handleWelcomeStoreStream(s network.Stream) {
 		return
 	}
 	_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.Welcome, remote.String())
+	if localID != "" && req.InviteePeerID == localID.String() {
+		_ = r.savePendingInviteFromWelcome(req.GroupID, req.Welcome, remote.String())
+	}
 }
 
 func (r *Runtime) handleWelcomeFetchStream(s network.Stream) {
@@ -732,6 +856,49 @@ func (r *Runtime) handleWelcomeFetchStream(s network.Stream) {
 	_ = p2p.WriteInviteStoreJSONFrame(s, &resp)
 }
 
+func (r *Runtime) handleWelcomeListStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.Lock()
+	var ap *p2p.AuthProtocol
+	if r.node != nil {
+		ap = r.node.AuthProtocol
+	}
+	database := r.db
+	r.mu.Unlock()
+	if database == nil {
+		return
+	}
+	if ap != nil && !ap.IsVerified(remote) {
+		return
+	}
+
+	var req p2p.WelcomeListRequestV1
+	if err := p2p.ReadInviteStoreJSONFrame(s, &req); err != nil ||
+		req.V != 1 || req.InviteePeerID == "" {
+		return
+	}
+
+	resp := p2p.WelcomeListResponseV1{V: 1}
+	rows, err := database.ListStoredWelcomesFor(req.InviteePeerID)
+	if err != nil {
+		resp.Error = err.Error()
+		_ = p2p.WriteInviteStoreJSONFrame(s, &resp)
+		return
+	}
+	for _, row := range rows {
+		resp.Invites = append(resp.Invites, p2p.WelcomeListItemV1{
+			GroupID:      row.GroupID,
+			Welcome:      row.WelcomeBytes,
+			SourcePeerID: row.SourcePeerID,
+			CreatedAt:    row.CreatedAt,
+		})
+	}
+	_ = p2p.WriteInviteStoreJSONFrame(s, &resp)
+}
+
 func (r *Runtime) registerInviteStoreHandlers() {
 	if r.node == nil {
 		return
@@ -748,6 +915,9 @@ func (r *Runtime) registerInviteStoreHandlers() {
 	r.node.Host.SetStreamHandler(p2p.WelcomeFetchProtocol, func(s network.Stream) {
 		go r.handleWelcomeFetchStream(s)
 	})
+	r.node.Host.SetStreamHandler(p2p.WelcomeListProtocol, func(s network.Stream) {
+		go r.handleWelcomeListStream(s)
+	})
 }
 
 func (r *Runtime) removeInviteStoreHandlers() {
@@ -758,10 +928,11 @@ func (r *Runtime) removeInviteStoreHandlers() {
 	r.node.Host.RemoveStreamHandler(p2p.KPFetchProtocol)
 	r.node.Host.RemoveStreamHandler(p2p.WelcomeStoreProtocol)
 	r.node.Host.RemoveStreamHandler(p2p.WelcomeFetchProtocol)
+	r.node.Host.RemoveStreamHandler(p2p.WelcomeListProtocol)
 }
 
 // registerWelcomeDeliveryHandler registers the stream handler so the invitee
-// auto-joins groups when a Welcome is pushed by the creator.
+// records pending invites when a Welcome is pushed by the creator.
 func (r *Runtime) registerWelcomeDeliveryHandler() {
 	if r.node == nil {
 		return
@@ -788,9 +959,14 @@ func (r *Runtime) handleWelcomeDelivery(s network.Stream) {
 		slog.Warn("handleWelcomeDelivery: bad frame", "err", err)
 		return
 	}
-
-	if err := r.applyWelcome(msg.GroupID, msg.WelcomeHex); err != nil {
-		slog.Error("handleWelcomeDelivery: applyWelcome failed", "group", msg.GroupID, "err", err)
+	welcome, err := hex.DecodeString(strings.TrimSpace(msg.WelcomeHex))
+	if err != nil {
+		slog.Warn("handleWelcomeDelivery: invalid welcome hex", "group", msg.GroupID, "err", err)
+		return
+	}
+	sourcePeerID := s.Conn().RemotePeer().String()
+	if err := r.savePendingInviteFromWelcome(msg.GroupID, welcome, sourcePeerID); err != nil {
+		slog.Error("handleWelcomeDelivery: save pending invite failed", "group", msg.GroupID, "err", err)
 		return
 	}
 }
@@ -817,8 +993,8 @@ func (r *Runtime) checkStoredWelcomes(groupIDs []string) {
 		if err != nil {
 			continue // not found yet
 		}
-		if err := r.applyWelcome(gid, hex.EncodeToString(wb)); err != nil {
-			slog.Warn("checkStoredWelcomes: apply failed", "group", gid, "err", err)
+		if err := r.savePendingInviteFromWelcome(gid, wb, ""); err != nil {
+			slog.Warn("checkStoredWelcomes: save pending invite failed", "group", gid, "err", err)
 		}
 	}
 }
@@ -867,6 +1043,9 @@ func (r *Runtime) CheckDHTWelcome(groupID string) error {
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
 	}
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	node := r.node
 	r.mu.Unlock()
@@ -878,7 +1057,16 @@ func (r *Runtime) CheckDHTWelcome(groupID string) error {
 	if err != nil {
 		return fmt.Errorf("no pending invite found for group %q from connected peers", groupID)
 	}
-	return r.applyWelcome(groupID, hex.EncodeToString(wb))
+	if err := r.applyWelcome(groupID, hex.EncodeToString(wb)); err != nil {
+		return err
+	}
+	r.mu.RLock()
+	database := r.db
+	r.mu.RUnlock()
+	if database != nil {
+		_ = database.MarkPendingInviteAccepted(store.PendingInviteID(groupID, wb))
+	}
+	return nil
 }
 
 // GetKPStatus returns whether the local node has a KeyPackage advertised.

@@ -1,11 +1,14 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -123,13 +126,15 @@ func (d *Database) createTables() error {
 
 		// Phase 4: MLS group state persisted by the Coordinator.
 		`CREATE TABLE IF NOT EXISTS mls_groups (
-			group_id    TEXT PRIMARY KEY,
-			group_state BLOB    NOT NULL,
-			epoch       INTEGER NOT NULL DEFAULT 0,
-			tree_hash   BLOB,
-			my_role     TEXT    NOT NULL DEFAULT 'member',
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+			group_id         TEXT PRIMARY KEY,
+			group_state      BLOB    NOT NULL,
+			epoch            INTEGER NOT NULL DEFAULT 0,
+			tree_hash        BLOB,
+			my_role          TEXT    NOT NULL DEFAULT 'member',
+			lifecycle_status TEXT    NOT NULL DEFAULT 'active',
+			left_at          INTEGER NOT NULL DEFAULT 0,
+			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
 
 		// Phase 4: coordination metadata per group.
@@ -252,6 +257,24 @@ func (d *Database) createTables() error {
 			created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
 			PRIMARY KEY (invitee_peer_id, group_id)
 		);`,
+
+		// Phase 6: invitee-side pending invite lifecycle for product UI.
+		// stored_welcomes is replica storage; this table is local UI state.
+		`CREATE TABLE IF NOT EXISTS pending_invites (
+			id              TEXT PRIMARY KEY,
+			group_id        TEXT NOT NULL,
+			group_name      TEXT NOT NULL DEFAULT '',
+			inviter_peer_id TEXT NOT NULL DEFAULT '',
+			welcome_hash    BLOB NOT NULL,
+			welcome_bytes   BLOB NOT NULL,
+			source_peer_id  TEXT NOT NULL DEFAULT '',
+			status          TEXT NOT NULL DEFAULT 'pending',
+			received_at     INTEGER NOT NULL,
+			updated_at      INTEGER NOT NULL,
+			UNIQUE(group_id, welcome_hash)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_pending_invites_status_received
+			ON pending_invites(status, received_at);`,
 	}
 
 	for _, q := range queries {
@@ -260,6 +283,12 @@ func (d *Database) createTables() error {
 		}
 	}
 	if err := d.ensureColumnExists("stored_messages", "envelope_hash", "BLOB"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "left_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if _, err := d.Conn.Exec(
@@ -647,4 +676,287 @@ func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, erro
 		return nil, err
 	}
 	return wb, nil
+}
+
+// StoredWelcome is one replicated Welcome object retained locally.
+type StoredWelcome struct {
+	InviteePeerID string
+	GroupID       string
+	WelcomeBytes  []byte
+	SourcePeerID  string
+	CreatedAt     int64
+}
+
+// ListStoredWelcomesFor returns all stored Welcome replicas for an invitee.
+func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome, error) {
+	rows, err := d.Conn.Query(
+		`SELECT invitee_peer_id, group_id, welcome_bytes, source_peer_id, created_at
+		 FROM stored_welcomes
+		 WHERE invitee_peer_id = ?
+		 ORDER BY created_at DESC`,
+		inviteePeerID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListStoredWelcomesFor: %w", err)
+	}
+	defer rows.Close()
+
+	var out []StoredWelcome
+	for rows.Next() {
+		var rec StoredWelcome
+		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
+			return nil, fmt.Errorf("ListStoredWelcomesFor scan: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+const (
+	PendingInviteStatusPending  = "pending"
+	PendingInviteStatusAccepted = "accepted"
+	PendingInviteStatusRejected = "rejected"
+	PendingInviteStatusInvalid  = "invalid"
+	PendingInviteStatusExpired  = "expired"
+)
+
+// PendingInvite is an invitee-side pending Welcome lifecycle row.
+type PendingInvite struct {
+	ID            string
+	GroupID       string
+	GroupName     string
+	InviterPeerID string
+	WelcomeHash   []byte
+	WelcomeBytes  []byte
+	SourcePeerID  string
+	Status        string
+	ReceivedAt    int64
+	UpdatedAt     int64
+}
+
+// PendingInviteID deterministically identifies one Welcome for one group.
+func PendingInviteID(groupID string, welcomeBytes []byte) string {
+	h := sha256.New()
+	h.Write([]byte(groupID))
+	h.Write([]byte{0})
+	h.Write(welcomeBytes)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func pendingInviteHash(welcomeBytes []byte) []byte {
+	sum := sha256.Sum256(welcomeBytes)
+	return sum[:]
+}
+
+// SavePendingInvite upserts a local pending invite without overwriting terminal states.
+func (d *Database) SavePendingInvite(inv *PendingInvite) error {
+	if inv == nil {
+		return fmt.Errorf("SavePendingInvite: invite is nil")
+	}
+	if strings.TrimSpace(inv.GroupID) == "" {
+		return fmt.Errorf("SavePendingInvite: group_id is required")
+	}
+	if len(inv.WelcomeBytes) == 0 {
+		return fmt.Errorf("SavePendingInvite: welcome_bytes is required")
+	}
+	now := time.Now().Unix()
+	id := strings.TrimSpace(inv.ID)
+	if id == "" {
+		id = PendingInviteID(inv.GroupID, inv.WelcomeBytes)
+	}
+	status := strings.TrimSpace(inv.Status)
+	if status == "" {
+		status = PendingInviteStatusPending
+	}
+	receivedAt := inv.ReceivedAt
+	if receivedAt == 0 {
+		receivedAt = now
+	}
+	welcomeHash := append([]byte(nil), inv.WelcomeHash...)
+	if len(welcomeHash) == 0 {
+		welcomeHash = pendingInviteHash(inv.WelcomeBytes)
+	}
+
+	_, err := d.Conn.Exec(
+		`INSERT INTO pending_invites
+		 (id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(group_id, welcome_hash) DO UPDATE SET
+		   group_name = CASE
+		     WHEN pending_invites.group_name = '' THEN excluded.group_name
+		     ELSE pending_invites.group_name
+		   END,
+		   inviter_peer_id = CASE
+		     WHEN pending_invites.inviter_peer_id = '' THEN excluded.inviter_peer_id
+		     ELSE pending_invites.inviter_peer_id
+		   END,
+		   welcome_bytes = excluded.welcome_bytes,
+		   source_peer_id = CASE
+		     WHEN excluded.source_peer_id != '' THEN excluded.source_peer_id
+		     ELSE pending_invites.source_peer_id
+		   END,
+		   status = CASE
+		     WHEN pending_invites.status IN ('accepted', 'rejected') THEN pending_invites.status
+		     ELSE excluded.status
+		   END,
+		   updated_at = excluded.updated_at`,
+		id,
+		inv.GroupID,
+		inv.GroupName,
+		inv.InviterPeerID,
+		welcomeHash,
+		inv.WelcomeBytes,
+		inv.SourcePeerID,
+		status,
+		receivedAt,
+		now,
+	)
+	if err != nil {
+		return fmt.Errorf("SavePendingInvite: %w", err)
+	}
+	return nil
+}
+
+// ListPendingInvites returns local invite rows ordered newest first.
+func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, error) {
+	query := `SELECT id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+	          FROM pending_invites`
+	if !includeTerminal {
+		query += ` WHERE status = 'pending'`
+	}
+	query += ` ORDER BY received_at DESC, updated_at DESC`
+
+	rows, err := d.Conn.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("ListPendingInvites: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PendingInvite
+	for rows.Next() {
+		var inv PendingInvite
+		if err := rows.Scan(
+			&inv.ID,
+			&inv.GroupID,
+			&inv.GroupName,
+			&inv.InviterPeerID,
+			&inv.WelcomeHash,
+			&inv.WelcomeBytes,
+			&inv.SourcePeerID,
+			&inv.Status,
+			&inv.ReceivedAt,
+			&inv.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("ListPendingInvites scan: %w", err)
+		}
+		out = append(out, inv)
+	}
+	return out, rows.Err()
+}
+
+func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
+	var inv PendingInvite
+	err := d.Conn.QueryRow(
+		`SELECT id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+		 FROM pending_invites
+		 WHERE id = ?`,
+		id,
+	).Scan(
+		&inv.ID,
+		&inv.GroupID,
+		&inv.GroupName,
+		&inv.InviterPeerID,
+		&inv.WelcomeHash,
+		&inv.WelcomeBytes,
+		&inv.SourcePeerID,
+		&inv.Status,
+		&inv.ReceivedAt,
+		&inv.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &inv, nil
+}
+
+func (d *Database) MarkPendingInviteAccepted(id string) error {
+	return d.markPendingInviteStatus(id, PendingInviteStatusAccepted)
+}
+
+func (d *Database) MarkPendingInviteRejected(id string) error {
+	return d.markPendingInviteStatus(id, PendingInviteStatusRejected)
+}
+
+func (d *Database) markPendingInviteStatus(id, status string) error {
+	res, err := d.Conn.Exec(
+		`UPDATE pending_invites
+		 SET status = ?, updated_at = ?
+		 WHERE id = ?`,
+		status,
+		time.Now().Unix(),
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("markPendingInviteStatus: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("markPendingInviteStatus rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *Database) HasGroup(groupID string) (bool, error) {
+	var one int
+	err := d.Conn.QueryRow(`SELECT 1 FROM mls_groups WHERE group_id = ?`, groupID).Scan(&one)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, fmt.Errorf("HasGroup(%q): %w", groupID, err)
+}
+
+const (
+	GroupLifecycleActive = "active"
+	GroupLifecycleLeft   = "left"
+)
+
+// MarkGroupLeft marks a group as locally left while preserving state/history.
+func (d *Database) MarkGroupLeft(groupID string) error {
+	exists, err := d.HasGroup(groupID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return sql.ErrNoRows
+	}
+	_, err = d.Conn.Exec(
+		`UPDATE mls_groups
+		 SET lifecycle_status = ?, left_at = CASE WHEN left_at = 0 THEN ? ELSE left_at END, updated_at = CURRENT_TIMESTAMP
+		 WHERE group_id = ?`,
+		GroupLifecycleLeft,
+		time.Now().Unix(),
+		groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("MarkGroupLeft(%q): %w", groupID, err)
+	}
+	return nil
+}
+
+func (d *Database) IsGroupActive(groupID string) (bool, error) {
+	var status string
+	err := d.Conn.QueryRow(`SELECT lifecycle_status FROM mls_groups WHERE group_id = ?`, groupID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, sql.ErrNoRows
+		}
+		return false, fmt.Errorf("IsGroupActive(%q): %w", groupID, err)
+	}
+	return status == "" || status == GroupLifecycleActive, nil
 }

@@ -40,6 +40,8 @@ type Runtime struct {
 	mlsEngine    coordination.MLSEngine
 	coordinators map[string]*coordination.Coordinator
 	blindStore   *blindStoreLayer
+
+	health RuntimeHealth
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
@@ -110,25 +112,32 @@ func (r *Runtime) Startup(ctx context.Context) {
 	r.ctx = ctx
 	r.mu.Unlock()
 
+	r.setStartupProgress(startupStageLocalDir, "creating local runtime directory")
 	if err := os.MkdirAll(".local", 0700); err != nil {
 		slog.Error("Failed to create .local dir", "error", err)
+		r.setStartupError("filesystem", "failed to create local runtime directory", true)
 		return
 	}
 
+	r.setStartupProgress(startupStageDatabase, "initializing SQLite database")
 	database, err := store.InitDB(r.cfg.DBPath)
 	if err != nil {
 		slog.Error("Database init failed", "error", err)
+		r.setStartupError("database", "database initialization failed", true)
 		return
 	}
 	r.db = database
 
+	r.setStartupProgress(startupStageIdentity, "loading local peer identity")
 	privKey, err := p2p.GetOrCreateIdentity(database)
 	if err != nil {
 		slog.Error("P2P identity init failed", "error", err)
+		r.setStartupError("identity", "local peer identity initialization failed", true)
 		return
 	}
 	r.privKey = privKey
 
+	r.setStartupProgress(startupStageSidecar, "starting Rust crypto sidecar")
 	client, conn, stopFn, err := sidecar.StartCryptoEngine(ctx)
 	r.stopEngine = stopFn
 	if conn != nil {
@@ -136,24 +145,38 @@ func (r *Runtime) Startup(ctx context.Context) {
 	}
 	if err != nil {
 		slog.Warn("Crypto engine unavailable — GenerateKeys will be disabled", "error", err)
+		r.setCryptoReady(false)
+		r.setStartupError("crypto_engine", "crypto engine unavailable", false)
 	} else {
 		r.mlsClient = client
+		r.setCryptoReady(true)
 	}
 
+	r.setStartupProgress(startupStageAppState, "determining application state")
 	state, err := DetermineAppState(database)
 	if err != nil {
 		slog.Error("Failed to determine app state", "error", err)
+		r.setStartupError("app_state", "failed to determine application state", true)
 		return
 	}
 	slog.Info("App state on startup", "state", state.String())
+	r.setHealthAppState(state.String())
 
 	if state == StateAuthorized || state == StateAdminReady {
+		r.setStartupProgress(startupStageP2P, "starting P2P node")
 		if err := r.launchP2PNode(); err != nil {
 			slog.Error("Failed to start P2P node on startup", "error", err)
+			r.setP2PStatus(false, "P2P startup failed")
+			r.setStartupError("p2p", "failed to start P2P node", false)
 		} else if err := consumeKillSessionPendingFlag(r.db); err != nil {
+			r.setP2PStatus(true, "P2P node running")
 			slog.Warn("Failed to clear kill session pending flag", "error", err)
+			r.setStartupError("session", "failed to clear pending session takeover flag", false)
+		} else {
+			r.setP2PStatus(true, "P2P node running")
 		}
 	}
+	r.setStartupProgress(startupStageReady, "runtime ready")
 }
 
 // DomReady is the Wails OnDomReady hook.
@@ -172,7 +195,23 @@ func (r *Runtime) Shutdown(_ context.Context) {
 // teardown releases all resources. Must be called with r.mu held.
 func (r *Runtime) teardown() {
 	r.stopCoordinatorsLocked()
+	r.stopNetworkLocked()
 
+	if r.conn != nil {
+		r.conn.Close()
+		r.conn = nil
+	}
+	r.stopEngine()
+	r.stopEngine = func() {}
+	if r.db != nil {
+		r.db.Close()
+		r.db = nil
+	}
+}
+
+// stopNetworkLocked stops P2P-facing resources while preserving DB and sidecar.
+// Must be called with r.mu held.
+func (r *Runtime) stopNetworkLocked() {
 	if r.nodeCancel != nil {
 		r.nodeCancel()
 		r.nodeCancel = nil
@@ -189,16 +228,6 @@ func (r *Runtime) teardown() {
 		r.node.Close()
 		r.node = nil
 	}
-	if r.conn != nil {
-		r.conn.Close()
-		r.conn = nil
-	}
-	r.stopEngine()
-	r.stopEngine = func() {}
-	if r.db != nil {
-		r.db.Close()
-		r.db = nil
-	}
 }
 
 // launchP2PNode starts the libp2p node in the background.
@@ -212,6 +241,13 @@ func (r *Runtime) launchP2PNode() error {
 	}
 	if r.db == nil || r.privKey == nil {
 		return fmt.Errorf("app not initialized")
+	}
+	replaced, err := isSessionReplaced(r.db)
+	if err != nil {
+		return err
+	}
+	if replaced {
+		return ErrSessionReplaced
 	}
 
 	bundle, err := r.db.GetAuthBundle()
@@ -231,6 +267,11 @@ func (r *Runtime) launchP2PNode() error {
 	if err != nil {
 		cancel()
 		return fmt.Errorf("init P2P node: %w", err)
+	}
+	if node.AuthProtocol != nil {
+		node.AuthProtocol.SetLocalSessionReplacedHandler(func(claim p2p.SessionClaim) {
+			r.markSessionReplaced("newer_session_claim", claim)
+		})
 	}
 	r.node = node
 	r.nodeCancel = cancel
