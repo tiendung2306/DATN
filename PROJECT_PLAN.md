@@ -318,9 +318,9 @@
 - **Wails:** `app/service/*.go` (group, messaging, invite, …), `app/service/runtime.go`; frontend `ChatPanel.tsx`.
 - **Build:** `go vet ./...`, `go build ./...`, `cargo build`, `cargo test` clean (kèm `npm run build` frontend khi cần).
 
-**Remaining for full end-to-end validation (Phase 7):**
+**Remaining for full end-to-end validation (Phase 7/8):**
 - Multi-node testing on 2-3 real instances (manual test)
-- External Join / verifiable `GroupInfo` từ nhánh thắng — vẫn cần hardening (xem code Rust/Go hiện tại)
+- External Join / verifiable `GroupInfo` từ nhánh thắng — cần kiểm thử đa kịch bản và thu bằng chứng hội tụ
 - Legacy groups created with old metadata-only `group_state` must be recreated/migrated
 
 ---
@@ -387,11 +387,132 @@
 
 ---
 
-## 6. FILE TRANSFER & FINALIZATION (Weeks 15-16)
+## 6. BACKEND PRODUCTIZATION BEFORE FRONTEND (Weeks 15-16)
+
+**Goal:** Complete the core backend product flows required by the production frontend. The current backend already has the protocol, MLS, onboarding, offline sync, blind-store, and backup foundations. This phase turns those foundations into stable Wails-facing product APIs so the frontend does not need to fake critical behavior.
+
+**Detailed execution reference:** `BACKEND_IMPLEMENTATION_PLAN.md`.
+
+### 6.1. Invite & Pending Invite Lifecycle [P0]
+- **Task:** Wrap the existing KeyPackage / Welcome / invite-store primitives into user-facing APIs:
+  - `GenerateJoinCode`
+  - `ListPendingInvites`
+  - `AcceptInvite`
+  - `RejectInvite`
+- **Task:** Persist enough pending invite metadata for the UI: invite id, group id/name if known, inviter if known, received time, status.
+- **Task:** Make invite accept idempotent and return stable errors for expired/stale invites, identity mismatch, and already-joined groups.
+- **Success Criteria:** User can generate a join code, another member can invite them, and the invitee can accept/reject from a pending invite list without manually typing a group id.
+
+### 6.2. Group Membership Lifecycle [P0]
+- **Task:** Add Runtime-facing APIs for:
+  - `LeaveGroup(groupID)`
+  - `RemoveMemberFromGroup(groupID, peerID)` or explicitly return "not supported yet" if group roles are deferred.
+- **Task:** Define product policy for leaving a group:
+  - recommended: soft leave by default (stop active participation, keep local history).
+- **Task:** Emit group/member change events for frontend refresh.
+- **Success Criteria:** Group Info UI can perform real leave/remove actions or display a truthful disabled state backed by backend policy.
+
+### 6.3. Session Takeover Lifecycle [P0]
+- **Task:** Productize the existing `SessionClaim` single-active-device mechanism into explicit runtime state/events.
+- **Task:** Add:
+  - `GetSessionStatus`
+  - event `session:replaced`
+  - local replaced/lockout flag if needed.
+- **Task:** Decide and implement old-device behavior after takeover. Recommended high-security default: block normal app access after session replacement, but do not claim secure deletion unless implemented.
+- **Success Criteria:** Frontend can route to a real Session Replaced screen and the old device cannot continue normal P2P operations.
+
+### 6.4. Startup & Runtime Health Events [P0]
+- **Task:** Expose startup/runtime health to UI:
+  - database init
+  - Rust sidecar startup
+  - IPC/gRPC readiness
+  - app state detection
+  - P2P startup.
+- **Task:** Add stable error codes for database, crypto engine, IPC, identity, and P2P failures.
+- **Task:** Add `GetRuntimeHealth` and/or startup events such as `startup:progress`, `startup:error`, `p2p:status`.
+- **Success Criteria:** Splash screen and fatal error UI can show real backend state instead of guessing.
+
+### 6.5. Admin Issuance Readiness [P0]
+- **Task:** Make Admin flow safer for UI:
+  - parse `request.json`
+  - validate PeerID and MLS public key format
+  - keep Display Name Admin-controlled and mandatory.
+- **Task:** Decide admin unlock model:
+  - short-term acceptable: passphrase-per-sign in `CreateBundle`
+  - later: explicit `UnlockAdmin` / `LockAdmin` session.
+- **Task:** Keep or extend `CreateBundle` so the UI can issue `.bundle` from parsed request data.
+- **Success Criteria:** Admin can issue a signed bundle from `request.json` without manually copying long strings.
+
+### 6.6. Network, Diagnostics, Message State, and Audit [P1]
+- **Task:** Add runtime network/bootstrap controls:
+  - view local multiaddr
+  - validate/set bootstrap address
+  - reconnect P2P.
+- **Task:** Add diagnostics snapshot/export for Developer Mode:
+  - peers, groups, epoch, token holder, tree hash, sync queue, recent errors.
+- **Task:** Add message IDs/status/retry if the frontend needs failed-message recovery.
+- **Task:** Add Admin issuance history if audit table is in scope.
+- **Success Criteria:** Developer Mode and settings screens have real backend data, but these can be completed in parallel with frontend after P0 is done.
+
+### 6.7. Backend Readiness Gate for Frontend
+- **Required before full frontend rebuild:**
+  - invite list/accept/reject works
+  - group leave/remove policy is implemented or explicitly disabled
+  - session replaced state/event exists
+  - startup/runtime health exists
+  - admin request JSON issuance path exists.
+- **Verification:** `cd app && go test ./...` must pass after each backend slice.
+
+---
+
+## 7. FRONTEND APPLICATION UI (Weeks 17-18)
+
+**Goal:** Upgrade the current dev/test UI into a production-ready frontend experience for real user workflows, using the backend APIs completed in Phase 6.
+
+**Detailed execution reference:** `FRONTEND_IMPLEMENTATION_PLAN.md`.
+
+### 7.1. Product UX Architecture & Navigation
+- **Task:** Define app information architecture: startup, onboarding, dashboard, groups, messaging, invite, admin, settings, backup/import, diagnostics.
+- **Task:** Standardize navigation model (left sidebar + main content + contextual panels) with responsive breakpoints.
+- **Task:** Define design tokens (colors, typography, spacing, elevation, semantic states) and shared UI guidelines.
+
+### 7.2. Rebuild Core Screens for End Users
+- **Task:** Replace dev/test-first screens with polished user flows:
+  - app initializing / fatal error
+  - first-run setup (`UNINITIALIZED`)
+  - bundle waiting/import (`AWAITING_BUNDLE`)
+  - authorized dashboard (`AUTHORIZED`)
+  - admin capabilities (`ADMIN_READY`)
+  - session replaced lockout.
+- **Task:** Add consistent loading/empty/error states for every major screen.
+- **Task:** Add reusable component library (buttons, inputs, modal, toast, table/list, status badges).
+
+### 7.3. Group Chat UX Completion
+- **Task:** Improve group lifecycle UX: create/join, pending invites, member list, invite actions, group status/health indicators.
+- **Task:** Improve chat UX: message composer, delivery state hints, timeline grouping, readable HLC-based ordering display.
+- **Task:** Add clear visual cues for offline sync status and reconnect/replay events.
+
+### 7.4. Settings, Admin, and Diagnostics UX
+- **Task:** Build backup/import, session/device, network/bootstrap settings.
+- **Task:** Build Admin setup/unlock, request parsing, bundle issuance, and issuance history if backend supports it.
+- **Task:** Build Developer Mode overlays for P2P/protocol diagnostics.
+
+### 7.5. Frontend Quality, Accessibility, and Build Stability
+- **Task:** Add/expand frontend validation and type safety checks (`npm run build`, lint/typecheck setup if needed).
+- **Task:** Improve accessibility baseline (keyboard navigation, focus states, contrast, ARIA labels on key interactions).
+- **Task:** Ensure Wails bindings integration remains stable after UI refactor (`wails generate module` + TS import consistency).
+
+### 7.6. Frontend Deliverables
+- **Deliverable:** A coherent end-user UI usable for thesis demo without backend-dev-only controls.
+- **Deliverable:** Screen-level acceptance checklist for onboarding, messaging, invite, migration, admin, and diagnostics flows.
+
+---
+
+## 8. FILE TRANSFER & FINALIZATION (Weeks 19-20)
 
 **Goal:** Secure high-speed file transfer and thesis documentation.
 
-### 6.1. Secure Direct Swarming (MLS Exporter-based)
+### 8.1. Secure Direct Swarming (MLS Exporter-based)
 - **Task:** Derive one-time symmetric key using `MLS Exporter` (label: `"file-transfer"`, context: `file_hash`).
 - **Task:** Sender encrypts file with derived key → splits into fixed-size chunks.
 - **Task:** Announce file metadata (hash, size, chunk count, derived key label) via GossipSub.
@@ -401,23 +522,23 @@
 - **Task:** Receiver reassembles chunks → decrypt → verify hash.
 - **Task:** UI: Progress bar, file selection dialog.
 
-### 6.2. Thesis Report & Defense Prep
+### 8.2. Thesis Report & Defense Prep
 - **Task:** Finalize diagrams (architecture, protocol flow, fork healing sequence).
 - **Task:** Prepare Demo environment (multi-node Docker / multi-process on single machine).
-- **Task:** Write evaluation results (see Phase 7).
+- **Task:** Write evaluation results (see Phase 9).
 
 ---
 
-## 7. EVALUATION & TESTING (Throughout + Final Weeks)
+## 9. EVALUATION & TESTING (Throughout + Final Weeks)
 
 **Goal:** Prove correctness, performance, and security of the Decentralized Coordination Protocol.
 
-### 7.1. Correctness & Consistency (Concurrency Chaos Test)
+### 9.1. Correctness & Consistency (Concurrency Chaos Test)
 - **Task:** Simulate 10+ nodes sending Proposals and Commits simultaneously within the same millisecond.
 - **Success Criteria:** All nodes converge to the same Epoch number AND their TreeHash values match perfectly across every device.
 - **Task:** Verify Single-Writer invariant: at no point do two Commits exist for the same epoch.
 
-### 7.2. Partition & Healing Test
+### 9.2. Partition & Healing Test
 - **Task:** Physically disconnect network into 2 independent branches (split-brain simulation).
 - **Task:** Let each branch evolve independently for multiple epochs.
 - **Task:** Reconnect and measure:
@@ -425,12 +546,12 @@
   - External Join success rate for losing branch nodes.
   - Time to full convergence (all nodes on same epoch + TreeHash).
 
-### 7.3. Performance & Latency
+### 9.3. Performance & Latency
 - **Task:** Measure epoch finalization time (Proposal → Commit → all nodes at E+1).
 - **Task:** Compare overhead vs. a baseline system using a centralized Delivery Service.
 - **Task:** Scalability: measure CPU and bandwidth consumption as group size increases during periodic key rotation — empirically validate O(log N) advantage of MLS.
 
-### 7.4. Security & Threat Validation
+### 9.4. Security & Threat Validation
 - **Task:** Extract SQLite database of a "losing branch" node after a Partition & Healing test.
 - **Task:** Verify that staged Commit keys have been destroyed (crypto-shredding) — Forward Secrecy proof.
 - **Task:** Verify Token Replay attack is blocked (Eve replaying Alice's token → rejected).

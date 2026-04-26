@@ -449,15 +449,22 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Hardening + Phase 6/7
+## 6. Next Step — Backend Productization → Frontend → File Transfer
 
 Phase 4 hoàn tất. **Phase 5.1 (`.backup`), 5.2 (`SessionClaim` / single active device), 5.3 (offline store-and-forward)** đã implement — xem §4.
 
 Hệ thống đã có:
 - OpenMLS (nhóm, tin nhắn, KeyPackage / AddMembers / Welcome, …) qua sidecar
 - Coordination đầy đủ (Single-Writer, Epoch, Fork healing, HLC); **`go test ./...`** và **`cargo test`** để xác minh
+- Offline sync + blind-store nền tảng cho envelope / KeyPackage / Welcome
+- Identity migration `.backup` + session claim foundation
 
-**Để manual test:**
+**Roadmap tài liệu hiện tại:**
+- `PROJECT_PLAN.md`: roadmap tổng thể đã đổi thành Phase 6 backend productization, Phase 7 frontend, Phase 8 file transfer, Phase 9 evaluation.
+- `BACKEND_IMPLEMENTATION_PLAN.md`: kế hoạch backend chi tiết cần làm trước frontend.
+- `FRONTEND_IMPLEMENTATION_PLAN.md`: đặc tả màn hình / luồng UI production-ready.
+
+**Để manual test core hiện tại:**
 1. `cd crypto-engine; cargo build --release`
 2. `cd app; wails generate module; wails dev` (hoặc `go run . --headless` cho CLI)
 3. Trong UI: nhập Group ID → Create / Join → gửi tin nhắn; kiểm tra HLC sort
@@ -465,9 +472,24 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Hardening Add Member / invite:** ràng buộc `newMemberPeerID` với identity trong KeyPackage trước khi add; giảm lộ `key_package_bundle_private` trên frontend (xử lý local an toàn hơn clipboard/state UI).
+1.  **Phase 6 — Backend Productization trước frontend (P0):**
+    - Invite / Pending Invite lifecycle: `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`.
+    - Group membership lifecycle: `LeaveGroup`, `RemoveMemberFromGroup` hoặc policy disable rõ ràng nếu defer role/remove.
+    - Session takeover lifecycle: `GetSessionStatus`, event `session:replaced`, local replaced/lockout state.
+    - Startup/runtime health: `GetRuntimeHealth`, startup progress/error events, P2P status events.
+    - Admin issuance readiness: parse `request.json`, validate PeerID/PublicKey, admin signing flow rõ ràng.
 
-2.  **Phase 6–7:** file transfer (MLS exporter), đánh giá đa node / partition / báo cáo luận văn.
+2.  **Phase 6 — Backend Productization (P1, có thể làm song song frontend):**
+    - Network/bootstrap runtime controls: local multiaddr, validate/set bootstrap, reconnect.
+    - Diagnostics snapshot/export logs cho Developer Mode.
+    - Message status/retry model nếu UI cần failed-message recovery.
+    - Admin issuance history nếu audit table vào scope.
+
+3.  **Phase 7 — Frontend Application UI:**
+    - Rebuild UI từ dev/test sang product UI theo `FRONTEND_IMPLEMENTATION_PLAN.md`.
+    - Không fake critical backend behavior; nếu backend gap còn thiếu thì disable/mark planned rõ ràng.
+
+4.  **Phase 8–9:** file transfer (MLS exporter / swarming), evaluation đa node / partition / báo cáo luận văn.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.
