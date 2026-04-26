@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Button } from './ui/button'
 
 interface CopyFieldProps {
   label: string
@@ -20,24 +21,26 @@ export default function CopyField({ label, value, mono = true }: CopyFieldProps)
   }
 
   return (
-    <div>
-      <label className="label">{label}</label>
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
       <div className="flex items-center gap-2">
         <div
-          className={`flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-            text-gray-200 overflow-x-auto whitespace-nowrap ${mono ? 'font-mono' : ''}`}
+          className={`flex-1 overflow-x-auto whitespace-nowrap rounded-lg border border-border bg-card px-3 py-2 text-sm
+            text-card-foreground ${mono ? 'font-mono' : ''}`}
           title={value}
         >
-          {value || <span className="text-gray-600 italic">—</span>}
+          {value || <span className="italic text-muted-foreground">—</span>}
         </div>
-        <button
+        <Button
           onClick={handleCopy}
           disabled={!value}
-          className="btn-secondary shrink-0 text-xs px-3"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
           title="Copy to clipboard"
         >
           {copied ? '✓ Copied' : 'Copy'}
-        </button>
+        </Button>
       </div>
     </div>
   )

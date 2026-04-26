@@ -476,7 +476,46 @@ wails build      # production build
 
 ---
 
-## 6. Next Step — Frontend Productization → P1 Backend → File Transfer
+## 6. Frontend Progress Snapshot (latest)
+
+### FE-2 status — COMPLETE (onboarding production baseline) ✅
+
+- Routing chính đã chạy qua `RootRouter` với các nhánh:
+  - `UNINITIALIZED` -> `WelcomeScreen`
+  - `AWAITING_BUNDLE` -> `AwaitingBundleScreen`
+  - import backup entry -> `ImportBackupScreen`
+  - `AUTHORIZED/ADMIN_READY` -> main app screen
+- Onboarding UX đã có:
+  - tạo identity (`GenerateKeys`)
+  - hiển thị PeerID + MLS pubkey
+  - export `request.json` từ frontend helper
+  - import `.bundle` với xử lý lỗi cơ bản
+  - import `.backup` flow cơ bản
+- Đã dọn phần dev/test onboarding khỏi đường đi chính.
+
+### FE-3 status — COMPLETE (chat shell core) ✅
+
+- Main app shell đã thay placeholder bằng `MainAppScreen`.
+- Đã có 3 vùng layout:
+  - sidebar groups/navigation (`MainSidebar`)
+  - chat center (`ChatView`, `MessageList`, `MessageComposer`)
+  - room panel phải (`RoomPanel`)
+- Luồng core đã implement:
+  - lấy groups (`GetGroups`), tạo group (`CreateGroupChat`), chọn group active
+  - lấy lịch sử tin (`GetGroupMessages`)
+  - gửi tin (`SendGroupMessage`)
+  - realtime events qua `useWailsEvent`: `group:message`, `group:epoch`, `group:joined`
+  - failed-send local recovery (`Retry` / `Remove`)
+- Network status hiển thị liên tục từ `GetNodeStatus` qua `useNetworkStore`.
+
+### UI polish status — IN PROGRESS (đang nâng từ functional -> product look)
+
+- Đã có một vòng polish lớn: dark shell, hierarchy rõ hơn, contrast/spacing tốt hơn.
+- Vẫn cần vòng polish tiếp theo để bám sát mock hơn (icon system, spacing scale, microcopy và visual parity).
+
+---
+
+## 7. Next Step — FE-4 Product Flows → P1 Backend → File Transfer
 
 Phase 4 hoàn tất. **Phase 5.1 (`.backup`), 5.2 (`SessionClaim` / single active device), 5.3 (offline store-and-forward)** và **Phase 6 P0 backend productization** đã implement — xem §4.
 
@@ -491,6 +530,7 @@ Hệ thống đã có:
 - `PROJECT_PLAN.md`: roadmap tổng thể: Phase 6 backend productization, Phase 7 frontend, Phase 8 file transfer, Phase 9 evaluation.
 - `BACKEND_IMPLEMENTATION_PLAN.md`: kế hoạch backend chi tiết cần làm trước frontend.
 - `FRONTEND_IMPLEMENTATION_PLAN.md`: đặc tả màn hình / luồng UI production-ready.
+  - **Cập nhật kiến trúc bắt buộc (áp dụng từ FE-1):** Thin frontend layer, Zustand-first state management, Wails `EventsOn` cleanup bắt buộc để tránh memory leak, smart/dumb component boundary, desktop-safe routing (state-based hoặc `MemoryRouter`, không dùng `BrowserRouter`), ưu tiên stack Shadcn UI + Tailwind.
 
 **Để manual test core hiện tại:**
 1. `cd crypto-engine; cargo build --release`
@@ -500,9 +540,10 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Phase 7 — Frontend Application UI:**
-    - Rebuild UI từ dev/test sang product UI theo `FRONTEND_IMPLEMENTATION_PLAN.md`.
-    - Dùng real backend APIs vừa hoàn tất cho invite, membership, session replaced, runtime health, admin issuance.
+1.  **Frontend FE-4 — Group & Invite Product Flows:**
+    - Group info panel + add member/join code + pending invites + leave/remove UX.
+    - Chuẩn hóa action policies theo backend hiện tại (không over-claim capability).
+    - Giữ smart/dumb boundary và event cleanup contract.
 
 2.  **Phase 6 — Backend Productization (P1, có thể làm song song frontend):**
     - Network/bootstrap runtime controls: local multiaddr, validate/set bootstrap, reconnect.

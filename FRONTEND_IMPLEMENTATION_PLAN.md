@@ -6,6 +6,64 @@ Purpose: This document is the working context for implementing the production fr
 
 ---
 
+## 0. Mandatory Architecture Guardrails (Apply From FE-1)
+
+These guardrails are mandatory coding conventions for all frontend implementation phases. They are not optional UI preferences.
+
+### 0.1. Frontend Role: Thin Layer Over Go/Rust Core
+
+- Frontend is a display and interaction layer.
+- Security, identity, coordination, and persistence authority remain in Go/Rust/SQLite.
+- Frontend must avoid re-implementing backend logic or deriving protocol truth heuristically.
+
+### 0.2. State Management Strategy (Zustand Required)
+
+- Use `zustand` as the primary client state store.
+- Do not use React Context as the main dynamic runtime store for high-frequency P2P events.
+- Split store by feature slices (recommended):
+  - `app/runtime` (app state, startup health, fatal error)
+  - `network` (peer status, reconnect/sync status)
+  - `groups` (group list, selected group)
+  - `chat` (messages, send status, pending retries)
+  - `invites` (pending invites lifecycle)
+  - `admin` (admin capability/status)
+- Event handlers from Wails should be able to update Zustand directly without forcing unrelated UI re-renders.
+
+### 0.3. Wails Event Lifecycle Rule (Memory Leak Prevention)
+
+- Any `EventsOn(...)` subscription must always register cleanup/unsubscribe in `useEffect` return.
+- Never leave long-lived listeners attached after component unmount.
+- Prefer a shared wrapper/hook for event subscription to enforce consistent cleanup behavior.
+- Review checklist for every PR touching events:
+  - where is listener attached?
+  - where is listener detached?
+  - can this screen mount/unmount multiple times?
+
+### 0.4. Smart/Dumb Component Boundary
+
+- `screens/*` and `features/*` are Smart/Container layers:
+  - call Wails bindings
+  - read/write Zustand stores
+  - orchestrate async flows and event reactions
+- `components/*` are Dumb/Presentational layers:
+  - render from props only
+  - no direct Wails binding calls
+  - no protocol/business orchestration
+
+### 0.5. Desktop Routing Rule (No Browser History Assumptions)
+
+- Wails app is desktop-first, not browser-navigation-first.
+- Prefer state-based routing using app/runtime/session state.
+- Avoid `BrowserRouter`.
+- Use `MemoryRouter` only when internal nested navigation is needed; otherwise keep direct state-driven screen rendering.
+
+### 0.6. UI Library Decision
+
+- Preferred stack: **Shadcn UI + Tailwind CSS**.
+- Reason: full source-level component control for secure dark-theme customization, while keeping implementation speed and consistency.
+
+---
+
 ## 1. Product Direction
 
 The app is a serverless, zero-trust, end-to-end encrypted internal communication platform for high-security organizations. It runs as a Wails desktop app with:
@@ -1088,13 +1146,82 @@ Do not let UI models leak cryptographic assumptions. Keep labels user-facing.
 ### Phase FE-1: Design System & App Shell
 
 - Establish dark theme tokens.
+- Bootstrap Shadcn UI foundation on top of Tailwind.
 - Build shared UI components.
 - Implement app shell layout.
-- Implement state router skeleton.
+- Implement desktop-safe state router skeleton.
+- Implement Zustand stores and slice boundaries.
+- Implement Wails event bridge pattern with strict subscribe/unsubscribe cleanup.
+- Enforce smart/dumb component boundaries from first screen.
 
 Done when:
 
 - App can render startup, welcome, awaiting bundle, and main shell with mocked data.
+- No direct Wails binding calls exist inside `components/*`.
+- Event listeners demonstrate deterministic cleanup in mount/unmount tests.
+- Store updates from high-frequency events do not trigger full app re-render patterns.
+
+#### FE-1 Execution Plan (thứ tự làm code — bắt đầu từ đây)
+
+**Trạng thái repo hiện tại (điểm xuất phát):** `app/frontend` đã có Vite + React 18 + Tailwind; `App.tsx` dùng `useState` + polling `GetAppState`; chưa có Zustand / Shadcn.
+
+**Bước 1 — Phụ thuộc npm**
+
+- Thêm `zustand`.
+- Thêm Shadcn qua CLI (theo hướng dẫn shadcn + Vite): sinh `components.json`, alias `@/` (hoặc tương đương trong `tsconfig` + `vite.config`), cài `class-variance-authority`, `clsx`, `tailwind-merge`, `@radix-ui/react-slot` (và các peer Radix theo từng component khi add).
+- Giữ `npm run build` (`tsc && vite build`) xanh sau mỗi bước.
+
+**Bước 2 — Design tokens & theme dark (Tailwind + CSS variables)**
+
+- Trong `index.css` (hoặc file theme shadcn): định nghĩa biến màu semantic (`background`, `foreground`, `muted`, `destructive`, `border`, `ring`, `primary` …) cho dark theme cybersecurity.
+- Cập nhật `tailwind.config` để map `colors` tới CSS variables (chuẩn Shadcn).
+- Không cần polish pixel-perfect trong FE-1; cần **một bảng màu ổn định** để màn sau không đổi token liên tục.
+
+**Bước 3 — Base UI components (Shadcn “first wave”)**
+
+- Add tối thiểu: `Button`, `Card`, `Input`, `Label`, `Separator`, `Skeleton` (tuỳ chọn `Dialog`, `DropdownMenu` nếu shell cần menu).
+- Đặt source tại `src/components/ui/*` (theo shadcn), **chỉ presentation** — không import `wailsjs` ở đây.
+
+**Bước 4 — Cấu trúc thư mục & “router”**
+
+- Tạo `src/lib/` nếu chưa có: `wails.ts` (export type-only helpers nếu cần), `routerState.ts` hoặc gom vào store.
+- Tạo `src/stores/`:
+  - `useAppRuntimeStore`: `appState` (LOADING | UNINITIALIZED | …), `runtimeHealth` snapshot tùy chọn, `startupStage` từ events.
+  - Slice rỗng placeholder: `useNetworkStore`, `useGroupsStore` (chỉ shape + actions no-op) để FE-2+ không refactor store lớn.
+- Tạo `src/components/layout/AppShell.tsx`: khung chung (ví dụ top bar + vùng nội dung) nhận `children` và props header; **không** gọi Go.
+
+**Bước 5 — Wails event bridge (bắt buộc có pattern cleanup)**
+
+- Tạo `src/hooks/useWailsEvent.ts` (hoặc `lib/wailsEvents.ts` + hook):
+  - `useWailsEvent(name, handler)` dùng `EventsOn` từ `wailsjs/runtime/runtime` (import path theo codegen hiện tại).
+  - Trong cleanup `useEffect`: gọi `EventsOff` / API tương ứng Wails v2 — **mỗi listener phải unsubscribe khi unmount**.
+- Tạo một màn demo nhỏ hoặc mount tạm trong `DashboardScreen` chỉ để verify: mount → nhận event → unmount → không còn handler (có thể manual test trước; unit test optional).
+
+**Bước 6 — Refactor `App.tsx` sang thin root**
+
+- Chuyển polling `GetAppState` + nhánh màn hình vào **container** (ví dụ `src/screens/RootRouter.tsx` hoặc `src/app/AppRoot.tsx`) gọi store.
+- `App.tsx` chỉ: `import './index.css'`, bọc provider tối thiểu nếu cần (Shadcn Toaster), render `<AppRoot />`.
+- Điều hướng theo state backend: vẫn **state-based** (không `BrowserRouter`); bổ sung trạng thái `STARTING` khi bắt đầu wire `GetRuntimeHealth` + `startup:*` (có thể stub trong FE-1, hoàn thiện ở FE-2).
+
+**Bước 7 — Tách Smart/Dumb trên 1 màn mẫu (không cần migrate hết repo trong FE-1)**
+
+- Chọn **một** màn: ví dụ `SetupScreen` hoặc màn loading mới.
+- Dumb: `components/setup/SetupView.tsx` nhận props `onCreateIdentity`, `error`, `loading`.
+- Smart: `screens/SetupScreen.tsx` gọi `GenerateKeys` / Wails, cập nhật store, truyền xuống view.
+- Các màn còn lại có thể để nguyên tạm thời; ghi `// TODO FE-2: extract dumb view` nếu cần — tránh thay đổi hàng loạt ngoài phạm vi FE-1.
+
+**Bước 8 — Kiểm tra & nghiệm thu**
+
+- `cd app/frontend && npm run build` — pass.
+- `wails build` từ `app/` (hoặc `wails dev`) — mở app, qua flow LOADING → UNINITIALIZED / AWAITING_BUNDLE / DASHBOARD không crash.
+- Checklist: không file nào dưới `components/ui/*` import `../wailsjs`; mọi `EventsOn` qua hook có cleanup.
+
+**Phạm vi tách bạch (không làm trong FE-1):**
+
+- Rebuild toàn bộ màn theo spec Screen 0–20; chỉ chuẩn bị nền.
+- Thêm `react-router-dom` trừ khi thật sự cần nested route — ưu tiên state router đến hết FE-4.
+
+**Thứ tự commit gợi ý (nhỏ, dễ review):** (1) deps + shadcn scaffold (2) tokens (3) stores + AppRoot (4) wails event hook (5) AppShell + một màn smart/dumb mẫu.
 
 ### Phase FE-2: Onboarding & Bundle Flow
 
@@ -1119,6 +1246,140 @@ Done when:
 Done when:
 
 - User can create/open group and send/receive messages through existing Wails methods.
+
+**Implementation status checkpoint (current):**
+- FE-3 core đã được implement ở mức functional:
+  - `MainAppScreen` thay placeholder cho `AUTHORIZED/ADMIN_READY`
+  - sidebar groups + network indicator + chat timeline/composer
+  - realtime event wiring qua `useWailsEvent` (`group:message`, `group:epoch`, `group:joined`)
+  - failed send local retry/remove
+- Đang trong giai đoạn UI polish để nâng visual parity gần mock product (spacing, typography, iconography, panel hierarchy).
+- FE-4 nên bắt đầu sau khi chốt vòng polish hiện tại để tránh refactor chồng chéo.
+
+#### FE-3 Detailed Execution Plan (main shell + chat core)
+
+**Mục tiêu FE-3 (scope cứng):**
+- Thay `MainShellPlaceholder` bằng Main App Shell thật cho trạng thái `AUTHORIZED/ADMIN_READY`.
+- Hoàn thiện vòng lặp chat core: danh sách nhóm -> mở nhóm -> đọc lịch sử -> gửi tin -> nhận realtime.
+- Thể hiện network trạng thái rõ ràng cho desktop P2P app.
+- Không claim các semantics backend chưa có (ví dụ read receipts).
+
+**Điểm xuất phát hiện tại:**
+- Router/state onboarding đã chạy qua `RootRouter`, `Welcome`, `AwaitingBundle`, `ImportBackup`.
+- FE-1 foundation đã có: `zustand` stores, `useWailsEvent`, shadcn primitives, dark tokens.
+- API sẵn có trên Wails bindings:
+  - `GetGroups`, `CreateGroupChat`, `GetGroupMessages`, `SendGroupMessage`
+  - `GetNodeStatus`, `GetRuntimeHealth`, `TriggerOfflineSync`
+  - events đã dùng ở code cũ: `group:message`, `group:epoch`, `group:joined`.
+
+**Phạm vi FE-3 / ngoài phạm vi FE-3:**
+- **Trong phạm vi:** shell chính, group list, network indicator, chat timeline/composer, realtime updates, trạng thái gửi thất bại + retry cục bộ.
+- **Ngoài phạm vi:** group invite full UX (FE-4), admin issuance UX (FE-6), file transfer (FE-8), advanced diagnostics (FE-7).
+
+##### Bước 1 — Main shell architecture
+- Tạo màn `MainAppScreen` để thay `MainShellPlaceholder`.
+- Tách layout thành 3 khối:
+  1. Sidebar (identity + group list + create group + pending invites entry placeholder),
+  2. Main chat panel (timeline + composer),
+  3. Optional right panel placeholder (group info) để FE-4 nối tiếp.
+- Giữ screen-level orchestration ở `screens/*`, presentation ở `components/*`.
+
+**Files đề xuất:**
+- `app/frontend/src/screens/MainAppScreen.tsx`
+- `app/frontend/src/components/layout/MainSidebar.tsx`
+- `app/frontend/src/components/chat/ChatView.tsx`
+- `app/frontend/src/components/chat/MessageComposer.tsx`
+- `app/frontend/src/components/chat/MessageList.tsx`
+
+##### Bước 2 — Zustand store expansion cho FE-3
+- Mở rộng store theo slice (không nhồi logic vào component):
+  - `useGroupsStore`: thêm loading/error + `refreshGroups()` action adapter.
+  - `useNetworkStore`: map từ `NodeStatus` sang `NetworkStatus`.
+  - thêm `useChatStore` mới: `messagesByGroup`, `sendingQueue`, `failedQueue`, `activeGroupId`.
+- Chuẩn hóa DTO adapter ở `src/lib` để map Wails model -> UI model.
+
+**Files đề xuất:**
+- `app/frontend/src/stores/useGroupsStore.ts`
+- `app/frontend/src/stores/useNetworkStore.ts`
+- `app/frontend/src/stores/useChatStore.ts` (new)
+- `app/frontend/src/lib/chatModel.ts` (new)
+- `app/frontend/src/lib/networkModel.ts` (new)
+
+##### Bước 3 — Sidebar + create/open group flow
+- Sidebar hiển thị:
+  - display name + short peer id,
+  - network badge luôn visible,
+  - list groups từ `GetGroups`.
+- Add “create group” UX tối giản:
+  - input group id/name + action `CreateGroupChat`,
+  - success: refresh groups + auto-open group vừa tạo.
+- Nếu chưa có group:
+  - show empty state có CTA tạo nhóm.
+
+##### Bước 4 — Chat timeline và message composer
+- Khi chọn group:
+  - load `GetGroupMessages(groupId)`,
+  - sort theo timestamp hiện có,
+  - render bubble phân biệt `is_mine`.
+- Composer:
+  - Enter gửi / Shift+Enter xuống dòng (nếu dùng textarea),
+  - disable khi empty hoặc không có active group,
+  - optimistic insert cho tin nhắn local với trạng thái tạm.
+
+##### Bước 5 — Realtime events + cleanup
+- Dùng `useWailsEvent` cho các sự kiện:
+  - `group:message`: append message đúng active group hoặc tăng badge unread.
+  - `group:epoch`: update metadata nhóm nhẹ.
+  - `group:joined`: refresh groups và điều hướng nhóm mới.
+- Tuyệt đối không gọi trực tiếp `EventsOn` trong component UI presentation.
+
+##### Bước 6 — Message status và system message policy
+- Chuẩn hóa trạng thái user-facing:
+  - `sending`, `published`, `failed` (dựa trên khả năng backend hiện tại),
+  - không hiển thị “seen/read”.
+- System messages FE-side tối thiểu:
+  - “Bạn đã tạo nhóm…”
+  - “Đang đồng bộ…”
+  - “Gửi thất bại, vui lòng thử lại.”
+
+##### Bước 7 — Failed send + retry policy
+- Nếu `SendGroupMessage` reject:
+  - giữ message ở failed queue cục bộ (không mất nội dung),
+  - UI hiển thị `Retry` và `Remove`.
+- Retry:
+  - gửi lại qua `SendGroupMessage`,
+  - nếu thành công thì chuyển trạng thái published.
+- Lưu ý: đây là UI recovery cục bộ FE-3, không giả định backend message-id semantics đầy đủ.
+
+##### Bước 8 — Wire router và thay placeholder
+- Cập nhật `RootRouter`:
+  - `AUTHORIZED/ADMIN_READY` -> `MainAppScreen`.
+- Giữ state-based routing, không dùng `BrowserRouter`.
+
+**Files chính:**
+- `app/frontend/src/screens/RootRouter.tsx`
+- `app/frontend/src/screens/MainAppScreen.tsx`
+
+##### Bước 9 — Quality gates FE-3
+- Build gate:
+  - `cd app/frontend && npm run build` pass.
+- Functional smoke checklist:
+  1. Vào app với `AUTHORIZED` thấy sidebar + network status.
+  2. Tạo nhóm mới thành công, auto-select nhóm.
+  3. Gửi tin nhắn thành công, timeline cập nhật.
+  4. Nhận event tin nhắn realtime không duplicate listener khi đổi màn/group.
+  5. Khi send fail, hiện retry/remove đúng.
+- Architecture gate:
+  - `components/ui/*` không import `wailsjs`.
+  - mọi event subscription đi qua `useWailsEvent`.
+  - smart/dumb boundary giữ sạch.
+
+**Định nghĩa hoàn thành FE-3:**
+- Main chat shell usable cho demo core (create/open/send/receive).
+- Network status luôn hiển thị và phản ánh trạng thái node.
+- Không còn placeholder ở trạng thái `AUTHORIZED/ADMIN_READY`.
+- Realtime update hoạt động ổn định, không leak listeners.
+- Build pass và không có lint error ở phần file vừa chỉnh.
 
 ### Phase FE-4: Group & Invite UX
 
@@ -1173,6 +1434,31 @@ Done when:
 Done when:
 
 - Secure file transfer is usable end-to-end.
+
+---
+
+## 8.1. Execution Order (Updated, Practical Rollout)
+
+This sequence is the recommended implementation order to keep risk low and maintain demo progress.
+
+1. FE-1 foundation first:
+   - design tokens + Shadcn base components
+   - app shell + state-based router
+   - Zustand slices + event bridge with cleanup contract
+2. FE-2 onboarding flow:
+   - welcome + awaiting bundle + request export/import bundle UX
+3. FE-3 core chat shell:
+   - sidebar groups + network indicator + chat timeline/composer
+4. FE-4 group/invite lifecycle:
+   - pending invites + add member + leave/remove UX aligned with backend policy
+5. FE-5 safety and recovery UX:
+   - backup export/import + session replaced + network/bootstrap settings
+6. FE-6 admin product UX:
+   - admin setup/unlock + request parser + bundle issuance
+7. FE-7 developer mode:
+   - diagnostics and technical overlays
+8. FE-8 file transfer UI:
+   - only after backend APIs are confirmed production-ready
 
 ---
 
