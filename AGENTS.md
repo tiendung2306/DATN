@@ -54,5 +54,24 @@ This document outlines the core principles, mandates, and operational guidelines
 * **MLS gRPC implementation** lives in `app/adapter/sidecar/` (`NewMLSEngine`, process lifecycle).
 * **Composition root** is `app/main.go` (`config`, `cli`, `wailsui`).
 
+## Frontend Rules (React + Wails) — REQUIRED
+
+1. **Architecture Boundary:** Frontend is a thin UI layer. Security, identity, coordination, persistence, and protocol truth live in Go/Rust/SQLite. Do not re-implement backend decisions in UI.
+2. **Feature-First Structure:** Place new UI flows under `app/frontend/src/features/<feature>/...` (`screens`, `hooks`, optional `components`). Keep `app/`, `services/`, `stores/`, and `components/` responsibilities separated.
+3. **Compatibility Policy:** During refactor, keep legacy wrappers in `src/screens/*` only as temporary adapters. New development must target `features/*`.
+4. **Wails Access Rule:** Do not call generated bindings directly from many places. Go through `app/frontend/src/services/runtime/runtimeClient.ts` (or feature service wrappers) for API calls.
+5. **State Strategy (Zustand):** Use Zustand slices for shared runtime state. Keep stores focused on state transitions; do not bury backend orchestration logic inside store definitions.
+6. **Screen Orchestration Pattern:** For complex screens, split logic into hooks:
+   - `use<Feature>Runtime` for loading/sync,
+   - `use<Feature>Events` for event subscriptions,
+   - `use<Feature>Actions` for user-triggered mutations.
+7. **Event Lifecycle Safety:** Every Wails event subscription must clean up via the `unsubscribe` returned by `EventsOn`. Do not use broad/global event-off patterns that can remove listeners owned by other modules.
+8. **Smart vs Dumb Components:** `features/*/screens` and feature hooks are smart layers. `components/*` must stay presentational (props in, UI out), with no direct Wails binding calls.
+9. **Desktop Routing Rule:** Prefer app-state-driven routing (or `MemoryRouter` only when needed). Do not use `BrowserRouter` assumptions for Wails desktop flows.
+10. **UI System Consistency:** Use Tailwind + Shadcn primitives + local UI tokens. Reuse shared `components/ui/*` primitives before creating one-off controls.
+11. **Type Safety & Mappers:** Keep strict TypeScript typing. Convert backend DTOs to view models in `lib/` or feature mappers before deep UI usage.
+12. **Testing & Verification (Frontend):** After substantive frontend changes, run at least type/lint/build checks from `app/frontend` (`npm run build`; add lint/typecheck commands when available). Fix introduced issues before finalizing.
+13. **No Dead Code Drift:** Remove unused placeholders/components after migration phases complete. Keep `ARCHITECTURE.md` updated whenever folder strategy or dependency direction changes.
+
 ---
 **Note:** This document is a distillation of the primary agent instructions and project-specific rules. In case of conflict, the original system instructions take precedence, followed by the specific rules outlined in `README.md` and `PROJECT_PLAN.md`.

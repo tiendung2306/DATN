@@ -1,3 +1,5 @@
 import RootRouterScreen from '../features/runtime/screens/RootRouterScreen'
 
-export default RootRouterScreen
+export default function AppRoot() {
+  return <RootRouterScreen />
+}

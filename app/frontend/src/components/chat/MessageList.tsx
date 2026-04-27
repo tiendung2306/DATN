@@ -28,9 +28,11 @@ export default function MessageList({
   onRetry,
   onRemoveFailed,
 }: MessageListProps) {
+  const feed = messages.length > 0 ? messages : mockMessages(activeGroupId)
+
   if (!activeGroupId) {
     return (
-      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-700 text-sm text-slate-400">
         Select a group to start messaging.
       </div>
     )
@@ -38,30 +40,37 @@ export default function MessageList({
 
   if (loading) {
     return (
-      <div className="space-y-2 rounded-xl border border-border p-3">
-        <div className="h-14 animate-pulse rounded-md bg-muted" />
-        <div className="h-14 animate-pulse rounded-md bg-muted" />
-        <div className="h-14 animate-pulse rounded-md bg-muted" />
+      <div className="space-y-2 rounded-xl border border-slate-700/70 p-3">
+        <div className="h-14 animate-pulse rounded-md bg-slate-800" />
+        <div className="h-14 animate-pulse rounded-md bg-slate-800" />
+        <div className="h-14 animate-pulse rounded-md bg-slate-800" />
       </div>
     )
   }
 
-  if (messages.length === 0) {
+  if (feed.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-700 text-sm text-slate-400">
         No messages yet. Start the conversation.
       </div>
     )
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-border/80 bg-[#090d15] p-4">
-      {messages.map((message) => {
+    <div className="space-y-3">
+      {feed.map((message, index) => {
+        const previous = feed[index - 1]
+        const startsGroup =
+          index === 0 ||
+          previous.sender !== message.sender ||
+          previous.kind !== message.kind ||
+          previous.isMine !== message.isMine
+
         if (message.kind === 'system') {
           return (
             <div
               key={message.id}
-              className="mx-auto max-w-[70%] rounded-md border border-border bg-muted/40 px-3 py-2 text-center text-xs text-muted-foreground"
+              className="mx-auto max-w-[70%] rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-center text-xs text-slate-400"
             >
               {message.content}
             </div>
@@ -69,22 +78,40 @@ export default function MessageList({
         }
 
         return (
-          <div key={message.id} className={`flex ${message.isMine ? 'justify-end' : 'justify-start'}`}>
+          <div
+            key={message.id}
+            className={`flex ${message.isMine ? 'justify-end' : 'justify-start'} ${startsGroup ? 'mt-3' : 'mt-1'}`}
+          >
             <div
-              className={`max-w-[78%] rounded-lg px-3 py-2 text-sm shadow-sm ${
-                message.isMine
-                  ? 'border border-emerald-700/60 bg-emerald-600/14 text-emerald-100'
-                  : 'border border-border bg-[#101622] text-foreground'
+              className={`max-w-[78%] ${message.isMine ? 'items-end' : 'items-start'} flex flex-col ${
+                startsGroup ? 'gap-1.5' : 'gap-1'
               }`}
             >
-              <div className="mb-1 flex items-center gap-2 text-[11px] opacity-80">
-                <span>{message.isMine ? 'You' : shortPeerId(message.sender)}</span>
-                <span>{formatMessageTime(message.timestamp)}</span>
-                <span className={message.status === 'failed' ? 'text-red-300' : ''}>
+              {startsGroup ? (
+                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                  {!message.isMine ? <div className="h-7 w-7 rounded-full bg-slate-700" /> : null}
+                  <span>{message.isMine ? 'You' : shortPeerId(message.sender)}</span>
+                  <span>{formatMessageTime(message.timestamp)}</span>
+                </div>
+              ) : null}
+              <div
+                className={`rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                  message.isMine
+                    ? 'border border-emerald-500/30 bg-teal-900/40 text-slate-100'
+                    : 'bg-slate-800 text-slate-100'
+                }`}
+              >
+                <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
+                  <span>{formatMessageTime(message.timestamp)}</span>
+                  <span className={message.status === 'failed' ? 'text-red-300' : ''}>
+                    {message.isMine && message.status !== 'failed' ? '✓✓' : null}
+                  </span>
+                  <span className={message.status === 'failed' ? 'text-red-300' : ''}>
                   {statusLabel(message.status)}
-                </span>
+                  </span>
+                </div>
               </div>
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
               {message.status === 'failed' && (
                 <div className="mt-2 flex gap-2">
                   <Button size="xs" variant="secondary" onClick={() => onRetry(message.id)}>
@@ -101,4 +128,40 @@ export default function MessageList({
       })}
     </div>
   )
+}
+
+function mockMessages(groupId: string | null): ChatMessage[] {
+  if (!groupId) return []
+  return [
+    {
+      id: 'mock-1',
+      groupId,
+      sender: '12D3KooW-Alice',
+      content: 'Morning team, security review starts at 10:00.',
+      timestamp: Date.now() - 1000 * 60 * 20,
+      isMine: false,
+      status: 'published',
+      kind: 'user',
+    },
+    {
+      id: 'mock-2',
+      groupId,
+      sender: '12D3KooW-Alice',
+      content: 'Please keep this channel for release blockers only.',
+      timestamp: Date.now() - 1000 * 60 * 19,
+      isMine: false,
+      status: 'published',
+      kind: 'user',
+    },
+    {
+      id: 'mock-3',
+      groupId,
+      sender: 'local-user',
+      content: 'Acknowledged. We are validating offline sync scenarios now.',
+      timestamp: Date.now() - 1000 * 60 * 12,
+      isMine: true,
+      status: 'published',
+      kind: 'user',
+    },
+  ]
 }

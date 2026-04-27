@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime'
+import { EventsOn } from '../../wailsjs/runtime/runtime'
 
 type WailsEventHandler<T> = (payload: T) => void
 
@@ -13,7 +13,6 @@ export function useWailsEvent<T = unknown>(eventName: string, handler: WailsEven
       if (typeof unsubscribe === 'function') {
         unsubscribe()
       }
-      EventsOff(eventName)
     }
   }, [eventName, handler])
 }

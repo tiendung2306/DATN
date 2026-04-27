@@ -1,5 +1,5 @@
-import RootRouter from './screens/RootRouter'
+import AppRoot from './app/AppRoot'
 
 export default function App() {
-  return <RootRouter />
+  return <AppRoot />
 }
