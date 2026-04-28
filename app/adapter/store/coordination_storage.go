@@ -305,7 +305,7 @@ func (s *SQLiteCoordinationStorage) MarkEnvelopeApplied(groupID string, msgType 
 
 func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coordination.HLCTimestamp) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id
+		`SELECT id, group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id
 		 FROM stored_messages
 		 WHERE group_id = ?
 		   AND (hlc_wall_time_ms > ?
@@ -326,10 +326,12 @@ func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coord
 	for rows.Next() {
 		var m coordination.StoredMessage
 		var senderID string
-		if err := rows.Scan(&m.GroupID, &m.Epoch, &senderID, &m.Content,
+		var rowID int64
+		if err := rows.Scan(&rowID, &m.GroupID, &m.Epoch, &senderID, &m.Content,
 			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID); err != nil {
 			return nil, fmt.Errorf("GetMessagesSince scan: %w", err)
 		}
+		m.MessageID = fmt.Sprintf("%d", rowID)
 		if pid, err := peer.Decode(senderID); err == nil {
 			m.SenderID = pid
 		} else {

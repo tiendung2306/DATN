@@ -88,15 +88,26 @@ export function useChatActions({
     if (!failed) return
     updateMessageStatus(activeGroupId, messageId, 'sending')
     try {
-      await runtimeClient.sendGroupMessage(activeGroupId, failed.content)
+      if (messageId.startsWith('local:')) {
+        await runtimeClient.sendGroupMessage(activeGroupId, failed.content)
+      } else {
+        await runtimeClient.retryMessage(activeGroupId, messageId)
+      }
       updateMessageStatus(activeGroupId, messageId, 'published')
     } catch {
       updateMessageStatus(activeGroupId, messageId, 'failed')
     }
   }
 
-  const handleRemoveFailed = (messageId: string) => {
+  const handleRemoveFailed = async (messageId: string) => {
     if (!activeGroupId) return
+    if (!messageId.startsWith('local:')) {
+      try {
+        await runtimeClient.deleteLocalMessage(activeGroupId, messageId)
+      } catch {
+        // best-effort local cleanup still proceeds
+      }
+    }
     removeMessage(activeGroupId, messageId)
   }
 

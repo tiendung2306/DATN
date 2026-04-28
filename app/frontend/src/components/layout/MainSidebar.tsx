@@ -3,7 +3,7 @@ import { shortPeerId } from '../../lib/chatModel'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { NetworkConnectionState } from '../../stores/useNetworkStore'
-import { Hash, Plus } from 'lucide-react'
+import { Hash, MessageSquare, Plus, Settings, Shield, UserPlus } from 'lucide-react'
 
 interface MainSidebarProps {
   displayName: string
@@ -18,6 +18,9 @@ interface MainSidebarProps {
   onCreateGroupValueChange: (value: string) => void
   onCreateGroup: () => void
   onSelectGroup: (groupId: string) => void
+  activeModule: 'chat' | 'invites' | 'settings' | 'admin'
+  onSelectModule: (module: 'chat' | 'invites' | 'settings' | 'admin') => void
+  isAdmin: boolean
 }
 
 export default function MainSidebar({
@@ -33,19 +36,55 @@ export default function MainSidebar({
   onCreateGroupValueChange,
   onCreateGroup,
   onSelectGroup,
+  activeModule,
+  onSelectModule,
+  isAdmin,
 }: MainSidebarProps) {
-  const activeDirects = peersToDirectMessages(groups)
+  const modules = [
+    { id: 'chat' as const, label: 'Chats', icon: MessageSquare },
+    { id: 'invites' as const, label: 'Loi moi', icon: UserPlus },
+    ...(isAdmin ? [{ id: 'admin' as const, label: 'Quan tri', icon: Shield }] : []),
+    { id: 'settings' as const, label: 'Cai dat', icon: Settings },
+  ]
+  const showChatGroups = activeModule === 'chat'
 
   return (
-    <aside className="flex w-72 flex-col border-r border-slate-800 bg-slate-900">
+    <aside className="flex w-80 flex-col border-r border-slate-800 bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-4">
         <div>
-          <p className="text-sm font-semibold text-slate-100">Chats</p>
+          <p className="text-sm font-semibold text-slate-100">Secure Workspace</p>
           <p className="mt-0.5 text-xs text-slate-400">{displayName || shortPeerId(localPeerId)}</p>
         </div>
-        <Button size="icon-sm" variant="ghost" className="text-slate-300 hover:text-slate-100">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="text-slate-300 hover:text-slate-100"
+          title={networkStatus === 'connected' ? 'Connected' : 'Disconnected'}
+        >
           <Plus className="h-4 w-4" />
         </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 border-b border-slate-800 px-4 py-3">
+        {modules.map((module) => {
+          const Icon = module.icon
+          const active = activeModule === module.id
+          return (
+            <button
+              key={module.id}
+              type="button"
+              onClick={() => onSelectModule(module.id)}
+              className={`flex items-center gap-2 rounded-md px-2 py-2 text-xs font-medium transition ${
+                active
+                  ? 'bg-slate-800 text-emerald-300'
+                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-100'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {module.label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="space-y-2 border-b border-slate-800 px-4 py-3">
@@ -53,12 +92,13 @@ export default function MainSidebar({
           <Input
             value={createGroupValue}
             onChange={(event) => onCreateGroupValueChange(event.target.value)}
-            placeholder="Create or find channel"
+            placeholder="Create secure group"
             className="h-9 border-slate-700 bg-slate-800 text-xs text-slate-200 placeholder:text-slate-500"
+            disabled={!showChatGroups}
           />
           <Button
             onClick={onCreateGroup}
-            disabled={creatingGroup || !createGroupValue.trim()}
+            disabled={!showChatGroups || creatingGroup || !createGroupValue.trim()}
             className="h-9 bg-emerald-500 px-3 text-xs text-slate-900 hover:bg-emerald-400"
           >
             {creatingGroup ? '...' : 'New'}
@@ -68,10 +108,14 @@ export default function MainSidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
-          CHANNELS
+          GROUP CHANNELS
         </p>
         <div className="mt-2 space-y-1">
-          {groups.length === 0 ? (
+          {!showChatGroups ? (
+            <div className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-500">
+              Switch to Chats to view groups.
+            </div>
+          ) : groups.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-400">
               You have not joined any group yet.
             </div>
@@ -103,24 +147,6 @@ export default function MainSidebar({
             })
           )}
         </div>
-
-        <p className="mt-5 px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
-          DIRECT MESSAGES
-        </p>
-        <div className="mt-2 space-y-1">
-          {activeDirects.map((direct) => (
-            <button
-              key={direct.id}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/60"
-              type="button"
-            >
-              <div className="relative h-6 w-6 rounded-full bg-slate-700">
-                <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-slate-900 bg-emerald-500" />
-              </div>
-              <span className="truncate">{direct.name}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-400">
@@ -128,19 +154,4 @@ export default function MainSidebar({
       </div>
     </aside>
   )
-}
-
-function peersToDirectMessages(groups: service.GroupInfo[]): Array<{ id: string; name: string }> {
-  if (groups.length === 0) {
-    return [
-      { id: 'dm-security', name: 'Security Team' },
-      { id: 'dm-admin', name: 'System Admin' },
-      { id: 'dm-ops', name: 'Network Ops' },
-    ]
-  }
-
-  return groups.slice(0, 4).map((group) => ({
-    id: `dm-${group.group_id}`,
-    name: group.group_id.replace(/[-_]/g, ' '),
-  }))
 }

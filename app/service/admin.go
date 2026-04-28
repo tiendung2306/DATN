@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"app/adapter/p2p"
+	"app/adapter/store"
 	"app/admin"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -55,6 +56,17 @@ type IssueBundleRequest struct {
 	Note            string `json:"note,omitempty"`
 }
 
+type IssuanceRecord struct {
+	ID           string `json:"id"`
+	DisplayName  string `json:"display_name"`
+	PeerID       string `json:"peer_id"`
+	PublicKeyHex string `json:"public_key_hex"`
+	IssuedAt     int64  `json:"issued_at"`
+	ExpiresAt    int64  `json:"expires_at"`
+	Note         string `json:"note,omitempty"`
+	BundlePath   string `json:"bundle_path,omitempty"`
+}
+
 // CreateBundle creates a signed InvitationBundle for a new user and saves it via a save dialog.
 func (r *Runtime) CreateBundle(req CreateBundleRequest) (string, error) {
 	if r.db == nil || r.privKey == nil {
@@ -98,6 +110,7 @@ func (r *Runtime) CreateBundle(req CreateBundleRequest) (string, error) {
 	if err := os.WriteFile(outPath, bundleData, 0600); err != nil {
 		return "", fmt.Errorf("write bundle file: %w", err)
 	}
+	_ = r.recordIssuanceHistory(bundleData, strings.TrimSpace(req.PublicKeyHex), "", outPath)
 	return outPath, nil
 }
 
@@ -148,7 +161,59 @@ func (r *Runtime) CreateBundleFromRequest(req IssueBundleRequest) (string, error
 	if err != nil {
 		return "", fmt.Errorf("create bundle: %w", err)
 	}
+	_ = r.recordIssuanceHistory(bundleData, strings.TrimSpace(req.PublicKeyHex), strings.TrimSpace(req.Note), "")
 	return string(bundleData), nil
+}
+
+func (r *Runtime) ListIssuanceHistory() ([]IssuanceRecord, error) {
+	r.mu.RLock()
+	db := r.db
+	r.mu.RUnlock()
+	if db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	rows, err := db.ListAdminIssuanceHistory()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]IssuanceRecord, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, IssuanceRecord{
+			ID:           row.ID,
+			DisplayName:  row.DisplayName,
+			PeerID:       row.PeerID,
+			PublicKeyHex: row.PublicKeyHex,
+			IssuedAt:     row.IssuedAt,
+			ExpiresAt:    row.ExpiresAt,
+			Note:         row.Note,
+			BundlePath:   row.BundlePath,
+		})
+	}
+	return out, nil
+}
+
+func (r *Runtime) recordIssuanceHistory(bundleData []byte, publicKeyHex string, note string, bundlePath string) error {
+	r.mu.RLock()
+	db := r.db
+	r.mu.RUnlock()
+	if db == nil || len(bundleData) == 0 {
+		return nil
+	}
+	bundle, err := admin.DeserializeBundle(bundleData)
+	if err != nil || bundle == nil || bundle.Token == nil {
+		return err
+	}
+	rec := store.AdminIssuanceRecord{
+		ID:           store.PendingInviteID(bundle.Token.PeerID, bundleData),
+		DisplayName:  bundle.Token.DisplayName,
+		PeerID:       bundle.Token.PeerID,
+		PublicKeyHex: publicKeyHex,
+		IssuedAt:     bundle.Token.IssuedAt,
+		ExpiresAt:    bundle.Token.ExpiresAt,
+		Note:         note,
+		BundlePath:   bundlePath,
+	}
+	return db.SaveAdminIssuanceRecord(rec)
 }
 
 func validateDeviceAccessRequest(req DeviceAccessRequest) error {

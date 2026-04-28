@@ -5,6 +5,7 @@ import { mapNodeStatusToNetworkState } from '../../../lib/networkModel'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useNetworkStore } from '../../../stores/useNetworkStore'
 import { useChatStore } from '../../../stores/useChatStore'
+import { service } from '../../../../wailsjs/go/models'
 
 export function useChatRuntime() {
   const groups = useGroupsStore((s) => s.groups)
@@ -28,6 +29,7 @@ export function useChatRuntime() {
 
   const [displayName, setDisplayName] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [activeGroupMembers, setActiveGroupMembers] = useState<service.MemberInfo[]>([])
 
   const refreshNodeStatus = useCallback(async () => {
     try {
@@ -72,6 +74,15 @@ export function useChatRuntime() {
     [markGroupRead, setMessages],
   )
 
+  const loadGroupMembers = useCallback(async (groupId: string) => {
+    try {
+      const members = await runtimeClient.getGroupMembers(groupId)
+      setActiveGroupMembers(members ?? [])
+    } catch {
+      setActiveGroupMembers([])
+    }
+  }, [])
+
   useEffect(() => {
     void refreshNodeStatus()
     void refreshGroups()
@@ -85,7 +96,14 @@ export function useChatRuntime() {
   useEffect(() => {
     if (!activeGroupId) return
     void loadMessages(activeGroupId)
-  }, [activeGroupId, loadMessages])
+    void loadGroupMembers(activeGroupId)
+  }, [activeGroupId, loadMessages, loadGroupMembers])
+
+  useEffect(() => {
+    if (!activeGroupId) {
+      setActiveGroupMembers([])
+    }
+  }, [activeGroupId])
 
   const activeMessages = useMemo(
     () => (activeGroupId ? messagesByGroup[activeGroupId] ?? [] : []),
@@ -102,6 +120,7 @@ export function useChatRuntime() {
     unreadByGroup,
     loadingMessages,
     activeMessages,
+    activeGroupMembers,
     refreshGroups,
     setGroups,
     setActiveGroupId,

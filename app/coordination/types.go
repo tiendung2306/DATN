@@ -147,6 +147,7 @@ type CoordState struct {
 
 // StoredMessage is a decrypted message stored in SQLite for UI display.
 type StoredMessage struct {
+	MessageID string
 	GroupID   string
 	Epoch     uint64
 	SenderID  peer.ID

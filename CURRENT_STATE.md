@@ -391,6 +391,66 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 - `go vet ./...` PASS
 - `go build ./...` PASS
 
+### Phase 6 P1 + Phase 7 (incremental productization) — IN PROGRESS ✅ (latest slice completed)
+
+#### Backend P1 slice delivered in this update
+
+- **Network/bootstrap runtime controls (implemented):**
+  - New Runtime APIs: `GetNetworkSettings`, `ValidateMultiaddr`, `SetBootstrapAddress`, `ReconnectP2P`.
+  - Added persisted runtime bootstrap override key in `system_config`: `runtime_bootstrap_override`.
+  - Runtime startup now restores bootstrap override from DB in `app/service/runtime.go`.
+
+- **Diagnostics snapshot/export (implemented):**
+  - New Runtime APIs: `GetDiagnosticsSnapshot`, `ExportDiagnostics`, `OpenLogFolder`.
+  - Added `app/service/network_diagnostics.go` with snapshot DTOs for app state, peer counts, offline sync status, coordinator group summary, runtime health.
+  - Diagnostics export writes JSON artifact under `.local/diagnostics-<unix>.json`.
+
+- **Message retry/delete contract (implemented):**
+  - New Runtime APIs: `RetryMessage(groupID, messageID)`, `DeleteLocalMessage(groupID, messageID)`.
+  - Added DB helpers in `app/adapter/store/db.go`: `GetStoredMessageByID`, `DeleteStoredMessageByID`.
+  - Extended `coordination.StoredMessage` with stable `MessageID`; SQLite read path now maps `stored_messages.id` to `MessageID`.
+  - `MessageInfo` now includes `message_id` + `status` for frontend-safe retry/delete actions.
+
+- **Admin issuance history (implemented):**
+  - Added SQLite table `admin_issuance_history`.
+  - Added DB APIs: `SaveAdminIssuanceRecord`, `ListAdminIssuanceHistory`.
+  - Runtime API `ListIssuanceHistory()` added.
+  - Bundle issuance paths now record local audit rows after successful creation.
+
+#### Frontend FE-4/5/6/7 slice delivered in this update
+
+- **Runtime client aggregation expanded:**
+  - `app/frontend/src/services/runtime/runtimeClient.ts` now exposes the full product-facing Runtime method set used by Group/Invite/Settings/Admin/Diagnostics flows.
+
+- **Real feature screens replaced previous placeholders (`return null` removed):**
+  - `features/invites/screens/InvitesScreen.tsx`:
+    - Generate join code
+    - Invite peer to active group
+    - List/accept/reject pending invites
+  - `features/settings/screens/SettingsScreen.tsx`:
+    - Export identity backup
+    - Validate/set bootstrap override + reconnect P2P
+    - Export diagnostics + open log folder
+  - `features/admin/screens/AdminPanelScreen.tsx`:
+    - Init admin key
+    - Parse request JSON + issue bundle
+    - List issuance history
+
+- **Main shell module navigation integrated:**
+  - `PrimaryRail` now routes module view (`chat` / `invites` / `settings` / `admin`).
+  - `MainChatModuleScreen` orchestrates module switching and renders feature screens.
+
+- **Retry/delete wiring improved in chat flow:**
+  - `useChatActions` now calls backend `retryMessage` / `deleteLocalMessage` for persisted messages.
+  - `chatModel` maps backend `message_id` and `status` into local `ChatMessage`.
+
+#### Validation for this slice
+
+- `cd app && go test ./...` PASS
+- `cd app && go vet ./...` PASS
+- `cd app && wails generate module` PASS
+- `cd app/frontend && npm run build` PASS
+
 ### Phase 4 Coordination Layer — COMPLETE ✅ (xác minh: `cd app && go test ./...`; `cd crypto-engine && cargo test`)
 
 **Coordination:** `app/coordination/*.go` — Transport, Clock, MLSEngine (interface), Coordinator, HLC, fork healing. **Không** chứa binary Rust; bridge MLS: `app/adapter/sidecar/engine.go`.

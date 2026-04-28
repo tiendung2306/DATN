@@ -448,7 +448,7 @@
 - **Success Criteria:** Admin can issue a signed bundle from `request.json` without manually copying long strings.
 - **Status:** Completed for P0 with passphrase-per-sign `GetAdminStatus`, `ParseDeviceRequestJSON`, and `CreateBundleFromRequest`. In-memory `UnlockAdmin`/`LockAdmin` remains deferred.
 
-### 6.6. Network, Diagnostics, Message State, and Audit [P1]
+### 6.6. Network, Diagnostics, Message State, and Audit [P1 - IN PROGRESS]
 - **Task:** Add runtime network/bootstrap controls:
   - view local multiaddr
   - validate/set bootstrap address
@@ -458,6 +458,12 @@
 - **Task:** Add message IDs/status/retry if the frontend needs failed-message recovery.
 - **Task:** Add Admin issuance history if audit table is in scope.
 - **Success Criteria:** Developer Mode and settings screens have real backend data, but these can be completed in parallel with frontend after P0 is done.
+- **Progress update (latest):**
+  - Implemented Runtime APIs: `GetNetworkSettings`, `ValidateMultiaddr`, `SetBootstrapAddress`, `ReconnectP2P`.
+  - Implemented Runtime APIs: `GetDiagnosticsSnapshot`, `ExportDiagnostics`, `OpenLogFolder`.
+  - Implemented Runtime APIs: `RetryMessage`, `DeleteLocalMessage` with stable message ID mapping from SQLite.
+  - Implemented admin audit persistence/API: `admin_issuance_history` + `ListIssuanceHistory`.
+  - Wails bindings regenerated and frontend wired to these APIs.
 
 ### 6.7. Backend Readiness Gate for Frontend
 - **Required before full frontend rebuild:**
@@ -471,7 +477,7 @@
 
 ---
 
-## 7. FRONTEND APPLICATION UI (Weeks 17-18)
+## 7. FRONTEND APPLICATION UI (Weeks 17-18) [IN PROGRESS]
 
 **Goal:** Upgrade the current dev/test UI into a production-ready frontend experience for real user workflows, using the backend APIs completed in Phase 6.
 
@@ -502,6 +508,10 @@
 - **Task:** Build backup/import, session/device, network/bootstrap settings.
 - **Task:** Build Admin setup/unlock, request parsing, bundle issuance, and issuance history if backend supports it.
 - **Task:** Build Developer Mode overlays for P2P/protocol diagnostics.
+- **Progress update (latest):**
+  - Invites/Admin/Settings feature screens are now implemented (replacing placeholders).
+  - Main module navigation (`chat`/`invites`/`settings`/`admin`) is wired through `PrimaryRail`.
+  - Chat retry/remove actions now call backend retry/delete APIs when message IDs are available.
 
 ### 7.5. Frontend Quality, Accessibility, and Build Stability
 - **Task:** Add/expand frontend validation and type safety checks (`npm run build`, lint/typecheck setup if needed).

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
 
@@ -53,12 +54,55 @@ func (r *Runtime) GetGroupMessages(groupID string) ([]MessageInfo, error) {
 	result := make([]MessageInfo, len(msgs))
 	for i, m := range msgs {
 		result[i] = MessageInfo{
+			MessageID: m.MessageID,
 			GroupID:   m.GroupID,
 			Sender:    m.SenderID.String(),
 			Content:   string(m.Content),
 			Timestamp: m.Timestamp.WallTimeMs,
 			IsMine:    m.SenderID == localID,
+			Status:    "published",
 		}
 	}
 	return result, nil
+}
+
+// RetryMessage re-sends an existing persisted message by ID.
+func (r *Runtime) RetryMessage(groupID string, messageID string) error {
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
+	if groupID == "" || messageID == "" {
+		return fmt.Errorf("group ID and message ID are required")
+	}
+	r.mu.RLock()
+	db := r.db
+	r.mu.RUnlock()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	row, err := db.GetStoredMessageByID(groupID, messageID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("message not found")
+		}
+		return err
+	}
+	return r.SendGroupMessage(groupID, row.Content)
+}
+
+// DeleteLocalMessage removes one locally persisted message row.
+func (r *Runtime) DeleteLocalMessage(groupID string, messageID string) error {
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
+	if groupID == "" || messageID == "" {
+		return fmt.Errorf("group ID and message ID are required")
+	}
+	r.mu.RLock()
+	db := r.db
+	r.mu.RUnlock()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return db.DeleteStoredMessageByID(groupID, messageID)
 }

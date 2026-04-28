@@ -35,7 +35,8 @@ Rules:
 
 ## Next Migration Steps
 
-1. Implement real screens for `features/invites`, `features/admin`, `features/settings`.
+1. Completed: real screens for `features/invites`, `features/admin`, `features/settings` are now wired in the main shell.
 2. Replace polling loops with event-first sync where backend events are available.
 3. Add typed DTO mappers per feature (avoid passing raw backend DTOs deep into UI).
 4. Remove legacy wrappers under `screens/` once all imports are migrated.
+5. Tighten admin/settings UX with stronger loading/error boundaries and explicit confirmation for destructive operations.

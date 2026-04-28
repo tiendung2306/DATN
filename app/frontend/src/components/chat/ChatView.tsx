@@ -1,7 +1,7 @@
 import { ChatMessage } from '../../stores/useChatStore'
 import MessageComposer from './MessageComposer'
 import MessageList from './MessageList'
-import { Info, Lock, Phone, Video } from 'lucide-react'
+import { Info, Lock } from 'lucide-react'
 
 interface ChatViewProps {
   activeGroupId: string | null
@@ -13,6 +13,8 @@ interface ChatViewProps {
   onSend: () => void
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
+  onToggleDetails: () => void
+  detailsOpen: boolean
 }
 
 export default function ChatView({
@@ -25,6 +27,8 @@ export default function ChatView({
   onSend,
   onRetry,
   onRemoveFailed,
+  onToggleDetails,
+  detailsOpen,
 }: ChatViewProps) {
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-[#0f172a]">
@@ -40,19 +44,12 @@ export default function ChatView({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
-            >
-              <Phone className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
-            >
-              <Video className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+              className={`rounded-lg p-2 transition ${
+                detailsOpen
+                  ? 'bg-slate-800 text-emerald-300'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+              onClick={onToggleDetails}
             >
               <Info className="h-4 w-4" />
             </button>

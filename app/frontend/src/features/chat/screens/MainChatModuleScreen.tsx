@@ -1,16 +1,22 @@
+import { useState } from 'react'
 import AppShell from '../../../components/layout/AppShell'
 import MainSidebar from '../../../components/layout/MainSidebar'
 import ChatView from '../../../components/chat/ChatView'
-import PrimaryRail from '../../../components/layout/PrimaryRail'
+import RoomPanel from '../../../components/chat/RoomPanel'
 import { useChatRuntime } from '../hooks/useChatRuntime'
 import { useChatEvents } from '../hooks/useChatEvents'
 import { useChatActions } from '../hooks/useChatActions'
+import InvitesScreen from '../../invites/screens/InvitesScreen'
+import SettingsScreen from '../../settings/screens/SettingsScreen'
+import AdminPanelScreen from '../../admin/screens/AdminPanelScreen'
 
 interface MainChatModuleScreenProps {
   isAdmin: boolean
 }
 
 export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenProps) {
+  const [activeModule, setActiveModule] = useState<'chat' | 'invites' | 'settings' | 'admin'>('chat')
+  const [detailsOpen, setDetailsOpen] = useState(true)
   const {
     displayName,
     groups,
@@ -21,6 +27,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     unreadByGroup,
     loadingMessages,
     activeMessages,
+    activeGroupMembers,
     refreshGroups,
     setActiveGroupId,
   } = useChatRuntime()
@@ -47,7 +54,6 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
       subtitle={isAdmin ? 'Admin capability enabled' : 'Authorized device'}
     >
       <div className="flex h-full w-full">
-        <PrimaryRail isConnected={networkStatus === 'connected'} />
         <MainSidebar
           displayName={displayName}
           localPeerId={localPeerId}
@@ -61,18 +67,49 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           onCreateGroupValueChange={setCreateGroupValue}
           onCreateGroup={handleCreateGroup}
           onSelectGroup={handleSelectGroup}
+          activeModule={activeModule}
+          onSelectModule={setActiveModule}
+          isAdmin={isAdmin}
         />
-        <ChatView
-          activeGroupId={activeGroupId}
-          messages={activeMessages}
-          loadingMessages={loadingMessages}
-          composingMessage={composingMessage}
-          sending={sending}
-          onComposingChange={setComposingMessage}
-          onSend={handleSendMessage}
-          onRetry={handleRetryMessage}
-          onRemoveFailed={handleRemoveFailed}
-        />
+        {activeModule === 'chat' ? (
+          <ChatView
+            activeGroupId={activeGroupId}
+            messages={activeMessages}
+            loadingMessages={loadingMessages}
+            composingMessage={composingMessage}
+            sending={sending}
+            onComposingChange={setComposingMessage}
+            onSend={handleSendMessage}
+            onRetry={handleRetryMessage}
+            onRemoveFailed={handleRemoveFailed}
+            detailsOpen={detailsOpen}
+            onToggleDetails={() => setDetailsOpen((v) => !v)}
+          />
+        ) : null}
+        {activeModule === 'invites' ? (
+          <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">
+            <InvitesScreen activeGroupId={activeGroupId} />
+          </section>
+        ) : null}
+        {activeModule === 'settings' ? (
+          <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">
+            <SettingsScreen />
+          </section>
+        ) : null}
+        {activeModule === 'admin' ? (
+          <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">
+            {isAdmin ? <AdminPanelScreen /> : <p className="p-4 text-sm text-slate-400">Admin mode required.</p>}
+          </section>
+        ) : null}
+        {activeModule === 'chat' ? (
+          <RoomPanel
+            activeGroupId={activeGroupId}
+            isAdmin={isAdmin}
+            peers={activeGroupMembers}
+            collapsed={!detailsOpen}
+            onToggleCollapsed={() => setDetailsOpen((v) => !v)}
+          />
+        ) : null}
       </div>
     </AppShell>
   )

@@ -127,6 +127,9 @@ func (r *Runtime) Startup(ctx context.Context) {
 		return
 	}
 	r.db = database
+	if override, err := database.GetConfig(bootstrapOverrideConfigKey); err == nil && len(override) > 0 {
+		r.cfg.BootstrapAddr = string(override)
+	}
 
 	r.setStartupProgress(startupStageIdentity, "loading local peer identity")
 	privKey, err := p2p.GetOrCreateIdentity(database)

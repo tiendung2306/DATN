@@ -2,14 +2,15 @@ import { service } from '../../wailsjs/go/models'
 import { ChatMessage } from '../stores/useChatStore'
 
 export function messageInfoToChatMessage(message: service.MessageInfo): ChatMessage {
+  const fallbackId = `${message.group_id}:${message.sender}:${message.timestamp}:${message.content}`
   return {
-    id: `${message.group_id}:${message.sender}:${message.timestamp}:${message.content}`,
+    id: (message as { message_id?: string }).message_id || fallbackId,
     groupId: message.group_id,
     sender: message.sender,
     content: message.content,
     timestamp: message.timestamp,
     isMine: message.is_mine,
-    status: 'published',
+    status: ((message as { status?: ChatMessage['status'] }).status ?? 'published') as ChatMessage['status'],
     kind: 'user',
   }
 }

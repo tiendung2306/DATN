@@ -20,11 +20,13 @@ import (
 
 // MessageInfo is a single chat message returned to the frontend.
 type MessageInfo struct {
+	MessageID string `json:"message_id"`
 	GroupID   string `json:"group_id"`
 	Sender    string `json:"sender"`
 	Content   string `json:"content"`
 	Timestamp int64  `json:"timestamp"`
 	IsMine    bool   `json:"is_mine"`
+	Status    string `json:"status"`
 }
 
 // GroupInfo is a summary of a joined group returned to the frontend.
@@ -399,11 +401,13 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 		r.mu.Unlock()
 
 		r.emit("group:message", map[string]interface{}{
-			"group_id":  msg.GroupID,
-			"sender":    msg.SenderID.String(),
-			"content":   string(msg.Content),
-			"timestamp": msg.Timestamp.WallTimeMs,
-			"is_mine":   isMine,
+			"message_id": msg.MessageID,
+			"group_id":   msg.GroupID,
+			"sender":     msg.SenderID.String(),
+			"content":    string(msg.Content),
+			"timestamp":  msg.Timestamp.WallTimeMs,
+			"is_mine":    isMine,
+			"status":     "published",
 		})
 	}
 }

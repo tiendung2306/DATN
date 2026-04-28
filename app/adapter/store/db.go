@@ -275,6 +275,18 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_invites_status_received
 			ON pending_invites(status, received_at);`,
+		`CREATE TABLE IF NOT EXISTS admin_issuance_history (
+			id             TEXT PRIMARY KEY,
+			display_name   TEXT NOT NULL,
+			peer_id        TEXT NOT NULL,
+			public_key_hex TEXT NOT NULL,
+			issued_at      INTEGER NOT NULL,
+			expires_at     INTEGER NOT NULL,
+			note           TEXT NOT NULL DEFAULT '',
+			bundle_path    TEXT NOT NULL DEFAULT ''
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_admin_issuance_history_issued_at
+			ON admin_issuance_history(issued_at DESC);`,
 	}
 
 	for _, q := range queries {
@@ -959,4 +971,84 @@ func (d *Database) IsGroupActive(groupID string) (bool, error) {
 		return false, fmt.Errorf("IsGroupActive(%q): %w", groupID, err)
 	}
 	return status == "" || status == GroupLifecycleActive, nil
+}
+
+type StoredMessageRow struct {
+	ID      string
+	GroupID string
+	Content string
+}
+
+type AdminIssuanceRecord struct {
+	ID           string
+	DisplayName  string
+	PeerID       string
+	PublicKeyHex string
+	IssuedAt     int64
+	ExpiresAt    int64
+	Note         string
+	BundlePath   string
+}
+
+func (d *Database) GetStoredMessageByID(groupID string, messageID string) (*StoredMessageRow, error) {
+	var id int64
+	var row StoredMessageRow
+	err := d.Conn.QueryRow(
+		`SELECT id, group_id, content FROM stored_messages WHERE group_id = ? AND id = ?`,
+		groupID, messageID,
+	).Scan(&id, &row.GroupID, &row.Content)
+	if err != nil {
+		return nil, err
+	}
+	row.ID = fmt.Sprintf("%d", id)
+	return &row, nil
+}
+
+func (d *Database) DeleteStoredMessageByID(groupID string, messageID string) error {
+	res, err := d.Conn.Exec(`DELETE FROM stored_messages WHERE group_id = ? AND id = ?`, groupID, messageID)
+	if err != nil {
+		return fmt.Errorf("DeleteStoredMessageByID: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("DeleteStoredMessageByID rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *Database) SaveAdminIssuanceRecord(rec AdminIssuanceRecord) error {
+	_, err := d.Conn.Exec(
+		`INSERT OR REPLACE INTO admin_issuance_history
+		 (id, display_name, peer_id, public_key_hex, issued_at, expires_at, note, bundle_path)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.ID, rec.DisplayName, rec.PeerID, rec.PublicKeyHex, rec.IssuedAt, rec.ExpiresAt, rec.Note, rec.BundlePath,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveAdminIssuanceRecord: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) ListAdminIssuanceHistory() ([]AdminIssuanceRecord, error) {
+	rows, err := d.Conn.Query(
+		`SELECT id, display_name, peer_id, public_key_hex, issued_at, expires_at, note, bundle_path
+		 FROM admin_issuance_history
+		 ORDER BY issued_at DESC`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListAdminIssuanceHistory: %w", err)
+	}
+	defer rows.Close()
+	out := make([]AdminIssuanceRecord, 0)
+	for rows.Next() {
+		var rec AdminIssuanceRecord
+		if err := rows.Scan(&rec.ID, &rec.DisplayName, &rec.PeerID, &rec.PublicKeyHex, &rec.IssuedAt, &rec.ExpiresAt, &rec.Note, &rec.BundlePath); err != nil {
+			return nil, fmt.Errorf("ListAdminIssuanceHistory scan: %w", err)
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
