@@ -20,13 +20,14 @@ import (
 
 // MessageInfo is a single chat message returned to the frontend.
 type MessageInfo struct {
-	MessageID string `json:"message_id"`
-	GroupID   string `json:"group_id"`
-	Sender    string `json:"sender"`
-	Content   string `json:"content"`
-	Timestamp int64  `json:"timestamp"`
-	IsMine    bool   `json:"is_mine"`
-	Status    string `json:"status"`
+	MessageID         string `json:"message_id"`
+	GroupID           string `json:"group_id"`
+	Sender            string `json:"sender"`
+	SenderDisplayName string `json:"sender_display_name"`
+	Content           string `json:"content"`
+	Timestamp         int64  `json:"timestamp"`
+	IsMine            bool   `json:"is_mine"`
+	Status            string `json:"status"`
 }
 
 // GroupInfo is a summary of a joined group returned to the frontend.
@@ -39,8 +40,9 @@ type GroupInfo struct {
 
 // MemberInfo describes a peer in the coordination active view with liveness.
 type MemberInfo struct {
-	PeerID   string `json:"peer_id"`
-	IsOnline bool   `json:"is_online"`
+	PeerID      string `json:"peer_id"`
+	DisplayName string `json:"display_name"`
+	IsOnline    bool   `json:"is_online"`
 }
 
 // KeyPackageResult is returned by GenerateKeyPackage for Wails/TS bindings.
@@ -301,9 +303,41 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 
 	ids := coord.ActiveMembers()
 	out := make([]MemberInfo, 0, len(ids))
+
+	var localID string
+	var localName string
+	if r.db != nil {
+		if id, err := r.GetOnboardingInfo(); err == nil && id != nil {
+			localID = id.PeerID
+		}
+		if identity, err := r.db.GetMLSIdentity(); err == nil {
+			localName = identity.DisplayName
+		}
+	}
+
 	for _, id := range ids {
 		_, isOn := online[id.String()]
-		out = append(out, MemberInfo{PeerID: id.String(), IsOnline: isOn})
+		displayName := ""
+
+		if id.String() == localID {
+			displayName = localName
+		}
+		if displayName == "" && r.node != nil && r.node.AuthProtocol != nil {
+			if tok := r.node.AuthProtocol.GetVerifiedToken(id); tok != nil {
+				displayName = tok.DisplayName
+			}
+		}
+		if displayName == "" && r.db != nil {
+			if name, _ := r.db.GetPeerDisplayName(id.String()); name != "" {
+				displayName = name
+			}
+		}
+
+		out = append(out, MemberInfo{
+			PeerID:      id.String(),
+			DisplayName: displayName,
+			IsOnline:    isOn,
+		})
 	}
 	return out, nil
 }

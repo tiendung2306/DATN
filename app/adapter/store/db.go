@@ -165,6 +165,13 @@ func (d *Database) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_stored_messages_group_hlc
 			ON stored_messages(group_id, hlc_wall_time_ms, hlc_counter, hlc_node_id);`,
 
+		// Phase 7: Local directory caching PeerID -> Display Name.
+		`CREATE TABLE IF NOT EXISTS peer_directory (
+			peer_id      TEXT PRIMARY KEY,
+			display_name TEXT NOT NULL,
+			updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+
 		// Phase 5: local KeyPackage private bundles (one active per peer; reused after group join).
 		// public_kp is used for invite distribution; private_bundle stays local forever.
 		`CREATE TABLE IF NOT EXISTS kp_bundles (
@@ -464,6 +471,57 @@ func (d *Database) HasMLSIdentity() (bool, error) {
 		return false, fmt.Errorf("HasMLSIdentity: %w", err)
 	}
 	return count > 0, nil
+}
+
+// ── peer_directory ────────────────────────────────────────────────────────────
+
+// SavePeerProfile inserts or updates a peer's display name mapping.
+func (d *Database) SavePeerProfile(peerID string, displayName string) error {
+	if peerID == "" || displayName == "" {
+		return nil
+	}
+	_, err := d.Conn.Exec(
+		`INSERT INTO peer_directory (peer_id, display_name, updated_at)
+		 VALUES (?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(peer_id) DO UPDATE SET display_name = excluded.display_name, updated_at = CURRENT_TIMESTAMP`,
+		peerID, displayName,
+	)
+	if err != nil {
+		return fmt.Errorf("SavePeerProfile: %w", err)
+	}
+	return nil
+}
+
+// GetPeerDisplayName retrieves the display name of a peer, or empty if unknown.
+func (d *Database) GetPeerDisplayName(peerID string) (string, error) {
+	var name string
+	err := d.Conn.QueryRow("SELECT display_name FROM peer_directory WHERE peer_id = ?", peerID).Scan(&name)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("GetPeerDisplayName: %w", err)
+	}
+	return name, nil
+}
+
+// GetAllPeerProfiles returns all cached PeerID -> Display Name mappings.
+func (d *Database) GetAllPeerProfiles() (map[string]string, error) {
+	rows, err := d.Conn.Query("SELECT peer_id, display_name FROM peer_directory")
+	if err != nil {
+		return nil, fmt.Errorf("GetAllPeerProfiles: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]string)
+	for rows.Next() {
+		var pid, name string
+		if err := rows.Scan(&pid, &name); err != nil {
+			return nil, err
+		}
+		out[pid] = name
+	}
+	return out, nil
 }
 
 // ── auth_bundle ───────────────────────────────────────────────────────────────

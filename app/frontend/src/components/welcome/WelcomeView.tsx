@@ -6,6 +6,7 @@ interface WelcomeViewProps {
   error: string | null
   onCreateIdentity: () => void
   onOpenImportBackup: () => void
+  onOpenAdminSetup: () => void
 }
 
 export default function WelcomeView({
@@ -13,6 +14,7 @@ export default function WelcomeView({
   error,
   onCreateIdentity,
   onOpenImportBackup,
+  onOpenAdminSetup,
 }: WelcomeViewProps) {
   return (
     <div className="flex min-h-[70vh] items-center justify-center p-6">
@@ -39,6 +41,16 @@ export default function WelcomeView({
           <Button className="w-full" variant="secondary" onClick={onOpenImportBackup} disabled={loading}>
             Import Backup
           </Button>
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+              onClick={onOpenAdminSetup}
+              disabled={loading}
+            >
+              Are you an Admin? Create a new organization
+            </button>
+          </div>
         </CardContent>
       </Card>
     </div>

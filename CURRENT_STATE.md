@@ -297,6 +297,14 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   `testutil_test.go` — FakeNetwork (queue + DrainAll), FakeTransport, MockMLSEngine, MockStorage
 *   `coordinator_test.go` — 10 integration tests: group creation, token holder election, message send/receive, proposal/commit, epoch consistency, heartbeats, HLC ordering, fork detection
 
+### 3k. Threaded Workplace UX (Slack/Teams Paradigm)
+
+Để tối ưu hóa trải nghiệm làm việc cho môi trường doanh nghiệp và loại bỏ việc dùng PeerID làm định danh chính:
+* **Phân cấp Channels vs DMs:** SQLite table `mls_groups` bổ sung cột `group_type` (`'channel'` / `'dm'`).
+* **Cú pháp tạo kênh:** Frontend chặn định dạng `#kênh-thảo-luận` để gắn nhãn `channel`, ngược lại gắn nhãn `dm`.
+* **Cấu trúc dữ liệu Thread:** Tin nhắn trao đổi qua kênh được đóng gói dưới dạng JSON Envelope (`{type: 'post', title: '...', content: '...'}` và `{type: 'reply', parent_id: '...', content: '...'}`).
+* **Xác thực lời mời thủ công:** Mã kết nối (Join Code) tương ứng với KeyPackageHex. Ứng dụng tích hợp luồng nhập liệu bù trừ DHT khi cần (AddMemberToGroup qua PeerID + KeyPackage).
+
 ---
 
 ## 4. Current Progress
@@ -395,10 +403,14 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 #### Backend P1 slice delivered in this update
 
-- **Network/bootstrap runtime controls (implemented):**
-  - New Runtime APIs: `GetNetworkSettings`, `ValidateMultiaddr`, `SetBootstrapAddress`, `ReconnectP2P`.
-  - Added persisted runtime bootstrap override key in `system_config`: `runtime_bootstrap_override`.
-  - Runtime startup now restores bootstrap override from DB in `app/service/runtime.go`.
+- **Advanced Workplace Paradigm (Implemented):**
+  - Expanded `mls_groups` schema in `app/adapter/store/db.go` with `group_type` to separate `channels` and `dms`.
+  - Upgraded Go `CreateGroupChat` signatures to require structured type definitions.
+  - Added full multi-select member registration modal triggers directly mapping `CreateGroupModal.tsx`.
+
+- **Dynamic Workspace Identities Cache (Implemented):**
+  - Added local `peer_directory` cache mapping PeerID ↔ Display Name.
+  - Extended Go `MemberInfo` & `MessageInfo` with display name payload attributes.
 
 - **Diagnostics snapshot/export (implemented):**
   - New Runtime APIs: `GetDiagnosticsSnapshot`, `ExportDiagnostics`, `OpenLogFolder`.

@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
-import { Input } from '../ui/input'
 import { NetworkConnectionState } from '../../stores/useNetworkStore'
 import { Hash, MessageSquare, Plus, Settings, Shield, UserPlus } from 'lucide-react'
+import CreateGroupModal from '../../features/chat/components/CreateGroupModal'
 
 interface MainSidebarProps {
   displayName: string
@@ -15,9 +16,7 @@ interface MainSidebarProps {
   unreadByGroup: Record<string, number>
   peerCount: number
   creatingGroup: boolean
-  createGroupValue: string
-  onCreateGroupValueChange: (value: string) => void
-  onCreateGroup: () => void
+  onCreateGroupWithDetails: (name: string, type: 'channel' | 'dm', members: string[]) => Promise<void>
   onSelectGroup: (groupId: string) => void
   activeModule: 'chat' | 'invites' | 'settings' | 'admin'
   onSelectModule: (module: 'chat' | 'invites' | 'settings' | 'admin') => void
@@ -33,14 +32,13 @@ export default function MainSidebar({
   unreadByGroup,
   peerCount,
   creatingGroup,
-  createGroupValue,
-  onCreateGroupValueChange,
-  onCreateGroup,
+  onCreateGroupWithDetails,
   onSelectGroup,
   activeModule,
   onSelectModule,
   isAdmin,
 }: MainSidebarProps) {
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const modules = [
     { id: 'chat' as const, label: 'Chats', icon: MessageSquare },
@@ -89,23 +87,15 @@ export default function MainSidebar({
         })}
       </div>
 
-      <div className="space-y-2 border-b border-slate-800 px-4 py-3">
-        <div className="flex gap-2">
-          <Input
-            value={createGroupValue}
-            onChange={(event) => onCreateGroupValueChange(event.target.value)}
-            placeholder="Create secure group"
-            className="h-9 border-slate-700 bg-slate-800 text-xs text-slate-200 placeholder:text-slate-500"
-            disabled={!showChatGroups}
-          />
-          <Button
-            onClick={onCreateGroup}
-            disabled={!showChatGroups || creatingGroup || !createGroupValue.trim()}
-            className="h-9 bg-emerald-500 px-3 text-xs text-slate-900 hover:bg-emerald-400"
-          >
-            {creatingGroup ? '...' : 'New'}
-          </Button>
-        </div>
+      <div className="px-4 py-3 border-b border-slate-800">
+        <Button
+          onClick={() => setIsCreateModalOpen(true)}
+          disabled={!showChatGroups || creatingGroup}
+          className="w-full h-9 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-xs font-semibold gap-2 flex items-center justify-center rounded-md transition duration-200"
+        >
+          <Plus className="h-4 w-4" />
+          Tạo nhóm mới
+        </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 space-y-4">
@@ -201,6 +191,13 @@ export default function MainSidebar({
       <div className="border-t border-slate-800 px-4 py-3 text-xs text-slate-400">
         {networkStatus === 'connected' ? `${peerCount} peers connected` : `Status: ${networkStatus}`}
       </div>
+
+      <CreateGroupModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreate={onCreateGroupWithDetails}
+        creating={creatingGroup}
+      />
     </aside>
   )
 }

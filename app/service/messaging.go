@@ -52,15 +52,38 @@ func (r *Runtime) GetGroupMessages(groupID string) ([]MessageInfo, error) {
 	r.mu.Unlock()
 
 	result := make([]MessageInfo, len(msgs))
+	var localName string
+	if r.db != nil {
+		if identity, err := r.db.GetMLSIdentity(); err == nil {
+			localName = identity.DisplayName
+		}
+	}
+
 	for i, m := range msgs {
+		senderName := ""
+		if m.SenderID == localID {
+			senderName = localName
+		}
+		if senderName == "" && r.node != nil && r.node.AuthProtocol != nil {
+			if tok := r.node.AuthProtocol.GetVerifiedToken(m.SenderID); tok != nil {
+				senderName = tok.DisplayName
+			}
+		}
+		if senderName == "" && r.db != nil {
+			if name, _ := r.db.GetPeerDisplayName(m.SenderID.String()); name != "" {
+				senderName = name
+			}
+		}
+
 		result[i] = MessageInfo{
-			MessageID: m.MessageID,
-			GroupID:   m.GroupID,
-			Sender:    m.SenderID.String(),
-			Content:   string(m.Content),
-			Timestamp: m.Timestamp.WallTimeMs,
-			IsMine:    m.SenderID == localID,
-			Status:    "published",
+			MessageID:         m.MessageID,
+			GroupID:           m.GroupID,
+			Sender:            m.SenderID.String(),
+			SenderDisplayName: senderName,
+			Content:           string(m.Content),
+			Timestamp:         m.Timestamp.WallTimeMs,
+			IsMine:            m.SenderID == localID,
+			Status:            "published",
 		}
 	}
 	return result, nil

@@ -43,6 +43,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     sending,
     handleSelectGroup,
     handleCreateGroup,
+    handleCreateGroupWithDetails,
     handleSendMessage,
     handleRetryMessage,
     handleRemoveFailed,
@@ -63,9 +64,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           unreadByGroup={unreadByGroup}
           peerCount={connectedPeers.length}
           creatingGroup={creatingGroup}
-          createGroupValue={createGroupValue}
-          onCreateGroupValueChange={setCreateGroupValue}
-          onCreateGroup={handleCreateGroup}
+          onCreateGroupWithDetails={handleCreateGroupWithDetails}
           onSelectGroup={handleSelectGroup}
           activeModule={activeModule}
           onSelectModule={setActiveModule}
@@ -110,6 +109,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             peers={activeGroupMembers}
             collapsed={!detailsOpen}
             onToggleCollapsed={() => setDetailsOpen((v) => !v)}
+            setActiveGroupId={setActiveGroupId}
+            refreshGroups={refreshGroups}
           />
         ) : null}
       </div>

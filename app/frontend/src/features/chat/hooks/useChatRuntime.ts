@@ -42,6 +42,15 @@ export function useChatRuntime() {
 
       if (status.connected_peers) {
         const contactMap: Record<string, { displayName: string; isOnline: boolean }> = {}
+        
+        // Hydrate local user
+        if (status.peer_id) {
+          contactMap[status.peer_id] = {
+            displayName: status.display_name || '',
+            isOnline: true,
+          }
+        }
+
         for (const peer of status.connected_peers) {
           contactMap[peer.id] = {
             displayName: peer.display_name || '',
@@ -90,6 +99,18 @@ export function useChatRuntime() {
     try {
       const members = await runtimeClient.getGroupMembers(groupId)
       setActiveGroupMembers(members ?? [])
+      if (members && members.length > 0) {
+        const contactMap: Record<string, { displayName: string; isOnline: boolean }> = {}
+        for (const m of members) {
+          if (m.display_name) {
+            contactMap[m.peer_id] = {
+              displayName: m.display_name,
+              isOnline: m.is_online,
+            }
+          }
+        }
+        useContactStore.getState().setContacts(contactMap)
+      }
     } catch {
       setActiveGroupMembers([])
     }

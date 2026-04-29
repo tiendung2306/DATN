@@ -31,6 +31,40 @@ export function useChatActions({
     markGroupRead(groupId)
   }
 
+  const handleCreateGroupWithDetails = async (groupId: string, groupType: 'channel' | 'dm', members: string[]) => {
+    groupId = groupId.trim()
+    if (!groupId) return
+    setCreatingGroup(true)
+    try {
+      await runtimeClient.createGroupChat(groupId, groupType)
+      
+      for (const peerId of members) {
+        if (peerId.trim()) {
+          try {
+            await runtimeClient.invitePeerToGroup(peerId.trim(), groupId)
+          } catch (e) {
+            console.error(`Failed to invite peer ${peerId}:`, e)
+          }
+        }
+      }
+
+      await refreshGroups()
+      setActiveGroupId(groupId)
+      pushMessage(groupId, {
+        id: `system:create:${groupId}`,
+        groupId,
+        sender: 'system',
+        content: `Bạn đã tạo ${groupType === 'channel' ? 'Kênh' : 'Nhóm chat'} này.`,
+        timestamp: Date.now(),
+        isMine: false,
+        status: 'published',
+        kind: 'system',
+      })
+    } finally {
+      setCreatingGroup(false)
+    }
+  }
+
   const handleCreateGroup = async () => {
     let groupId = createGroupValue.trim()
     if (!groupId) return
@@ -52,7 +86,7 @@ export function useChatActions({
         id: `system:create:${groupId}`,
         groupId,
         sender: 'system',
-        content: 'You created this secure group.',
+        content: `Bạn đã tạo ${groupType === 'channel' ? 'Kênh' : 'Nhóm chat'} này.`,
         timestamp: Date.now(),
         isMine: false,
         status: 'published',
@@ -128,6 +162,7 @@ export function useChatActions({
     sending,
     handleSelectGroup,
     handleCreateGroup,
+    handleCreateGroupWithDetails,
     handleSendMessage,
     handleRetryMessage,
     handleRemoveFailed,

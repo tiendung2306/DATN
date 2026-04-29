@@ -47,6 +47,9 @@ func (r *Runtime) GetNodeStatus() *NodeStatus {
 				peer.Verified = r.node.AuthProtocol.IsVerified(pid)
 				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					peer.DisplayName = tok.DisplayName
+					if r.db != nil {
+						_ = r.db.SavePeerProfile(pid.String(), tok.DisplayName)
+					}
 				}
 			}
 			status.ConnectedPeers = append(status.ConnectedPeers, peer)
@@ -54,6 +57,61 @@ func (r *Runtime) GetNodeStatus() *NodeStatus {
 	}
 
 	return status
+}
+
+// GetKnownPeers returns a list of all historically encountered and currently connected peers.
+func (r *Runtime) GetKnownPeers() []PeerInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	outMap := make(map[string]PeerInfo)
+
+	// 1. Load from DB persistent directory
+	if r.db != nil {
+		profiles, _ := r.db.GetAllPeerProfiles()
+		for pid, name := range profiles {
+			outMap[pid] = PeerInfo{
+				ID:          pid,
+				DisplayName: name,
+				Verified:    false,
+			}
+		}
+	}
+
+	// 2. Overlay active connected peers
+	if r.node != nil {
+		for _, pid := range r.node.Host.Network().Peers() {
+			verified := false
+			displayName := ""
+			if r.node.AuthProtocol != nil {
+				verified = r.node.AuthProtocol.IsVerified(pid)
+				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
+					displayName = tok.DisplayName
+				}
+			}
+
+			existing, exists := outMap[pid.String()]
+			if exists {
+				existing.Verified = verified
+				if displayName != "" {
+					existing.DisplayName = displayName
+				}
+				outMap[pid.String()] = existing
+			} else {
+				outMap[pid.String()] = PeerInfo{
+					ID:          pid.String(),
+					DisplayName: displayName,
+					Verified:    verified,
+				}
+			}
+		}
+	}
+
+	var list []PeerInfo
+	for _, p := range outMap {
+		list = append(list, p)
+	}
+	return list
 }
 
 func (r *Runtime) getAppStateUnlocked() string {

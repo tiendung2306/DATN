@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
 import { ChevronRight, Shield, Users } from 'lucide-react'
+import { runtimeClient } from '../../services/runtime/runtimeClient'
+import AddMemberModal from '../../features/chat/components/AddMemberModal'
 
 interface RoomPanelProps {
   activeGroupId: string | null
@@ -10,6 +13,8 @@ interface RoomPanelProps {
   peers: service.MemberInfo[]
   collapsed: boolean
   onToggleCollapsed: () => void
+  setActiveGroupId?: (id: string | null) => void
+  refreshGroups?: () => Promise<void>
 }
 
 export default function RoomPanel({
@@ -18,8 +23,28 @@ export default function RoomPanel({
   peers,
   collapsed,
   onToggleCollapsed,
+  setActiveGroupId,
+  refreshGroups,
 }: RoomPanelProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
+  const [isLeaving, setIsLeaving] = useState(false)
+
+  const handleLeaveGroup = async () => {
+    if (!activeGroupId) return
+    if (!confirm('Bạn có chắc chắn muốn rời nhóm này?')) return
+    setIsLeaving(true)
+    try {
+      await runtimeClient.leaveGroup(activeGroupId)
+      if (setActiveGroupId) setActiveGroupId(null)
+      if (refreshGroups) await refreshGroups()
+    } catch (e) {
+      console.error("Failed to leave group", e)
+      alert("Lỗi khi rời nhóm: " + e)
+    } finally {
+      setIsLeaving(false)
+    }
+  }
   if (collapsed) {
     return (
       <aside className="flex w-12 border-l border-slate-800 bg-slate-950">
@@ -87,13 +112,32 @@ export default function RoomPanel({
           <Shield className="h-3.5 w-3.5" />
           <span>Group actions</span>
         </div>
-        <Button className="w-full" variant="secondary" disabled={!activeGroupId}>
+        <Button 
+          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700" 
+          variant="secondary" 
+          disabled={!activeGroupId}
+          onClick={() => setIsAddModalOpen(true)}
+        >
           Add Member
         </Button>
-        <Button className="w-full" variant="ghost" disabled={!activeGroupId || !isAdmin}>
-          Leave Group
+        <Button 
+          className="w-full text-slate-400 hover:text-red-400 hover:bg-red-500/10" 
+          variant="ghost" 
+          disabled={!activeGroupId || isLeaving}
+          onClick={handleLeaveGroup}
+        >
+          {isLeaving ? 'Leaving...' : 'Leave Group'}
         </Button>
       </div>
+
+      <AddMemberModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        groupId={activeGroupId || ''}
+        onSuccess={() => {
+          if (refreshGroups) refreshGroups()
+        }}
+      />
     </aside>
   )
 }

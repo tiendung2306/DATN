@@ -1,8 +1,15 @@
 import { service } from '../../wailsjs/go/models'
 import { ChatMessage } from '../stores/useChatStore'
+import { useContactStore } from '../stores/useContactStore'
 
 export function messageInfoToChatMessage(message: service.MessageInfo): ChatMessage {
   const fallbackId = `${message.group_id}:${message.sender}:${message.timestamp}:${message.content}`
+  
+  if ((message as any).sender_display_name) {
+    useContactStore.getState().setContact(message.sender, {
+      displayName: (message as any).sender_display_name,
+    })
+  }
   return {
     id: (message as { message_id?: string }).message_id || fallbackId,
     groupId: message.group_id,
