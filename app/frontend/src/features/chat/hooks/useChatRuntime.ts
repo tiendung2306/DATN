@@ -5,6 +5,7 @@ import { mapNodeStatusToNetworkState } from '../../../lib/networkModel'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useNetworkStore } from '../../../stores/useNetworkStore'
 import { useChatStore } from '../../../stores/useChatStore'
+import { useContactStore } from '../../../stores/useContactStore'
 import { service } from '../../../../wailsjs/go/models'
 
 export function useChatRuntime() {
@@ -38,6 +39,17 @@ export function useChatRuntime() {
       setLocalPeerId(status.peer_id)
       setConnectedPeers(status.connected_peers ?? [])
       setNetworkStatus(mapNodeStatusToNetworkState(status))
+
+      if (status.connected_peers) {
+        const contactMap: Record<string, { displayName: string; isOnline: boolean }> = {}
+        for (const peer of status.connected_peers) {
+          contactMap[peer.id] = {
+            displayName: peer.display_name || '',
+            isOnline: true,
+          }
+        }
+        useContactStore.getState().setContacts(contactMap)
+      }
     } catch {
       setNetworkStatus('offline')
     }

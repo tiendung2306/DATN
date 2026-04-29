@@ -32,11 +32,19 @@ export function useChatActions({
   }
 
   const handleCreateGroup = async () => {
-    const groupId = createGroupValue.trim()
+    let groupId = createGroupValue.trim()
+    if (!groupId) return
+
+    let groupType = 'dm'
+    if (groupId.startsWith('#')) {
+      groupType = 'channel'
+      groupId = groupId.slice(1).trim()
+    }
+
     if (!groupId) return
     setCreatingGroup(true)
     try {
-      await runtimeClient.createGroupChat(groupId)
+      await runtimeClient.createGroupChat(groupId, groupType)
       setCreateGroupValue('')
       await refreshGroups()
       setActiveGroupId(groupId)

@@ -1,4 +1,5 @@
 import { ChatMessage } from '../../stores/useChatStore'
+import { useContactStore } from '../../stores/useContactStore'
 import { formatMessageTime, shortPeerId } from '../../lib/chatModel'
 import { Button } from '../ui/button'
 
@@ -28,6 +29,7 @@ export default function MessageList({
   onRetry,
   onRemoveFailed,
 }: MessageListProps) {
+  const getDisplayName = useContactStore((s) => s.getDisplayName)
   const feed = messages.length > 0 ? messages : mockMessages(activeGroupId)
 
   if (!activeGroupId) {
@@ -90,7 +92,7 @@ export default function MessageList({
               {startsGroup ? (
                 <div className="flex items-center gap-2 text-[11px] text-slate-400">
                   {!message.isMine ? <div className="h-7 w-7 rounded-full bg-slate-700" /> : null}
-                  <span>{message.isMine ? 'You' : shortPeerId(message.sender)}</span>
+                  <span>{message.isMine ? 'You' : getDisplayName(message.sender)}</span>
                   <span>{formatMessageTime(message.timestamp)}</span>
                 </div>
               ) : null}

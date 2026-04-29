@@ -1,5 +1,6 @@
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
+import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { NetworkConnectionState } from '../../stores/useNetworkStore'
@@ -40,6 +41,7 @@ export default function MainSidebar({
   onSelectModule,
   isAdmin,
 }: MainSidebarProps) {
+  const getDisplayName = useContactStore((s) => s.getDisplayName)
   const modules = [
     { id: 'chat' as const, label: 'Chats', icon: MessageSquare },
     { id: 'invites' as const, label: 'Loi moi', icon: UserPlus },
@@ -106,46 +108,93 @@ export default function MainSidebar({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
-          GROUP CHANNELS
-        </p>
-        <div className="mt-2 space-y-1">
-          {!showChatGroups ? (
-            <div className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-500">
-              Switch to Chats to view groups.
-            </div>
-          ) : groups.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-700 px-3 py-4 text-xs text-slate-400">
-              You have not joined any group yet.
-            </div>
-          ) : (
-            groups.map((group) => {
-              const active = group.group_id === activeGroupId
-              const unread = unreadByGroup[group.group_id] ?? 0
-              return (
-                <button
-                  key={group.group_id}
-                  onClick={() => onSelectGroup(group.group_id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
-                    active
-                      ? 'bg-slate-800 text-slate-100'
-                      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                  }`}
-                >
-                  <div className="min-w-0 flex items-center gap-2">
-                    <Hash className="h-3.5 w-3.5 opacity-80" />
-                    <p className="truncate">{group.group_id}</p>
-                  </div>
-                  {unread > 0 && (
-                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
-                      {unread}
-                    </span>
-                  )}
-                </button>
-              )
-            })
-          )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        {/* GROUP CHANNELS */}
+        <div>
+          <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
+            GROUP CHANNELS
+          </p>
+          <div className="mt-2 space-y-1">
+            {!showChatGroups ? (
+              <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
+                Switch to Chats
+              </div>
+            ) : groups.filter((g) => (g as any).group_type !== 'dm').length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-600 italic">No channels</div>
+            ) : (
+              groups
+                .filter((g) => (g as any).group_type !== 'dm')
+                .map((group) => {
+                  const active = group.group_id === activeGroupId
+                  const unread = unreadByGroup[group.group_id] ?? 0
+                  return (
+                    <button
+                      key={group.group_id}
+                      onClick={() => onSelectGroup(group.group_id)}
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                        active
+                          ? 'bg-slate-800 text-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="min-w-0 flex items-center gap-2">
+                        <Hash className="h-3.5 w-3.5 opacity-80 text-emerald-400" />
+                        <p className="truncate">{group.group_id}</p>
+                      </div>
+                      {unread > 0 && (
+                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                          {unread}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+            )}
+          </div>
+        </div>
+
+        {/* DIRECT MESSAGES */}
+        <div>
+          <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
+            DIRECT MESSAGES
+          </p>
+          <div className="mt-2 space-y-1">
+            {!showChatGroups ? (
+              <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
+                Switch to Chats
+              </div>
+            ) : groups.filter((g) => (g as any).group_type === 'dm').length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-600 italic">No direct messages</div>
+            ) : (
+              groups
+                .filter((g) => (g as any).group_type === 'dm')
+                .map((group) => {
+                  const active = group.group_id === activeGroupId
+                  const unread = unreadByGroup[group.group_id] ?? 0
+                  return (
+                    <button
+                      key={group.group_id}
+                      onClick={() => onSelectGroup(group.group_id)}
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                        active
+                          ? 'bg-slate-800 text-slate-100'
+                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="min-w-0 flex items-center gap-2">
+                        <MessageSquare className="h-3.5 w-3.5 opacity-80 text-sky-400" />
+                        <p className="truncate">{getDisplayName(group.group_id)}</p>
+                      </div>
+                      {unread > 0 && (
+                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                          {unread}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+            )}
+          </div>
         </div>
       </div>
 

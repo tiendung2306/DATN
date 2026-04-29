@@ -31,9 +31,10 @@ type MessageInfo struct {
 
 // GroupInfo is a summary of a joined group returned to the frontend.
 type GroupInfo struct {
-	GroupID string `json:"group_id"`
-	Epoch   uint64 `json:"epoch"`
-	MyRole  string `json:"my_role"`
+	GroupID   string `json:"group_id"`
+	Epoch     uint64 `json:"epoch"`
+	MyRole    string `json:"my_role"`
+	GroupType string `json:"group_type"`
 }
 
 // MemberInfo describes a peer in the coordination active view with liveness.
@@ -52,7 +53,7 @@ type KeyPackageResult struct {
 
 // CreateGroupChat creates a new MLS group, starts the Coordinator, and
 // subscribes to the group's GossipSub topic. The group ID must be unique.
-func (r *Runtime) CreateGroupChat(groupID string) error {
+func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
 	}
@@ -103,12 +104,22 @@ func (r *Runtime) CreateGroupChat(groupID string) error {
 	if err := coord.CreateGroup(); err != nil {
 		return fmt.Errorf("create group: %w", err)
 	}
+
+	// Workplace UX: Inject metadata before starting the coordinator
+	if groupType == "" {
+		groupType = "channel"
+	}
+	if rec, err := r.coordStorage.GetGroupRecord(groupID); err == nil {
+		rec.GroupType = groupType
+		_ = r.coordStorage.SaveGroupRecord(rec)
+	}
+
 	if err := coord.Start(r.ctx); err != nil {
 		return fmt.Errorf("start coordinator: %w", err)
 	}
 
 	r.coordinators[groupID] = coord
-	slog.Info("Group chat created", "group_id", groupID)
+	slog.Info("Group chat created", "group_id", groupID, "type", groupType)
 	return nil
 }
 
@@ -126,9 +137,10 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 	result := make([]GroupInfo, len(records))
 	for i, r := range records {
 		result[i] = GroupInfo{
-			GroupID: r.GroupID,
-			Epoch:   r.Epoch,
-			MyRole:  string(r.MyRole),
+			GroupID:   r.GroupID,
+			Epoch:     r.Epoch,
+			MyRole:    string(r.MyRole),
+			GroupType: r.GroupType,
 		}
 	}
 	return result, nil

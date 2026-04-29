@@ -131,6 +131,7 @@ type GroupRecord struct {
 	Epoch      uint64
 	TreeHash   []byte
 	MyRole     GroupRole
+	GroupType  string // channel | dm
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

@@ -74,6 +74,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
         {activeModule === 'chat' ? (
           <ChatView
             activeGroupId={activeGroupId}
+            localPeerId={localPeerId}
+            groups={groups}
             messages={activeMessages}
             loadingMessages={loadingMessages}
             composingMessage={composingMessage}

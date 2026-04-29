@@ -14,7 +14,7 @@ type MessagingService interface {
 
 // GroupService manages MLS groups, coordinators, and P2P-backed messaging runtime.
 type GroupService interface {
-	CreateGroupChat(ctx context.Context, groupID string) error
+	CreateGroupChat(ctx context.Context, groupID string, groupType string) error
 	JoinGroupWithWelcome(ctx context.Context, groupID, welcomeHex, keyPackageBundlePrivateHex string) error
 	GetGroups(ctx context.Context) ([]domain.GroupInfo, error)
 	GetGroupMembers(ctx context.Context, groupID string) ([]domain.MemberInfo, error)

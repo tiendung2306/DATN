@@ -133,6 +133,7 @@ func (d *Database) createTables() error {
 			my_role          TEXT    NOT NULL DEFAULT 'member',
 			lifecycle_status TEXT    NOT NULL DEFAULT 'active',
 			left_at          INTEGER NOT NULL DEFAULT 0,
+			group_type       TEXT    NOT NULL DEFAULT 'channel',
 			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
@@ -301,6 +302,9 @@ func (d *Database) createTables() error {
 		return err
 	}
 	if err := d.ensureColumnExists("mls_groups", "left_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
 	if _, err := d.Conn.Exec(

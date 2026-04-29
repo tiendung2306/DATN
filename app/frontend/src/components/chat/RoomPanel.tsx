@@ -1,5 +1,6 @@
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
+import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
 import { ChevronRight, Shield, Users } from 'lucide-react'
 
@@ -18,6 +19,7 @@ export default function RoomPanel({
   collapsed,
   onToggleCollapsed,
 }: RoomPanelProps) {
+  const getDisplayName = useContactStore((s) => s.getDisplayName)
   if (collapsed) {
     return (
       <aside className="flex w-12 border-l border-slate-800 bg-slate-950">
@@ -65,7 +67,7 @@ export default function RoomPanel({
                 className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2"
               >
                 <div>
-                  <p className="text-xs font-medium text-slate-200">{shortPeerId(peer.peer_id)}</p>
+                  <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
                   <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
                 </div>
                 <span
