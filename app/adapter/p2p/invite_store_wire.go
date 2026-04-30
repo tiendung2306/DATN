@@ -41,6 +41,7 @@ type WelcomeStoreRequestV1 struct {
 	V             int    `json:"v"`
 	InviteePeerID string `json:"invitee_peer_id"`
 	GroupID       string `json:"group_id"`
+	GroupType     string `json:"group_type,omitempty"`
 	Welcome       []byte `json:"welcome"`
 }
 
@@ -53,6 +54,7 @@ type WelcomeFetchRequestV1 struct {
 type WelcomeFetchResponseV1 struct {
 	V       int    `json:"v"`
 	Found   bool   `json:"found"`
+	GroupType string `json:"group_type,omitempty"`
 	Welcome []byte `json:"welcome,omitempty"`
 	Error   string `json:"error,omitempty"`
 }
@@ -64,6 +66,7 @@ type WelcomeListRequestV1 struct {
 
 type WelcomeListItemV1 struct {
 	GroupID      string `json:"group_id"`
+	GroupType    string `json:"group_type,omitempty"`
 	Welcome      []byte `json:"welcome"`
 	SourcePeerID string `json:"source_peer_id,omitempty"`
 	CreatedAt    int64  `json:"created_at,omitempty"`

@@ -51,6 +51,17 @@ type KeyPackageResult struct {
 	BundlePrivateHex string `json:"bundle_private_hex"`
 }
 
+func normalizeGroupTypeRuntime(groupType string) (string, error) {
+	normalized := strings.TrimSpace(strings.ToLower(groupType))
+	if normalized == "" {
+		return "channel", nil
+	}
+	if normalized != "channel" && normalized != "dm" {
+		return "", fmt.Errorf("invalid group type %q: must be one of [channel, dm]", groupType)
+	}
+	return normalized, nil
+}
+
 // ─── Group chat operations ───────────────────────────────────────────────────
 
 // CreateGroupChat creates a new MLS group, starts the Coordinator, and
@@ -58,6 +69,10 @@ type KeyPackageResult struct {
 func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
+	}
+	normalizedGroupType, err := normalizeGroupTypeRuntime(groupType)
+	if err != nil {
+		return err
 	}
 	if err := r.ensureSessionActive(); err != nil {
 		return err
@@ -108,11 +123,8 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	}
 
 	// Workplace UX: Inject metadata before starting the coordinator
-	if groupType == "" {
-		groupType = "channel"
-	}
 	if rec, err := r.coordStorage.GetGroupRecord(groupID); err == nil {
-		rec.GroupType = groupType
+		rec.GroupType = normalizedGroupType
 		_ = r.coordStorage.SaveGroupRecord(rec)
 	}
 
@@ -121,7 +133,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	}
 
 	r.coordinators[groupID] = coord
-	slog.Info("Group chat created", "group_id", groupID, "type", groupType)
+	slog.Info("Group chat created", "group_id", groupID, "type", normalizedGroupType)
 	return nil
 }
 
@@ -201,9 +213,17 @@ func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex strin
 // JoinGroupWithWelcome joins an existing group using a Welcome message and the
 // private KeyPackage bundle from [App.GenerateKeyPackage] for this invite flow.
 func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex string) error {
+	return r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "")
+}
+
+func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType string) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
+	}
+	normalizedGroupType, err := normalizeGroupTypeRuntime(groupType)
+	if err != nil {
+		return err
 	}
 	if err := r.ensureSessionActive(); err != nil {
 		return err
@@ -250,6 +270,7 @@ func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		Epoch:      epoch,
 		TreeHash:   treeHash,
 		MyRole:     coordination.RoleMember,
+		GroupType:  normalizedGroupType,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}); err != nil {

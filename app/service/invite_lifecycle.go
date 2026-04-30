@@ -31,6 +31,7 @@ type JoinCodeResult struct {
 type PendingInviteInfo struct {
 	ID          string `json:"id"`
 	GroupID     string `json:"group_id"`
+	GroupType   string `json:"group_type"`
 	GroupName   string `json:"group_name,omitempty"`
 	InviterPeer string `json:"inviter_peer,omitempty"`
 	ReceivedAt  int64  `json:"received_at"`
@@ -124,7 +125,7 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 		return nil
 	}
 
-	if err := r.applyWelcome(inv.GroupID, hex.EncodeToString(inv.WelcomeBytes)); err != nil {
+	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes)); err != nil {
 		return fmt.Errorf("accept invite: %w", err)
 	}
 	if err := database.MarkPendingInviteAccepted(inv.ID); err != nil {
@@ -160,6 +161,7 @@ func pendingInviteInfoFromStore(inv store.PendingInvite) PendingInviteInfo {
 	return PendingInviteInfo{
 		ID:          inv.ID,
 		GroupID:     inv.GroupID,
+		GroupType:   inv.GroupType,
 		GroupName:   inv.GroupName,
 		InviterPeer: inv.InviterPeerID,
 		ReceivedAt:  inv.ReceivedAt,

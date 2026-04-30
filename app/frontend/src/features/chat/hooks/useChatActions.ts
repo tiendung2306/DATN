@@ -21,7 +21,6 @@ export function useChatActions({
   const removeMessage = useChatStore((s) => s.removeMessage)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
 
-  const [createGroupValue, setCreateGroupValue] = useState('')
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [composingMessage, setComposingMessage] = useState('')
   const [sending, setSending] = useState(false)
@@ -48,38 +47,6 @@ export function useChatActions({
         }
       }
 
-      await refreshGroups()
-      setActiveGroupId(groupId)
-      pushMessage(groupId, {
-        id: `system:create:${groupId}`,
-        groupId,
-        sender: 'system',
-        content: `Bạn đã tạo ${groupType === 'channel' ? 'Kênh' : 'Nhóm chat'} này.`,
-        timestamp: Date.now(),
-        isMine: false,
-        status: 'published',
-        kind: 'system',
-      })
-    } finally {
-      setCreatingGroup(false)
-    }
-  }
-
-  const handleCreateGroup = async () => {
-    let groupId = createGroupValue.trim()
-    if (!groupId) return
-
-    let groupType = 'dm'
-    if (groupId.startsWith('#')) {
-      groupType = 'channel'
-      groupId = groupId.slice(1).trim()
-    }
-
-    if (!groupId) return
-    setCreatingGroup(true)
-    try {
-      await runtimeClient.createGroupChat(groupId, groupType)
-      setCreateGroupValue('')
       await refreshGroups()
       setActiveGroupId(groupId)
       pushMessage(groupId, {
@@ -154,14 +121,11 @@ export function useChatActions({
   }
 
   return {
-    createGroupValue,
-    setCreateGroupValue,
     creatingGroup,
     composingMessage,
     setComposingMessage,
     sending,
     handleSelectGroup,
-    handleCreateGroup,
     handleCreateGroupWithDetails,
     handleSendMessage,
     handleRetryMessage,

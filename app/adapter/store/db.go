@@ -260,6 +260,7 @@ func (d *Database) createTables() error {
 		`CREATE TABLE IF NOT EXISTS stored_welcomes (
 			invitee_peer_id TEXT NOT NULL,
 			group_id        TEXT NOT NULL,
+			group_type      TEXT NOT NULL DEFAULT 'channel',
 			welcome_bytes   BLOB NOT NULL,
 			source_peer_id  TEXT NOT NULL,
 			created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -271,6 +272,7 @@ func (d *Database) createTables() error {
 		`CREATE TABLE IF NOT EXISTS pending_invites (
 			id              TEXT PRIMARY KEY,
 			group_id        TEXT NOT NULL,
+			group_type      TEXT NOT NULL DEFAULT 'channel',
 			group_name      TEXT NOT NULL DEFAULT '',
 			inviter_peer_id TEXT NOT NULL DEFAULT '',
 			welcome_hash    BLOB NOT NULL,
@@ -312,6 +314,12 @@ func (d *Database) createTables() error {
 		return err
 	}
 	if err := d.ensureColumnExists("mls_groups", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("stored_welcomes", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("pending_invites", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
 	if _, err := d.Conn.Exec(
@@ -707,15 +715,17 @@ func (d *Database) GetStoredKeyPackage(peerID string) ([]byte, error) {
 }
 
 // SaveStoredWelcome upserts a replicated Welcome for (invitee, group).
-func (d *Database) SaveStoredWelcome(inviteePeerID, groupID string, welcome []byte, sourcePeerID string) error {
+func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType string, welcome []byte, sourcePeerID string) error {
+	groupType = normalizeGroupType(groupType)
 	_, err := d.Conn.Exec(
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, strftime('%s','now'))
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
+		   group_type = excluded.group_type,
 		   welcome_bytes = excluded.welcome_bytes,
 		   source_peer_id = excluded.source_peer_id,
 		   created_at = excluded.created_at`,
-		inviteePeerID, groupID, welcome, sourcePeerID,
+		inviteePeerID, groupID, groupType, welcome, sourcePeerID,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcome: %w", err)
@@ -724,15 +734,17 @@ func (d *Database) SaveStoredWelcome(inviteePeerID, groupID string, welcome []by
 }
 
 // SaveStoredWelcomeIfNewer upserts only when publishedAt is newer.
-func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID string, welcome []byte, sourcePeerID string, publishedAt int64) error {
+func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType string, welcome []byte, sourcePeerID string, publishedAt int64) error {
+	groupType = normalizeGroupType(groupType)
 	_, err := d.Conn.Exec(
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
+		   group_type = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.group_type ELSE stored_welcomes.group_type END,
 		   welcome_bytes = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.welcome_bytes ELSE stored_welcomes.welcome_bytes END,
 		   source_peer_id = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
 		   created_at = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.created_at ELSE stored_welcomes.created_at END`,
-		inviteePeerID, groupID, welcome, sourcePeerID, publishedAt,
+		inviteePeerID, groupID, groupType, welcome, sourcePeerID, publishedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcomeIfNewer: %w", err)
@@ -741,21 +753,23 @@ func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID string, welco
 }
 
 // GetStoredWelcome fetches a replicated Welcome for (invitee, group).
-func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, error) {
+func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, error) {
 	var wb []byte
+	var groupType string
 	if err := d.Conn.QueryRow(
-		`SELECT welcome_bytes FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
+		`SELECT welcome_bytes, group_type FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
 		inviteePeerID, groupID,
-	).Scan(&wb); err != nil {
-		return nil, err
+	).Scan(&wb, &groupType); err != nil {
+		return nil, "", err
 	}
-	return wb, nil
+	return wb, normalizeGroupType(groupType), nil
 }
 
 // StoredWelcome is one replicated Welcome object retained locally.
 type StoredWelcome struct {
 	InviteePeerID string
 	GroupID       string
+	GroupType     string
 	WelcomeBytes  []byte
 	SourcePeerID  string
 	CreatedAt     int64
@@ -764,7 +778,7 @@ type StoredWelcome struct {
 // ListStoredWelcomesFor returns all stored Welcome replicas for an invitee.
 func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome, error) {
 	rows, err := d.Conn.Query(
-		`SELECT invitee_peer_id, group_id, welcome_bytes, source_peer_id, created_at
+		`SELECT invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at
 		 FROM stored_welcomes
 		 WHERE invitee_peer_id = ?
 		 ORDER BY created_at DESC`,
@@ -778,9 +792,10 @@ func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome,
 	var out []StoredWelcome
 	for rows.Next() {
 		var rec StoredWelcome
-		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.GroupType, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
 			return nil, fmt.Errorf("ListStoredWelcomesFor scan: %w", err)
 		}
+		rec.GroupType = normalizeGroupType(rec.GroupType)
 		out = append(out, rec)
 	}
 	return out, rows.Err()
@@ -794,10 +809,22 @@ const (
 	PendingInviteStatusExpired  = "expired"
 )
 
+func normalizeGroupType(groupType string) string {
+	switch strings.TrimSpace(groupType) {
+	case "dm":
+		return "dm"
+	case "channel":
+		return "channel"
+	default:
+		return "channel"
+	}
+}
+
 // PendingInvite is an invitee-side pending Welcome lifecycle row.
 type PendingInvite struct {
 	ID            string
 	GroupID       string
+	GroupType     string
 	GroupName     string
 	InviterPeerID string
 	WelcomeHash   []byte
@@ -853,9 +880,13 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 
 	_, err := d.Conn.Exec(
 		`INSERT INTO pending_invites
-		 (id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 (id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id, welcome_hash) DO UPDATE SET
+		   group_type = CASE
+		     WHEN excluded.group_type IN ('channel', 'dm') THEN excluded.group_type
+		     ELSE pending_invites.group_type
+		   END,
 		   group_name = CASE
 		     WHEN pending_invites.group_name = '' THEN excluded.group_name
 		     ELSE pending_invites.group_name
@@ -876,6 +907,7 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 		   updated_at = excluded.updated_at`,
 		id,
 		inv.GroupID,
+		normalizeGroupType(inv.GroupType),
 		inv.GroupName,
 		inv.InviterPeerID,
 		welcomeHash,
@@ -893,7 +925,7 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 
 // ListPendingInvites returns local invite rows ordered newest first.
 func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, error) {
-	query := `SELECT id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+	query := `SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
 	          FROM pending_invites`
 	if !includeTerminal {
 		query += ` WHERE status = 'pending'`
@@ -912,6 +944,7 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 		if err := rows.Scan(
 			&inv.ID,
 			&inv.GroupID,
+			&inv.GroupType,
 			&inv.GroupName,
 			&inv.InviterPeerID,
 			&inv.WelcomeHash,
@@ -923,6 +956,7 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 		); err != nil {
 			return nil, fmt.Errorf("ListPendingInvites scan: %w", err)
 		}
+		inv.GroupType = normalizeGroupType(inv.GroupType)
 		out = append(out, inv)
 	}
 	return out, rows.Err()
@@ -931,13 +965,14 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 	var inv PendingInvite
 	err := d.Conn.QueryRow(
-		`SELECT id, group_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
 		 FROM pending_invites
 		 WHERE id = ?`,
 		id,
 	).Scan(
 		&inv.ID,
 		&inv.GroupID,
+		&inv.GroupType,
 		&inv.GroupName,
 		&inv.InviterPeerID,
 		&inv.WelcomeHash,
@@ -950,6 +985,7 @@ func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 	if err != nil {
 		return nil, err
 	}
+	inv.GroupType = normalizeGroupType(inv.GroupType)
 	return &inv, nil
 }
 

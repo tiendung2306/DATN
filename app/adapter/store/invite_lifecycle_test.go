@@ -93,10 +93,10 @@ func TestPendingInvite_StatusTransitions(t *testing.T) {
 
 func TestStoredWelcome_ListForInvitee(t *testing.T) {
 	d := setupTestDB(t)
-	if err := d.SaveStoredWelcome("peer-a", "group-1", []byte("welcome-1"), "peer-store"); err != nil {
+	if err := d.SaveStoredWelcome("peer-a", "group-1", "dm", []byte("welcome-1"), "peer-store"); err != nil {
 		t.Fatalf("SaveStoredWelcome: %v", err)
 	}
-	if err := d.SaveStoredWelcome("peer-b", "group-2", []byte("welcome-2"), "peer-store"); err != nil {
+	if err := d.SaveStoredWelcome("peer-b", "group-2", "channel", []byte("welcome-2"), "peer-store"); err != nil {
 		t.Fatalf("SaveStoredWelcome other: %v", err)
 	}
 
@@ -109,5 +109,8 @@ func TestStoredWelcome_ListForInvitee(t *testing.T) {
 	}
 	if rows[0].GroupID != "group-1" || string(rows[0].WelcomeBytes) != "welcome-1" {
 		t.Fatalf("stored welcome mismatch: %+v", rows[0])
+	}
+	if rows[0].GroupType != "dm" {
+		t.Fatalf("stored welcome group type = %q, want dm", rows[0].GroupType)
 	}
 }

@@ -37,6 +37,7 @@ type BackupPendingWelcome struct {
 type BackupPendingInvite struct {
 	ID            string
 	GroupID       string
+	GroupType     string
 	GroupName     string
 	InviterPeerID string
 	WelcomeBytes  []byte
@@ -132,7 +133,7 @@ func (d *Database) GetAllPendingWelcomesForBackup() ([]BackupPendingWelcome, err
 
 func (d *Database) GetAllPendingInvitesForBackup() ([]BackupPendingInvite, error) {
 	rows, err := d.Conn.Query(
-		`SELECT id, group_id, group_name, inviter_peer_id, welcome_bytes, source_peer_id, status, received_at, updated_at
+		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_bytes, source_peer_id, status, received_at, updated_at
 		 FROM pending_invites
 		 ORDER BY received_at ASC`,
 	)
@@ -147,6 +148,7 @@ func (d *Database) GetAllPendingInvitesForBackup() ([]BackupPendingInvite, error
 		if err := rows.Scan(
 			&rec.ID,
 			&rec.GroupID,
+			&rec.GroupType,
 			&rec.GroupName,
 			&rec.InviterPeerID,
 			&rec.WelcomeBytes,
@@ -243,6 +245,7 @@ func (d *Database) RestorePendingInvitesFromBackup(records []BackupPendingInvite
 		if err := d.SavePendingInvite(&PendingInvite{
 			ID:            r.ID,
 			GroupID:       r.GroupID,
+			GroupType:     r.GroupType,
 			GroupName:     r.GroupName,
 			InviterPeerID: r.InviterPeerID,
 			WelcomeBytes:  r.WelcomeBytes,

@@ -35,14 +35,11 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
   useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId })
 
   const {
-    createGroupValue,
-    setCreateGroupValue,
     creatingGroup,
     composingMessage,
     setComposingMessage,
     sending,
     handleSelectGroup,
-    handleCreateGroup,
     handleCreateGroupWithDetails,
     handleSendMessage,
     handleRetryMessage,
