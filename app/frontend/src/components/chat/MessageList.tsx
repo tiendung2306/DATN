@@ -33,7 +33,6 @@ export default function MessageList({
   onRemoveFailed,
 }: MessageListProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
-  const feed = messages.length > 0 ? messages : mockMessages(activeGroupId)
 
   if (!activeGroupId) {
     return (
@@ -53,7 +52,7 @@ export default function MessageList({
     )
   }
 
-  if (feed.length === 0) {
+  if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-700 text-sm text-slate-400">
         No messages yet. Start the conversation.
@@ -63,8 +62,8 @@ export default function MessageList({
 
   return (
     <div className="space-y-3">
-      {feed.map((message, index) => {
-        const previous = feed[index - 1]
+      {messages.map((message, index) => {
+        const previous = messages[index - 1]
         const startsGroup =
           index === 0 ||
           previous.sender !== message.sender ||
@@ -133,40 +132,4 @@ export default function MessageList({
       })}
     </div>
   )
-}
-
-function mockMessages(groupId: string | null): ChatMessage[] {
-  if (!groupId) return []
-  return [
-    {
-      id: 'mock-1',
-      groupId,
-      sender: '12D3KooW-Alice',
-      content: 'Morning team, security review starts at 10:00.',
-      timestamp: Date.now() - 1000 * 60 * 20,
-      isMine: false,
-      status: 'published',
-      kind: 'user',
-    },
-    {
-      id: 'mock-2',
-      groupId,
-      sender: '12D3KooW-Alice',
-      content: 'Please keep this channel for release blockers only.',
-      timestamp: Date.now() - 1000 * 60 * 19,
-      isMine: false,
-      status: 'published',
-      kind: 'user',
-    },
-    {
-      id: 'mock-3',
-      groupId,
-      sender: 'local-user',
-      content: 'Acknowledged. We are validating offline sync scenarios now.',
-      timestamp: Date.now() - 1000 * 60 * 12,
-      isMine: true,
-      status: 'published',
-      kind: 'user',
-    },
-  ]
 }
