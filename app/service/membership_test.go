@@ -82,6 +82,7 @@ func TestLeaveGroupKeepsMessageHistoryReadable(t *testing.T) {
 		SenderID:  sender,
 		Content:   []byte("hello"),
 		Timestamp: coordination.HLCTimestamp{WallTimeMs: 1000, NodeID: sender.String()},
+		EnvelopeHash: []byte("history-env-1"),
 	}); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}

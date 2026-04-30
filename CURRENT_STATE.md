@@ -16,6 +16,28 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-04-30) ✅
+
+- **Roster/Profile/Presence pipeline is now canonicalized (backend-first):**
+  - Added `group_members` table + repository methods (`UpsertGroupMember`, `ListGroupMembers`, `MarkGroupMemberLeft`).
+  - `GetGroupMembers` now uses **roster active list from DB** + online presence overlay (no longer ActiveView-only membership source).
+  - Display-name resolution order for member API: roster/profile cache -> verified token -> short peer id fallback.
+- **Lifecycle hooks now maintain roster consistently:**
+  - create group -> upsert local `creator`;
+  - join by welcome -> upsert local member;
+  - invite flow -> upsert invitee;
+  - leave group -> mark local member `left`.
+- **Data hygiene hardening for legacy sender IDs:**
+  - Backfill from message history now validates `peer_id` (`peer.Decode`) before roster upsert.
+  - `GetGroupMembers` filters invalid/non-decodable peer IDs to avoid corrupted/off-spec rows showing in UI.
+- **Channel payload contract hardened:**
+  - Canonical message id = `envelope_hash` (hex), strict validation for retry/delete.
+  - Channel outbound payload validation added for `post/comment/mentions` (with tests).
+- **Frontend mention system is now shared via hook (consistent across chat/post/comment):**
+  - New hook: `frontend/src/features/chat/hooks/useMentions.tsx`.
+  - Mention autocomplete enabled in DM composer + post composer + comment composer.
+  - Mention highlighting unified in message/post/comment rendering; self-mentions are emphasized with orange style.
+
 ### Phase 1: System Architecture & Setup ✅
 *   Monorepo, Sidecar lifecycle, gRPC IPC, CGO-free SQLite.
 

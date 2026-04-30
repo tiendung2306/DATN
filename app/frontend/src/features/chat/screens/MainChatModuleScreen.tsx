@@ -82,6 +82,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             onRemoveFailed={handleRemoveFailed}
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((v) => !v)}
+            activeGroupMembers={activeGroupMembers}
           />
         ) : null}
         {activeModule === 'invites' ? (

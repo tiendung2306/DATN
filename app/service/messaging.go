@@ -28,6 +28,15 @@ func (r *Runtime) SendGroupMessage(groupID string, text string) error {
 	if !ok {
 		return fmt.Errorf("not in group %q", groupID)
 	}
+	if r.coordStorage != nil {
+		if rec, recErr := r.coordStorage.GetGroupRecord(groupID); recErr == nil {
+			if rec.GroupType == "channel" {
+				if err := validateChannelOutboundMessage(text); err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	_, err := coord.SendMessage([]byte(text))
 	return err
@@ -108,7 +117,7 @@ func (r *Runtime) RetryMessage(groupID string, messageID string) error {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("message not found")
 		}
-		return err
+		return fmt.Errorf("invalid retry target: %w", err)
 	}
 	return r.SendGroupMessage(groupID, row.Content)
 }
@@ -127,5 +136,11 @@ func (r *Runtime) DeleteLocalMessage(groupID string, messageID string) error {
 	if db == nil {
 		return fmt.Errorf("database not initialized")
 	}
-	return db.DeleteStoredMessageByID(groupID, messageID)
+	if err := db.DeleteStoredMessageByID(groupID, messageID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("message not found")
+		}
+		return fmt.Errorf("invalid delete target: %w", err)
+	}
+	return nil
 }

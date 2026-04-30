@@ -213,11 +213,11 @@ func TestSQLiteCoordinationStorage_Message_SaveAndQuery(t *testing.T) {
 
 	msgs := []*coordination.StoredMessage{
 		{GroupID: "mg-1", Epoch: 1, SenderID: "alice", Content: []byte("hello"),
-			Timestamp: coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "alice"}},
+			Timestamp: coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "alice"}, EnvelopeHash: []byte("env-1")},
 		{GroupID: "mg-1", Epoch: 1, SenderID: "bob", Content: []byte("world"),
-			Timestamp: coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 1, NodeID: "bob"}},
+			Timestamp: coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 1, NodeID: "bob"}, EnvelopeHash: []byte("env-2")},
 		{GroupID: "mg-1", Epoch: 2, SenderID: "alice", Content: []byte("epoch2"),
-			Timestamp: coordination.HLCTimestamp{WallTimeMs: 2000, Counter: 0, NodeID: "alice"}},
+			Timestamp: coordination.HLCTimestamp{WallTimeMs: 2000, Counter: 0, NodeID: "alice"}, EnvelopeHash: []byte("env-3")},
 	}
 
 	for _, m := range msgs {

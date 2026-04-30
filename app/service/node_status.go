@@ -48,7 +48,8 @@ func (r *Runtime) GetNodeStatus() *NodeStatus {
 				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					peer.DisplayName = tok.DisplayName
 					if r.db != nil {
-						_ = r.db.SavePeerProfile(pid.String(), tok.DisplayName)
+						_ = r.db.UpsertPeerProfile(pid.String(), tok.DisplayName)
+						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), tok.DisplayName)
 					}
 				}
 			}
@@ -87,6 +88,10 @@ func (r *Runtime) GetKnownPeers() []PeerInfo {
 				verified = r.node.AuthProtocol.IsVerified(pid)
 				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					displayName = tok.DisplayName
+					if r.db != nil && displayName != "" {
+						_ = r.db.UpsertPeerProfile(pid.String(), displayName)
+						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), displayName)
+					}
 				}
 			}
 

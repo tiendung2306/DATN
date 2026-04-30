@@ -2,11 +2,13 @@ import { ChatMessage } from '../../stores/useChatStore'
 import { useContactStore } from '../../stores/useContactStore'
 import { formatMessageTime, shortPeerId } from '../../lib/chatModel'
 import { Button } from '../ui/button'
+import { ReactNode } from 'react'
 
 interface MessageListProps {
   messages: ChatMessage[]
   loading: boolean
   activeGroupId: string | null
+  renderMentionedBody: (body: string) => ReactNode
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
 }
@@ -26,6 +28,7 @@ export default function MessageList({
   messages,
   loading,
   activeGroupId,
+  renderMentionedBody,
   onRetry,
   onRemoveFailed,
 }: MessageListProps) {
@@ -103,7 +106,7 @@ export default function MessageList({
                     : 'bg-slate-800 text-slate-100'
                 }`}
               >
-                <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                <p className="whitespace-pre-wrap break-words">{renderMentionedBody(message.content)}</p>
                 <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
                   <span>{formatMessageTime(message.timestamp)}</span>
                   <span className={message.status === 'failed' ? 'text-red-300' : ''}>

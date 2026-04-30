@@ -4,6 +4,8 @@ import MessageList from './MessageList'
 import PostView from './PostView'
 import { useContactStore } from '../../stores/useContactStore'
 import { Info, Lock } from 'lucide-react'
+import { service } from '../../../wailsjs/go/models'
+import { useMentions } from '../../features/chat/hooks/useMentions'
 
 interface ChatViewProps {
   activeGroupId: string | null
@@ -19,6 +21,7 @@ interface ChatViewProps {
   onRemoveFailed: (messageId: string) => void
   onToggleDetails: () => void
   detailsOpen: boolean
+  activeGroupMembers: service.MemberInfo[]
 }
 
 export default function ChatView({
@@ -35,10 +38,15 @@ export default function ChatView({
   onRemoveFailed,
   onToggleDetails,
   detailsOpen,
+  activeGroupMembers,
 }: ChatViewProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const activeGroup = groups.find((g) => g.group_id === activeGroupId)
   const isDM = activeGroup?.group_type === 'dm'
+  const { mentionCandidates, renderMentionedBody } = useMentions({
+    groupMembers: activeGroupMembers,
+    localPeerId,
+  })
 
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-[#0f172a]">
@@ -76,6 +84,7 @@ export default function ChatView({
               messages={messages}
               loading={loadingMessages}
               activeGroupId={activeGroupId}
+              renderMentionedBody={renderMentionedBody}
               onRetry={onRetry}
               onRemoveFailed={onRemoveFailed}
             />
@@ -85,6 +94,7 @@ export default function ChatView({
             <MessageComposer
               value={composingMessage}
               disabled={sending || !activeGroupId}
+              mentionCandidates={mentionCandidates}
               onChange={onComposingChange}
               onSend={onSend}
             />
@@ -95,7 +105,8 @@ export default function ChatView({
           activeGroupId={activeGroupId}
           messages={messages}
           loadingMessages={loadingMessages}
-          localPeerId={localPeerId}
+          mentionCandidates={mentionCandidates}
+          renderMentionedBody={renderMentionedBody}
         />
       )}
     </section>

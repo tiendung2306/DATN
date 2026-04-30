@@ -274,6 +274,7 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	if err != nil {
 		return fmt.Errorf("AddMembers: %w", err)
 	}
+	_ = r.upsertGroupMember(groupID, targetID.String(), "member", "invite")
 
 	// Persist Welcome for store-and-forward.
 	if err := database.SavePendingWelcome(targetID.String(), groupID, welcome); err != nil {
@@ -838,7 +839,7 @@ func (r *Runtime) handleWelcomeStoreStream(s network.Stream) {
 		req.V != 1 || req.InviteePeerID == "" || req.GroupID == "" || len(req.Welcome) == 0 {
 		return
 	}
-		_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.GroupType, req.Welcome, remote.String())
+	_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.GroupType, req.Welcome, remote.String())
 	if localID != "" && req.InviteePeerID == localID.String() {
 		_ = r.savePendingInviteFromWelcome(req.GroupID, req.GroupType, req.Welcome, remote.String())
 	}

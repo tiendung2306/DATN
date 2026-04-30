@@ -27,6 +27,7 @@ func (r *Runtime) LeaveGroup(groupID string) error {
 
 	r.mu.RLock()
 	database := r.db
+	node := r.node
 	r.mu.RUnlock()
 	if database == nil {
 		return fmt.Errorf("database not initialized")
@@ -66,6 +67,15 @@ func (r *Runtime) LeaveGroup(groupID string) error {
 		return ErrGroupNotFound
 	} else if err != nil {
 		return err
+	}
+	localPeerID := ""
+	if node != nil {
+		localPeerID = node.Host.ID().String()
+	} else if info, infoErr := r.GetOnboardingInfo(); infoErr == nil && info != nil {
+		localPeerID = info.PeerID
+	}
+	if localPeerID != "" {
+		_ = database.MarkGroupMemberLeft(groupID, localPeerID, 0)
 	}
 
 	r.emit("group:left", map[string]interface{}{"group_id": groupID})

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -171,6 +172,22 @@ func (d *Database) createTables() error {
 			display_name TEXT NOT NULL,
 			updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
+		`CREATE TABLE IF NOT EXISTS group_members (
+			group_id      TEXT    NOT NULL,
+			peer_id       TEXT    NOT NULL,
+			display_name  TEXT    NOT NULL DEFAULT '',
+			role          TEXT    NOT NULL DEFAULT 'member',
+			status        TEXT    NOT NULL DEFAULT 'active',
+			source        TEXT    NOT NULL DEFAULT '',
+			joined_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			left_at       INTEGER NOT NULL DEFAULT 0,
+			updated_at    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (group_id, peer_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_members_group_status
+			ON group_members(group_id, status);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_members_peer
+			ON group_members(peer_id);`,
 
 		// Phase 5: local KeyPackage private bundles (one active per peer; reused after group join).
 		// public_kp is used for invite distribution; private_bundle stays local forever.
@@ -500,6 +517,10 @@ func (d *Database) SavePeerProfile(peerID string, displayName string) error {
 	return nil
 }
 
+func (d *Database) UpsertPeerProfile(peerID, displayName string) error {
+	return d.SavePeerProfile(peerID, displayName)
+}
+
 // GetPeerDisplayName retrieves the display name of a peer, or empty if unknown.
 func (d *Database) GetPeerDisplayName(peerID string) (string, error) {
 	var name string
@@ -511,6 +532,10 @@ func (d *Database) GetPeerDisplayName(peerID string) (string, error) {
 		return "", fmt.Errorf("GetPeerDisplayName: %w", err)
 	}
 	return name, nil
+}
+
+func (d *Database) GetPeerProfile(peerID string) (string, error) {
+	return d.GetPeerDisplayName(peerID)
 }
 
 // GetAllPeerProfiles returns all cached PeerID -> Display Name mappings.
@@ -530,6 +555,169 @@ func (d *Database) GetAllPeerProfiles() (map[string]string, error) {
 		out[pid] = name
 	}
 	return out, nil
+}
+
+func normalizeGroupMemberStatus(status string) string {
+	switch strings.TrimSpace(strings.ToLower(status)) {
+	case GroupMemberStatusLeft:
+		return GroupMemberStatusLeft
+	default:
+		return GroupMemberStatusActive
+	}
+}
+
+func normalizeGroupMemberRole(role string) string {
+	role = strings.TrimSpace(strings.ToLower(role))
+	if role == "" {
+		return "member"
+	}
+	return role
+}
+
+func (d *Database) UpsertGroupMember(rec GroupMemberRecord) error {
+	rec.GroupID = strings.TrimSpace(rec.GroupID)
+	rec.PeerID = strings.TrimSpace(rec.PeerID)
+	if rec.GroupID == "" || rec.PeerID == "" {
+		return fmt.Errorf("UpsertGroupMember: group_id and peer_id are required")
+	}
+	rec.Status = normalizeGroupMemberStatus(rec.Status)
+	rec.Role = normalizeGroupMemberRole(rec.Role)
+	rec.Source = strings.TrimSpace(rec.Source)
+	now := time.Now().Unix()
+	if rec.JoinedAt <= 0 {
+		rec.JoinedAt = now
+	}
+	if rec.UpdatedAt <= 0 {
+		rec.UpdatedAt = now
+	}
+
+	_, err := d.Conn.Exec(
+		`INSERT INTO group_members (
+			group_id, peer_id, display_name, role, status, source, joined_at, left_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(group_id, peer_id) DO UPDATE SET
+			display_name = CASE
+				WHEN excluded.display_name != '' THEN excluded.display_name
+				ELSE group_members.display_name
+			END,
+			role = CASE
+				WHEN excluded.role != '' THEN excluded.role
+				ELSE group_members.role
+			END,
+			status = excluded.status,
+			source = CASE
+				WHEN excluded.source != '' THEN excluded.source
+				ELSE group_members.source
+			END,
+			left_at = CASE
+				WHEN excluded.left_at > 0 THEN excluded.left_at
+				ELSE group_members.left_at
+			END,
+			joined_at = CASE
+				WHEN group_members.joined_at <= 0 THEN excluded.joined_at
+				ELSE group_members.joined_at
+			END,
+			updated_at = excluded.updated_at`,
+		rec.GroupID, rec.PeerID, rec.DisplayName, rec.Role, rec.Status, rec.Source, rec.JoinedAt, rec.LeftAt, rec.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertGroupMember: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) ListGroupMembers(groupID string, statuses ...string) ([]GroupMemberRecord, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, fmt.Errorf("ListGroupMembers: group_id is required")
+	}
+
+	query := `SELECT group_id, peer_id, display_name, role, status, source, joined_at, left_at, updated_at
+	          FROM group_members
+			  WHERE group_id = ?`
+	args := []interface{}{groupID}
+	if len(statuses) > 0 {
+		filtered := make([]string, 0, len(statuses))
+		for _, s := range statuses {
+			n := normalizeGroupMemberStatus(s)
+			if n != "" {
+				filtered = append(filtered, n)
+			}
+		}
+		if len(filtered) > 0 {
+			holders := make([]string, 0, len(filtered))
+			for _, status := range filtered {
+				holders = append(holders, "?")
+				args = append(args, status)
+			}
+			query += ` AND status IN (` + strings.Join(holders, ",") + `)`
+		}
+	}
+	query += ` ORDER BY joined_at ASC, peer_id ASC`
+
+	rows, err := d.Conn.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ListGroupMembers: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]GroupMemberRecord, 0)
+	for rows.Next() {
+		var rec GroupMemberRecord
+		if err := rows.Scan(&rec.GroupID, &rec.PeerID, &rec.DisplayName, &rec.Role, &rec.Status, &rec.Source, &rec.JoinedAt, &rec.LeftAt, &rec.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("ListGroupMembers scan: %w", err)
+		}
+		rec.Status = normalizeGroupMemberStatus(rec.Status)
+		rec.Role = normalizeGroupMemberRole(rec.Role)
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+func (d *Database) MarkGroupMemberLeft(groupID, peerID string, leftAt int64) error {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	if groupID == "" || peerID == "" {
+		return fmt.Errorf("MarkGroupMemberLeft: group_id and peer_id are required")
+	}
+	if leftAt <= 0 {
+		leftAt = time.Now().Unix()
+	}
+	res, err := d.Conn.Exec(
+		`UPDATE group_members
+		 SET status = ?, left_at = ?, updated_at = ?
+		 WHERE group_id = ? AND peer_id = ?`,
+		GroupMemberStatusLeft, leftAt, time.Now().Unix(), groupID, peerID,
+	)
+	if err != nil {
+		return fmt.Errorf("MarkGroupMemberLeft: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("MarkGroupMemberLeft rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *Database) UpdateGroupMemberDisplayNameByPeer(peerID, displayName string) error {
+	peerID = strings.TrimSpace(peerID)
+	displayName = strings.TrimSpace(displayName)
+	if peerID == "" || displayName == "" {
+		return nil
+	}
+	_, err := d.Conn.Exec(
+		`UPDATE group_members
+		 SET display_name = ?, updated_at = ?
+		 WHERE peer_id = ?`,
+		displayName, time.Now().Unix(), peerID,
+	)
+	if err != nil {
+		return fmt.Errorf("UpdateGroupMemberDisplayNameByPeer: %w", err)
+	}
+	return nil
 }
 
 // ── auth_bundle ───────────────────────────────────────────────────────────────
@@ -1036,6 +1224,23 @@ const (
 	GroupLifecycleLeft   = "left"
 )
 
+const (
+	GroupMemberStatusActive = "active"
+	GroupMemberStatusLeft   = "left"
+)
+
+type GroupMemberRecord struct {
+	GroupID     string
+	PeerID      string
+	DisplayName string
+	Role        string
+	Status      string
+	Source      string
+	JoinedAt    int64
+	LeftAt      int64
+	UpdatedAt   int64
+}
+
 // MarkGroupLeft marks a group as locally left while preserving state/history.
 func (d *Database) MarkGroupLeft(groupID string) error {
 	exists, err := d.HasGroup(groupID)
@@ -1077,6 +1282,12 @@ type StoredMessageRow struct {
 	Content string
 }
 
+var canonicalMessageIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+
+func isCanonicalMessageID(messageID string) bool {
+	return canonicalMessageIDRegex.MatchString(strings.TrimSpace(messageID))
+}
+
 type AdminIssuanceRecord struct {
 	ID           string
 	DisplayName  string
@@ -1089,21 +1300,39 @@ type AdminIssuanceRecord struct {
 }
 
 func (d *Database) GetStoredMessageByID(groupID string, messageID string) (*StoredMessageRow, error) {
-	var id int64
+	if !isCanonicalMessageID(messageID) {
+		return nil, fmt.Errorf("invalid message_id: expected 64-char hex envelope hash")
+	}
 	var row StoredMessageRow
+	var envelopeHash []byte
 	err := d.Conn.QueryRow(
-		`SELECT id, group_id, content FROM stored_messages WHERE group_id = ? AND id = ?`,
+		`SELECT group_id, content, envelope_hash
+		 FROM stored_messages
+		 WHERE group_id = ?
+		   AND LOWER(HEX(envelope_hash)) = LOWER(?)
+		 LIMIT 1`,
 		groupID, messageID,
-	).Scan(&id, &row.GroupID, &row.Content)
+	).Scan(&row.GroupID, &row.Content, &envelopeHash)
 	if err != nil {
 		return nil, err
 	}
-	row.ID = fmt.Sprintf("%d", id)
+	if len(envelopeHash) == 0 {
+		return nil, fmt.Errorf("invalid stored message: missing envelope_hash")
+	}
+	row.ID = hex.EncodeToString(envelopeHash)
 	return &row, nil
 }
 
 func (d *Database) DeleteStoredMessageByID(groupID string, messageID string) error {
-	res, err := d.Conn.Exec(`DELETE FROM stored_messages WHERE group_id = ? AND id = ?`, groupID, messageID)
+	if !isCanonicalMessageID(messageID) {
+		return fmt.Errorf("invalid message_id: expected 64-char hex envelope hash")
+	}
+	res, err := d.Conn.Exec(
+		`DELETE FROM stored_messages
+		 WHERE group_id = ?
+		   AND LOWER(HEX(envelope_hash)) = LOWER(?)`,
+		groupID, messageID,
+	)
 	if err != nil {
 		return fmt.Errorf("DeleteStoredMessageByID: %w", err)
 	}

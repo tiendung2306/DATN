@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -133,6 +134,15 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	}
 
 	r.coordinators[groupID] = coord
+	_ = r.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:     groupID,
+		PeerID:      r.node.Host.ID().String(),
+		DisplayName: strings.TrimSpace(identity.DisplayName),
+		Role:        "creator",
+		Status:      store.GroupMemberStatusActive,
+		Source:      "create",
+		UpdatedAt:   time.Now().Unix(),
+	})
 	slog.Info("Group chat created", "group_id", groupID, "type", normalizedGroupType)
 	return nil
 }
@@ -299,67 +309,91 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		return fmt.Errorf("start coordinator: %w", err)
 	}
 	r.coordinators[groupID] = coord
+	_ = r.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:     groupID,
+		PeerID:      r.node.Host.ID().String(),
+		DisplayName: strings.TrimSpace(identity.DisplayName),
+		Role:        "member",
+		Status:      store.GroupMemberStatusActive,
+		Source:      "welcome",
+		UpdatedAt:   time.Now().Unix(),
+	})
 	slog.Info("Joined group via Welcome", "group_id", groupID, "epoch", epoch)
 	return nil
 }
 
-// GetGroupMembers returns active-view members with coarse online status from libp2p.
+// GetGroupMembers returns group roster members with online presence overlay.
 func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
-	r.mu.Lock()
-	coord, ok := r.coordinators[groupID]
+	r.mu.RLock()
 	tr := r.transport
-	r.mu.Unlock()
+	database := r.db
+	node := r.node
+	r.mu.RUnlock()
 
-	if !ok {
+	if database == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	hasGroup, err := database.HasGroup(groupID)
+	if err != nil {
+		return nil, err
+	}
+	if !hasGroup {
 		return nil, fmt.Errorf("not in group %q", groupID)
 	}
-	if tr == nil {
-		return nil, fmt.Errorf("transport not initialized")
+	members, err := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+	if err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		r.ensureGroupRosterBackfilled(groupID)
+		members, err = database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	online := make(map[string]struct{})
-	for _, p := range tr.ConnectedPeers() {
-		online[p.String()] = struct{}{}
-	}
-
-	ids := coord.ActiveMembers()
-	out := make([]MemberInfo, 0, len(ids))
-
-	var localID string
-	var localName string
-	if r.db != nil {
-		if id, err := r.GetOnboardingInfo(); err == nil && id != nil {
-			localID = id.PeerID
-		}
-		if identity, err := r.db.GetMLSIdentity(); err == nil {
-			localName = identity.DisplayName
+	if tr != nil {
+		for _, p := range tr.ConnectedPeers() {
+			online[p.String()] = struct{}{}
 		}
 	}
+	if node != nil {
+		online[node.Host.ID().String()] = struct{}{}
+	}
 
-	for _, id := range ids {
-		_, isOn := online[id.String()]
-		displayName := ""
-
-		if id.String() == localID {
-			displayName = localName
+	out := make([]MemberInfo, 0, len(members))
+	for _, rec := range members {
+		if !isValidPeerID(rec.PeerID) {
+			continue
 		}
-		if displayName == "" && r.node != nil && r.node.AuthProtocol != nil {
-			if tok := r.node.AuthProtocol.GetVerifiedToken(id); tok != nil {
-				displayName = tok.DisplayName
+		displayName := strings.TrimSpace(rec.DisplayName)
+		if displayName == "" {
+			displayName = r.resolveDisplayNameForPeer(rec.PeerID)
+			if displayName != "" && displayName != rec.DisplayName {
+				_ = database.UpsertGroupMember(store.GroupMemberRecord{
+					GroupID:     rec.GroupID,
+					PeerID:      rec.PeerID,
+					DisplayName: displayName,
+					Role:        rec.Role,
+					Status:      rec.Status,
+					Source:      "profile-refresh",
+					JoinedAt:    rec.JoinedAt,
+					LeftAt:      rec.LeftAt,
+					UpdatedAt:   time.Now().Unix(),
+				})
 			}
 		}
-		if displayName == "" && r.db != nil {
-			if name, _ := r.db.GetPeerDisplayName(id.String()); name != "" {
-				displayName = name
-			}
-		}
-
+		_, isOn := online[rec.PeerID]
 		out = append(out, MemberInfo{
-			PeerID:      id.String(),
+			PeerID:      rec.PeerID,
 			DisplayName: displayName,
 			IsOnline:    isOn,
 		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].PeerID < out[j].PeerID
+	})
 	return out, nil
 }
 

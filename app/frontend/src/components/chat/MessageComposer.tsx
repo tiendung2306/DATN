@@ -1,15 +1,24 @@
 import { KeyboardEvent } from 'react'
 import { Button } from '../ui/button'
 import { Paperclip, SendHorizontal } from 'lucide-react'
+import MentionTextarea from './posts/MentionTextarea'
+import { MentionCandidate } from '../../lib/chatModel'
 
 interface MessageComposerProps {
   value: string
   disabled: boolean
+  mentionCandidates: MentionCandidate[]
   onChange: (value: string) => void
   onSend: () => void
 }
 
-export default function MessageComposer({ value, disabled, onChange, onSend }: MessageComposerProps) {
+export default function MessageComposer({
+  value,
+  disabled,
+  mentionCandidates,
+  onChange,
+  onSend,
+}: MessageComposerProps) {
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
@@ -29,14 +38,17 @@ export default function MessageComposer({ value, disabled, onChange, onSend }: M
         >
           <Paperclip className="h-4 w-4" />
         </Button>
-        <textarea
-          className="min-h-[44px] w-full resize-y rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500/30"
-          placeholder="Type a secure message..."
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-        />
+        <div className="w-full">
+          <MentionTextarea
+            value={value}
+            onChange={onChange}
+            placeholder="Type a secure message..."
+            candidates={mentionCandidates}
+            disabled={disabled}
+            rows={2}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
         <Button
           onClick={onSend}
           disabled={disabled || !value.trim()}
