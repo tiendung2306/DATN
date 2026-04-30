@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { service } from '../../../../wailsjs/go/models'
 import AwaitingBundleView from '../../../components/onboarding/AwaitingBundleView'
-import { downloadDeviceRequestJSON } from '../../../lib/onboardingRequest'
+import { askFileName, downloadDeviceRequestJSON } from '../../../lib/onboardingRequest'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 
 interface AwaitingBundleScreenProps {
@@ -48,8 +48,10 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
   const handleDownloadRequest = () => {
     if (!info) return
     try {
-      downloadDeviceRequestJSON(info)
-      setSuccessMessage('Da tao request.json. Gui file nay cho quan tri vien.')
+      const fileName = askFileName('request.json', '.json')
+      if (!fileName) return
+      downloadDeviceRequestJSON(info, fileName)
+      setSuccessMessage(`Da tao ${fileName}. Gui file nay cho quan tri vien.`)
       setTimeout(() => setSuccessMessage(null), 2200)
     } catch (e) {
       setError(String(e))
