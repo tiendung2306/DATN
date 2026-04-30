@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -39,6 +40,41 @@ func (r *Runtime) GetOnboardingInfo() (*OnboardingInfo, error) {
 		return nil, err
 	}
 	return &OnboardingInfo{PeerID: info.PeerID, PublicKeyHex: info.PublicKeyHex}, nil
+}
+
+// ExportDeviceRequestJSON writes the current onboarding request to a user-selected file.
+func (r *Runtime) ExportDeviceRequestJSON() (string, error) {
+	info, err := r.GetOnboardingInfo()
+	if err != nil {
+		return "", err
+	}
+	payload := map[string]interface{}{
+		"version":        1,
+		"peer_id":        info.PeerID,
+		"mls_public_key": info.PublicKeyHex,
+	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal request payload: %w", err)
+	}
+	outPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
+		Title:           "Save Device Request JSON",
+		DefaultFilename: "request.json",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("save dialog: %w", err)
+	}
+	if outPath == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(outPath, body, 0600); err != nil {
+		return "", fmt.Errorf("write request file: %w", err)
+	}
+	return outPath, nil
 }
 
 // GenerateKeys generates the MLS key pair for this node via the Rust crypto engine.

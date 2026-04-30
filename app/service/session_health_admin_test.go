@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"app/adapter/store"
 	"app/admin"
@@ -142,6 +143,36 @@ func TestCreateBundleFromRequest(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected wrong passphrase error")
+	}
+}
+
+func TestVerifyAdminPassphraseUnlockTTL(t *testing.T) {
+	rt := setupServiceRuntime(t)
+	if err := rt.InitAdminKey("passphrase"); err != nil {
+		t.Fatalf("InitAdminKey: %v", err)
+	}
+	if err := rt.VerifyAdminPassphrase("wrong"); err == nil {
+		t.Fatalf("expected wrong passphrase error")
+	}
+	if err := rt.VerifyAdminPassphrase("passphrase"); err != nil {
+		t.Fatalf("VerifyAdminPassphrase: %v", err)
+	}
+	status, err := rt.GetAdminStatus()
+	if err != nil {
+		t.Fatalf("GetAdminStatus: %v", err)
+	}
+	if !status.Unlocked {
+		t.Fatalf("expected unlocked status after verification")
+	}
+	rt.mu.Lock()
+	rt.adminUnlockedUntil = time.Now().Add(-time.Second)
+	rt.mu.Unlock()
+	status, err = rt.GetAdminStatus()
+	if err != nil {
+		t.Fatalf("GetAdminStatus after expiry: %v", err)
+	}
+	if status.Unlocked {
+		t.Fatalf("expected unlocked status to expire")
 	}
 }
 

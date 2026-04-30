@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"app/adapter/p2p"
 	"app/adapter/store"
@@ -67,6 +68,8 @@ type IssuanceRecord struct {
 	BundlePath   string `json:"bundle_path,omitempty"`
 }
 
+const adminUnlockTTL = 15 * time.Minute
+
 // CreateBundle creates a signed InvitationBundle for a new user and saves it via a save dialog.
 func (r *Runtime) CreateBundle(req CreateBundleRequest) (string, error) {
 	if r.db == nil || r.privKey == nil {
@@ -119,7 +122,41 @@ func (r *Runtime) GetAdminStatus() (AdminStatus, error) {
 	if err != nil {
 		return AdminStatus{}, err
 	}
-	return AdminStatus{HasAdminKey: hasKey, Unlocked: false}, nil
+	return AdminStatus{
+		HasAdminKey: hasKey,
+		Unlocked:    r.isAdminUnlockedNow(),
+	}, nil
+}
+
+func (r *Runtime) VerifyAdminPassphrase(passphrase string) error {
+	if r.db == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	if strings.TrimSpace(passphrase) == "" {
+		return fmt.Errorf("admin passphrase is required")
+	}
+	if _, err := admin.UnlockAdminKey(r.db, passphrase); err != nil {
+		return fmt.Errorf("unlock admin key: %w", err)
+	}
+	r.markAdminUnlocked()
+	return nil
+}
+
+func (r *Runtime) markAdminUnlocked() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.adminUnlockedUntil = time.Now().Add(adminUnlockTTL)
+}
+
+func (r *Runtime) isAdminUnlockedNow() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	if !r.adminUnlockedUntil.IsZero() && now.After(r.adminUnlockedUntil) {
+		r.adminUnlockedUntil = time.Time{}
+		return false
+	}
+	return now.Before(r.adminUnlockedUntil)
 }
 
 func (r *Runtime) ParseDeviceRequestJSON(data string) (DeviceAccessRequest, error) {

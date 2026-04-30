@@ -1,5 +1,4 @@
 import { ChangeEventHandler, useEffect, useState } from 'react'
-import { downloadBundleFile } from '../../../lib/onboardingRequest'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 
 export default function AdminPanelScreen() {
@@ -13,14 +12,18 @@ export default function AdminPanelScreen() {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [adminReady, setAdminReady] = useState<boolean | null>(null)
+  const [backendUnlocked, setBackendUnlocked] = useState(false)
   const [history, setHistory] = useState<Array<{ id: string; display_name: string; peer_id: string }>>([])
 
   const loadAdminStatus = async () => {
     try {
       const admin = await runtimeClient.getAdminStatus()
       setAdminReady(admin.has_admin_key)
+      setBackendUnlocked(admin.unlocked)
+      setIsAdminUnlocked(admin.unlocked)
     } catch {
       setAdminReady(null)
+      setBackendUnlocked(false)
     }
   }
 
@@ -35,7 +38,22 @@ export default function AdminPanelScreen() {
   useEffect(() => {
     void loadAdminStatus()
     void loadHistory()
+    const timer = window.setInterval(() => {
+      void loadAdminStatus()
+    }, 15_000)
+    return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    if (!backendUnlocked && isAdminUnlocked) {
+      // Auto-return to the gate when backend unlock TTL expires.
+      setIsAdminUnlocked(false)
+      setAdminPassphrase('')
+      setAdminPasswordInput('')
+      setStatus('')
+      setError('Phien admin da het han (15 phut). Vui long nhap lai admin password.')
+    }
+  }, [backendUnlocked, isAdminUnlocked])
 
   const handleInit = async () => {
     if (!adminPasswordInput) return
@@ -54,8 +72,25 @@ export default function AdminPanelScreen() {
 
   const handleUnlock = () => {
     if (!adminPasswordInput.trim()) return
-    setAdminPassphrase(adminPasswordInput.trim())
-    setIsAdminUnlocked(true)
+    void (async () => {
+      setStatus('')
+      setError('')
+      try {
+        await runtimeClient.verifyAdminPassphrase(adminPasswordInput.trim())
+        setAdminPassphrase(adminPasswordInput.trim())
+        setIsAdminUnlocked(true)
+        setStatus('Admin unlocked for 15 minutes.')
+        await loadAdminStatus()
+      } catch (e) {
+        setError(String(e))
+      }
+    })()
+  }
+
+  const handleRelock = () => {
+    setIsAdminUnlocked(false)
+    setAdminPassphrase('')
+    setAdminPasswordInput('')
     setStatus('')
     setError('')
   }
@@ -65,18 +100,14 @@ export default function AdminPanelScreen() {
     setStatus('')
     setError('')
     try {
-      const bundle = await runtimeClient.createBundleFromRequest({
+      const savedPath = await runtimeClient.createBundle({
         display_name: displayName,
         peer_id: peerId.trim(),
         public_key_hex: mlsPublicKey.trim(),
         admin_passphrase: adminPassphrase,
       })
-      const defaultFileName = `${displayName.trim().replace(/\s+/g, '-') || 'invite'}.bundle`
-      const inputName = window.prompt('Nhap ten file bundle (.bundle):', defaultFileName)
-      if (inputName !== null) {
-        downloadBundleFile(bundle, inputName)
-      }
-      setStatus(`Bundle created (${bundle.length} bytes).`)
+      if (!savedPath) return
+      setStatus(`Bundle saved: ${savedPath}`)
       await loadHistory()
     } catch (e) {
       setError(String(e))
@@ -114,6 +145,11 @@ export default function AdminPanelScreen() {
           onChange={(event) => setAdminPasswordInput(event.target.value)}
           placeholder="Admin password"
           className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && adminPasswordInput.trim()) {
+              handleUnlock()
+            }
+          }}
         />
         <div className="flex gap-2">
           {adminReady === false ? (
@@ -143,7 +179,14 @@ export default function AdminPanelScreen() {
     <div className="space-y-4 p-4 text-sm text-slate-200">
       <h3 className="font-semibold">Admin Bundle Issuance</h3>
       <div className="rounded border border-slate-700 bg-slate-900/50 px-3 py-2 text-xs text-slate-300">
-        Admin passphrase da duoc nhap. Ban co the issue bundle.
+        {backendUnlocked
+          ? 'Backend admin unlock dang hoat dong (TTL 15 phut).'
+          : 'Backend admin unlock da het han. Nhap lai passphrase de mo khoa.'}
+      </div>
+      <div>
+        <button className="btn-secondary text-xs" type="button" onClick={handleRelock}>
+          Relock admin view
+        </button>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <button
@@ -206,7 +249,13 @@ export default function AdminPanelScreen() {
       <button
         className="btn-secondary text-xs"
         onClick={() => void handleIssue()}
-        disabled={!adminPassphrase || !displayName.trim() || !peerId.trim() || !mlsPublicKey.trim()}
+        disabled={
+          !backendUnlocked ||
+          !adminPassphrase ||
+          !displayName.trim() ||
+          !peerId.trim() ||
+          !mlsPublicKey.trim()
+        }
       >
         Issue bundle
       </button>

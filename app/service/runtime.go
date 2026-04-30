@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"time"
 
 	"app/adapter/p2p"
 	"app/adapter/sidecar"
@@ -42,6 +43,8 @@ type Runtime struct {
 	blindStore   *blindStoreLayer
 
 	health RuntimeHealth
+
+	adminUnlockedUntil time.Time
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
