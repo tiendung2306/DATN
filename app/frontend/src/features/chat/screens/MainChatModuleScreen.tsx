@@ -30,6 +30,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     activePosts,
     activeGroupMembers,
     refreshGroups,
+    refreshNodeStatus,
+    loadGroupMembers,
     setActiveGroupId,
     loadMoreMessages,
     loadMorePosts,
@@ -37,7 +39,13 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     loadMoreComments,
   } = useChatRuntime()
 
-  useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId })
+  useChatEvents({
+    activeGroupId,
+    refreshGroups,
+    refreshNodeStatus,
+    refreshGroupMembers: loadGroupMembers,
+    setActiveGroupId,
+  })
 
   const {
     creatingGroup,

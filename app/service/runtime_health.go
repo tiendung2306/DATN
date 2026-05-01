@@ -80,6 +80,8 @@ func (r *Runtime) setP2PStatus(running bool, message string) {
 		"message": message,
 	})
 	r.emitRuntimeHealth(h)
+	r.emitNodeStatusChanged("p2p_status")
+	r.emitAllGroupsMembersChanged("presence")
 }
 
 func (r *Runtime) setCryptoReady(ready bool) {

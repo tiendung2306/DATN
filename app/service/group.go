@@ -81,7 +81,16 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	emitMembersChanged := false
+	defer func() {
+		r.mu.Unlock()
+		if emitMembersChanged {
+			r.emit("group:members_changed", map[string]interface{}{
+				"group_id": groupID,
+				"reason":   "created",
+			})
+		}
+	}()
 
 	if r.node == nil {
 		return fmt.Errorf("P2P node not running")
@@ -144,6 +153,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 		Source:      "create",
 		UpdatedAt:   time.Now().Unix(),
 	})
+	emitMembersChanged = true
 	slog.Info("Group chat created", "group_id", groupID, "type", normalizedGroupType)
 	return nil
 }
@@ -249,7 +259,16 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	emitMembersChanged := false
+	defer func() {
+		r.mu.Unlock()
+		if emitMembersChanged {
+			r.emit("group:members_changed", map[string]interface{}{
+				"group_id": groupID,
+				"reason":   "joined",
+			})
+		}
+	}()
 
 	if r.node == nil {
 		return fmt.Errorf("P2P node not running")
@@ -319,6 +338,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		Source:      "welcome",
 		UpdatedAt:   time.Now().Unix(),
 	})
+	emitMembersChanged = true
 	slog.Info("Joined group via Welcome", "group_id", groupID, "epoch", epoch)
 	return nil
 }

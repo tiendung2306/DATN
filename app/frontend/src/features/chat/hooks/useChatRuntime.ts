@@ -204,11 +204,6 @@ export function useChatRuntime() {
   useEffect(() => {
     void refreshNodeStatus()
     void refreshGroups()
-    const interval = setInterval(() => {
-      void refreshNodeStatus()
-      void refreshGroups()
-    }, 5000)
-    return () => clearInterval(interval)
   }, [refreshGroups, refreshNodeStatus])
 
   useEffect(() => {
@@ -252,6 +247,7 @@ export function useChatRuntime() {
     activePosts,
     activeGroupMembers,
     refreshGroups,
+    refreshNodeStatus,
     setGroups,
     setActiveGroupId,
     markGroupRead,
@@ -261,6 +257,7 @@ export function useChatRuntime() {
     loadMorePosts,
     loadComments,
     loadMoreComments,
+    loadGroupMembers,
   }
 }
 

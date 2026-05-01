@@ -100,6 +100,7 @@ func (r *Runtime) GenerateKeys() (*OnboardingInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	r.emitAppStateChanged()
 	return &OnboardingInfo{PeerID: info.PeerID, PublicKeyHex: info.PublicKeyHex}, nil
 }
 
@@ -133,6 +134,7 @@ func (r *Runtime) OpenAndImportBundle() error {
 		return err
 	}
 	r.setP2PStatus(true, "P2P node running")
+	r.emitAppStateChanged()
 	return nil
 }
 
@@ -217,5 +219,14 @@ func (r *Runtime) ImportIdentityFromFile(passphrase string, force bool) error {
 	}
 
 	slog.Info("Identity imported via GUI. Restart app to apply and trigger session takeover.")
+	r.emitAppStateChanged()
 	return nil
+}
+
+func (r *Runtime) emitAppStateChanged() {
+	state := r.GetAppState()
+	r.setHealthAppState(state)
+	r.emit("app:state_changed", map[string]interface{}{
+		"state": state,
+	})
 }

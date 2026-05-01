@@ -119,6 +119,40 @@ func (r *Runtime) GetKnownPeers() []PeerInfo {
 	return list
 }
 
+func (r *Runtime) emitNodeStatusChanged(reason string) {
+	status := r.GetNodeStatus()
+	if status == nil {
+		return
+	}
+	r.emit("node:status", map[string]interface{}{
+		"reason":          reason,
+		"state":           status.State,
+		"peer_id":         status.PeerID,
+		"display_name":    status.DisplayName,
+		"is_running":      status.IsRunning,
+		"connected_peers": status.ConnectedPeers,
+	})
+}
+
+func (r *Runtime) emitAllGroupsMembersChanged(reason string) {
+	r.mu.RLock()
+	cs := r.coordStorage
+	r.mu.RUnlock()
+	if cs == nil {
+		return
+	}
+	groups, err := cs.ListGroups()
+	if err != nil {
+		return
+	}
+	for _, g := range groups {
+		r.emit("group:members_changed", map[string]interface{}{
+			"group_id": g.GroupID,
+			"reason":   reason,
+		})
+	}
+}
+
 func (r *Runtime) getAppStateUnlocked() string {
 	if r.db == nil {
 		return "ERROR"

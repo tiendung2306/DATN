@@ -129,3 +129,60 @@ func TestGetGroupMembers_BackfillsFromKnownSenders(t *testing.T) {
 		t.Fatalf("peer-history not found in backfilled roster: %+v", members)
 	}
 }
+
+func TestGetGroupMembers_PendingInviteDoesNotCreateActiveMember(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	now := time.Now()
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-pending",
+		GroupState: []byte("state"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+
+	_, localPub, err := p2pCrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key local: %v", err)
+	}
+	localPeerID, err := peer.IDFromPublicKey(localPub)
+	if err != nil {
+		t.Fatalf("IDFromPublicKey local: %v", err)
+	}
+	_, inviteePub, err := p2pCrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key invitee: %v", err)
+	}
+	inviteePeerID, err := peer.IDFromPublicKey(inviteePub)
+	if err != nil {
+		t.Fatalf("IDFromPublicKey invitee: %v", err)
+	}
+
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:     "group-pending",
+		PeerID:      localPeerID.String(),
+		DisplayName: "Creator",
+		Role:        "creator",
+		Status:      store.GroupMemberStatusActive,
+		Source:      "create",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember creator: %v", err)
+	}
+
+	if err := rt.db.SavePendingWelcome(inviteePeerID.String(), "group-pending", []byte("welcome-payload")); err != nil {
+		t.Fatalf("SavePendingWelcome: %v", err)
+	}
+
+	members, err := rt.GetGroupMembers("group-pending")
+	if err != nil {
+		t.Fatalf("GetGroupMembers: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members len=%d, want 1 (invitee must remain pending)", len(members))
+	}
+	if members[0].PeerID != localPeerID.String() {
+		t.Fatalf("unexpected member: %+v", members[0])
+	}
+}

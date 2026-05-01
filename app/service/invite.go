@@ -274,7 +274,6 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	if err != nil {
 		return fmt.Errorf("AddMembers: %w", err)
 	}
-	_ = r.upsertGroupMember(groupID, targetID.String(), "member", "invite")
 
 	// Persist Welcome for store-and-forward.
 	if err := database.SavePendingWelcome(targetID.String(), groupID, welcome); err != nil {
@@ -1129,5 +1128,10 @@ func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
 	go h.rt.advertiseKeyPackage()
 	go h.rt.scheduleOfflineSyncPull(p)
 	go h.rt.flushPendingDeliveryAcksTo(p)
+	go h.rt.emitNodeStatusChanged("peer_connected")
+	go h.rt.emitAllGroupsMembersChanged("presence")
 }
-func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {}
+func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {
+	go h.rt.emitNodeStatusChanged("peer_disconnected")
+	go h.rt.emitAllGroupsMembersChanged("presence")
+}

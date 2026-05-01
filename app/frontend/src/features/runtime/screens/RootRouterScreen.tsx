@@ -16,6 +16,12 @@ interface StartupErrorPayload {
   message?: string
 }
 
+interface RuntimeHealthPayload {
+  startup_stage?: string
+  app_state?: string
+  last_error?: string
+}
+
 function normalizeAppState(state: string): AppRouteState {
   switch (state) {
     case 'UNINITIALIZED':
@@ -72,13 +78,32 @@ export default function RootRouterScreen() {
     setFatalError(payload?.message || 'Startup failed.')
   })
 
+  useWailsEvent<RuntimeHealthPayload>('runtime:health', (payload) => {
+    if (payload?.startup_stage) {
+      setStartupStage(payload.startup_stage)
+    }
+    if (payload?.app_state) {
+      setAppState(normalizeAppState(payload.app_state))
+    }
+    if (payload?.last_error) {
+      setFatalError(payload.last_error)
+    }
+  })
+
+  useWailsEvent<{ state?: string }>('app:state_changed', (payload) => {
+    if (payload?.state) {
+      setAppState(normalizeAppState(payload.state))
+    }
+  })
+
+  useWailsEvent('session:replaced', () => {
+    setAppState('ERROR')
+    setFatalError('Session replaced by a newer active device.')
+  })
+
   useEffect(() => {
     void refreshState()
-    const interval = setInterval(() => {
-      void refreshState()
-    }, appState === 'LOADING' ? 1000 : 5000)
-    return () => clearInterval(interval)
-  }, [appState, refreshState])
+  }, [refreshState])
 
   if (appState === 'LOADING') {
     return (

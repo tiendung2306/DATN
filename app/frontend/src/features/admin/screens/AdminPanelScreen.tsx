@@ -1,5 +1,6 @@
 import { ChangeEventHandler, useEffect, useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
+import { useWailsEvent } from '../../../hooks/useWailsEvent'
 
 export default function AdminPanelScreen() {
   const [adminPasswordInput, setAdminPasswordInput] = useState('')
@@ -41,11 +42,19 @@ export default function AdminPanelScreen() {
   useEffect(() => {
     void loadAdminStatus()
     void loadHistory()
-    const timer = window.setInterval(() => {
-      void loadAdminStatus()
-    }, 15_000)
-    return () => window.clearInterval(timer)
   }, [])
+
+  useWailsEvent<{ has_admin_key?: boolean; unlocked?: boolean }>('admin:status', (payload) => {
+    if (typeof payload?.has_admin_key === 'boolean') {
+      setAdminReady(payload.has_admin_key)
+    }
+    if (typeof payload?.unlocked === 'boolean') {
+      setBackendUnlocked(payload.unlocked)
+      if (!payload.unlocked) {
+        setIsAdminUnlocked(false)
+      }
+    }
+  })
 
   useEffect(() => {
     if (!backendUnlocked && isAdminUnlocked) {

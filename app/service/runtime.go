@@ -45,6 +45,7 @@ type Runtime struct {
 	health RuntimeHealth
 
 	adminUnlockedUntil time.Time
+	adminUnlockTimer   *time.Timer
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
@@ -200,6 +201,10 @@ func (r *Runtime) Shutdown(_ context.Context) {
 
 // teardown releases all resources. Must be called with r.mu held.
 func (r *Runtime) teardown() {
+	if r.adminUnlockTimer != nil {
+		r.adminUnlockTimer.Stop()
+		r.adminUnlockTimer = nil
+	}
 	r.stopCoordinatorsLocked()
 	r.stopNetworkLocked()
 

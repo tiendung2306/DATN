@@ -6,23 +6,23 @@ import { useChatStore } from '../../../stores/useChatStore'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { GroupEpochPayload } from './chatTypes'
 
-function uniqueById<T extends { id: string }>(messages: T[]): T[] {
-  const seen = new Set<string>()
-  return messages.filter((message) => {
-    if (seen.has(message.id)) return false
-    seen.add(message.id)
-    return true
-  })
-}
-
 interface UseChatEventsOptions {
   activeGroupId: string | null
   refreshGroups: () => Promise<void>
+  refreshNodeStatus: () => Promise<void>
+  refreshGroupMembers: (groupId: string) => Promise<void>
   setActiveGroupId: (groupId: string | null) => void
 }
 
-export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }: UseChatEventsOptions) {
+export function useChatEvents({
+  activeGroupId,
+  refreshGroups,
+  refreshNodeStatus,
+  refreshGroupMembers,
+  setActiveGroupId,
+}: UseChatEventsOptions) {
   const pushMessage = useChatStore((s) => s.pushMessage)
+  const upsertPublishedMessage = useChatStore((s) => s.upsertPublishedMessage)
   const pushPost = useChatStore((s) => s.pushPost)
   const pushComment = useChatStore((s) => s.pushComment)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
@@ -47,10 +47,10 @@ export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }
             pushMessage(targetGroup, message)
           }
         } else {
-          pushMessage(targetGroup, message)
+          upsertPublishedMessage(targetGroup, message)
         }
       } catch {
-        pushMessage(targetGroup, message)
+        upsertPublishedMessage(targetGroup, message)
       }
 
       if (targetGroup !== activeGroupId) {
@@ -59,7 +59,7 @@ export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }
         markGroupRead(targetGroup)
       }
     },
-    [activeGroupId, incrementUnread, markGroupRead, pushPost, pushComment, pushMessage],
+    [activeGroupId, incrementUnread, markGroupRead, pushPost, pushComment, upsertPublishedMessage],
   )
 
   const handleGroupEpoch = useCallback(
@@ -78,12 +78,44 @@ export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }
       await refreshGroups()
       if (payload?.group_id) {
         setActiveGroupId(payload.group_id)
+        await refreshGroupMembers(payload.group_id)
       }
     },
-    [refreshGroups, setActiveGroupId],
+    [refreshGroupMembers, refreshGroups, setActiveGroupId],
   )
+
+  const handleMembersChanged = useCallback(
+    async (payload: { group_id: string }) => {
+      if (!payload?.group_id) return
+      if (payload.group_id === activeGroupId) {
+        await refreshGroupMembers(payload.group_id)
+      }
+    },
+    [activeGroupId, refreshGroupMembers],
+  )
+
+  const handleGroupLeft = useCallback(
+    async (payload: { group_id: string }) => {
+      await refreshGroups()
+      if (payload?.group_id && payload.group_id === activeGroupId) {
+        setActiveGroupId(null)
+      }
+    },
+    [activeGroupId, refreshGroups, setActiveGroupId],
+  )
+
+  const handleNodeStatusChanged = useCallback(async () => {
+    await refreshNodeStatus()
+    if (activeGroupId) {
+      await refreshGroupMembers(activeGroupId)
+    }
+  }, [activeGroupId, refreshGroupMembers, refreshNodeStatus])
 
   useWailsEvent<service.MessageInfo>('group:message', handleGroupMessage)
   useWailsEvent<GroupEpochPayload>('group:epoch', handleGroupEpoch)
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
+  useWailsEvent<{ group_id: string }>('group:left', handleGroupLeft)
+  useWailsEvent<{ group_id: string }>('group:members_changed', handleMembersChanged)
+  useWailsEvent('node:status', handleNodeStatusChanged)
+  useWailsEvent('p2p:status', handleNodeStatusChanged)
 }

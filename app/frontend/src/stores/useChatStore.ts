@@ -21,6 +21,7 @@ interface ChatState {
   commentsByPost: Record<string, ChatMessage[]>
   unreadByGroup: Record<string, number>
   pushMessage: (groupId: string, message: ChatMessage) => void
+  upsertPublishedMessage: (groupId: string, message: ChatMessage) => void
   pushPost: (groupId: string, message: ChatMessage) => void
   pushComment: (postId: string, message: ChatMessage) => void
   setMessages: (groupId: string, messages: ChatMessage[]) => void
@@ -48,6 +49,56 @@ export const useChatStore = create<ChatState>((set) => ({
         [groupId]: [...(state.messagesByGroup[groupId] ?? []), message],
       },
     })),
+  upsertPublishedMessage: (groupId, message) =>
+    set((state) => {
+      const existing = state.messagesByGroup[groupId] ?? []
+      const canonicalId = message.id
+
+      // First preference: replace by canonical message id.
+      const canonicalIdx = existing.findIndex((m) => m.id === canonicalId)
+      if (canonicalIdx >= 0) {
+        const next = [...existing]
+        next[canonicalIdx] = { ...next[canonicalIdx], ...message, status: 'published' }
+        return {
+          messagesByGroup: {
+            ...state.messagesByGroup,
+            [groupId]: next,
+          },
+        }
+      }
+
+      // Reconcile optimistic local echo for own message.
+      const pendingIdx = existing.findIndex(
+        (m) =>
+          m.id.startsWith('local:') &&
+          m.isMine &&
+          m.status !== 'failed' &&
+          m.sender === message.sender &&
+          m.content === message.content,
+      )
+      if (pendingIdx >= 0) {
+        const next = [...existing]
+        next[pendingIdx] = {
+          ...next[pendingIdx],
+          ...message,
+          id: canonicalId,
+          status: 'published',
+        }
+        return {
+          messagesByGroup: {
+            ...state.messagesByGroup,
+            [groupId]: next,
+          },
+        }
+      }
+
+      return {
+        messagesByGroup: {
+          ...state.messagesByGroup,
+          [groupId]: [...existing, { ...message, status: 'published' }],
+        },
+      }
+    }),
   pushPost: (groupId, message) =>
     set((state) => ({
       postsByGroup: {

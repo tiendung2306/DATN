@@ -147,8 +147,25 @@ func (r *Runtime) VerifyAdminPassphrase(passphrase string) error {
 
 func (r *Runtime) markAdminUnlocked() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.adminUnlockedUntil = time.Now().Add(adminUnlockTTL)
+	if r.adminUnlockTimer != nil {
+		r.adminUnlockTimer.Stop()
+	}
+	r.adminUnlockTimer = time.AfterFunc(adminUnlockTTL, func() {
+		r.mu.Lock()
+		now := time.Now()
+		emit := false
+		if !r.adminUnlockedUntil.IsZero() && now.After(r.adminUnlockedUntil) {
+			r.adminUnlockedUntil = time.Time{}
+			emit = true
+		}
+		r.mu.Unlock()
+		if emit {
+			r.emitAdminStatusChanged()
+		}
+	})
+	r.mu.Unlock()
+	r.emitAdminStatusChanged()
 }
 
 func (r *Runtime) isAdminUnlockedNow() bool {
@@ -160,6 +177,17 @@ func (r *Runtime) isAdminUnlockedNow() bool {
 		return false
 	}
 	return now.Before(r.adminUnlockedUntil)
+}
+
+func (r *Runtime) emitAdminStatusChanged() {
+	status, err := r.GetAdminStatus()
+	if err != nil {
+		return
+	}
+	r.emit("admin:status", map[string]interface{}{
+		"has_admin_key": status.HasAdminKey,
+		"unlocked":      status.Unlocked,
+	})
 }
 
 func (r *Runtime) ParseDeviceRequestJSON(data string) (DeviceAccessRequest, error) {
@@ -338,5 +366,6 @@ func (r *Runtime) CreateAndImportSelfBundle(displayName, passphrase string) erro
 		return err
 	}
 	r.setP2PStatus(true, "P2P node running")
+	r.emitAppStateChanged()
 	return nil
 }
