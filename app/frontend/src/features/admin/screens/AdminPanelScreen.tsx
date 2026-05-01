@@ -20,10 +20,13 @@ export default function AdminPanelScreen() {
       const admin = await runtimeClient.getAdminStatus()
       setAdminReady(admin.has_admin_key)
       setBackendUnlocked(admin.unlocked)
-      setIsAdminUnlocked(admin.unlocked)
+      if (!admin.unlocked) {
+        setIsAdminUnlocked(false)
+      }
     } catch {
       setAdminReady(null)
       setBackendUnlocked(false)
+      setIsAdminUnlocked(false)
     }
   }
 
@@ -62,6 +65,7 @@ export default function AdminPanelScreen() {
     try {
       await runtimeClient.initAdminKey(adminPasswordInput)
       setAdminPassphrase(adminPasswordInput)
+      setBackendUnlocked(true)
       setIsAdminUnlocked(true)
       setStatus('Admin key initialized.')
       await loadAdminStatus()
@@ -78,6 +82,7 @@ export default function AdminPanelScreen() {
       try {
         await runtimeClient.verifyAdminPassphrase(adminPasswordInput.trim())
         setAdminPassphrase(adminPasswordInput.trim())
+        setBackendUnlocked(true)
         setIsAdminUnlocked(true)
         setStatus('Admin unlocked for 15 minutes.')
         await loadAdminStatus()

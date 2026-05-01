@@ -50,7 +50,7 @@ export default function AwaitingBundleView({
                   {copiedAll ? 'Copied' : 'Copy All'}
                 </Button>
                 <Button variant="secondary" onClick={onDownloadRequest}>
-                  Download request.json
+                  Download request.bundle
                 </Button>
                 <Button onClick={onImportBundle} disabled={importing}>
                   {importing ? 'Importing...' : 'Import Bundle'}

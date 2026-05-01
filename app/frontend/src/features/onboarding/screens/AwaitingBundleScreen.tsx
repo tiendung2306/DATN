@@ -49,7 +49,7 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
     try {
       const savedPath = await runtimeClient.exportDeviceRequestJson()
       if (!savedPath) return
-      setSuccessMessage(`Da luu request tai: ${savedPath}`)
+      setSuccessMessage(`Da luu request bundle tai: ${savedPath}`)
       setTimeout(() => setSuccessMessage(null), 2200)
     } catch (e) {
       setError(String(e))

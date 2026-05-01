@@ -42,7 +42,8 @@ func (r *Runtime) GetOnboardingInfo() (*OnboardingInfo, error) {
 	return &OnboardingInfo{PeerID: info.PeerID, PublicKeyHex: info.PublicKeyHex}, nil
 }
 
-// ExportDeviceRequestJSON writes the current onboarding request to a user-selected file.
+// ExportDeviceRequestJSON writes the current onboarding request to a user-selected .bundle file.
+// The payload remains JSON so Admin can parse it, but the extension matches the onboarding exchange UX.
 func (r *Runtime) ExportDeviceRequestJSON() (string, error) {
 	info, err := r.GetOnboardingInfo()
 	if err != nil {
@@ -58,10 +59,10 @@ func (r *Runtime) ExportDeviceRequestJSON() (string, error) {
 		return "", fmt.Errorf("marshal request payload: %w", err)
 	}
 	outPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
-		Title:           "Save Device Request JSON",
-		DefaultFilename: "request.json",
+		Title:           "Save Device Request Bundle",
+		DefaultFilename: "device-request.bundle",
 		Filters: []wailsRuntime.FileFilter{
-			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+			{DisplayName: "Bundle Files (*.bundle)", Pattern: "*.bundle"},
 			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
 		},
 	})

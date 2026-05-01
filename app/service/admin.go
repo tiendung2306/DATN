@@ -25,8 +25,11 @@ func (r *Runtime) InitAdminKey(passphrase string) error {
 	if passphrase == "" {
 		return fmt.Errorf("passphrase is required")
 	}
-	_, err := admin.SetupAdminKey(r.db, passphrase)
-	return err
+	if _, err := admin.SetupAdminKey(r.db, passphrase); err != nil {
+		return err
+	}
+	r.markAdminUnlocked()
+	return nil
 }
 
 // CreateBundleRequest holds the parameters for CreateBundle.
