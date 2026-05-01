@@ -159,6 +159,12 @@ type CoordinationStorage interface {
 	// after the given lower bound, sorted by HLC ascending.
 	GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error)
 
+	// GetPostsPaginated retrieves only messages of type 'post' for a group.
+	GetPostsPaginated(groupID string, limit, offset int) ([]*StoredMessage, error)
+
+	// GetCommentsPaginated retrieves only messages of type 'comment' or 'reply' for a specific post.
+	GetCommentsPaginated(groupID, postID string, limit, offset int) ([]*StoredMessage, error)
+
 	// AppendEnvelope stores a raw JSON Envelope for offline replay (MsgCommit / MsgApplication only).
 	AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (seq int64, err error)
 

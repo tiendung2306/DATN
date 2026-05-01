@@ -5,6 +5,7 @@ type Message struct {
 	GroupID   string
 	Sender    string
 	Content   string
-	Timestamp int64
-	IsMine    bool
+	Timestamp    int64
+	IsMine       bool
+	CommentCount int
 }

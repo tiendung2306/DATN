@@ -42,17 +42,7 @@ func (r *Runtime) SendGroupMessage(groupID string, text string) error {
 	return err
 }
 
-// GetGroupMessages returns all stored messages for a group, sorted by HLC.
-func (r *Runtime) GetGroupMessages(groupID string) ([]MessageInfo, error) {
-	if r.coordStorage == nil {
-		return nil, fmt.Errorf("storage not initialized")
-	}
-
-	msgs, err := r.coordStorage.GetMessagesSince(groupID, coordination.HLCTimestamp{})
-	if err != nil {
-		return nil, err
-	}
-
+func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMessage) []MessageInfo {
 	var localID peer.ID
 	r.mu.Lock()
 	if r.node != nil {
@@ -93,9 +83,53 @@ func (r *Runtime) GetGroupMessages(groupID string) ([]MessageInfo, error) {
 			Timestamp:         m.Timestamp.WallTimeMs,
 			IsMine:            m.SenderID == localID,
 			Status:            "published",
+			CommentCount:      m.CommentCount,
 		}
 	}
-	return result, nil
+	return result
+}
+
+// GetGroupMessages returns stored messages for a group. If limit > 0, it uses pagination.
+func (r *Runtime) GetGroupMessages(groupID string, limit, offset int) ([]MessageInfo, error) {
+	if r.coordStorage == nil {
+		return nil, fmt.Errorf("storage not initialized")
+	}
+ 
+	var msgs []*coordination.StoredMessage
+	var err error
+	if limit > 0 {
+		msgs, err = r.coordStorage.GetMessagesPaginated(groupID, limit, offset)
+	} else {
+		msgs, err = r.coordStorage.GetMessagesSince(groupID, coordination.HLCTimestamp{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.mapStoredMessagesToMessageInfo(msgs), nil
+}
+
+// GetGroupPosts returns paginated 'post' messages for a group.
+func (r *Runtime) GetGroupPosts(groupID string, limit, offset int) ([]MessageInfo, error) {
+	if r.coordStorage == nil {
+		return nil, fmt.Errorf("storage not initialized")
+	}
+	msgs, err := r.coordStorage.GetPostsPaginated(groupID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return r.mapStoredMessagesToMessageInfo(msgs), nil
+}
+
+// GetPostComments returns paginated 'comment'/'reply' messages for a specific post.
+func (r *Runtime) GetPostComments(groupID, postID string, limit, offset int) ([]MessageInfo, error) {
+	if r.coordStorage == nil {
+		return nil, fmt.Errorf("storage not initialized")
+	}
+	msgs, err := r.coordStorage.GetCommentsPaginated(groupID, postID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return r.mapStoredMessagesToMessageInfo(msgs), nil
 }
 
 // RetryMessage re-sends an existing persisted message by ID.

@@ -549,6 +549,86 @@ func (s *MockStorage) GetMessagesSince(groupID string, after HLCTimestamp) ([]*S
 	return out, nil
 }
 
+func (s *MockStorage) GetMessagesPaginated(groupID string, limit, offset int) ([]*StoredMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*StoredMessage
+	for _, msg := range s.messages {
+		if msg.GroupID == groupID {
+			out = append(out, msg)
+		}
+	}
+	// Sort by timestamp DESC to match production SQLite behavior
+	// (Actually MockStorage stores in insertion order, which is roughly ASC)
+	// For tests, we'll just reverse the order and apply offset/limit.
+	// But wait, scanMessages in production handles the sorting via SQL ORDER BY.
+	
+	// A simple mock pagination:
+	if offset >= len(out) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], nil
+}
+
+func (s *MockStorage) GetPostsPaginated(groupID string, limit, offset int) ([]*StoredMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*StoredMessage
+	for _, msg := range s.messages {
+		if msg.GroupID != groupID {
+			continue
+		}
+		var content map[string]interface{}
+		if err := json.Unmarshal(msg.Content, &content); err == nil {
+			if t, ok := content["type"].(string); ok && t == "post" {
+				out = append(out, msg)
+			}
+		}
+	}
+	if offset >= len(out) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], nil
+}
+
+func (s *MockStorage) GetCommentsPaginated(groupID, postID string, limit, offset int) ([]*StoredMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*StoredMessage
+	for _, msg := range s.messages {
+		if msg.GroupID != groupID {
+			continue
+		}
+		var content map[string]interface{}
+		if err := json.Unmarshal(msg.Content, &content); err == nil {
+			msgType, _ := content["type"].(string)
+			if msgType == "comment" || msgType == "reply" {
+				pID, _ := content["post_id"].(string)
+				parID, _ := content["parent_id"].(string)
+				if pID == postID || parID == postID {
+					out = append(out, msg)
+				}
+			}
+		}
+	}
+	if offset >= len(out) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return out[offset:end], nil
+}
+
 // Messages returns all stored messages (test helper).
 func (s *MockStorage) Messages() []*StoredMessage {
 	s.mu.Lock()

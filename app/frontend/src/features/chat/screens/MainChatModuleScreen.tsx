@@ -27,9 +27,14 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     unreadByGroup,
     loadingMessages,
     activeMessages,
+    activePosts,
     activeGroupMembers,
     refreshGroups,
     setActiveGroupId,
+    loadMoreMessages,
+    loadMorePosts,
+    loadComments,
+    loadMoreComments,
   } = useChatRuntime()
 
   useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId })
@@ -45,6 +50,9 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     handleRetryMessage,
     handleRemoveFailed,
   } = useChatActions({ activeGroupId, localPeerId, refreshGroups, setActiveGroupId })
+
+  const activeGroup = groups.find((g) => g.group_id === activeGroupId)
+  const isDM = activeGroup?.group_type === 'dm'
 
   return (
     <AppShell
@@ -72,7 +80,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             activeGroupId={activeGroupId}
             localPeerId={localPeerId}
             groups={groups}
-            messages={activeMessages}
+            messages={isDM ? activeMessages : activePosts}
             loadingMessages={loadingMessages}
             composingMessage={composingMessage}
             sending={sending}
@@ -83,6 +91,21 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((v) => !v)}
             activeGroupMembers={activeGroupMembers}
+            onLoadMore={async () => {
+              if (activeGroupId) {
+                if (isDM) {
+                  await loadMoreMessages(activeGroupId)
+                } else {
+                  await loadMorePosts(activeGroupId)
+                }
+              }
+            }}
+            onLoadComments={async (postId) => {
+              if (activeGroupId) await loadComments(activeGroupId, postId)
+            }}
+            onLoadMoreComments={async (postId) => {
+              if (activeGroupId) await loadMoreComments(activeGroupId, postId)
+            }}
           />
         ) : null}
         {activeModule === 'invites' ? (

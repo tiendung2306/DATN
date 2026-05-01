@@ -29,6 +29,7 @@ type MessageInfo struct {
 	Timestamp         int64  `json:"timestamp"`
 	IsMine            bool   `json:"is_mine"`
 	Status            string `json:"status"`
+	CommentCount      int    `json:"comment_count"`
 }
 
 // GroupInfo is a summary of a joined group returned to the frontend.

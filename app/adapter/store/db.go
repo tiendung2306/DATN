@@ -166,6 +166,12 @@ func (d *Database) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_stored_messages_group_hlc
 			ON stored_messages(group_id, hlc_wall_time_ms, hlc_counter, hlc_node_id);`,
 
+		`CREATE INDEX IF NOT EXISTS idx_stored_messages_type
+			ON stored_messages(json_extract(content, '$.type')) WHERE json_valid(content);`,
+		`CREATE INDEX IF NOT EXISTS idx_stored_messages_post_id
+			ON stored_messages(json_extract(content, '$.post_id')) WHERE json_valid(content);`,
+
+
 		// Phase 7: Local directory caching PeerID -> Display Name.
 		`CREATE TABLE IF NOT EXISTS peer_directory (
 			peer_id      TEXT PRIMARY KEY,

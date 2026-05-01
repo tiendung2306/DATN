@@ -9,7 +9,9 @@ import (
 // MessagingService sends and lists group chat messages.
 type MessagingService interface {
 	SendGroupMessage(ctx context.Context, groupID, text string) error
-	GetGroupMessages(ctx context.Context, groupID string) ([]domain.Message, error)
+	GetGroupMessages(ctx context.Context, groupID string, limit, offset int) ([]domain.Message, error)
+	GetGroupPosts(ctx context.Context, groupID string, limit, offset int) ([]domain.Message, error)
+	GetPostComments(ctx context.Context, groupID, postID string, limit, offset int) ([]domain.Message, error)
 }
 
 // GroupService manages MLS groups, coordinators, and P2P-backed messaging runtime.

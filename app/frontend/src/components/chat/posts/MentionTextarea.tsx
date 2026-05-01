@@ -1,4 +1,4 @@
-import { KeyboardEvent, useMemo, useState } from 'react'
+import { KeyboardEvent, useMemo, useState, useRef, useImperativeHandle, forwardRef } from 'react'
 import { MentionCandidate } from '../../../lib/chatModel'
 
 interface MentionTextareaProps {
@@ -15,17 +15,21 @@ function isMentionQuery(query: string): boolean {
   return query.length > 0 && !/\s/.test(query)
 }
 
-export default function MentionTextarea({
-  value,
-  onChange,
-  placeholder,
-  candidates,
-  disabled = false,
-  rows = 1,
-  onKeyDown,
-}: MentionTextareaProps) {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [queryRange, setQueryRange] = useState<{ start: number; end: number } | null>(null)
+export interface MentionTextareaHandle {
+  focus: () => void
+}
+
+const MentionTextarea = forwardRef<MentionTextareaHandle, MentionTextareaProps>(
+  ({ value, onChange, placeholder, candidates, disabled = false, rows = 1, onKeyDown }, ref) => {
+    const [activeIndex, setActiveIndex] = useState(0)
+    const [queryRange, setQueryRange] = useState<{ start: number; end: number } | null>(null)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+    useImperativeHandle(ref, () => ({
+      focus: () => {
+        textareaRef.current?.focus()
+      },
+    }))
 
   const filtered = useMemo(() => {
     if (!queryRange) return []
@@ -88,6 +92,7 @@ export default function MentionTextarea({
   return (
     <div className="relative">
       <textarea
+        ref={textareaRef}
         value={value}
         rows={rows}
         disabled={disabled}
@@ -130,4 +135,6 @@ export default function MentionTextarea({
       )}
     </div>
   )
-}
+})
+
+export default MentionTextarea

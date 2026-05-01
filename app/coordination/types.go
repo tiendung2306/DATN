@@ -156,6 +156,7 @@ type StoredMessage struct {
 	Timestamp HLCTimestamp
 	// EnvelopeHash keys exactly-once application for replayed envelopes.
 	EnvelopeHash []byte
+	CommentCount int
 }
 
 // EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).

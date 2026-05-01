@@ -19,6 +19,7 @@ export function messageInfoToChatMessage(message: service.MessageInfo): ChatMess
     isMine: message.is_mine,
     status: ((message as { status?: ChatMessage['status'] }).status ?? 'published') as ChatMessage['status'],
     kind: 'user',
+    commentCount: (message as any).comment_count,
   }
 }
 

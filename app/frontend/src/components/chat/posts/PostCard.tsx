@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, useRef, useImperativeHandle, forwardRef } from 'react'
 import {
   formatMessageTime,
   MentionEntity,
@@ -7,7 +7,7 @@ import {
 import { ChatMessage } from '../../../stores/useChatStore'
 import { MentionCandidate } from '../../../lib/chatModel'
 import CommentList from './CommentList'
-import CommentComposer from './CommentComposer'
+import CommentComposer, { CommentComposerHandle } from './CommentComposer'
 
 interface PostCardProps {
   post: ChatMessage
@@ -22,61 +22,85 @@ interface PostCardProps {
   onCommentDraftChange: (value: string) => void
   onSendComment: () => Promise<void>
   onReplyComment: (comment: ChatMessage) => void
+  onLoadMoreComments?: (postId: string) => Promise<void>
 }
 
-export default function PostCard({
-  post,
-  comments,
-  expanded,
-  commentDraft,
-  mentionCandidates,
-  renderMentionedBody,
-  getDisplayName,
-  sending,
-  onToggleComments,
-  onCommentDraftChange,
-  onSendComment,
-  onReplyComment,
-}: PostCardProps) {
-  const parsedPost = parseMessageContent(post.content)
+export interface PostCardHandle {
+  focusComposer: () => void
+}
+
+const PostCard = forwardRef<PostCardHandle, PostCardProps>(
+  (
+    {
+      post,
+      comments,
+      expanded,
+      commentDraft,
+      mentionCandidates,
+      renderMentionedBody,
+      getDisplayName,
+      sending,
+      onToggleComments,
+      onCommentDraftChange,
+      onSendComment,
+      onReplyComment,
+      onLoadMoreComments,
+    },
+    ref,
+  ) => {
+    const parsedPost = parseMessageContent(post.content)
+    const composerRef = useRef<CommentComposerHandle>(null)
+
+    useImperativeHandle(ref, () => ({
+      focusComposer: () => {
+        composerRef.current?.focus()
+      },
+    }))
 
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-900/30 p-4 shadow-sm">
+    <article className="rounded-xl border border-slate-800/80 bg-[#0F172A] p-5 shadow-sm transition hover:border-slate-700/80">
       <div className="flex items-center gap-2 text-xs text-slate-400">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-[10px] font-bold text-emerald-400">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-xs font-bold text-emerald-400">
           {getDisplayName(post.sender).slice(0, 1).toUpperCase()}
         </div>
-        <span className="font-medium text-slate-200">{getDisplayName(post.sender)}</span>
-        <span>•</span>
+        <span className="font-semibold text-slate-200">{getDisplayName(post.sender)}</span>
+        <span className="text-slate-600">•</span>
         <span>{formatMessageTime(post.timestamp)}</span>
       </div>
 
       {parsedPost.title && (
-        <h3 className="mt-3 text-sm font-semibold text-slate-100">{parsedPost.title}</h3>
+        <h3 className="mt-3 text-lg font-bold text-slate-50">{parsedPost.title}</h3>
       )}
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
+      <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-300">
         {renderMentionedBody(parsedPost.body, parsedPost.mentions)}
       </p>
 
-      <div className="mt-3 border-t border-slate-800/70 pt-2">
+      <div className="mt-4 border-t border-slate-800/50 pt-3">
         <button
           type="button"
           onClick={onToggleComments}
-          className="flex items-center gap-1.5 text-xs font-medium text-slate-400 transition hover:text-emerald-400"
+          className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-emerald-400"
         >
-          <span>{comments.length > 0 ? `${comments.length} bình luận` : 'Bình luận'}</span>
+          <span>{post.commentCount && post.commentCount > 0 ? `${post.commentCount} bình luận` : 'Thảo luận'}</span>
         </button>
       </div>
 
       {expanded && (
-        <div className="mt-3 rounded-lg bg-slate-950/50 p-3">
+        <div className="mt-3 rounded-xl bg-slate-950/40 border border-slate-800/40 p-4 shadow-inner">
           <CommentList
             comments={comments}
+            totalComments={post.commentCount}
             getDisplayName={getDisplayName}
             onReplyComment={onReplyComment}
             renderMentionedBody={renderMentionedBody}
+            onLoadMore={() => {
+              if (onLoadMoreComments) return onLoadMoreComments(post.id)
+              return Promise.resolve()
+            }}
           />
           <CommentComposer
+            ref={composerRef}
+            postId={post.id}
             value={commentDraft}
             sending={sending}
             mentionCandidates={mentionCandidates}
@@ -88,4 +112,6 @@ export default function PostCard({
       )}
     </article>
   )
-}
+})
+
+export default PostCard

@@ -90,7 +90,7 @@ func TestLeaveGroupKeepsMessageHistoryReadable(t *testing.T) {
 		t.Fatalf("LeaveGroup: %v", err)
 	}
 
-	messages, err := rt.GetGroupMessages("group-1")
+	messages, err := rt.GetGroupMessages("group-1", 50, 0)
 	if err != nil {
 		t.Fatalf("GetGroupMessages: %v", err)
 	}

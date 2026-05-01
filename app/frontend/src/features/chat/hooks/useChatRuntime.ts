@@ -8,6 +8,8 @@ import { useChatStore } from '../../../stores/useChatStore'
 import { useContactStore } from '../../../stores/useContactStore'
 import { service } from '../../../../wailsjs/go/models'
 
+const EMPTY_ARRAY: any[] = []
+
 export function useChatRuntime() {
   const groups = useGroupsStore((s) => s.groups)
   const activeGroupId = useGroupsStore((s) => s.activeGroupId)
@@ -24,9 +26,11 @@ export function useChatRuntime() {
   const setLocalPeerId = useNetworkStore((s) => s.setLocalPeerId)
 
   const messagesByGroup = useChatStore((s) => s.messagesByGroup)
+  const postsByGroup = useChatStore((s) => s.postsByGroup)
   const unreadByGroup = useChatStore((s) => s.unreadByGroup)
   const setMessages = useChatStore((s) => s.setMessages)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
+
 
   const [displayName, setDisplayName] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -70,7 +74,8 @@ export function useChatRuntime() {
     try {
       const list = await runtimeClient.getGroups()
       setGroups(list ?? [])
-      if (!activeGroupId && list.length > 0) {
+      const currentActiveId = useGroupsStore.getState().activeGroupId
+      if (!currentActiveId && list.length > 0) {
         setActiveGroupId(list[0].group_id)
       }
     } catch (error) {
@@ -78,21 +83,101 @@ export function useChatRuntime() {
     } finally {
       setGroupsLoading(false)
     }
-  }, [activeGroupId, setActiveGroupId, setGroups, setGroupsError, setGroupsLoading])
+  }, [setActiveGroupId, setGroups, setGroupsError, setGroupsLoading])
 
   const loadMessages = useCallback(
     async (groupId: string) => {
       setLoadingMessages(true)
       try {
-        const list = await runtimeClient.getGroupMessages(groupId)
+        const list = await runtimeClient.getGroupMessages(groupId, 50, 0)
         const mapped = (list ?? []).map(messageInfoToChatMessage)
-        setMessages(groupId, mapped)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        setMessages(groupId, sorted)
         markGroupRead(groupId)
       } finally {
         setLoadingMessages(false)
       }
     },
     [markGroupRead, setMessages],
+  )
+
+  const loadMoreMessages = useCallback(
+    async (groupId: string) => {
+      const existing = useChatStore.getState().messagesByGroup[groupId] ?? []
+      const offset = existing.length
+      try {
+        const list = await runtimeClient.getGroupMessages(groupId, 50, offset)
+        const mapped = (list ?? []).map(messageInfoToChatMessage)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        useChatStore.getState().prependMessages(groupId, sorted)
+      } catch (err) {
+        console.error('Failed to load more messages:', err)
+      }
+    },
+    [],
+  )
+
+  const loadPosts = useCallback(
+    async (groupId: string) => {
+      setLoadingMessages(true)
+      try {
+        const list = await runtimeClient.getGroupPosts(groupId, 20, 0)
+        const mapped = (list ?? []).map(messageInfoToChatMessage)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        useChatStore.getState().setPosts(groupId, sorted)
+        markGroupRead(groupId)
+      } finally {
+        setLoadingMessages(false)
+      }
+    },
+    [markGroupRead],
+  )
+
+  const loadMorePosts = useCallback(
+    async (groupId: string) => {
+      const existing = useChatStore.getState().postsByGroup[groupId] ?? []
+      const offset = existing.length
+      try {
+        const list = await runtimeClient.getGroupPosts(groupId, 20, offset)
+        const mapped = (list ?? []).map(messageInfoToChatMessage)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        useChatStore.getState().prependPosts(groupId, sorted)
+      } catch (err) {
+        console.error('Failed to load more posts:', err)
+      }
+    },
+    [],
+  )
+
+  const loadComments = useCallback(
+    async (groupId: string, postId: string) => {
+      try {
+        // Load latest 3 comments initially for each post
+        const list = await runtimeClient.getPostComments(groupId, postId, 3, 0)
+        const mapped = (list ?? []).map(messageInfoToChatMessage)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        useChatStore.getState().setComments(postId, sorted)
+      } catch (err) {
+        console.error('Failed to load comments:', err)
+      }
+    },
+    [],
+  )
+
+  const loadMoreComments = useCallback(
+    async (groupId: string, postId: string) => {
+      const existing = useChatStore.getState().commentsByPost[postId] ?? []
+      const offset = existing.length
+      try {
+        const list = await runtimeClient.getPostComments(groupId, postId, 20, offset)
+        const mapped = (list ?? []).map(messageInfoToChatMessage)
+        const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
+        useChatStore.getState().prependComments(postId, sorted)
+      } catch (err) {
+        console.error('Failed to load more comments:', err)
+      }
+    },
+    [],
   )
 
   const loadGroupMembers = useCallback(async (groupId: string) => {
@@ -128,9 +213,14 @@ export function useChatRuntime() {
 
   useEffect(() => {
     if (!activeGroupId) return
-    void loadMessages(activeGroupId)
+    const group = groups.find((g) => g.group_id === activeGroupId)
+    if (group?.group_type === 'dm') {
+      void loadMessages(activeGroupId)
+    } else {
+      void loadPosts(activeGroupId)
+    }
     void loadGroupMembers(activeGroupId)
-  }, [activeGroupId, loadMessages, loadGroupMembers])
+  }, [activeGroupId, loadMessages, loadPosts, loadGroupMembers, groups])
 
   useEffect(() => {
     if (!activeGroupId) {
@@ -139,9 +229,15 @@ export function useChatRuntime() {
   }, [activeGroupId])
 
   const activeMessages = useMemo(
-    () => (activeGroupId ? messagesByGroup[activeGroupId] ?? [] : []),
+    () => (activeGroupId ? messagesByGroup[activeGroupId] ?? EMPTY_ARRAY : EMPTY_ARRAY),
     [activeGroupId, messagesByGroup],
   )
+
+  const activePosts = useMemo(
+    () => (activeGroupId ? postsByGroup[activeGroupId] ?? EMPTY_ARRAY : EMPTY_ARRAY),
+    [activeGroupId, postsByGroup],
+  )
+
 
   return {
     displayName,
@@ -153,10 +249,18 @@ export function useChatRuntime() {
     unreadByGroup,
     loadingMessages,
     activeMessages,
+    activePosts,
     activeGroupMembers,
     refreshGroups,
     setGroups,
     setActiveGroupId,
     markGroupRead,
+    loadMessages,
+    loadMoreMessages,
+    loadPosts,
+    loadMorePosts,
+    loadComments,
+    loadMoreComments,
   }
 }
+

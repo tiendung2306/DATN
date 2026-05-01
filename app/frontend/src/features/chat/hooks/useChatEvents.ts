@@ -22,8 +22,9 @@ interface UseChatEventsOptions {
 }
 
 export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }: UseChatEventsOptions) {
-  const messagesByGroup = useChatStore((s) => s.messagesByGroup)
-  const setMessages = useChatStore((s) => s.setMessages)
+  const pushMessage = useChatStore((s) => s.pushMessage)
+  const pushPost = useChatStore((s) => s.pushPost)
+  const pushComment = useChatStore((s) => s.pushComment)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
   const incrementUnread = useChatStore((s) => s.incrementUnread)
   const groups = useGroupsStore((s) => s.groups)
@@ -33,16 +34,32 @@ export function useChatEvents({ activeGroupId, refreshGroups, setActiveGroupId }
     (payload: service.MessageInfo) => {
       const message = messageInfoToChatMessage(payload)
       const targetGroup = message.groupId
-      const existing = messagesByGroup[targetGroup] ?? []
-      const deduped = uniqueById([...existing, message])
-      setMessages(targetGroup, deduped)
+      
+      try {
+        const parsed = JSON.parse(message.content)
+        if (parsed.type === 'post') {
+          pushPost(targetGroup, message)
+        } else if (parsed.type === 'comment' || parsed.type === 'reply') {
+          const postId = parsed.post_id || parsed.parent_id
+          if (postId) {
+            pushComment(postId, message)
+          } else {
+            pushMessage(targetGroup, message)
+          }
+        } else {
+          pushMessage(targetGroup, message)
+        }
+      } catch {
+        pushMessage(targetGroup, message)
+      }
+
       if (targetGroup !== activeGroupId) {
         incrementUnread(targetGroup)
       } else {
         markGroupRead(targetGroup)
       }
     },
-    [activeGroupId, incrementUnread, markGroupRead, messagesByGroup, setMessages],
+    [activeGroupId, incrementUnread, markGroupRead, pushPost, pushComment, pushMessage],
   )
 
   const handleGroupEpoch = useCallback(

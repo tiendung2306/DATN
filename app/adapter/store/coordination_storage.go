@@ -307,7 +307,7 @@ func (s *SQLiteCoordinationStorage) MarkEnvelopeApplied(groupID string, msgType 
 
 func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coordination.HLCTimestamp) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
 		 FROM stored_messages
 		 WHERE group_id = ?
 		   AND (hlc_wall_time_ms > ?
@@ -323,21 +323,79 @@ func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coord
 		return nil, fmt.Errorf("GetMessagesSince: %w", err)
 	}
 	defer rows.Close()
+	return scanMessages(rows, groupID)
+}
 
+func (s *SQLiteCoordinationStorage) GetMessagesPaginated(groupID string, limit, offset int) ([]*coordination.StoredMessage, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
+		 FROM stored_messages
+		 WHERE group_id = ?
+		 ORDER BY hlc_wall_time_ms DESC, hlc_counter DESC, hlc_node_id DESC
+		 LIMIT ? OFFSET ?`,
+		groupID, limit, offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessagesPaginated: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows, groupID)
+}
+
+func (s *SQLiteCoordinationStorage) GetPostsPaginated(groupID string, limit, offset int) ([]*coordination.StoredMessage, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT m.group_id, m.epoch, m.sender_id, m.content, m.hlc_wall_time_ms, m.hlc_counter, m.hlc_node_id, m.envelope_hash,
+		       (SELECT COUNT(*) FROM stored_messages c 
+		        WHERE c.group_id = m.group_id 
+		          AND json_valid(c.content) 
+		          AND json_extract(c.content, '$.type') IN ('comment', 'reply')
+		          AND (json_extract(c.content, '$.post_id') = lower(hex(m.envelope_hash)) OR json_extract(c.content, '$.parent_id') = lower(hex(m.envelope_hash)))) as comment_count
+		 FROM stored_messages m
+		 WHERE m.group_id = ? AND json_valid(m.content) AND json_extract(m.content, '$.type') = 'post'
+		 ORDER BY m.hlc_wall_time_ms DESC, m.hlc_counter DESC, m.hlc_node_id DESC
+		 LIMIT ? OFFSET ?`,
+		groupID, limit, offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetPostsPaginated: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows, groupID)
+}
+
+func (s *SQLiteCoordinationStorage) GetCommentsPaginated(groupID, postID string, limit, offset int) ([]*coordination.StoredMessage, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
+		 FROM stored_messages
+		 WHERE group_id = ? 
+		   AND json_valid(content) 
+		   AND json_extract(content, '$.type') IN ('comment', 'reply')
+		   AND (json_extract(content, '$.post_id') = ? OR json_extract(content, '$.parent_id') = ?)
+		 ORDER BY hlc_wall_time_ms DESC, hlc_counter DESC, hlc_node_id DESC
+		 LIMIT ? OFFSET ?`,
+		groupID, postID, postID, limit, offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetCommentsPaginated: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows, groupID)
+}
+
+func scanMessages(rows *sql.Rows, groupID string) ([]*coordination.StoredMessage, error) {
 	var msgs []*coordination.StoredMessage
 	for rows.Next() {
 		var m coordination.StoredMessage
 		var senderID string
 		var envelopeHash []byte
 		if err := rows.Scan(&m.GroupID, &m.Epoch, &senderID, &m.Content,
-			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID, &envelopeHash); err != nil {
-			return nil, fmt.Errorf("GetMessagesSince scan: %w", err)
+			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID, &envelopeHash, &m.CommentCount); err != nil {
+			return nil, fmt.Errorf("scanMessages scan: %w", err)
 		}
 		if len(envelopeHash) == 0 {
-			return nil, fmt.Errorf("GetMessagesSince: missing envelope_hash for group %q", groupID)
+			return nil, fmt.Errorf("scanMessages: missing envelope_hash for group %q", groupID)
 		}
 		m.EnvelopeHash = envelopeHash
-		// Canonical message ID is envelope hash (stable across nodes).
 		m.MessageID = hex.EncodeToString(envelopeHash)
 		if pid, err := peer.Decode(senderID); err == nil {
 			m.SenderID = pid
