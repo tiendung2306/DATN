@@ -361,16 +361,12 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 	if !hasGroup {
 		return nil, fmt.Errorf("not in group %q", groupID)
 	}
+	// Always backfill roster from strong local evidence (self + stored senders),
+	// not only when roster is empty. This prevents long-lived divergent panels.
+	r.ensureGroupRosterBackfilled(groupID)
 	members, err := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
 	if err != nil {
 		return nil, err
-	}
-	if len(members) == 0 {
-		r.ensureGroupRosterBackfilled(groupID)
-		members, err = database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	online := make(map[string]struct{})
@@ -521,6 +517,14 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 			isMine = msg.SenderID == r.node.Host.ID()
 		}
 		r.mu.Unlock()
+		if !isMine {
+			if err := r.upsertGroupMember(groupID, msg.SenderID.String(), "member", "message"); err == nil {
+				r.emit("group:members_changed", map[string]interface{}{
+					"group_id": groupID,
+					"reason":   "message_sender",
+				})
+			}
+		}
 
 		r.emit("group:message", map[string]interface{}{
 			"message_id": msg.MessageID,

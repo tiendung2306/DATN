@@ -46,13 +46,15 @@ type Runtime struct {
 
 	adminUnlockedUntil time.Time
 	adminUnlockTimer   *time.Timer
+	eventRevisions     map[string]int64
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
 func NewRuntime(cfg *config.Config) *Runtime {
 	return &Runtime{
-		cfg:        cfg,
-		stopEngine: func() {},
+		cfg:            cfg,
+		stopEngine:     func() {},
+		eventRevisions: make(map[string]int64),
 	}
 }
 
@@ -80,13 +82,7 @@ func (r *Runtime) appCtx() context.Context {
 }
 
 func (r *Runtime) emit(event string, data map[string]interface{}) {
-	r.mu.RLock()
-	sink := r.uiEvents
-	ctx := r.ctx
-	r.mu.RUnlock()
-	if sink != nil && ctx != nil {
-		sink.Emit(ctx, event, data)
-	}
+	r.emitRuntimeEvent(event, data)
 }
 
 // dispatchDirectCoordination forwards a direct-stream coordination payload to
@@ -230,6 +226,7 @@ func (r *Runtime) stopNetworkLocked() {
 	if r.node != nil {
 		r.removeKPOfferHandler()
 		r.removeWelcomeDeliveryHandler()
+		r.removeGroupJoinAckHandler()
 		r.removeInviteStoreHandlers()
 		r.removeOfflineSyncHandlers()
 		if r.blindStore != nil {
@@ -301,6 +298,7 @@ func (r *Runtime) launchP2PNode() error {
 	}
 	r.registerKPOfferHandler()
 	r.registerWelcomeDeliveryHandler()
+	r.registerGroupJoinAckHandler()
 	r.registerInviteStoreHandlers()
 	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})

@@ -117,16 +117,18 @@ type DiagnosticsGroupSnapshot struct {
 }
 
 type DiagnosticsSnapshot struct {
-	TimestampMs      int64                      `json:"timestamp_ms"`
-	AppState         string                     `json:"app_state"`
-	LocalPeerID      string                     `json:"local_peer_id,omitempty"`
-	ConnectedPeers   int                        `json:"connected_peers"`
-	VerifiedPeers    int                        `json:"verified_peers"`
-	BootstrapAddr    string                     `json:"bootstrap_addr,omitempty"`
-	OfflineSync      []OfflineSyncGroupStatus   `json:"offline_sync,omitempty"`
-	Groups           []DiagnosticsGroupSnapshot `json:"groups,omitempty"`
-	RuntimeHealth    RuntimeHealth              `json:"runtime_health"`
-	BlindStoreActive bool                       `json:"blind_store_active"`
+	TimestampMs               int64                      `json:"timestamp_ms"`
+	AppState                  string                     `json:"app_state"`
+	LocalPeerID               string                     `json:"local_peer_id,omitempty"`
+	ConnectedPeers            int                        `json:"connected_peers"`
+	VerifiedPeers             int                        `json:"verified_peers"`
+	BootstrapAddr             string                     `json:"bootstrap_addr,omitempty"`
+	OfflineSync               []OfflineSyncGroupStatus   `json:"offline_sync,omitempty"`
+	Groups                    []DiagnosticsGroupSnapshot `json:"groups,omitempty"`
+	RuntimeHealth             RuntimeHealth              `json:"runtime_health"`
+	BlindStoreActive          bool                       `json:"blind_store_active"`
+	RuntimeEventReplayEnabled bool                       `json:"runtime_event_replay_enabled"`
+	RuntimeEventCursor        int64                      `json:"runtime_event_cursor"`
 }
 
 func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
@@ -140,15 +142,21 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 	defer r.mu.RUnlock()
 
 	snapshot := DiagnosticsSnapshot{
-		TimestampMs:      time.Now().UnixMilli(),
-		AppState:         r.getAppStateUnlocked(),
-		LocalPeerID:      settings.LocalPeerID,
-		ConnectedPeers:   settings.ConnectedPeers,
-		VerifiedPeers:    settings.VerifiedPeers,
-		BootstrapAddr:    settings.BootstrapAddr,
-		OfflineSync:      offline,
-		RuntimeHealth:    r.GetRuntimeHealth(),
-		BlindStoreActive: r.blindStore != nil,
+		TimestampMs:               time.Now().UnixMilli(),
+		AppState:                  r.getAppStateUnlocked(),
+		LocalPeerID:               settings.LocalPeerID,
+		ConnectedPeers:            settings.ConnectedPeers,
+		VerifiedPeers:             settings.VerifiedPeers,
+		BootstrapAddr:             settings.BootstrapAddr,
+		OfflineSync:               offline,
+		RuntimeHealth:             r.GetRuntimeHealth(),
+		BlindStoreActive:          r.blindStore != nil,
+		RuntimeEventReplayEnabled: r.cfg != nil && r.cfg.RuntimeEventReplay,
+	}
+	if r.db != nil {
+		if seq, seqErr := r.db.GetLatestRuntimeSeq(); seqErr == nil {
+			snapshot.RuntimeEventCursor = seq
+		}
 	}
 	if r.coordinators == nil {
 		return snapshot, nil

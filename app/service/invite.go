@@ -51,6 +51,7 @@ import (
 
 const (
 	welcomeDeliveryProtocol  = protocol.ID("/app/welcome-delivery/1.0.0")
+	groupJoinAckProtocol     = protocol.ID("/app/group-join-ack/1.0.0")
 	maxWelcomeFrame          = 4 << 20 // 4 MiB
 	defaultReplicationFanout = 3
 )
@@ -61,6 +62,12 @@ type welcomeDeliveryWire struct {
 	GroupID    string `json:"group_id"`
 	GroupType  string `json:"group_type,omitempty"`
 	WelcomeHex string `json:"welcome_hex"`
+}
+
+type groupJoinAckWire struct {
+	V       int    `json:"v"`
+	GroupID string `json:"group_id"`
+	PeerID  string `json:"peer_id"`
 }
 
 // ── Frame I/O ─────────────────────────────────────────────────────────────────
@@ -1055,8 +1062,103 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string) error {
 	r.emit("group:joined", map[string]interface{}{
 		"group_id": groupID,
 	})
+	go r.broadcastGroupJoinAck(groupID)
 	slog.Info("Joined group via Welcome", "group", groupID)
 	return nil
+}
+
+func (r *Runtime) broadcastGroupJoinAck(groupID string) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return
+	}
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	r.mu.RUnlock()
+	if node == nil || database == nil || node.AuthProtocol == nil {
+		return
+	}
+
+	localPeerID := node.Host.ID().String()
+	msg := &groupJoinAckWire{
+		V:       1,
+		GroupID: groupID,
+		PeerID:  localPeerID,
+	}
+	for _, pid := range node.Host.Network().Peers() {
+		if pid.String() == localPeerID {
+			continue
+		}
+		if !node.AuthProtocol.IsVerified(pid) {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		s, err := node.Host.NewStream(ctx, pid, groupJoinAckProtocol)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = s.SetDeadline(time.Now().Add(10 * time.Second))
+		_ = p2p.WriteInviteStoreJSONFrame(s, msg)
+		_ = s.Close()
+	}
+}
+
+func (r *Runtime) handleGroupJoinAckStream(s network.Stream) {
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+	remote := s.Conn().RemotePeer()
+
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	auth := (*p2p.AuthProtocol)(nil)
+	if node != nil {
+		auth = node.AuthProtocol
+	}
+	r.mu.RUnlock()
+	if node == nil || database == nil {
+		return
+	}
+	if auth != nil && !auth.IsVerified(remote) {
+		return
+	}
+
+	var msg groupJoinAckWire
+	if err := p2p.ReadInviteStoreJSONFrame(s, &msg); err != nil || msg.V != 1 || strings.TrimSpace(msg.GroupID) == "" || strings.TrimSpace(msg.PeerID) == "" {
+		return
+	}
+	if remote.String() != msg.PeerID {
+		return
+	}
+	has, err := database.HasGroup(msg.GroupID)
+	if err != nil || !has {
+		return
+	}
+	if err := r.upsertGroupMember(msg.GroupID, msg.PeerID, "member", "join-ack"); err != nil {
+		return
+	}
+	r.emit("group:members_changed", map[string]interface{}{
+		"group_id": msg.GroupID,
+		"reason":   "joined_ack",
+	})
+}
+
+func (r *Runtime) registerGroupJoinAckHandler() {
+	if r.node == nil {
+		return
+	}
+	r.node.Host.SetStreamHandler(groupJoinAckProtocol, func(s network.Stream) {
+		go r.handleGroupJoinAckStream(s)
+	})
+}
+
+func (r *Runtime) removeGroupJoinAckHandler() {
+	if r.node == nil {
+		return
+	}
+	r.node.Host.RemoveStreamHandler(groupJoinAckProtocol)
 }
 
 // ── Wails bindings ────────────────────────────────────────────────────────────

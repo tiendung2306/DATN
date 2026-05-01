@@ -204,6 +204,13 @@ export function useChatRuntime() {
   useEffect(() => {
     void refreshNodeStatus()
     void refreshGroups()
+    // Startup race guard: when main chat mounts before backend stack is fully ready,
+    // a short one-shot retry prevents empty sidebar until next manual action.
+    const retry = setTimeout(() => {
+      void refreshNodeStatus()
+      void refreshGroups()
+    }, 1500)
+    return () => clearTimeout(retry)
   }, [refreshGroups, refreshNodeStatus])
 
   useEffect(() => {

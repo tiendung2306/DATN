@@ -29,6 +29,7 @@ type Config struct {
 	StoreNode             bool
 	BlindStoreParticipant bool
 	OfflineReplicaK       int
+	RuntimeEventReplay    bool
 }
 
 // Parse parses command-line flags into Config. Call once from main.
@@ -59,6 +60,7 @@ func Parse() *Config {
 	flag.BoolVar(&cfg.StoreNode, "store-node", false, "Enable store-node mode: always persist blind-store envelopes for offline recovery")
 	flag.BoolVar(&cfg.BlindStoreParticipant, "blind-store-participant", true, "Enable selective blind-store participation for non-store nodes")
 	flag.IntVar(&cfg.OfflineReplicaK, "offline-replica-k", 2, "Number of non-store blind-store peers targeted for replica persistence")
+	flag.BoolVar(&cfg.RuntimeEventReplay, "runtime-event-replay-enabled", true, "Enable durable runtime event log + replay APIs")
 
 	flag.Parse()
 	if cfg.StoreNode {

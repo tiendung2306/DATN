@@ -9,6 +9,7 @@ import { useChatActions } from '../hooks/useChatActions'
 import InvitesScreen from '../../invites/screens/InvitesScreen'
 import SettingsScreen from '../../settings/screens/SettingsScreen'
 import AdminPanelScreen from '../../admin/screens/AdminPanelScreen'
+import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
 
 interface MainChatModuleScreenProps {
   isAdmin: boolean
@@ -61,6 +62,21 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
 
   const activeGroup = groups.find((g) => g.group_id === activeGroupId)
   const isDM = activeGroup?.group_type === 'dm'
+
+  useRuntimeEventStream({
+    onEvent: async (event, payload, hasGap) => {
+      const groupId = typeof payload.group_id === 'string' ? payload.group_id : ''
+      if (hasGap || event.topic === 'group:joined' || event.topic === 'group:left') {
+        await refreshGroups()
+      }
+      if (event.topic === 'node:status' || event.topic === 'p2p:status' || hasGap) {
+        await refreshNodeStatus()
+      }
+      if (groupId && groupId === activeGroupId && (event.topic === 'group:members_changed' || hasGap)) {
+        await loadGroupMembers(groupId)
+      }
+    },
+  })
 
   return (
     <AppShell

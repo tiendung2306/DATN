@@ -320,6 +320,17 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_admin_issuance_history_issued_at
 			ON admin_issuance_history(issued_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS runtime_event_log (
+			seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+			topic        TEXT    NOT NULL,
+			aggregate    TEXT    NOT NULL,
+			aggregate_id TEXT    NOT NULL DEFAULT '',
+			revision     INTEGER NOT NULL,
+			payload_json BLOB    NOT NULL,
+			created_at   INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_seq ON runtime_event_log(seq);`,
+		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_aggregate_rev ON runtime_event_log(aggregate, revision);`,
 	}
 
 	for _, q := range queries {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import AppShell from '../../../components/layout/AppShell'
 import { useAppRuntimeStore, type AppRouteState } from '../../../stores/useAppRuntimeStore'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
+import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import MainChatModuleScreen from '../../chat/screens/MainChatModuleScreen'
 import AwaitingBundleScreen from '../../onboarding/screens/AwaitingBundleScreen'
@@ -57,9 +58,16 @@ export default function RootRouterScreen() {
         setFatalError('Session replaced by a newer active device.')
         return
       }
-      setAppState(normalizeAppState(state))
+      const startupStage = health?.startup_stage || ''
+      const startupReady = startupStage === 'ready'
+      const normalizedState = normalizeAppState(state)
+      if (!startupReady && (normalizedState === 'AUTHORIZED' || normalizedState === 'ADMIN_READY')) {
+        setAppState('LOADING')
+      } else {
+        setAppState(normalizedState)
+      }
       setRuntimeHealth(health)
-      setStartupStage(health.startup_stage || 'ready')
+      setStartupStage(startupStage || 'ready')
       setFatalError(null)
     } catch (error) {
       setAppState('ERROR')
@@ -101,9 +109,28 @@ export default function RootRouterScreen() {
     setFatalError('Session replaced by a newer active device.')
   })
 
+  const { drainRuntimeEvents } = useRuntimeEventStream({
+    onEvent: async (event, _payload, hasGap) => {
+      if (
+        hasGap ||
+        event.topic === 'runtime:health' ||
+        event.topic === 'startup:progress' ||
+        event.topic === 'startup:error' ||
+        event.topic === 'app:state_changed' ||
+        event.topic === 'admin:status' ||
+        event.topic === 'node:status' ||
+        event.topic === 'p2p:status' ||
+        event.topic === 'session:replaced'
+      ) {
+        await refreshState()
+      }
+    },
+  })
+
   useEffect(() => {
     void refreshState()
-  }, [refreshState])
+    void drainRuntimeEvents()
+  }, [drainRuntimeEvents, refreshState])
 
   if (appState === 'LOADING') {
     return (

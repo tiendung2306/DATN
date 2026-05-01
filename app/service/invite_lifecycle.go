@@ -128,6 +128,13 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes)); err != nil {
 		return fmt.Errorf("accept invite: %w", err)
 	}
+	if strings.TrimSpace(inv.SourcePeerID) != "" {
+		_ = r.upsertGroupMember(inv.GroupID, inv.SourcePeerID, "member", "welcome-source")
+		r.emit("group:members_changed", map[string]interface{}{
+			"group_id": inv.GroupID,
+			"reason":   "welcome_source",
+		})
+	}
 	if err := database.MarkPendingInviteAccepted(inv.ID); err != nil {
 		return err
 	}
