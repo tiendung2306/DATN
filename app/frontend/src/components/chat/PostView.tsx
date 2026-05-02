@@ -10,6 +10,10 @@ import {
   MentionEntity,
 } from '../../lib/chatModel'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
+import { formatOutboundSendError } from '../../lib/formatSendError'
+import { countUnicodeRunes } from '../../lib/textLimits'
+import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
+import { useToastStore } from '../../stores/useToastStore'
 import PostComposerCard from './posts/PostComposerCard'
 import PostCard, { PostCardHandle } from './posts/PostCard'
 import { Button } from '../ui/button'
@@ -37,6 +41,9 @@ export default function PostView({
   onLoadMoreComments,
 }: PostViewProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
+  const channelTitleMaxRunes = useMessageLimitsStore((s) => s.channelTitleMaxRunes)
+  const channelBodyMaxRunes = useMessageLimitsStore((s) => s.channelBodyMaxRunes)
+  const channelCommentMaxRunes = useMessageLimitsStore((s) => s.channelCommentMaxRunes)
   const commentsByPost = useChatStore((s) => s.commentsByPost)
   const postRefs = useRef<Record<string, PostCardHandle | null>>({})
   const [loadingMore, setLoadingMore] = useState(false)
@@ -56,19 +63,33 @@ export default function PostView({
   const handleCreatePost = async () => {
     if (!postContent.trim()) return
 
+    const titleTrim = postTitle.trim()
+    const bodyTrim = postContent.trim()
+    if (countUnicodeRunes(titleTrim) > channelTitleMaxRunes) {
+      const mapped = formatOutboundSendError(new Error('ERR_CHANNEL_PAYLOAD_INVALID: title exceeds'))
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+      return
+    }
+    if (countUnicodeRunes(bodyTrim) > channelBodyMaxRunes) {
+      const mapped = formatOutboundSendError(new Error('ERR_CHANNEL_PAYLOAD_INVALID: body exceeds'))
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+      return
+    }
+
     setSubmittingPost(true)
     try {
-      const mentions = extractMentionsFromBody(postContent.trim(), mentionCandidates)
+      const mentions = extractMentionsFromBody(bodyTrim, mentionCandidates)
       const payload = serializePostPayload({
         title: postTitle,
-        body: postContent.trim(),
+        body: bodyTrim,
         mentions,
       })
       await runtimeClient.sendGroupMessage(activeGroupId!, payload)
       setPostTitle('')
       setPostContent('')
     } catch (err) {
-      console.error('Failed to create post:', err)
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
     } finally {
       setSubmittingPost(false)
     }
@@ -81,7 +102,8 @@ export default function PostView({
       setCommentDrafts((prev) => ({ ...prev, [postId]: '' }))
       setReplyContextByPost((prev) => ({ ...prev, [postId]: null }))
     } catch (err) {
-      console.error('Failed to send comment:', err)
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
     } finally {
       setSendingReplyForPostId(null)
     }
@@ -123,6 +145,8 @@ export default function PostView({
           body={postContent}
           submitting={submittingPost}
           mentionCandidates={mentionCandidates}
+          maxTitleRunes={channelTitleMaxRunes}
+          maxBodyRunes={channelBodyMaxRunes}
           onTitleChange={setPostTitle}
           onBodyChange={setPostContent}
           onSubmit={handleCreatePost}
@@ -146,6 +170,7 @@ export default function PostView({
                   comments={comments}
                   expanded={expandedPostId === post.id}
                   commentDraft={commentDrafts[post.id] ?? ''}
+                  commentMaxRunes={channelCommentMaxRunes}
                   mentionCandidates={mentionCandidates}
                   renderMentionedBody={renderMentionedBody}
                   getDisplayName={getDisplayName}
@@ -164,6 +189,15 @@ export default function PostView({
                   onSendComment={async () => {
                     const draftBody = commentDrafts[post.id]?.trim() ?? ''
                     if (!draftBody) return
+                    if (countUnicodeRunes(draftBody) > channelCommentMaxRunes) {
+                      const mapped = formatOutboundSendError(new Error('ERR_CHANNEL_PAYLOAD_INVALID: body exceeds'))
+                      useToastStore.getState().pushToast({
+                        title: mapped.title,
+                        description: mapped.description,
+                        variant: mapped.variant,
+                      })
+                      return
+                    }
                     const mentions = extractMentionsFromBody(draftBody, mentionCandidates)
                     const replyToCommentId = replyContextByPost[post.id]
                     await handleSendComment(

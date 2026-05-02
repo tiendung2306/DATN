@@ -87,7 +87,7 @@ export default function MessageList({
             className={`flex ${message.isMine ? 'justify-end' : 'justify-start'} ${startsGroup ? 'mt-3' : 'mt-1'}`}
           >
             <div
-              className={`max-w-[78%] ${message.isMine ? 'items-end' : 'items-start'} flex flex-col ${
+              className={`min-w-0 max-w-[78%] ${message.isMine ? 'items-end' : 'items-start'} flex flex-col ${
                 startsGroup ? 'gap-1.5' : 'gap-1'
               }`}
             >
@@ -105,7 +105,7 @@ export default function MessageList({
                     : 'bg-slate-800 text-slate-100'
                 }`}
               >
-                <p className="whitespace-pre-wrap break-words">{renderMentionedBody(message.content)}</p>
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{renderMentionedBody(message.content)}</p>
                 <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
                   <span>{formatMessageTime(message.timestamp)}</span>
                   <span className={message.status === 'failed' ? 'text-red-300' : ''}>

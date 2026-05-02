@@ -16,6 +16,12 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-02) ✅
+
+- **Message length limits (backend source of truth):** `app/service/message_limits.go` defines DM (4000 runes) and channel title/body/comment caps; `SendGroupMessage` validates DM and channel outbound text before MLS encrypt. Sentinel `ErrTextExceedsLimit` / `TEXT_TOO_LONG` for over-limit; empty-after-trim returns `ERR_MESSAGE_EMPTY`-style error. Tests in `message_limits_test.go`.
+- **Wails / UI:** `GetMessageLimits()` → `MessageLimitsDTO`; frontend `runtimeClient.getMessageLimits`, Zustand `useMessageLimitsStore`, rune counters on `MessageComposer`, `PostComposerCard`, `CommentComposer`; `formatSendError` + toast store for send/retry failures; helper copy points to future **encrypted file send** (Phase 8).
+- **Docs:** README Section 3.2.1 documents limits, rune semantics, and relation to GossipSub wire cap vs Phase 8 file transfer.
+
 ### Latest Delta (2026-04-30) ✅
 
 - **Roster/Profile/Presence pipeline is now canonicalized (backend-first):**

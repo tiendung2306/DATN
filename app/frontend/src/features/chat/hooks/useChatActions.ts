@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
+import { formatOutboundSendError } from '../../../lib/formatSendError'
+import { countUnicodeRunes } from '../../../lib/textLimits'
 import { useChatStore } from '../../../stores/useChatStore'
+import { useMessageLimitsStore } from '../../../stores/useMessageLimitsStore'
+import { useToastStore } from '../../../stores/useToastStore'
 
 interface UseChatActionsOptions {
   activeGroupId: string | null
@@ -67,6 +71,16 @@ export function useChatActions({
   const handleSendMessage = async () => {
     if (!activeGroupId || !composingMessage.trim()) return
     const text = composingMessage.trim()
+    const maxDm = useMessageLimitsStore.getState().dmMaxRunes
+    if (countUnicodeRunes(text) > maxDm) {
+      const mapped = formatOutboundSendError(new Error('TEXT_TOO_LONG'))
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
+      return
+    }
     const pendingId = `local:${Date.now()}`
     pushMessage(activeGroupId, {
       id: pendingId,
@@ -83,8 +97,14 @@ export function useChatActions({
     try {
       await runtimeClient.sendGroupMessage(activeGroupId, text)
       updateMessageStatus(activeGroupId, pendingId, 'published')
-    } catch {
+    } catch (err) {
       updateMessageStatus(activeGroupId, pendingId, 'failed')
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
     } finally {
       setSending(false)
     }
@@ -95,6 +115,16 @@ export function useChatActions({
     const messages = messagesByGroup[activeGroupId] ?? []
     const failed = messages.find((message) => message.id === messageId)
     if (!failed) return
+    const maxDm = useMessageLimitsStore.getState().dmMaxRunes
+    if (countUnicodeRunes(failed.content.trim()) > maxDm) {
+      const mapped = formatOutboundSendError(new Error('TEXT_TOO_LONG'))
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
+      return
+    }
     updateMessageStatus(activeGroupId, messageId, 'sending')
     try {
       if (messageId.startsWith('local:')) {
@@ -103,8 +133,14 @@ export function useChatActions({
         await runtimeClient.retryMessage(activeGroupId, messageId)
       }
       updateMessageStatus(activeGroupId, messageId, 'published')
-    } catch {
+    } catch (err) {
       updateMessageStatus(activeGroupId, messageId, 'failed')
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
     }
   }
 

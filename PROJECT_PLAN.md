@@ -503,6 +503,7 @@
 - **Task:** Improve group lifecycle UX: create/join, pending invites, member list, invite actions, group status/health indicators.
 - **Task:** Improve chat UX: message composer, delivery state hints, timeline grouping, readable HLC-based ordering display.
 - **Task:** Add clear visual cues for offline sync status and reconnect/replay events.
+- **Progress update:** Product **rune limits** for DM and channel text are enforced in `app/service` (`message_limits.go`, wired from `SendGroupMessage`) with `GetMessageLimits` exposed to the frontend; composers show counters, client-side preflight, and user-facing errors for over-limit / empty content. Narrative content beyond those caps is deferred to **Phase 8** file transfer (README Sections 3.2.1 and 3.7).
 
 ### 7.4. Settings, Admin, and Diagnostics UX
 - **Task:** Build backup/import, session/device, network/bootstrap settings.
@@ -529,6 +530,7 @@
 **Goal:** Secure high-speed file transfer and thesis documentation.
 
 ### 8.1. Secure Direct Swarming (MLS Exporter-based)
+- **Design link:** Application **plaintext** caps (README Section 3.2.1) intentionally keep MLS payloads bounded; users who need to share **large text or binaries** should use this phase’s encrypted file path instead of stretching DM/channel body limits.
 - **Task:** Derive one-time symmetric key using `MLS Exporter` (label: `"file-transfer"`, context: `file_hash`).
 - **Task:** Sender encrypts file with derived key → splits into fixed-size chunks.
 - **Task:** Announce file metadata (hash, size, chunk count, derived key label) via GossipSub.

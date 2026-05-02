@@ -75,7 +75,7 @@ export default function CommentList({
                 <span>Trả lời</span>
               </button>
             </div>
-            <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-300">
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-xs leading-relaxed text-slate-300">
               {renderMentionedBody(parsedComment.body, parsedComment.mentions)}
             </p>
           </div>

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"app/coordination"
 
@@ -12,14 +13,25 @@ import (
 
 // SendGroupMessage encrypts and broadcasts a text message to the group.
 func (r *Runtime) SendGroupMessage(groupID string, text string) error {
-	if text == "" {
-		return nil
-	}
 	if err := r.ensureSessionActive(); err != nil {
 		return err
 	}
 
 	slog.Info("Sending group message", "group", groupID, "len", len(text))
+
+	if strings.TrimSpace(groupID) == "" {
+		return fmt.Errorf("group ID is required")
+	}
+	if r.coordStorage == nil {
+		return fmt.Errorf("group metadata storage not initialized")
+	}
+	rec, recErr := r.coordStorage.GetGroupRecord(groupID)
+	if recErr != nil {
+		return fmt.Errorf("group metadata unavailable: %w", recErr)
+	}
+	if err := validateOutboundByGroupType(rec.GroupType, text); err != nil {
+		return err
+	}
 
 	r.mu.Lock()
 	coord, ok := r.coordinators[groupID]
@@ -28,18 +40,20 @@ func (r *Runtime) SendGroupMessage(groupID string, text string) error {
 	if !ok {
 		return fmt.Errorf("not in group %q", groupID)
 	}
-	if r.coordStorage != nil {
-		if rec, recErr := r.coordStorage.GetGroupRecord(groupID); recErr == nil {
-			if rec.GroupType == "channel" {
-				if err := validateChannelOutboundMessage(text); err != nil {
-					return err
-				}
-			}
-		}
-	}
 
 	_, err := coord.SendMessage([]byte(text))
 	return err
+}
+
+func validateOutboundByGroupType(groupType string, text string) error {
+	switch strings.TrimSpace(strings.ToLower(groupType)) {
+	case "channel":
+		return validateChannelOutboundMessage(text)
+	case "dm":
+		return validateDMOutboundMessage(text)
+	default:
+		return fmt.Errorf("ERR_GROUP_TYPE_INVALID: unsupported group type %q", groupType)
+	}
 }
 
 func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMessage) []MessageInfo {

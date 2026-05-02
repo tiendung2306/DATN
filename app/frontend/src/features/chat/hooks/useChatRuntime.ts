@@ -6,6 +6,7 @@ import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useNetworkStore } from '../../../stores/useNetworkStore'
 import { useChatStore } from '../../../stores/useChatStore'
 import { useContactStore } from '../../../stores/useContactStore'
+import { useMessageLimitsStore } from '../../../stores/useMessageLimitsStore'
 import { service } from '../../../../wailsjs/go/models'
 
 const EMPTY_ARRAY: any[] = []
@@ -199,6 +200,10 @@ export function useChatRuntime() {
     } catch {
       setActiveGroupMembers([])
     }
+  }, [])
+
+  useEffect(() => {
+    void useMessageLimitsStore.getState().fetchLimits()
   }, [])
 
   useEffect(() => {

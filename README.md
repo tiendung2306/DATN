@@ -210,6 +210,21 @@ This is a standard PKI Certificate Signing Request flow. The MLS Private Key is 
     *   Wraps message in `Envelope { epoch, hlc_timestamp, MlsMessage }`.
     *   Broadcasts via GossipSub (Topic: `group_id`).
 
+### 3.2.1. Plaintext and channel payload limits (product policy)
+
+Outbound **DM plaintext** and **channel** payloads (post title/body, comment body) are validated in Go before MLS encryption. Limits are expressed as **Unicode code points (Go runes)** on **trimmed** text (`strings.TrimSpace`), matching `utf8.RuneCountInString`. The UI loads the same numbers via `Runtime.GetMessageLimits()` so counters stay aligned with the backend.
+
+| Surface | Maximum runes (after trim) |
+|--------|----------------------------|
+| DM message body | 4000 |
+| Channel post title | 160 |
+| Channel post body | 4000 |
+| Channel comment body | 4000 |
+
+If text exceeds a limit, the service returns an error tagged with `TEXT_TOO_LONG` (see `app/service/message_limits.go`). This is independent of the **GossipSub wire frame cap** (~1 MiB), which remains a transport ceiling.
+
+For **very long documents**, the intended path is **encrypted file transfer** (Phase 8 / Section 3.7): derive a key via MLS Exporter, encrypt the file, and exchange chunks — not oversized MLS application plaintext.
+
 ### 3.3. Receiving a Group Message (via Coordination Layer)
 
 1.  **Go (Libp2p):** Receives `Envelope` bytes from GossipSub.

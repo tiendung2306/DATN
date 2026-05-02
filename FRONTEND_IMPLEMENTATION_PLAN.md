@@ -173,6 +173,7 @@ Rules:
 - Implement group list, chat view, composer, system messages.
 - Add message status rendering aligned with backend event model.
 - Add group info sidebar with member presence and role-gated actions.
+- **Limits UX:** DM/channel composers use `GetMessageLimits()` (Unicode rune count after trim), soft warnings near the cap, disabled submit when over, and toasts mapped from backend error codes (`TEXT_TOO_LONG`, etc.). Over-limit copy defers very long content to **Phase 8** encrypted file transfer (see `README.md`, Section 3.2.1).
 
 ### Phase FE-4: Invite and membership operations
 

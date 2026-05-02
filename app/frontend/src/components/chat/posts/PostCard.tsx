@@ -14,6 +14,7 @@ interface PostCardProps {
   comments: ChatMessage[]
   expanded: boolean
   commentDraft: string
+  commentMaxRunes: number
   mentionCandidates: MentionCandidate[]
   renderMentionedBody: (body: string, mentions?: MentionEntity[]) => ReactNode
   getDisplayName: (peerId: string) => string
@@ -36,6 +37,7 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
       comments,
       expanded,
       commentDraft,
+      commentMaxRunes,
       mentionCandidates,
       renderMentionedBody,
       getDisplayName,
@@ -71,7 +73,7 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
       {parsedPost.title && (
         <h3 className="mt-3 text-lg font-bold text-slate-50">{parsedPost.title}</h3>
       )}
-      <p className="mt-2 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-300">
+      <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] text-[15px] leading-relaxed text-slate-300">
         {renderMentionedBody(parsedPost.body, parsedPost.mentions)}
       </p>
 
@@ -104,6 +106,7 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
             value={commentDraft}
             sending={sending}
             mentionCandidates={mentionCandidates}
+            maxBodyRunes={commentMaxRunes}
             placeholder={`Viết bình luận cho ${getDisplayName(post.sender)}...`}
             onChange={onCommentDraftChange}
             onSubmit={onSendComment}

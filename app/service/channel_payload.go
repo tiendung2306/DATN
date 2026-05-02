@@ -7,11 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-const (
-	maxChannelTitleLen = 160
-	maxChannelBodyLen  = 4000
-)
-
 type channelMention struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
@@ -47,8 +42,8 @@ func validateChannelOutboundMessage(raw string) error {
 
 	// Backward compatibility: allow plain text payloads during migration window.
 	if !strings.HasPrefix(trimmed, "{") {
-		if utf8.RuneCountInString(trimmed) > maxChannelBodyLen {
-			return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", maxChannelBodyLen)
+		if utf8.RuneCountInString(trimmed) > MaxChannelPostBodyRunes {
+			return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", MaxChannelPostBodyRunes)
 		}
 		return nil
 	}
@@ -85,8 +80,8 @@ func validateChannelOutboundMessage(raw string) error {
 		if bodyLen == 0 {
 			return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: legacy reply body is required")
 		}
-		if bodyLen > maxChannelBodyLen {
-			return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", maxChannelBodyLen)
+		if bodyLen > MaxChannelPostBodyRunes {
+			return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", MaxChannelPostBodyRunes)
 		}
 		return nil
 	default:
@@ -99,11 +94,11 @@ func validatePostPayload(payload channelPostPayload) error {
 	if bodyLen == 0 {
 		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: post body is required")
 	}
-	if bodyLen > maxChannelBodyLen {
-		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", maxChannelBodyLen)
+	if bodyLen > MaxChannelPostBodyRunes {
+		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", MaxChannelPostBodyRunes)
 	}
-	if titleLen := utf8.RuneCountInString(strings.TrimSpace(payload.Title)); titleLen > maxChannelTitleLen {
-		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: title exceeds %d characters", maxChannelTitleLen)
+	if titleLen := utf8.RuneCountInString(strings.TrimSpace(payload.Title)); titleLen > MaxChannelPostTitleRunes {
+		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: title exceeds %d characters", MaxChannelPostTitleRunes)
 	}
 	return nil
 }
@@ -117,8 +112,8 @@ func validateCommentPayload(payload channelCommentPayload) error {
 	if bodyLen == 0 {
 		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: comment body is required")
 	}
-	if bodyLen > maxChannelBodyLen {
-		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", maxChannelBodyLen)
+	if bodyLen > MaxChannelCommentBodyRunes {
+		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: body exceeds %d characters", MaxChannelCommentBodyRunes)
 	}
 	if strings.TrimSpace(payload.ReplyToCommentID) != "" && strings.TrimSpace(payload.ReplyToCommentID) == strings.TrimSpace(payload.PostID) {
 		return fmt.Errorf("ERR_CHANNEL_PAYLOAD_INVALID: reply_to_comment_id must not equal post_id")

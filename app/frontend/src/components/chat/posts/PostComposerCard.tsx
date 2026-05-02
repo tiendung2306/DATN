@@ -2,12 +2,16 @@ import { FormEvent, useState, KeyboardEvent, useRef, useEffect } from 'react'
 import { Button } from '../../ui/button'
 import MentionTextarea from './MentionTextarea'
 import { MentionCandidate } from '../../../lib/chatModel'
+import { countUnicodeRunes } from '../../../lib/textLimits'
+import { cn } from '@/lib/utils'
 
 interface PostComposerCardProps {
   title: string
   body: string
   submitting: boolean
   mentionCandidates: MentionCandidate[]
+  maxTitleRunes: number
+  maxBodyRunes: number
   onTitleChange: (value: string) => void
   onBodyChange: (value: string) => void
   onSubmit: () => Promise<void>
@@ -18,6 +22,8 @@ export default function PostComposerCard({
   body,
   submitting,
   mentionCandidates,
+  maxTitleRunes,
+  maxBodyRunes,
   onTitleChange,
   onBodyChange,
   onSubmit,
@@ -25,9 +31,15 @@ export default function PostComposerCard({
   const [isExpanded, setIsExpanded] = useState(false)
   const formRef = useRef<HTMLFormElement>(null)
 
+  const titleUsed = countUnicodeRunes(title.trim())
+  const bodyUsed = countUnicodeRunes(body.trim())
+  const titleOver = titleUsed > maxTitleRunes
+  const bodyOver = bodyUsed > maxBodyRunes
+  const cannotSubmit = submitting || !body.trim() || titleOver || bodyOver
+
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault()
-    if (!body.trim()) return
+    if (!body.trim() || cannotSubmit) return
     await onSubmit()
     setIsExpanded(false)
   }
@@ -35,13 +47,12 @@ export default function PostComposerCard({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      if (body.trim()) {
+      if (body.trim() && !cannotSubmit) {
         void handleSubmit()
       }
     }
   }
 
-  // Handle click outside to collapse if empty
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (formRef.current && !formRef.current.contains(event.target as Node)) {
@@ -56,7 +67,7 @@ export default function PostComposerCard({
 
   if (!isExpanded) {
     return (
-      <div 
+      <div
         onClick={() => setIsExpanded(true)}
         className="cursor-text rounded-xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm transition hover:bg-slate-800/60"
       >
@@ -71,15 +82,28 @@ export default function PostComposerCard({
       onSubmit={handleSubmit}
       className="rounded-xl border border-emerald-500/30 bg-slate-900/80 p-4 shadow-md ring-1 ring-emerald-500/20 transition-all"
     >
-      <input
-        type="text"
-        value={title}
-        onChange={(e) => onTitleChange(e.target.value)}
-        placeholder="Tiêu đề (không bắt buộc)"
-        autoFocus
-        className="w-full border-b border-slate-700 bg-transparent pb-2 text-base font-semibold text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-500/50"
-      />
-      <div className="mt-3">
+      <div className="space-y-1">
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          placeholder="Tiêu đề (không bắt buộc)"
+          autoFocus
+          aria-invalid={titleOver}
+          className="w-full border-b border-slate-700 bg-transparent pb-2 text-base font-semibold text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-500/50"
+        />
+        <div className="flex justify-end">
+          <span
+            className={cn(
+              'text-[10px] tabular-nums font-medium',
+              titleOver ? 'text-rose-400' : 'text-slate-500',
+            )}
+          >
+            {titleUsed} / {maxTitleRunes}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 space-y-1">
         <MentionTextarea
           value={body}
           onChange={onBodyChange}
@@ -88,27 +112,41 @@ export default function PostComposerCard({
           disabled={submitting}
           rows={3}
           onKeyDown={handleKeyDown}
+          aria-invalid={bodyOver}
         />
-      </div>
-      <div className="mt-3 flex items-center justify-between">
-        <p className="text-[10px] text-slate-500">Nhấn Enter để gửi, Shift+Enter để xuống dòng</p>
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setIsExpanded(false)}
-            className="h-8 text-xs font-medium text-slate-400 hover:text-slate-200"
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] text-slate-500">Enter để đăng · Shift+Enter xuống dòng</p>
+          <span
+            className={cn(
+              'text-[10px] tabular-nums font-medium',
+              bodyOver ? 'text-rose-400' : 'text-slate-500',
+            )}
           >
-            Hủy
-          </Button>
-          <Button
-            type="submit"
-            disabled={submitting || !body.trim()}
-            className="h-8 bg-emerald-500 px-4 text-xs font-bold text-slate-950 hover:bg-emerald-400"
-          >
-            {submitting ? 'Đang đăng...' : 'Đăng bài'}
-          </Button>
+            {bodyUsed} / {maxBodyRunes} ký tự
+          </span>
         </div>
+      </div>
+      {bodyUsed > maxBodyRunes * 0.85 ? (
+        <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-100/90">
+          Nội dung rất dài sẽ được gửi dưới dạng file đã mã hóa trong bản cập nhật sau.
+        </p>
+      ) : null}
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => setIsExpanded(false)}
+          className="h-8 text-xs font-medium text-slate-400 hover:text-slate-200"
+        >
+          Hủy
+        </Button>
+        <Button
+          type="submit"
+          disabled={cannotSubmit}
+          className="h-8 bg-emerald-500 px-4 text-xs font-bold text-slate-950 hover:bg-emerald-400"
+        >
+          {submitting ? 'Đang đăng...' : 'Đăng bài'}
+        </Button>
       </div>
     </form>
   )

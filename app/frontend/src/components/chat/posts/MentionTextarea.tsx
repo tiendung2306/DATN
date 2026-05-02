@@ -9,6 +9,7 @@ interface MentionTextareaProps {
   disabled?: boolean
   rows?: number
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  'aria-invalid'?: boolean
 }
 
 function isMentionQuery(query: string): boolean {
@@ -20,7 +21,7 @@ export interface MentionTextareaHandle {
 }
 
 const MentionTextarea = forwardRef<MentionTextareaHandle, MentionTextareaProps>(
-  ({ value, onChange, placeholder, candidates, disabled = false, rows = 1, onKeyDown }, ref) => {
+  ({ value, onChange, placeholder, candidates, disabled = false, rows = 1, onKeyDown, 'aria-invalid': ariaInvalid }, ref) => {
     const [activeIndex, setActiveIndex] = useState(0)
     const [queryRange, setQueryRange] = useState<{ start: number; end: number } | null>(null)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -96,6 +97,7 @@ const MentionTextarea = forwardRef<MentionTextareaHandle, MentionTextareaProps>(
         value={value}
         rows={rows}
         disabled={disabled}
+        aria-invalid={ariaInvalid ? true : undefined}
         placeholder={placeholder}
         onKeyDown={(e) => {
           handleKeyDown(e)

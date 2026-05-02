@@ -7,6 +7,7 @@ import { Info, Lock, Loader2 } from 'lucide-react'
 import { service } from '../../../wailsjs/go/models'
 import { useMentions } from '../../features/chat/hooks/useMentions'
 import { useEffect, useRef, useState } from 'react'
+import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
 
 interface ChatViewProps {
   activeGroupId: string | null
@@ -48,6 +49,7 @@ export default function ChatView({
   onLoadMoreComments,
 }: ChatViewProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
+  const dmMaxRunes = useMessageLimitsStore((s) => s.dmMaxRunes)
   const activeGroup = groups.find((g) => g.group_id === activeGroupId)
   const isDM = activeGroup?.group_type === 'dm'
   const { mentionCandidates, renderMentionedBody } = useMentions({
@@ -161,6 +163,7 @@ export default function ChatView({
               value={composingMessage}
               disabled={sending || !activeGroupId}
               mentionCandidates={mentionCandidates}
+              maxRunes={isDM ? dmMaxRunes : undefined}
               onChange={onComposingChange}
               onSend={() => {
                 onSend()
