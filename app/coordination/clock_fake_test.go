@@ -64,6 +64,15 @@ func (f *FakeClock) Advance(d time.Duration) {
 	f.waiters = remaining
 }
 
+// WaitersCount returns the number of After() waiters currently waiting.
+// Tests use this to synchronize on goroutines registering their timers
+// before advancing the clock — avoids racing past a not-yet-registered After.
+func (f *FakeClock) WaitersCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.waiters)
+}
+
 // Set jumps the fake clock to an absolute time.
 func (f *FakeClock) Set(t time.Time) {
 	f.mu.Lock()

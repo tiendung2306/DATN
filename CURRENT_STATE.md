@@ -16,6 +16,45 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2B: Auto-announce + heal trigger scaffold
+
+- **Independent timers (heartbeat + announce):** `Coordinator.periodicLoop` đã được tách thành **2 goroutine độc lập** — `heartbeatLoop` (cadence `HeartbeatInterval`) và `announceLoop` (cadence `AnnounceInterval`). Tránh pattern "đếm mỗi 2 heartbeat thì announce" — mỗi loop có timer/After riêng, không share counter, không bị skew khi tick này delay tick kia. Khi `AnnounceInterval == 0`, `announceLoop` không spawn (zero overhead trong tests/manual mode).
+- **Config additions (`app/coordination/config.go`):**
+  - `AnnounceInterval` (default `10s`, test default `0`) — chu kỳ broadcast `MsgAnnounce` cho ForkDetector.
+  - `ReplayThrottleMs` (default `100`, test default `0`) — throttle giữa các re-broadcast trong Autonomous Replay (Sprint 2E sẽ tiêu thụ). Configurable để Phase 9.2 có thể sweep load profiles.
+  - `Validate()` cộng thêm range checks (`>= 0`).
+- **`broadcastAnnounceLocked` helper:** dùng chung giữa `announceLoop` và `BroadcastAnnounce()` (manual trigger trong tests). Nội dung announce = `(treeHash, activeView.Size())`. CommitHash chưa wire vào (Sprint 2D nếu cần để stricter weight comparison).
+- **`ForkEvent.PartitionStartedAt` (sticky timestamp):**
+  - `branchInfo.firstSeenAt` lưu thời điểm local node thấy TreeHash lạ **lần đầu**; observation tiếp theo cho cùng branch KHÔNG bump → giá trị này chính là partition start observed locally.
+  - `ForkDetector.ProcessRemote(observedAt, from, epoch, ann)` — signature mới đẩy `observedAt` từ caller (Coordinator dùng `c.clock.Now()`); test callsites đã update.
+  - Phục vụ Sprint 2E: tính partition window (now - PartitionStartedAt) làm input cho Autonomous Replay khi chọn message của chính node để re-encrypt.
+- **`scheduleHeal` scaffold + concurrency guard:**
+  - `Coordinator.healing atomic.Bool` — CAS guard, `handleAnnounceLocked` không bị block bởi heal pipeline dài; **đảm bảo chỉ 1 heal goroutine in-flight tại 1 thời điểm** kể cả khi nhiều peer cùng announce trong cùng tick.
+  - Khi `ProcessRemote` trả `NeedExternalJoin == true`, `handleAnnounceLocked` gọi `scheduleHeal(event)` (vẫn giữ `IncrPartitionsDetected` vì test cũ phụ thuộc + để rõ semantics "detected vs attempted").
+  - `scheduleHeal` snapshot fields cần thiết trước khi spawn goroutine, log `fork_heal/scheduled` (kèm `trace_id`, `winner_peer`, `winner_epoch`, `partition_started_at_ms`, `partition_window_ms`, `scheduled_at_ms`), CAS-skip nếu đã đang heal (`fork_heal/skipped_already_running`).
+  - `runHeal` goroutine emit per-step structured logs theo contract đã thống nhất:
+    - `fork_heal/started` — `queued_ms` (delay từ scheduled → goroutine bắt đầu).
+    - `fork_heal/deferred_to_2d` — placeholder; Sprint 2D sẽ thay bằng steps 1–7 (`groupinfo_request`, `groupinfo_received`, `external_join`, `state_swap`, `external_commit`, `replay_started`, `replay_completed`).
+    - `fork_heal/aborted` (nếu ctx cancel giữa chừng) — kèm reason + duration.
+    - `fork_heal/completed` + `fork_heal/aggregate` — `outcome`, `duration_ms` (heal pipeline), `total_ms` (since scheduled), `partition_window_ms`, `winner_*`. Aggregate là 1 line/heal cho Phase 9 evaluation script (filter theo `trace_id`).
+  - Metrics wiring: `IncrForkHealingsAttempted` chỉ tăng khi CAS thành công (không inflate counter khi guard skip); `IncrForkHealingsSucceeded` ở cuối `runHeal` của scaffold (Sprint 2D sẽ chỉ inc khi external_commit broadcast OK).
+  - `IsHealing()` exported cho diagnostics + tests.
+- **Trace ID:** `newTraceID()` — 4 random bytes hex (8 chars). Đủ unique trong cùng node, ngắn để grep log.
+- **Tests mới (`fork_heal_orchestrator_test.go` + `fork_healing_test.go`):**
+  - `TestCoordinator_AnnounceLoop_FiresOnInterval` — Advance(`AnnounceInterval`) → có envelope `MsgAnnounce` trong network inbox.
+  - `TestCoordinator_AnnounceLoop_DisabledWhenZero` — `AnnounceInterval = 0` → không announce; heartbeat vẫn chạy bình thường.
+  - `TestCoordinator_HeartbeatAndAnnounceLoops_Independent` — HB=50ms, Announce=200ms → sau 4 ticks HB, có ≥4 heartbeats và ≥1 announce (chứng minh 2 timer độc lập).
+  - `TestCoordinator_ScheduleHeal_RecordsMetrics` — gọi trực tiếp scheduleHeal → `ForkHealingsAttempted == 1 && ForkHealingsSucceeded == 1`, `IsHealing() == false` sau khi xong.
+  - `TestCoordinator_ScheduleHeal_ConcurrencyGuard` — pre-set `healing = true` → scheduleHeal skip; `Attempted == 0`.
+  - `TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch` — Bob announce winner branch → Alice detect partition + attempt heal end-to-end.
+  - `TestForkDetector_PartitionStartedAt_StableAcrossObservations` — observations 2,3,...n cho cùng TreeHash giữ nguyên `firstSeenAt`.
+- **FakeClock additions (test infra):** `WaitersCount()` accessor + `waitForWaiters` helper sync goroutines registered After-waiter trước khi `Advance` — fix race "test advance trước khi loop kịp register".
+- **Validation:**
+  - `go vet ./...` — clean.
+  - `go test ./... -count=1` — toàn bộ PASS (coordination, service, store, p2p, config).
+  - `go build ./...` — clean.
+- **Phạm vi Sprint 2B:** chỉ scaffold. Sprint 2C wire GroupInfo exchange protocol, Sprint 2D plug pipeline body vào trong `runHeal` (giữa `started` và `completed`), Sprint 2E Autonomous Replay (consume `ReplayThrottleMs`), Sprint 2F persistence + `GetForkHealHistory` API, Sprint 2G integration tests.
+
 ### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2A: Rust foundation
 
 - **Real OpenMLS External Commit (replaces stub):**
@@ -660,13 +699,15 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Fork Healing Orchestration (Sprint 2B–2G — đang tiếp tục sau 2A):**
-    - **2B:** Auto-broadcast `MsgAnnounce` trong `periodicLoop` (hiện chỉ heartbeat); thêm `AnnounceInterval` vào `CoordinatorConfig`; trigger heal goroutine khi `NeedExternalJoin==true`.
-    - **2C:** Wire protocol `/app/group-info/1.0.0` (request/response, copy pattern offline-sync); handler ở `app/service/group_info_sync.go`.
-    - **2D:** Heal orchestrator — call `ExportGroupInfo` (winner) / `ExternalJoin` (loser); atomic apply; broadcast external commit; drop+shred old state; reset epochTracker/singleWriter/forkDetector.
-    - **2E:** Autonomous Replay — re-encrypt own `MsgApplication` từ partition window; throttled bằng `CoordinatorConfig.ReplayThrottleMs` (default 100ms, configurable cho Phase 9.2 evaluation).
+1.  **Fork Healing Orchestration (Sprint 2A ✅ + 2B ✅ — tiếp tục 2C–2G):**
+    - **2A ✅:** Rust `external_join` + `export_group_info` real impl, gRPC + Go bridge + Mock.
+    - **2B ✅:** `AnnounceInterval` + `ReplayThrottleMs` config, `heartbeatLoop` / `announceLoop` 2 goroutines độc lập, `ForkEvent.PartitionStartedAt` sticky, `scheduleHeal` scaffold + `healing` atomic guard, structured logging contract (`fork_heal/scheduled|started|deferred_to_2d|completed|aggregate|skipped_already_running`), 7 tests mới.
+    - **2C (next):** Wire protocol `/app/group-info/1.0.0` (request/response, copy pattern offline-sync); handler ở `app/service/group_info_sync.go`. Phải sync GroupInfo blob từ winner → loser TRƯỚC khi 2D có thể chạy `ExternalJoin`.
+    - **2D:** Plug heal pipeline body vào `Coordinator.runHeal` thay cho `fork_heal/deferred_to_2d`: gọi `ExportGroupInfo` (winner) / `ExternalJoin` (loser); atomic SQLite apply; broadcast external commit trên group topic; drop+shred old state; reset epochTracker/singleWriter/forkDetector.
+    - **2E:** Autonomous Replay — re-encrypt own `MsgApplication` từ partition window (input: `event.PartitionStartedAt` + own `peer_id` filter trên `stored_messages`); throttled bằng `CoordinatorConfig.ReplayThrottleMs` (default 100ms).
     - **2F:** Persistence: bảng `fork_heal_events` + `fork_audit` (retention 30 ngày + 10 records/group); `Runtime.GetForkHealHistory` cho Developer Mode.
-    - **Logging contract (đã chốt):** mỗi step heal pipeline emit `_started` + `_completed`/`_failed` log với `trace_id` + `duration_ms`; aggregate log cuối có breakdown từng step. Phục vụ capture data Phase 9.2.
+    - **2G:** Integration tests đa-node (split-brain → heal → verify converged state + replay).
+    - **Logging contract (đã chốt + scaffold đã chạy ở 2B):** mỗi step heal pipeline emit `<step>_started` + `<step>_completed`/`<step>_failed` log với `trace_id` + `duration_ms`; aggregate log cuối có breakdown từng step. Phục vụ capture data Phase 9.2.
 
 2.  **Frontend FE-4 — Group & Invite Product Flows:**
     - Group info panel + add member/join code + pending invites + leave/remove UX.

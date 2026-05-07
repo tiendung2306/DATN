@@ -2,7 +2,12 @@ package coordination
 
 import (
 	"testing"
+	"time"
 )
+
+// fixedT is a deterministic timestamp used by ForkDetector unit tests where
+// the actual partition timestamp is irrelevant to the assertion.
+var fixedT = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestCompareBranchWeight_SameTreeHash(t *testing.T) {
 	a := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 3, CommitHash: []byte("abc")}
@@ -51,7 +56,7 @@ func TestForkDetector_NoFork(t *testing.T) {
 		CommitHash:  []byte("commit-1"),
 	})
 
-	event := fd.ProcessRemote(peerID("peer-1"), 5, GroupStateAnnouncement{
+	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 3,
 		CommitHash:  []byte("commit-1"),
@@ -70,7 +75,8 @@ func TestForkDetector_DetectsFork(t *testing.T) {
 		CommitHash:  []byte("commit-1"),
 	})
 
-	event := fd.ProcessRemote(peerID("peer-1"), 5, GroupStateAnnouncement{
+	observed := fixedT.Add(7 * time.Second)
+	event := fd.ProcessRemote(observed, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 5,
 		CommitHash:  []byte("commit-2"),
@@ -85,6 +91,38 @@ func TestForkDetector_DetectsFork(t *testing.T) {
 	if !event.NeedExternalJoin {
 		t.Error("losing branch should set NeedExternalJoin=true")
 	}
+	if !event.PartitionStartedAt.Equal(observed) {
+		t.Errorf("PartitionStartedAt should equal first-observation time: got %v want %v",
+			event.PartitionStartedAt, observed)
+	}
+}
+
+func TestForkDetector_PartitionStartedAt_StableAcrossObservations(t *testing.T) {
+	fd := NewForkDetector()
+	fd.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("hash-A"),
+		MemberCount: 3,
+		CommitHash:  []byte("commit-1"),
+	})
+
+	first := fixedT.Add(1 * time.Second)
+	second := fixedT.Add(30 * time.Second)
+	remoteAnn := GroupStateAnnouncement{
+		TreeHash:    []byte("hash-B"),
+		MemberCount: 5,
+		CommitHash:  []byte("commit-2"),
+	}
+
+	ev1 := fd.ProcessRemote(first, peerID("peer-1"), 5, remoteAnn)
+	ev2 := fd.ProcessRemote(second, peerID("peer-2"), 5, remoteAnn)
+
+	if ev1 == nil || ev2 == nil {
+		t.Fatal("expected both observations to surface fork events")
+	}
+	if !ev2.PartitionStartedAt.Equal(first) {
+		t.Errorf("PartitionStartedAt should be sticky to first observation: got %v want %v",
+			ev2.PartitionStartedAt, first)
+	}
 }
 
 func TestForkDetector_LocalWins(t *testing.T) {
@@ -95,7 +133,7 @@ func TestForkDetector_LocalWins(t *testing.T) {
 		CommitHash:  []byte("commit-1"),
 	})
 
-	event := fd.ProcessRemote(peerID("peer-1"), 3, GroupStateAnnouncement{
+	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 3, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 2,
 		CommitHash:  []byte("commit-2"),
@@ -115,7 +153,7 @@ func TestForkDetector_LocalWins(t *testing.T) {
 func TestForkDetector_NoLocalSet(t *testing.T) {
 	fd := NewForkDetector()
 
-	event := fd.ProcessRemote(peerID("peer-1"), 5, GroupStateAnnouncement{
+	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 3,
 		CommitHash:  []byte("commit-1"),
@@ -132,13 +170,13 @@ func TestForkDetector_KnownBranches(t *testing.T) {
 		TreeHash: []byte("hash-A"), MemberCount: 3, CommitHash: []byte("c1"),
 	})
 
-	fd.ProcessRemote(peerID("p1"), 5, GroupStateAnnouncement{
+	fd.ProcessRemote(fixedT, peerID("p1"), 5, GroupStateAnnouncement{
 		TreeHash: []byte("hash-B"), MemberCount: 2, CommitHash: []byte("c2"),
 	})
-	fd.ProcessRemote(peerID("p2"), 5, GroupStateAnnouncement{
+	fd.ProcessRemote(fixedT, peerID("p2"), 5, GroupStateAnnouncement{
 		TreeHash: []byte("hash-C"), MemberCount: 1, CommitHash: []byte("c3"),
 	})
-	fd.ProcessRemote(peerID("p3"), 5, GroupStateAnnouncement{
+	fd.ProcessRemote(fixedT, peerID("p3"), 5, GroupStateAnnouncement{
 		TreeHash: []byte("hash-B"), MemberCount: 2, CommitHash: []byte("c2"),
 	})
 
@@ -152,7 +190,7 @@ func TestForkDetector_Reset(t *testing.T) {
 	fd.UpdateLocal(GroupStateAnnouncement{
 		TreeHash: []byte("h-A"), MemberCount: 3, CommitHash: []byte("c1"),
 	})
-	fd.ProcessRemote(peerID("p1"), 5, GroupStateAnnouncement{
+	fd.ProcessRemote(fixedT, peerID("p1"), 5, GroupStateAnnouncement{
 		TreeHash: []byte("h-B"), MemberCount: 2, CommitHash: []byte("c2"),
 	})
 

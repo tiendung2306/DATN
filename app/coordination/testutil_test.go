@@ -137,6 +137,28 @@ func (fn *FakeNetwork) PendingCount() int {
 	return len(fn.inbox)
 }
 
+// PendingByType counts how many pending deliveries originate from `from` and
+// carry a coordination Envelope of the given message type. Used by Sprint 2B
+// tests to assert the heartbeat / announce loops fire on independent cadences.
+func (fn *FakeNetwork) PendingByType(from peer.ID, msgType MessageType) int {
+	fn.mu.Lock()
+	defer fn.mu.Unlock()
+	count := 0
+	for _, d := range fn.inbox {
+		if d.from != from {
+			continue
+		}
+		var env Envelope
+		if json.Unmarshal(d.data, &env) != nil {
+			continue
+		}
+		if env.Type == msgType {
+			count++
+		}
+	}
+	return count
+}
+
 // FakeTransport implements Transport using the in-memory FakeNetwork.
 type FakeTransport struct {
 	mu       sync.Mutex

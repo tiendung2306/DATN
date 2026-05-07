@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -62,6 +63,13 @@ type ForkEvent struct {
 	RemoteEpoch      uint64
 	Result           BranchResult
 	NeedExternalJoin bool // true if local branch lost and must ExternalJoin
+
+	// PartitionStartedAt is the wall-clock time at which the local node first
+	// observed the divergent TreeHash from the *winning* remote branch. Used
+	// by Autonomous Replay (Sprint 2E) to determine the partition window of
+	// own messages that must be re-encrypted under the healed group state.
+	// Zero value if no winning remote branch was tracked when the event fired.
+	PartitionStartedAt time.Time
 }
 
 // ForkDetector monitors GroupStateAnnouncements from peers to detect
@@ -80,6 +88,11 @@ type ForkDetector struct {
 type branchInfo struct {
 	announcement GroupStateAnnouncement
 	peers        map[peer.ID]struct{}
+	// firstSeenAt is the wall-clock time of the first ProcessRemote call that
+	// surfaced this TreeHash. It is preserved across subsequent observations
+	// so we know exactly when the branch became visible to the local node —
+	// crucial input for Autonomous Replay's partition window computation.
+	firstSeenAt time.Time
 }
 
 // NewForkDetector creates a detector for a group. The local announcement
@@ -106,7 +119,11 @@ func (fd *ForkDetector) UpdateLocal(ann GroupStateAnnouncement) {
 // ProcessRemote analyzes a remote peer's announcement against the local state.
 // Returns a ForkEvent if a fork is detected (different TreeHash), or nil if
 // the remote is on the same branch.
-func (fd *ForkDetector) ProcessRemote(from peer.ID, remoteEpoch uint64, ann GroupStateAnnouncement) *ForkEvent {
+//
+// observedAt should be the local clock reading at the moment the announcement
+// was received. It is recorded as firstSeenAt for new branches only; subsequent
+// announcements for the same TreeHash do not bump it.
+func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remoteEpoch uint64, ann GroupStateAnnouncement) *ForkEvent {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
 
@@ -123,7 +140,8 @@ func (fd *ForkDetector) ProcessRemote(from peer.ID, remoteEpoch uint64, ann Grou
 				MemberCount: ann.MemberCount,
 				CommitHash:  copyBytes(ann.CommitHash),
 			},
-			peers: make(map[peer.ID]struct{}),
+			peers:       make(map[peer.ID]struct{}),
+			firstSeenAt: observedAt,
 		}
 		fd.known[thHex] = bi
 	} else {
@@ -138,12 +156,13 @@ func (fd *ForkDetector) ProcessRemote(from peer.ID, remoteEpoch uint64, ann Grou
 
 	result := CompareBranchWeight(*fd.local, ann)
 	return &ForkEvent{
-		RemotePeer:       from,
-		LocalAnnounce:    *fd.local,
-		RemoteAnnounce:   ann,
-		RemoteEpoch:      remoteEpoch,
-		Result:           result,
-		NeedExternalJoin: result == BranchRemote,
+		RemotePeer:         from,
+		LocalAnnounce:      *fd.local,
+		RemoteAnnounce:     ann,
+		RemoteEpoch:        remoteEpoch,
+		Result:             result,
+		NeedExternalJoin:   result == BranchRemote,
+		PartitionStartedAt: bi.firstSeenAt,
 	}
 }
 

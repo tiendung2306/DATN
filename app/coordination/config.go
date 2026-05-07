@@ -14,8 +14,16 @@ type CoordinatorConfig struct {
 	TokenHolderTimeout time.Duration
 
 	// HeartbeatInterval is how often each node broadcasts a liveness heartbeat
-	// and GroupStateAnnouncement to its group topic.
+	// to its group topic. Used by ActiveView to detect dead peers.
 	HeartbeatInterval time.Duration
+
+	// AnnounceInterval is how often each node broadcasts a
+	// GroupStateAnnouncement (TreeHash + MemberCount + CommitHash) so that
+	// peers can detect partitions via the ForkDetector. Set to 0 to disable
+	// automatic announcing (tests may drive announces manually via
+	// Coordinator.BroadcastAnnounce). Runs on an independent ticker so its
+	// cadence is decoupled from HeartbeatInterval.
+	AnnounceInterval time.Duration
 
 	// PeerDeadAfter is the number of consecutive missed heartbeats before a
 	// peer is removed from ActiveView. Effective dead-peer timeout is
@@ -30,6 +38,13 @@ type CoordinatorConfig struct {
 	// generated for continuous key rotation (PCS). Set to 0 to disable
 	// automatic rotation (useful in tests for manual control).
 	KeyRotationInterval time.Duration
+
+	// ReplayThrottleMs is the delay (in milliseconds) between consecutive
+	// re-broadcasts during Autonomous Replay after fork healing. Lower values
+	// finish replay faster but burst the network. Set to 0 to disable
+	// throttling. Tunable so Phase 9.2 evaluation can sweep different load
+	// profiles without recompiling.
+	ReplayThrottleMs int
 
 	// MetricsEnabled toggles recording of coordination metrics.
 	// Should be true for benchmarks and evaluation; may be false in production
@@ -52,9 +67,11 @@ func DefaultConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
 		TokenHolderTimeout:     4 * time.Second,
 		HeartbeatInterval:      5 * time.Second,
+		AnnounceInterval:       10 * time.Second,
 		PeerDeadAfter:          3,
 		MaxBatchedProposals:    10,
 		KeyRotationInterval:    5 * time.Minute,
+		ReplayThrottleMs:       100,
 		MetricsEnabled:         true,
 		OfflineSyncEnabled:     true,
 		EnvelopeLogTTL:         7 * 24 * time.Hour,
@@ -69,9 +86,11 @@ func TestConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
 		TokenHolderTimeout:     100 * time.Millisecond,
 		HeartbeatInterval:      50 * time.Millisecond,
+		AnnounceInterval:       0,
 		PeerDeadAfter:          3,
 		MaxBatchedProposals:    10,
 		KeyRotationInterval:    0,
+		ReplayThrottleMs:       0,
 		MetricsEnabled:         true,
 		OfflineSyncEnabled:     true,
 		EnvelopeLogTTL:         7 * 24 * time.Hour,
@@ -101,6 +120,14 @@ func (c *CoordinatorConfig) Validate() error {
 	if c.KeyRotationInterval < 0 {
 		return fmt.Errorf("%w: KeyRotationInterval must be >= 0, got %v",
 			ErrInvalidConfig, c.KeyRotationInterval)
+	}
+	if c.AnnounceInterval < 0 {
+		return fmt.Errorf("%w: AnnounceInterval must be >= 0, got %v",
+			ErrInvalidConfig, c.AnnounceInterval)
+	}
+	if c.ReplayThrottleMs < 0 {
+		return fmt.Errorf("%w: ReplayThrottleMs must be >= 0, got %d",
+			ErrInvalidConfig, c.ReplayThrottleMs)
 	}
 	if c.EnvelopeLogTTL < 0 {
 		return fmt.Errorf("%w: EnvelopeLogTTL must be >= 0, got %v",

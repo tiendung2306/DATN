@@ -2,11 +2,15 @@ package coordination
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -68,6 +72,11 @@ type Coordinator struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
+
+	// healing is set to 1 while a fork-heal goroutine is in flight. Manipulated
+	// via atomic CAS so handleAnnounceLocked never blocks on a long heal and
+	// duplicate fork events do not trigger overlapping heal pipelines.
+	healing atomic.Bool
 }
 
 // NewCoordinator creates a Coordinator. Call CreateGroup or InitializeGroup,
@@ -178,7 +187,12 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	c.started = true
 
 	c.wg.Add(1)
-	go func() { defer c.wg.Done(); c.periodicLoop(c.ctx) }()
+	go func() { defer c.wg.Done(); c.heartbeatLoop(c.ctx) }()
+
+	if c.cfg.AnnounceInterval > 0 {
+		c.wg.Add(1)
+		go func() { defer c.wg.Done(); c.announceLoop(c.ctx) }()
+	}
 
 	return nil
 }
@@ -247,10 +261,14 @@ func (c *Coordinator) handleAnnounceLocked(from peer.ID, env *Envelope) {
 		return
 	}
 
-	event := c.forkDetector.ProcessRemote(from, env.Epoch, ann)
-	if event != nil && event.NeedExternalJoin {
-		c.metrics.IncrPartitionsDetected()
+	event := c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
+	if event == nil || !event.NeedExternalJoin {
+		return
 	}
+
+	c.metrics.IncrPartitionsDetected()
+	event.GroupID = c.groupID
+	c.scheduleHeal(event)
 }
 
 func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
@@ -757,7 +775,10 @@ func decodeEnvelopePeerID(raw string, fallback peer.ID) peer.ID {
 
 // ─── Periodic Tasks ──────────────────────────────────────────────────────────
 
-func (c *Coordinator) periodicLoop(ctx context.Context) {
+// heartbeatLoop sends a liveness heartbeat at HeartbeatInterval. Runs on its
+// own goroutine so its cadence is independent of the announce loop — tests can
+// drive each timer in isolation via the FakeClock without coupling.
+func (c *Coordinator) heartbeatLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -769,6 +790,33 @@ func (c *Coordinator) periodicLoop(ctx context.Context) {
 			c.mu.Unlock()
 		}
 	}
+}
+
+// announceLoop broadcasts a GroupStateAnnouncement at AnnounceInterval. It is
+// only spawned when AnnounceInterval > 0; tests using TestConfig (interval=0)
+// drive announces manually via BroadcastAnnounce.
+func (c *Coordinator) announceLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.clock.After(c.cfg.AnnounceInterval):
+			c.mu.Lock()
+			c.broadcastAnnounceLocked()
+			c.mu.Unlock()
+		}
+	}
+}
+
+// broadcastAnnounceLocked publishes a GroupStateAnnouncement reflecting the
+// node's current TreeHash, member view size, and last commit hash. Caller must
+// hold c.mu.
+func (c *Coordinator) broadcastAnnounceLocked() {
+	ann := GroupStateAnnouncement{
+		TreeHash:    c.treeHash,
+		MemberCount: c.activeView.Size(),
+	}
+	c.broadcastLocked(MsgAnnounce, ann)
 }
 
 // ─── Manual Triggers (for tests) ─────────────────────────────────────────────
@@ -785,11 +833,7 @@ func (c *Coordinator) BroadcastHeartbeat() {
 func (c *Coordinator) BroadcastAnnounce() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ann := GroupStateAnnouncement{
-		TreeHash:    c.treeHash,
-		MemberCount: c.activeView.Size(),
-	}
-	c.broadcastLocked(MsgAnnounce, ann)
+	c.broadcastAnnounceLocked()
 }
 
 // TriggerLivenessCheck runs a liveness check immediately. Returns evicted peers.
@@ -830,4 +874,149 @@ func (c *Coordinator) GetGroupState() []byte {
 	cp := make([]byte, len(c.groupState))
 	copy(cp, c.groupState)
 	return cp
+}
+
+// IsHealing reports whether a fork-heal goroutine is currently in flight.
+// Exported for tests and runtime diagnostics.
+func (c *Coordinator) IsHealing() bool {
+	return c.healing.Load()
+}
+
+// ─── Fork Healing Orchestration ──────────────────────────────────────────────
+//
+// scheduleHeal kicks off the fork-heal pipeline for an event flagged by
+// ForkDetector as NeedExternalJoin. At most one heal goroutine may run per
+// Coordinator instance — the atomic CAS on c.healing acts as a non-blocking
+// mutex so handleAnnounceLocked never stalls on a long-running heal even when
+// several peers race to surface the same partition.
+//
+// Sprint 2B implements only the scaffold (flag management + structured logging
+// contract). Sprint 2C–2E will fill in the actual GroupInfo exchange, atomic
+// state transition, and Autonomous Replay between the "started" and
+// "completed" log lines.
+//
+// Caller must hold c.mu.
+func (c *Coordinator) scheduleHeal(event *ForkEvent) {
+	if event == nil {
+		return
+	}
+
+	// Snapshot fields needed by the goroutine *before* releasing c.mu so the
+	// goroutine never reads from c without re-locking.
+	traceID := newTraceID()
+	localEpoch := c.epoch
+	localTreeHash := append([]byte(nil), c.treeHash...)
+	scheduledAt := c.clock.Now()
+	partitionWindowMs := int64(0)
+	if !event.PartitionStartedAt.IsZero() {
+		partitionWindowMs = scheduledAt.Sub(event.PartitionStartedAt).Milliseconds()
+	}
+
+	if !c.healing.CompareAndSwap(false, true) {
+		slog.Info("fork_heal/skipped_already_running",
+			"trace_id", traceID,
+			"group", event.GroupID,
+			"local_epoch", localEpoch,
+			"winner_peer", event.RemotePeer.String(),
+			"winner_epoch", event.RemoteEpoch,
+		)
+		return
+	}
+
+	c.metrics.IncrForkHealingsAttempted()
+
+	slog.Info("fork_heal/scheduled",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"local_epoch", localEpoch,
+		"local_tree_hash", hex.EncodeToString(localTreeHash),
+		"local_member_count", event.LocalAnnounce.MemberCount,
+		"winner_peer", event.RemotePeer.String(),
+		"winner_epoch", event.RemoteEpoch,
+		"winner_tree_hash", hex.EncodeToString(event.RemoteAnnounce.TreeHash),
+		"winner_member_count", event.RemoteAnnounce.MemberCount,
+		"partition_started_at_ms", event.PartitionStartedAt.UnixMilli(),
+		"partition_window_ms", partitionWindowMs,
+		"scheduled_at_ms", scheduledAt.UnixMilli(),
+	)
+
+	go c.runHeal(c.ctx, traceID, event, scheduledAt)
+}
+
+// runHeal executes the fork-heal pipeline. It runs on its own goroutine and is
+// guaranteed to release c.healing on exit. The body emits per-step structured
+// logs (fork_heal/<step>_started + fork_heal/<step>_completed) so evaluation
+// can compute per-step latency from the logs alone.
+//
+// Sprint 2B leaves the heart of the pipeline as a placeholder. Sprints 2C–2E
+// will replace the placeholder with:
+//
+//	step 1 fork_heal/groupinfo_request   — fetch GroupInfo from RemotePeer
+//	step 2 fork_heal/groupinfo_received  — verify + load PSKs
+//	step 3 fork_heal/external_join       — Rust ExternalJoin call
+//	step 4 fork_heal/state_swap          — atomic SQLite txn (drop old)
+//	step 5 fork_heal/external_commit     — broadcast on group topic
+//	step 6 fork_heal/replay_started      — Autonomous Replay window
+//	step 7 fork_heal/replay_completed    — final sync
+func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEvent, scheduledAt time.Time) {
+	defer c.healing.Store(false)
+
+	startedAt := c.clock.Now()
+	slog.Info("fork_heal/started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"queued_ms", startedAt.Sub(scheduledAt).Milliseconds(),
+	)
+
+	// Sprint 2B: pipeline body deferred. Sprint 2C plugs in the GroupInfo
+	// exchange protocol; Sprint 2D wires the orchestrator that consumes it.
+	slog.Info("fork_heal/deferred_to_2d",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"reason", "scaffold_only",
+	)
+
+	if ctx.Err() != nil {
+		slog.Info("fork_heal/aborted",
+			"trace_id", traceID,
+			"group", event.GroupID,
+			"reason", ctx.Err().Error(),
+			"duration_ms", c.clock.Now().Sub(startedAt).Milliseconds(),
+		)
+		return
+	}
+
+	completedAt := c.clock.Now()
+	c.metrics.IncrForkHealingsSucceeded()
+	slog.Info("fork_heal/completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"outcome", "scaffold",
+		"duration_ms", completedAt.Sub(startedAt).Milliseconds(),
+		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
+	)
+	// Aggregate line carries the per-heal summary used by Phase 9 evaluation
+	// scripts. Sprint 2D will extend it with new_epoch, new_tree_hash,
+	// replayed_message_count, etc., once those numbers are real.
+	slog.Info("fork_heal/aggregate",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"winner_peer", event.RemotePeer.String(),
+		"winner_epoch", event.RemoteEpoch,
+		"winner_member_count", event.RemoteAnnounce.MemberCount,
+		"local_member_count_before", event.LocalAnnounce.MemberCount,
+		"partition_window_ms", completedAt.Sub(event.PartitionStartedAt).Milliseconds(),
+		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
+	)
+}
+
+// newTraceID returns a short hex identifier suitable for tagging log lines
+// belonging to a single fork-heal pipeline. 8 hex chars (32 bits) is enough
+// for human readability and disambiguating concurrent heals across nodes.
+func newTraceID() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "00000000"
+	}
+	return hex.EncodeToString(b[:])
 }
