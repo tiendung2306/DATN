@@ -1,8 +1,11 @@
 package coordination
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // ─── Sprint 2B: independent timers for heartbeat and announce ────────────────
@@ -155,6 +158,16 @@ func TestCoordinator_HeartbeatAndAnnounceLoops_Independent(t *testing.T) {
 // stable across test runs.
 var fakeForkPeer = peerID("winner-peer")
 
+func attachStaticGroupInfoFetcher(c *Coordinator, epoch uint64, treeHash []byte, payload []byte) {
+	c.groupInfoFetch = func(_ context.Context, _ peer.ID, _ string, _ bool) (*GroupInfoFetchResult, error) {
+		return &GroupInfoFetchResult{
+			GroupInfo: append([]byte(nil), payload...),
+			Epoch:     epoch,
+			TreeHash:  append([]byte(nil), treeHash...),
+		}, nil
+	}
+}
+
 func newRemoteForkEvent(groupID string, partitionStartedAt time.Time) *ForkEvent {
 	return &ForkEvent{
 		GroupID:    groupID,
@@ -182,6 +195,7 @@ func TestCoordinator_ScheduleHeal_RecordsMetrics(t *testing.T) {
 	startAll(t, nodes)
 
 	c := nodes[0].coord
+	attachStaticGroupInfoFetcher(c, 7, []byte("winner-hash"), []byte("winner-group-info"))
 	event := newRemoteForkEvent("grp-heal-metrics", clk.Now().Add(-2*time.Second))
 
 	c.mu.Lock()
@@ -246,6 +260,20 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 		MemberCount: 1,
 	})
 	nodes[0].coord.mu.Unlock()
+	nodes[0].coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
+		if remote != nodes[1].id {
+			return nil, context.DeadlineExceeded
+		}
+		groupInfo, err := nodes[1].mls.ExportGroupInfo(ctx, nodes[1].coord.GetGroupState(), withRatchetTree)
+		if err != nil {
+			return nil, err
+		}
+		return &GroupInfoFetchResult{
+			GroupInfo: groupInfo,
+			Epoch:     nodes[1].coord.CurrentEpoch(),
+			TreeHash:  nodes[1].coord.GetTreeHash(),
+		}, nil
+	}
 
 	// Bob announces a winning branch (more members).
 	bob := nodes[1].coord
@@ -257,13 +285,90 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 
 	if !waitFor(t, time.Second, func() bool {
 		snap := nodes[0].coord.GetMetrics()
-		return snap.PartitionsDetected >= 1 && snap.ForkHealingsAttempted >= 1
+		return snap.PartitionsDetected >= 1 && snap.ForkHealingsAttempted >= 1 && snap.ForkHealingsSucceeded >= 1
 	}) {
 		snap := nodes[0].coord.GetMetrics()
-		t.Fatalf("alice should have detected partition and attempted heal: detected=%d attempted=%d",
-			snap.PartitionsDetected, snap.ForkHealingsAttempted)
+		t.Fatalf("alice should detect partition and complete heal: detected=%d attempted=%d succeeded=%d",
+			snap.PartitionsDetected, snap.ForkHealingsAttempted, snap.ForkHealingsSucceeded)
 	}
 	if !waitFor(t, time.Second, func() bool { return !nodes[0].coord.IsHealing() }) {
 		t.Fatal("healing flag should clear after scaffold goroutine completes")
+	}
+}
+
+func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
+	nodes, network, clk := setupCluster(t, 2, "grp-heal-replay")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Force divergent branches.
+	nodes[0].coord.mu.Lock()
+	nodes[0].coord.treeHash = []byte("loser-tree-hash")
+	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("loser-tree-hash"),
+		MemberCount: 1,
+	})
+	nodes[0].coord.mu.Unlock()
+
+	nodes[1].coord.mu.Lock()
+	nodes[1].coord.treeHash = []byte("winner-tree-hash")
+	nodes[1].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("winner-tree-hash"),
+		MemberCount: 2,
+	})
+	nodes[1].coord.mu.Unlock()
+
+	// Simulate that loser observed winner branch earlier; this timestamp becomes
+	// sticky PartitionStartedAt and drives replay window selection.
+	partitionStart := clk.Now().Add(1 * time.Second)
+	clk.Set(partitionStart)
+	nodes[0].coord.mu.Lock()
+	nodes[0].coord.forkDetector.ProcessRemote(partitionStart, nodes[1].id, 0, GroupStateAnnouncement{
+		TreeHash:    []byte("winner-tree-hash"),
+		MemberCount: 2,
+	})
+	nodes[0].coord.mu.Unlock()
+
+	// Produce local messages while partitioned (these should be replayed).
+	network.Partition([]peer.ID{nodes[0].id}, []peer.ID{nodes[1].id})
+	if _, err := nodes[0].coord.SendMessage([]byte("partition-msg-1")); err != nil {
+		t.Fatalf("SendMessage #1: %v", err)
+	}
+	if _, err := nodes[0].coord.SendMessage([]byte("partition-msg-2")); err != nil {
+		t.Fatalf("SendMessage #2: %v", err)
+	}
+	network.Heal()
+
+	// Hook GroupInfo fetcher from winner state.
+	nodes[0].coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
+		if remote != nodes[1].id {
+			return nil, context.DeadlineExceeded
+		}
+		groupInfo, err := nodes[1].mls.ExportGroupInfo(ctx, nodes[1].coord.GetGroupState(), withRatchetTree)
+		if err != nil {
+			return nil, err
+		}
+		return &GroupInfoFetchResult{
+			GroupInfo: groupInfo,
+			Epoch:     nodes[1].coord.CurrentEpoch(),
+			TreeHash:  nodes[1].coord.GetTreeHash(),
+		}, nil
+	}
+
+	// Trigger heal from winner announce.
+	nodes[1].coord.mu.Lock()
+	nodes[1].coord.broadcastAnnounceLocked()
+	nodes[1].coord.mu.Unlock()
+	network.DrainAll()
+
+	if !waitFor(t, time.Second, func() bool {
+		snap := nodes[0].coord.GetMetrics()
+		return snap.ForkHealingsSucceeded >= 1
+	}) {
+		t.Fatalf("expected successful heal; metrics=%+v", nodes[0].coord.GetMetrics())
+	}
+	if got := network.PendingByType(nodes[0].id, MsgApplication); got < 2 {
+		t.Fatalf("expected replayed application envelopes >=2, got %d", got)
 	}
 }

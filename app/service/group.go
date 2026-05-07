@@ -31,6 +31,11 @@ type MessageInfo struct {
 	IsMine            bool   `json:"is_mine"`
 	Status            string `json:"status"`
 	CommentCount      int    `json:"comment_count"`
+	// ReplayedAt is the unix-ms timestamp at which Autonomous Replay re-broadcast
+	// this message after a fork heal. Frontend uses this to suppress the original
+	// row once the replay copy is received and stored as a new row, preventing
+	// duplicate display. Nil for normal (non-replayed) messages.
+	ReplayedAt *int64 `json:"replayed_at,omitempty"`
 }
 
 // GroupInfo is a summary of a joined group returned to the frontend.
@@ -133,6 +138,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 		LocalID:       r.node.Host.ID(),
 		GroupID:       groupID,
 		SigningKey:    identity.SigningKeyPrivate,
+		GroupInfoFetcher: r.fetchGroupInfoForHeal,
 		OnMessage:     r.makeMessageHandler(groupID),
 		OnEpochChange: r.makeEpochHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
@@ -476,6 +482,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		LocalID:       r.node.Host.ID(),
 		GroupID:       groupID,
 		SigningKey:    identity.SigningKeyPrivate,
+		GroupInfoFetcher: r.fetchGroupInfoForHeal,
 		OnMessage:     r.makeMessageHandler(groupID),
 		OnEpochChange: r.makeEpochHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
@@ -646,6 +653,7 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			LocalID:       r.node.Host.ID(),
 			GroupID:       rec.GroupID,
 			SigningKey:    identity.SigningKeyPrivate,
+			GroupInfoFetcher: r.fetchGroupInfoForHeal,
 			OnMessage:     r.makeMessageHandler(rec.GroupID),
 			OnEpochChange: r.makeEpochHandler(rec.GroupID),
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {

@@ -201,4 +201,27 @@ type CoordinationStorage interface {
 	// a message in the group (from stored_messages). Used to identify recipients
 	// for pending delivery-ack tracking and offline sync partner selection.
 	GetKnownGroupMembers(groupID string) ([]string, error)
+
+	// MarkMessageReplayed sets the replayed_at timestamp on the original stored
+	// message identified by its envelope hash. Called by Autonomous Replay so
+	// the frontend can suppress the original copy once the re-broadcast arrives.
+	// No-op (nil error) if the envelope hash is not found.
+	MarkMessageReplayed(groupID string, envelopeHash []byte, now time.Time) error
+
+	// GetMessagesByOwnerInRange returns stored messages sent by senderID within
+	// [startMs, endMs] (unix milliseconds, inclusive), ordered by HLC ascending.
+	// Used by Autonomous Replay to fetch the partition window without loading the
+	// entire group message history into memory.
+	GetMessagesByOwnerInRange(groupID, senderID string, startMs, endMs int64) ([]*StoredMessage, error)
+
+	// RecordForkHealEvent persists one summary row for a completed/failed heal.
+	RecordForkHealEvent(event *ForkHealEventRecord) error
+	// RecordForkHealAudit persists one step-level audit row.
+	RecordForkHealAudit(audit *ForkHealAuditRecord) error
+	// ListForkHealEvents returns newest-first persisted heal summaries.
+	ListForkHealEvents(groupID string, limit int) ([]*ForkHealEventRecord, error)
+	// ListForkHealAudit returns ordered step-level rows for one trace.
+	ListForkHealAudit(traceID string) ([]*ForkHealAuditRecord, error)
+	// PruneForkHealHistory applies retention policy (age + per-group cap).
+	PruneForkHealHistory(cutoffUnix int64, maxPerGroup int) (removed int, err error)
 }

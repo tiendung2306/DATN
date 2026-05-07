@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"app/coordination"
@@ -305,9 +306,42 @@ func (s *SQLiteCoordinationStorage) MarkEnvelopeApplied(groupID string, msgType 
 	return nil
 }
 
+func (s *SQLiteCoordinationStorage) MarkMessageReplayed(groupID string, envelopeHash []byte, now time.Time) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	_, err := s.db.Conn.Exec(
+		`UPDATE stored_messages SET replayed_at = ?
+		 WHERE group_id = ? AND envelope_hash = ?`,
+		now.UnixMilli(), groupID, envelopeHash,
+	)
+	if err != nil {
+		return fmt.Errorf("MarkMessageReplayed: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) GetMessagesByOwnerInRange(groupID, senderID string, startMs, endMs int64) ([]*coordination.StoredMessage, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count, replayed_at
+		 FROM stored_messages
+		 WHERE group_id = ?
+		   AND sender_id = ?
+		   AND hlc_wall_time_ms >= ?
+		   AND hlc_wall_time_ms <= ?
+		 ORDER BY hlc_wall_time_ms ASC, hlc_counter ASC, hlc_node_id ASC`,
+		groupID, senderID, startMs, endMs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessagesByOwnerInRange: %w", err)
+	}
+	defer rows.Close()
+	return scanMessages(rows, groupID)
+}
+
 func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coordination.HLCTimestamp) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count, replayed_at
 		 FROM stored_messages
 		 WHERE group_id = ?
 		   AND (hlc_wall_time_ms > ?
@@ -328,7 +362,7 @@ func (s *SQLiteCoordinationStorage) GetMessagesSince(groupID string, after coord
 
 func (s *SQLiteCoordinationStorage) GetMessagesPaginated(groupID string, limit, offset int) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count, replayed_at
 		 FROM stored_messages
 		 WHERE group_id = ?
 		 ORDER BY hlc_wall_time_ms DESC, hlc_counter DESC, hlc_node_id DESC
@@ -349,7 +383,8 @@ func (s *SQLiteCoordinationStorage) GetPostsPaginated(groupID string, limit, off
 		        WHERE c.group_id = m.group_id 
 		          AND json_valid(c.content) 
 		          AND json_extract(c.content, '$.type') IN ('comment', 'reply')
-		          AND (json_extract(c.content, '$.post_id') = lower(hex(m.envelope_hash)) OR json_extract(c.content, '$.parent_id') = lower(hex(m.envelope_hash)))) as comment_count
+		          AND (json_extract(c.content, '$.post_id') = lower(hex(m.envelope_hash)) OR json_extract(c.content, '$.parent_id') = lower(hex(m.envelope_hash)))) as comment_count,
+		       m.replayed_at
 		 FROM stored_messages m
 		 WHERE m.group_id = ? AND json_valid(m.content) AND json_extract(m.content, '$.type') = 'post'
 		 ORDER BY m.hlc_wall_time_ms DESC, m.hlc_counter DESC, m.hlc_node_id DESC
@@ -365,7 +400,7 @@ func (s *SQLiteCoordinationStorage) GetPostsPaginated(groupID string, limit, off
 
 func (s *SQLiteCoordinationStorage) GetCommentsPaginated(groupID, postID string, limit, offset int) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count
+		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count, replayed_at
 		 FROM stored_messages
 		 WHERE group_id = ? 
 		   AND json_valid(content) 
@@ -388,8 +423,9 @@ func scanMessages(rows *sql.Rows, groupID string) ([]*coordination.StoredMessage
 		var m coordination.StoredMessage
 		var senderID string
 		var envelopeHash []byte
+		var replayedAt sql.NullInt64
 		if err := rows.Scan(&m.GroupID, &m.Epoch, &senderID, &m.Content,
-			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID, &envelopeHash, &m.CommentCount); err != nil {
+			&m.Timestamp.WallTimeMs, &m.Timestamp.Counter, &m.Timestamp.NodeID, &envelopeHash, &m.CommentCount, &replayedAt); err != nil {
 			return nil, fmt.Errorf("scanMessages scan: %w", err)
 		}
 		if len(envelopeHash) == 0 {
@@ -401,6 +437,10 @@ func scanMessages(rows *sql.Rows, groupID string) ([]*coordination.StoredMessage
 			m.SenderID = pid
 		} else {
 			m.SenderID = peer.ID(senderID)
+		}
+		if replayedAt.Valid {
+			v := replayedAt.Int64
+			m.ReplayedAt = &v
 		}
 		msgs = append(msgs, &m)
 	}
@@ -773,4 +813,208 @@ func (s *SQLiteCoordinationStorage) SetOfflinePullCursor(groupID, remotePeerID s
 		return fmt.Errorf("SetOfflinePullCursor: %w", err)
 	}
 	return nil
+}
+
+const (
+	forkHealRetentionDays = 30
+	forkHealMaxPerGroup   = 10
+)
+
+func (s *SQLiteCoordinationStorage) RecordForkHealEvent(event *coordination.ForkHealEventRecord) error {
+	if event == nil {
+		return nil
+	}
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO fork_heal_events (
+			trace_id, group_id, winner_peer_id, winner_epoch, new_epoch, outcome, failed_step,
+			winner_tree_hash, new_tree_hash, partition_started_at_ms, scheduled_at_ms, started_at_ms,
+			completed_at_ms, duration_ms, total_ms, replayed_message_count
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.TraceID,
+		event.GroupID,
+		event.WinnerPeerID,
+		event.WinnerEpoch,
+		event.NewEpoch,
+		event.Outcome,
+		event.FailedStep,
+		event.WinnerTreeHash,
+		event.NewTreeHash,
+		event.PartitionStartedAtMs,
+		event.ScheduledAtMs,
+		event.StartedAtMs,
+		event.CompletedAtMs,
+		event.DurationMs,
+		event.TotalMs,
+		event.ReplayedMessageCount,
+	)
+	if err != nil {
+		return fmt.Errorf("RecordForkHealEvent: %w", err)
+	}
+	// Prune asynchronously so the caller's total_ms measurement is not inflated
+	// by potentially scanning and deleting old rows across many groups.
+	go func() {
+		cutoff := time.Now().Add(-forkHealRetentionDays * 24 * time.Hour).Unix()
+		if _, err := s.PruneForkHealHistory(cutoff, forkHealMaxPerGroup); err != nil {
+			slog.Warn("fork_heal/prune_history_failed", "err", err)
+		}
+	}()
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) RecordForkHealAudit(audit *coordination.ForkHealAuditRecord) error {
+	if audit == nil {
+		return nil
+	}
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO fork_audit (trace_id, group_id, step, status, ts_ms, duration_ms, error)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		audit.TraceID,
+		audit.GroupID,
+		audit.Step,
+		audit.Status,
+		audit.TimestampMs,
+		audit.DurationMs,
+		audit.Error,
+	)
+	if err != nil {
+		return fmt.Errorf("RecordForkHealAudit: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ListForkHealEvents(groupID string, limit int) ([]*coordination.ForkHealEventRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	query := `SELECT trace_id, group_id, winner_peer_id, winner_epoch, new_epoch, outcome, failed_step,
+	                 winner_tree_hash, new_tree_hash, partition_started_at_ms, scheduled_at_ms, started_at_ms,
+					 completed_at_ms, duration_ms, total_ms, replayed_message_count
+	          FROM fork_heal_events`
+	args := make([]interface{}, 0, 2)
+	if groupID != "" {
+		query += ` WHERE group_id = ?`
+		args = append(args, groupID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := s.db.Conn.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ListForkHealEvents: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*coordination.ForkHealEventRecord, 0)
+	for rows.Next() {
+		var rec coordination.ForkHealEventRecord
+		if err := rows.Scan(
+			&rec.TraceID, &rec.GroupID, &rec.WinnerPeerID, &rec.WinnerEpoch, &rec.NewEpoch, &rec.Outcome, &rec.FailedStep,
+			&rec.WinnerTreeHash, &rec.NewTreeHash, &rec.PartitionStartedAtMs, &rec.ScheduledAtMs, &rec.StartedAtMs,
+			&rec.CompletedAtMs, &rec.DurationMs, &rec.TotalMs, &rec.ReplayedMessageCount,
+		); err != nil {
+			return nil, fmt.Errorf("ListForkHealEvents scan: %w", err)
+		}
+		out = append(out, &rec)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) ListForkHealAudit(traceID string) ([]*coordination.ForkHealAuditRecord, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT trace_id, group_id, step, status, ts_ms, duration_ms, error
+		 FROM fork_audit
+		 WHERE trace_id = ?
+		 ORDER BY id ASC`,
+		traceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListForkHealAudit: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*coordination.ForkHealAuditRecord, 0)
+	for rows.Next() {
+		var rec coordination.ForkHealAuditRecord
+		if err := rows.Scan(&rec.TraceID, &rec.GroupID, &rec.Step, &rec.Status, &rec.TimestampMs, &rec.DurationMs, &rec.Error); err != nil {
+			return nil, fmt.Errorf("ListForkHealAudit scan: %w", err)
+		}
+		out = append(out, &rec)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) PruneForkHealHistory(cutoffUnix int64, maxPerGroup int) (removed int, err error) {
+	res, err := s.db.Conn.Exec(`DELETE FROM fork_audit WHERE created_at < ?`, cutoffUnix)
+	if err != nil {
+		return 0, fmt.Errorf("PruneForkHealHistory audit age: %w", err)
+	}
+	if n, rerr := res.RowsAffected(); rerr == nil {
+		removed += int(n)
+	}
+	res, err = s.db.Conn.Exec(`DELETE FROM fork_heal_events WHERE created_at < ?`, cutoffUnix)
+	if err != nil {
+		return removed, fmt.Errorf("PruneForkHealHistory event age: %w", err)
+	}
+	if n, rerr := res.RowsAffected(); rerr == nil {
+		removed += int(n)
+	}
+	if maxPerGroup < 1 {
+		return removed, nil
+	}
+
+	rows, err := s.db.Conn.Query(`SELECT DISTINCT group_id FROM fork_heal_events`)
+	if err != nil {
+		return removed, fmt.Errorf("PruneForkHealHistory list groups: %w", err)
+	}
+	groups := make([]string, 0)
+	for rows.Next() {
+		var gid string
+		if err := rows.Scan(&gid); err != nil {
+			_ = rows.Close()
+			return removed, err
+		}
+		groups = append(groups, gid)
+	}
+	_ = rows.Close()
+
+	for _, gid := range groups {
+		for {
+			var cnt int
+			if err := s.db.Conn.QueryRow(`SELECT COUNT(*) FROM fork_heal_events WHERE group_id = ?`, gid).Scan(&cnt); err != nil {
+				return removed, err
+			}
+			if cnt <= maxPerGroup {
+				break
+			}
+
+			var traceID string
+			if err := s.db.Conn.QueryRow(
+				`SELECT trace_id
+				 FROM fork_heal_events
+				 WHERE group_id = ?
+				 ORDER BY created_at ASC, id ASC
+				 LIMIT 1`,
+				gid,
+			).Scan(&traceID); err != nil {
+				if err == sql.ErrNoRows {
+					break
+				}
+				return removed, err
+			}
+			if _, err := s.db.Conn.Exec(`DELETE FROM fork_audit WHERE group_id = ? AND trace_id = ?`, gid, traceID); err != nil {
+				return removed, fmt.Errorf("PruneForkHealHistory delete audit cap: %w", err)
+			}
+			res, err := s.db.Conn.Exec(
+				`DELETE FROM fork_heal_events
+				 WHERE id = (
+				   SELECT id FROM fork_heal_events WHERE group_id = ? AND trace_id = ? ORDER BY created_at ASC, id ASC LIMIT 1
+				 )`,
+				gid, traceID,
+			)
+			if err != nil {
+				return removed, fmt.Errorf("PruneForkHealHistory delete event cap: %w", err)
+			}
+			if n, rerr := res.RowsAffected(); rerr == nil {
+				removed += int(n)
+			}
+		}
+	}
+	return removed, nil
 }

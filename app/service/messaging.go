@@ -100,6 +100,7 @@ func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMess
 			IsMine:            m.SenderID == localID,
 			Status:            "published",
 			CommentCount:      m.CommentCount,
+			ReplayedAt:        m.ReplayedAt,
 		}
 	}
 	return result

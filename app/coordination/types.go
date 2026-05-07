@@ -157,6 +157,10 @@ type StoredMessage struct {
 	// EnvelopeHash keys exactly-once application for replayed envelopes.
 	EnvelopeHash []byte
 	CommentCount int
+	// ReplayedAt is set (unix ms) when this message has been re-broadcast via
+	// Autonomous Replay after fork healing. The frontend uses this to suppress
+	// the original from display once the replay copy arrives, preventing duplicates.
+	ReplayedAt *int64
 }
 
 // EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).
@@ -175,6 +179,38 @@ type PendingDeliveryAckRow struct {
 	TargetPeerID string
 	GroupID      string
 	AckedSeq     int64
+}
+
+// ForkHealEventRecord is one persisted summary row for a fork-heal attempt.
+// Used by diagnostics/evaluation APIs (Sprint 2F).
+type ForkHealEventRecord struct {
+	TraceID              string
+	GroupID              string
+	WinnerPeerID         string
+	WinnerEpoch          uint64
+	NewEpoch             uint64
+	Outcome              string
+	FailedStep           string
+	WinnerTreeHash       []byte
+	NewTreeHash          []byte
+	PartitionStartedAtMs int64
+	ScheduledAtMs        int64
+	StartedAtMs          int64
+	CompletedAtMs        int64
+	DurationMs           int64
+	TotalMs              int64
+	ReplayedMessageCount int
+}
+
+// ForkHealAuditRecord is one per-step persisted audit row for a heal trace.
+type ForkHealAuditRecord struct {
+	TraceID    string
+	GroupID    string
+	Step       string
+	Status     string
+	TimestampMs int64
+	DurationMs int64
+	Error      string
 }
 
 // ─── Enum Types ──────────────────────────────────────────────────────────────

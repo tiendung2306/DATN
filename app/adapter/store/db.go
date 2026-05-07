@@ -330,6 +330,45 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_seq ON runtime_event_log(seq);`,
 		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_aggregate_rev ON runtime_event_log(aggregate, revision);`,
+		`CREATE TABLE IF NOT EXISTS fork_heal_events (
+			id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+			trace_id                  TEXT    NOT NULL,
+			group_id                  TEXT    NOT NULL,
+			winner_peer_id            TEXT    NOT NULL DEFAULT '',
+			winner_epoch              INTEGER NOT NULL DEFAULT 0,
+			new_epoch                 INTEGER NOT NULL DEFAULT 0,
+			outcome                   TEXT    NOT NULL,
+			failed_step               TEXT    NOT NULL DEFAULT '',
+			winner_tree_hash          BLOB,
+			new_tree_hash             BLOB,
+			partition_started_at_ms   INTEGER NOT NULL DEFAULT 0,
+			scheduled_at_ms           INTEGER NOT NULL DEFAULT 0,
+			started_at_ms             INTEGER NOT NULL DEFAULT 0,
+			completed_at_ms           INTEGER NOT NULL DEFAULT 0,
+			duration_ms               INTEGER NOT NULL DEFAULT 0,
+			total_ms                  INTEGER NOT NULL DEFAULT 0,
+			replayed_message_count    INTEGER NOT NULL DEFAULT 0,
+			created_at                INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_fork_heal_events_group_created
+			ON fork_heal_events(group_id, created_at DESC, id DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_fork_heal_events_trace
+			ON fork_heal_events(trace_id);`,
+		`CREATE TABLE IF NOT EXISTS fork_audit (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			trace_id     TEXT    NOT NULL,
+			group_id     TEXT    NOT NULL,
+			step         TEXT    NOT NULL,
+			status       TEXT    NOT NULL,
+			ts_ms        INTEGER NOT NULL DEFAULT 0,
+			duration_ms  INTEGER NOT NULL DEFAULT 0,
+			error        TEXT    NOT NULL DEFAULT '',
+			created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_fork_audit_trace_id
+			ON fork_audit(trace_id, id ASC);`,
+		`CREATE INDEX IF NOT EXISTS idx_fork_audit_group_created
+			ON fork_audit(group_id, created_at DESC, id DESC);`,
 	}
 
 	for _, q := range queries {
@@ -338,6 +377,9 @@ func (d *Database) createTables() error {
 		}
 	}
 	if err := d.ensureColumnExists("stored_messages", "envelope_hash", "BLOB"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("stored_messages", "replayed_at", "INTEGER"); err != nil {
 		return err
 	}
 	if err := d.ensureColumnExists("mls_groups", "lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
@@ -361,6 +403,12 @@ func (d *Database) createTables() error {
 		 WHERE envelope_hash IS NOT NULL`,
 	); err != nil {
 		return fmt.Errorf("create stored_messages envelope_hash index: %w", err)
+	}
+	if _, err := d.Conn.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_stored_messages_sender_window
+		 ON stored_messages(group_id, sender_id, hlc_wall_time_ms)`,
+	); err != nil {
+		return fmt.Errorf("create stored_messages sender_window index: %w", err)
 	}
 	return nil
 }

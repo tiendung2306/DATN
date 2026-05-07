@@ -426,3 +426,80 @@ func TestSQLiteCoordinationStorage_ApplyCommit_PersistsGroupState(t *testing.T) 
 		t.Fatalf("persisted group mismatch: epoch=%d state=%q", got.Epoch, got.GroupState)
 	}
 }
+
+func TestSQLiteCoordinationStorage_ForkHealHistory_RecordAndList(t *testing.T) {
+	s := setupTestStorage(t)
+	ev := &coordination.ForkHealEventRecord{
+		TraceID:              "trace-1",
+		GroupID:              "g-heal",
+		WinnerPeerID:         "peer-winner",
+		WinnerEpoch:          7,
+		NewEpoch:             8,
+		Outcome:              "success",
+		WinnerTreeHash:       []byte("winner-tree"),
+		NewTreeHash:          []byte("new-tree"),
+		PartitionStartedAtMs: 1000,
+		ScheduledAtMs:        1100,
+		StartedAtMs:          1200,
+		CompletedAtMs:        1500,
+		DurationMs:           300,
+		TotalMs:              400,
+		ReplayedMessageCount: 2,
+	}
+	if err := s.RecordForkHealEvent(ev); err != nil {
+		t.Fatalf("RecordForkHealEvent: %v", err)
+	}
+	if err := s.RecordForkHealAudit(&coordination.ForkHealAuditRecord{
+		TraceID: "trace-1", GroupID: "g-heal", Step: "external_join", Status: "completed", TimestampMs: 1300, DurationMs: 25,
+	}); err != nil {
+		t.Fatalf("RecordForkHealAudit: %v", err)
+	}
+
+	events, err := s.ListForkHealEvents("g-heal", 10)
+	if err != nil {
+		t.Fatalf("ListForkHealEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if events[0].TraceID != "trace-1" || events[0].Outcome != "success" {
+		t.Fatalf("unexpected event row: %+v", events[0])
+	}
+	audit, err := s.ListForkHealAudit("trace-1")
+	if err != nil {
+		t.Fatalf("ListForkHealAudit: %v", err)
+	}
+	if len(audit) != 1 {
+		t.Fatalf("audit len = %d, want 1", len(audit))
+	}
+	if audit[0].Step != "external_join" || audit[0].Status != "completed" {
+		t.Fatalf("unexpected audit row: %+v", audit[0])
+	}
+}
+
+func TestSQLiteCoordinationStorage_ForkHealHistory_PruneCap(t *testing.T) {
+	s := setupTestStorage(t)
+	for i := 0; i < 3; i++ {
+		traceID := "trace-cap-" + string(rune('a'+i))
+		if err := s.RecordForkHealEvent(&coordination.ForkHealEventRecord{
+			TraceID: traceID, GroupID: "g-cap", Outcome: "success",
+		}); err != nil {
+			t.Fatalf("RecordForkHealEvent[%d]: %v", i, err)
+		}
+		if err := s.RecordForkHealAudit(&coordination.ForkHealAuditRecord{
+			TraceID: traceID, GroupID: "g-cap", Step: "state_swap", Status: "completed", TimestampMs: int64(i + 1),
+		}); err != nil {
+			t.Fatalf("RecordForkHealAudit[%d]: %v", i, err)
+		}
+	}
+	if _, err := s.PruneForkHealHistory(0, 2); err != nil {
+		t.Fatalf("PruneForkHealHistory: %v", err)
+	}
+	events, err := s.ListForkHealEvents("g-cap", 10)
+	if err != nil {
+		t.Fatalf("ListForkHealEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events after cap prune = %d, want 2", len(events))
+	}
+}

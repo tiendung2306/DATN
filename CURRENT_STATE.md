@@ -16,6 +16,159 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2G: Integration tests (multi-node + persistence/failure coverage)
+
+- **Integration test end-to-end cho fork healing đã được bổ sung (`app/coordination/fork_heal_integration_test.go`):**
+  - `TestIntegration_ForkHeal_ConvergesReplayAndPersistsHistory`:
+    - mô phỏng split-brain 2 node (FakeNetwork partition/heal),
+    - trigger heal từ loser branch qua announce winner branch,
+    - verify convergence (`epoch` + `tree_hash`),
+    - verify autonomous replay chạy cho window partition,
+    - verify persisted history tồn tại (`fork_heal_events` + `fork_audit`) với outcome success.
+  - `TestIntegration_ForkHeal_FailurePersistsFailedStep`:
+    - inject lỗi `GroupInfoFetcher`,
+    - verify heal failure path kết thúc sạch (`healing=false`),
+    - verify persisted failed event có `outcome=failed`, `failed_step=groupinfo_request`,
+    - verify step-level audit rows được ghi cho trace thất bại.
+- **Test harness mock được chỉnh để phản ánh convergence thực hơn:**
+  - `MockMLSEngine.ExternalJoin` trả về commit payload JSON-compatible với `ProcessCommit` (`mockCommitData`) thay vì byte placeholder, giúp node winner có thể apply external commit và hội tụ epoch/tree hash trong integration assertions.
+- **Validation:** `go test ./coordination -count=1` và `go test ./... -count=1 -timeout 240s` — PASS.
+- **Trạng thái Sprint 2:** phần code Sprint 2A→2G đã xong; bước còn lại trước khi close toàn bộ Sprint 2 là **manual validation theo script mục 7 của plan**.
+
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2F: Persistence + history API
+
+- **DB persistence cho fork-heal đã có schema thật (SQLite):**
+  - `fork_heal_events`: summary row cho mỗi heal trace (`trace_id`, `group_id`, `winner_*`, `new_*`, `outcome`, `failed_step`, `duration/total`, `replayed_message_count`, timestamps).
+  - `fork_audit`: step-level rows (`trace_id`, `group_id`, `step`, `status`, `ts_ms`, `duration_ms`, `error`).
+  - Indexes cho truy vấn diagnostics theo group/trace (`idx_fork_heal_events_group_created`, `idx_fork_heal_events_trace`, `idx_fork_audit_trace_id`, ...).
+- **Storage interface mở rộng (`coordination.CoordinationStorage`):**
+  - `RecordForkHealEvent`, `RecordForkHealAudit`
+  - `ListForkHealEvents`, `ListForkHealAudit`
+  - `PruneForkHealHistory`
+  - `SQLiteCoordinationStorage` + `MockStorage` đều đã implement.
+- **Retention policy đã enforce theo quyết định đã chốt:**
+  - 30 ngày + cap 10 records/group (hằng số nội bộ `forkHealRetentionDays=30`, `forkHealMaxPerGroup=10`).
+  - Trigger prune khi insert event summary (`RecordForkHealEvent`) để tránh drift.
+- **Coordinator đã persist trực tiếp từ heal pipeline:**
+  - `runHeal` ghi audit rows cho từng step (`started/completed/failed`) qua `recordForkHealAudit`.
+  - Success ghi `fork_heal_events` outcome `success` (kèm replayed count).
+  - Failure path `logHealFailed` ghi `fork_heal_events` outcome `failed` + `failed_step`.
+  - Persistence errors là non-fatal, chỉ warn log (`fork_heal/audit_persist_failed`, `fork_heal/event_persist_failed`) để không block heal.
+- **Runtime API mới cho Developer Mode:**
+  - `Runtime.GetForkHealHistory(groupID string, limit int)` (`app/service/fork_heal_history.go`)
+  - Trả về summary + audit entries (hex tree hash, outcome, failed_step, timing metrics, replay count).
+- **Tests mới/cập nhật:**
+  - `app/adapter/store/coordination_storage_test.go`
+    - `TestSQLiteCoordinationStorage_ForkHealHistory_RecordAndList`
+    - `TestSQLiteCoordinationStorage_ForkHealHistory_PruneCap`
+  - `app/service/fork_heal_history_test.go`
+    - `TestGetForkHealHistory_ReturnsEventsWithAudit`
+- **Validation:** `go vet ./...`, `go test ./... -count=1 -timeout 240s`, `go build ./...` — PASS.
+
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2E: Autonomous Replay
+
+- **Replay đã chạy thật sau heal thành công:**
+  - `Coordinator.runHeal` không còn `deferred_to_2e`.
+  - Step 6 `fork_heal/replay_started_*`: query replay window từ `stored_messages` dựa trên `PartitionStartedAt`.
+  - Step 7 `fork_heal/replay_completed_*`: re-encrypt + re-broadcast các message của **chính local node** trong window.
+- **Replay window semantics (non-repudiation):**
+  - Chỉ lấy message có `SenderID == localID`.
+  - Chỉ lấy message timestamp trong `[partitionStartedAt, healStartedAt]`.
+  - Dùng `GetMessagesSince` + filter local sender để giữ thứ tự HLC (causal order) khi replay.
+  - Không replay message authored bởi peer khác (đúng invariant fork-healing).
+- **Replay publish path:**
+  - Encrypt lại từng plaintext bằng state mới sau external join (`MLSEngine.EncryptMessage`).
+  - Broadcast `MsgApplication` envelope mới ở epoch healed hiện tại.
+  - Append envelope vào offline log để offline-sync/blind-store vẫn thấy bản replay.
+  - Persist lại `group_state` cuối replay về `mls_groups` để state crash-safe sau batch replay.
+- **Throttle configurable đã được dùng thật:**
+  - `CoordinatorConfig.ReplayThrottleMs` (default 100ms) áp dụng delay giữa các replay envelopes.
+  - Delay đi qua `clock.After` (không `time.Sleep`) để tests deterministic với FakeClock.
+- **Logging/Eval contract ổn định:**
+  - `replay_started_completed` có `window_message_count`.
+  - `replay_completed_completed` có `replayed_count`.
+  - aggregate log có `replayed_message_count`.
+  - Failure step logging giữ format `fork_heal/failed` + `failed_step`.
+- **Code additions chính (`app/coordination/coordinator.go`):**
+  - `collectReplayWindowMessages(...)`
+  - `replayWindowMessages(...)`
+  - `saveCurrentGroupStateLocked(...)`
+  - runHeal now wires these into step 6/7.
+- **Test mới/cập nhật:**
+  - `TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages`:
+    - tạo 2 local messages trong partition window,
+    - trigger heal,
+    - assert replay publish `MsgApplication` >= 2 và heal success.
+  - Existing heal tests vẫn pass sau đổi behavior.
+- **Validation:** `go vet ./...`, `go test ./... -count=1 -timeout 240s`, `go build ./...` — PASS.
+
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2D: Heal orchestrator wired
+
+- **`Coordinator.runHeal` đã chạy pipeline thật (không còn scaffold-only):**
+  - Step 1 `fork_heal/groupinfo_request_*`: gọi `GroupInfoFetcher` lấy winner `GroupInfo`.
+  - Step 2 `fork_heal/groupinfo_received_*`: verify metadata consistency (tree hash check khi available).
+  - Step 3 `fork_heal/external_join_*`: gọi Rust `MLSEngine.ExternalJoin(groupInfo, signingKey)`.
+  - Step 4 `fork_heal/state_swap_*`: persist state mới vào `mls_groups` + reset in-memory trackers (`epochTracker`, `singleWriter`, `forkDetector`) theo epoch mới.
+  - Step 5 `fork_heal/external_commit_*`: broadcast external commit envelope lên group topic (epoch = winner epoch), append offline envelope log.
+  - Step 6-7 replay markers giữ ổn định log contract và để mode `deferred_to_2e` (body replay sẽ cắm ở Sprint 2E).
+- **Coordinator wiring mới:**
+  - `CoordinatorOpts.GroupInfoFetcher` + `GroupInfoFetchResult` + `GroupInfoFetchFunc`.
+  - `Coordinator` dùng callback này để fetch GroupInfo từ winner peer trong heal path.
+  - `coordinator.go` thêm `buildEnvelopeWithEpochAndTimestampLocked(...)` để external commit broadcast dùng đúng envelope epoch.
+- **Runtime integration (service layer):**
+  - `Runtime.fetchGroupInfoForHeal(...)` bridge `requestGroupInfoFromPeer(...)` -> `coordination.GroupInfoFetchResult`.
+  - Tất cả điểm tạo coordinator (`CreateGroupChat`, `JoinGroupWithWelcome`, restore existing groups) đều truyền `GroupInfoFetcher`.
+- **State transition semantics sau external join:**
+  - `newEpoch = winnerEpoch + 1` (epoch của external commit).
+  - SaveGroupRecord overwrite atomically (giữ metadata cũ như role/group_type/created_at).
+  - `forkDetector.Reset()` + `UpdateLocal(...)` để convergence detector khởi tạo lại theo nhánh mới.
+  - Emit `onEpochChange(newEpoch)` để frontend/runtime event stream đồng bộ sau heal.
+- **Failure handling/logging:**
+  - Mọi lỗi theo step emit `fork_heal/failed` + aggregate outcome `failed` với `failed_step`.
+  - Success path emit `fork_heal/completed` + aggregate có `new_epoch`, `new_tree_hash`, `total_ms`.
+- **Metrics:**
+  - `ForkHealingsAttempted` vẫn tăng khi schedule CAS thành công.
+  - `ForkHealingsSucceeded` chỉ tăng khi pipeline 2D hoàn tất.
+  - `RecordExternalJoin(duration)` ghi latency heal end-to-end của lần external join.
+- **Tests cập nhật:** heal-path tests trong `fork_heal_orchestrator_test.go` inject `groupInfoFetch` mock để verify path thành công sau khi 2D live.
+- **Validation:** `go vet ./...`, `go test ./... -count=1`, `go build ./...` — PASS.
+
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2C: GroupInfo wire protocol
+
+- **New P2P protocol (`/app/group-info/1.0.0`):** thêm wire contract request/response cho fork-heal pre-step (loser fetch GroupInfo từ winner trước khi gọi `ExternalJoin`).
+  - `app/adapter/p2p/group_info_wire.go`:
+    - `GroupInfoProtocol = "/app/group-info/1.0.0"`.
+    - `GroupInfoRequestV1{v, group_id, with_ratchet_tree}`.
+    - `GroupInfoResponseV1{v, group_id, epoch, tree_hash, group_info, error}`.
+    - `WriteGroupInfoJSONFrame` / `ReadGroupInfoJSONFrame` (length-prefixed JSON, 4 MiB cap, cùng convention với invite/offline wire).
+- **Runtime stream handler (auth-gated):**
+  - `app/service/group_info_sync.go::registerGroupInfoHandler` đăng ký `SetStreamHandler(p2p.GroupInfoProtocol, ...)`.
+  - `handleGroupInfoStream`:
+    - reject peer chưa verify (`AuthProtocol.IsVerified`),
+    - read + validate `GroupInfoRequestV1`,
+    - gọi `exportLocalGroupInfo(groupID, withRatchetTree)`,
+    - trả `GroupInfoResponseV1` (happy path hoặc `error` string nếu fail).
+  - lifecycle wiring:
+    - startup `launchP2PNode()` thêm `r.registerGroupInfoHandler()`,
+    - shutdown `stopNetworkLocked()` thêm `r.removeGroupInfoHandler()`.
+- **Local export helper cho 2D:**
+  - `exportLocalGroupInfo` snapshot local state từ coordinator + gọi `MLSEngine.ExportGroupInfo(...)`.
+  - `snapshotGroupForExport` chuẩn hóa validation (`group_id` required, coordinator tồn tại, mls engine ready).
+  - `requestGroupInfoFromPeer(ctx, remote, groupID, withRatchetTree)` đã có sẵn để Sprint 2D gọi trực tiếp khi chạy heal pipeline thật.
+- **Coordination observability helper:**
+  - thêm `Coordinator.GetTreeHash()` để service layer có thể trả metadata winner branch (`tree_hash`) trong response mà không đụng internal fields.
+- **Tests mới:**
+  - `app/adapter/p2p/group_info_wire_test.go`:
+    - round-trip frame encode/decode,
+    - reject zero-length / oversized frames.
+  - `app/service/group_info_sync_test.go`:
+    - export local group info thành công,
+    - group not found,
+    - mls engine not ready,
+    - export error propagation.
+- **Validation:** `go vet ./...`, `go test ./... -count=1`, `go build ./...` — PASS.
+- **Phạm vi Sprint 2C:** dừng ở protocol + handler + request helper. Chưa cắm vào `runHeal` body (phần đó thuộc Sprint 2D).
+
 ### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2B: Auto-announce + heal trigger scaffold
 
 - **Independent timers (heartbeat + announce):** `Coordinator.periodicLoop` đã được tách thành **2 goroutine độc lập** — `heartbeatLoop` (cadence `HeartbeatInterval`) và `announceLoop` (cadence `AnnounceInterval`). Tránh pattern "đếm mỗi 2 heartbeat thì announce" — mỗi loop có timer/After riêng, không share counter, không bị skew khi tick này delay tick kia. Khi `AnnounceInterval == 0`, `announceLoop` không spawn (zero overhead trong tests/manual mode).
@@ -699,14 +852,15 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Fork Healing Orchestration (Sprint 2A ✅ + 2B ✅ — tiếp tục 2C–2G):**
+1.  **Fork Healing Orchestration (Sprint 2A ✅ + 2B ✅ + 2C ✅ + 2D ✅ + 2E ✅ + 2F ✅ + 2G ✅):**
     - **2A ✅:** Rust `external_join` + `export_group_info` real impl, gRPC + Go bridge + Mock.
     - **2B ✅:** `AnnounceInterval` + `ReplayThrottleMs` config, `heartbeatLoop` / `announceLoop` 2 goroutines độc lập, `ForkEvent.PartitionStartedAt` sticky, `scheduleHeal` scaffold + `healing` atomic guard, structured logging contract (`fork_heal/scheduled|started|deferred_to_2d|completed|aggregate|skipped_already_running`), 7 tests mới.
-    - **2C (next):** Wire protocol `/app/group-info/1.0.0` (request/response, copy pattern offline-sync); handler ở `app/service/group_info_sync.go`. Phải sync GroupInfo blob từ winner → loser TRƯỚC khi 2D có thể chạy `ExternalJoin`.
-    - **2D:** Plug heal pipeline body vào `Coordinator.runHeal` thay cho `fork_heal/deferred_to_2d`: gọi `ExportGroupInfo` (winner) / `ExternalJoin` (loser); atomic SQLite apply; broadcast external commit trên group topic; drop+shred old state; reset epochTracker/singleWriter/forkDetector.
-    - **2E:** Autonomous Replay — re-encrypt own `MsgApplication` từ partition window (input: `event.PartitionStartedAt` + own `peer_id` filter trên `stored_messages`); throttled bằng `CoordinatorConfig.ReplayThrottleMs` (default 100ms).
-    - **2F:** Persistence: bảng `fork_heal_events` + `fork_audit` (retention 30 ngày + 10 records/group); `Runtime.GetForkHealHistory` cho Developer Mode.
-    - **2G:** Integration tests đa-node (split-brain → heal → verify converged state + replay).
+    - **2C ✅:** Wire protocol `/app/group-info/1.0.0` (request/response, auth-gated stream handler, lifecycle register/remove trong runtime). Đã có `requestGroupInfoFromPeer(...)` helper cho orchestrator.
+    - **2D ✅:** `Coordinator.runHeal` đã chạy thật: fetch GroupInfo từ winner -> `ExternalJoin` -> state swap + tracker reset -> broadcast external commit -> structured step logs + failed-step reporting.
+    - **2E ✅:** Autonomous Replay đã wired: replay own `MsgApplication` trong partition window với throttle `ReplayThrottleMs`, structured step logs + replay counters cho evaluation.
+    - **2F ✅:** Persistence: `fork_heal_events` + `fork_audit`, retention 30 ngày + 10 records/group, API `Runtime.GetForkHealHistory`.
+    - **2G ✅:** Integration tests đa-node (split-brain → heal → verify converged state + replay + persistence history consistency), kèm failure-path persistence assertions (`failed_step`).
+    - **Remaining before closing Sprint 2:** manual validation theo script mục 7 của plan (capture metrics/log evidence cho evaluation).
     - **Logging contract (đã chốt + scaffold đã chạy ở 2B):** mỗi step heal pipeline emit `<step>_started` + `<step>_completed`/`<step>_failed` log với `trace_id` + `duration_ms`; aggregate log cuối có breakdown từng step. Phục vụ capture data Phase 9.2.
 
 2.  **Frontend FE-4 — Group & Invite Product Flows:**

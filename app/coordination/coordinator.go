@@ -1,11 +1,13 @@
 package coordination
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -25,6 +27,10 @@ type CoordinatorOpts struct {
 	LocalID    peer.ID
 	GroupID    string
 	SigningKey []byte
+	// GroupInfoFetcher fetches GroupInfo from a winning peer during fork heal.
+	// Required for Sprint 2D external-join orchestration; may be nil in tests
+	// that do not exercise healing.
+	GroupInfoFetcher GroupInfoFetchFunc
 
 	OnMessage     func(*StoredMessage) // called when an application message is decrypted
 	OnEpochChange func(uint64)         // called when the group advances to a new epoch
@@ -58,6 +64,7 @@ type Coordinator struct {
 	onMessage     func(*StoredMessage)
 	onEpochChange func(uint64)
 	onEnvelope    func(MessageType, string, []byte)
+	groupInfoFetch GroupInfoFetchFunc
 
 	// Mutable state (protected by mu)
 	mu           sync.Mutex
@@ -78,6 +85,17 @@ type Coordinator struct {
 	// duplicate fork events do not trigger overlapping heal pipelines.
 	healing atomic.Bool
 }
+
+// GroupInfoFetchResult is the winner-branch snapshot fetched over
+// /app/group-info/1.0.0 for external-join healing.
+type GroupInfoFetchResult struct {
+	GroupInfo []byte
+	Epoch     uint64
+	TreeHash  []byte
+}
+
+// GroupInfoFetchFunc fetches GroupInfo from a specific remote peer.
+type GroupInfoFetchFunc func(ctx context.Context, remote peer.ID, groupID string, withRatchetTree bool) (*GroupInfoFetchResult, error)
 
 // NewCoordinator creates a Coordinator. Call CreateGroup or InitializeGroup,
 // then Start to begin processing.
@@ -100,6 +118,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		onMessage:     opts.OnMessage,
 		onEpochChange: opts.OnEpochChange,
 		onEnvelope:    opts.OnEnvelopeBroadcast,
+		groupInfoFetch: opts.GroupInfoFetcher,
 	}
 
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, nil)
@@ -554,6 +573,10 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 // SendMessage encrypts plaintext and broadcasts it as an application message.
 // Returns the HLC timestamp assigned to the message.
 func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
+	if c.healing.Load() {
+		return nil, fmt.Errorf("fork healing in progress: message rejected to avoid cross-epoch state corruption")
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -664,6 +687,10 @@ func (c *Coordinator) broadcastWithTimestampLocked(msgType MessageType, payload 
 }
 
 func (c *Coordinator) buildEnvelopeWithTimestampLocked(msgType MessageType, payload interface{}, ts HLCTimestamp) []byte {
+	return c.buildEnvelopeWithEpochAndTimestampLocked(msgType, payload, c.epoch, ts)
+}
+
+func (c *Coordinator) buildEnvelopeWithEpochAndTimestampLocked(msgType MessageType, payload interface{}, epoch uint64, ts HLCTimestamp) []byte {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil
@@ -671,7 +698,7 @@ func (c *Coordinator) buildEnvelopeWithTimestampLocked(msgType MessageType, payl
 	env := Envelope{
 		Type:      msgType,
 		GroupID:   c.groupID,
-		Epoch:     c.epoch,
+		Epoch:     epoch,
 		From:      c.localID.String(),
 		Timestamp: ts,
 		Payload:   payloadBytes,
@@ -876,6 +903,15 @@ func (c *Coordinator) GetGroupState() []byte {
 	return cp
 }
 
+// GetTreeHash returns a copy of the latest local tree hash snapshot.
+func (c *Coordinator) GetTreeHash() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := make([]byte, len(c.treeHash))
+	copy(cp, c.treeHash)
+	return cp
+}
+
 // IsHealing reports whether a fork-heal goroutine is currently in flight.
 // Exported for tests and runtime diagnostics.
 func (c *Coordinator) IsHealing() bool {
@@ -944,20 +980,7 @@ func (c *Coordinator) scheduleHeal(event *ForkEvent) {
 }
 
 // runHeal executes the fork-heal pipeline. It runs on its own goroutine and is
-// guaranteed to release c.healing on exit. The body emits per-step structured
-// logs (fork_heal/<step>_started + fork_heal/<step>_completed) so evaluation
-// can compute per-step latency from the logs alone.
-//
-// Sprint 2B leaves the heart of the pipeline as a placeholder. Sprints 2C–2E
-// will replace the placeholder with:
-//
-//	step 1 fork_heal/groupinfo_request   — fetch GroupInfo from RemotePeer
-//	step 2 fork_heal/groupinfo_received  — verify + load PSKs
-//	step 3 fork_heal/external_join       — Rust ExternalJoin call
-//	step 4 fork_heal/state_swap          — atomic SQLite txn (drop old)
-//	step 5 fork_heal/external_commit     — broadcast on group topic
-//	step 6 fork_heal/replay_started      — Autonomous Replay window
-//	step 7 fork_heal/replay_completed    — final sync
+// guaranteed to release c.healing on exit.
 func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEvent, scheduledAt time.Time) {
 	defer c.healing.Store(false)
 
@@ -967,14 +990,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		"group", event.GroupID,
 		"queued_ms", startedAt.Sub(scheduledAt).Milliseconds(),
 	)
-
-	// Sprint 2B: pipeline body deferred. Sprint 2C plugs in the GroupInfo
-	// exchange protocol; Sprint 2D wires the orchestrator that consumes it.
-	slog.Info("fork_heal/deferred_to_2d",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"reason", "scaffold_only",
-	)
+	c.recordForkHealAudit(traceID, event.GroupID, "started", "completed", startedAt, startedAt.Sub(scheduledAt).Milliseconds(), "")
 
 	if ctx.Err() != nil {
 		slog.Info("fork_heal/aborted",
@@ -986,28 +1002,487 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		return
 	}
 
+	stepStart := c.clock.Now()
+	slog.Info("fork_heal/groupinfo_request_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"winner_peers", len(event.WinnerPeers),
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "started", stepStart, 0, "")
+	// Try each known winner peer in order; the triggering peer is first.
+	peers := event.WinnerPeers
+	if len(peers) == 0 {
+		peers = []peer.ID{event.RemotePeer}
+	}
+	var gi *GroupInfoFetchResult
+	var lastFetchErr error
+	for _, remotePeer := range peers {
+		gi, lastFetchErr = c.fetchGroupInfoForHeal(ctx, remotePeer, event.GroupID, true)
+		if lastFetchErr == nil {
+			break
+		}
+		slog.Warn("fork_heal/groupinfo_request_peer_failed",
+			"trace_id", traceID,
+			"group", event.GroupID,
+			"peer", remotePeer.String(),
+			"err", lastFetchErr,
+		)
+	}
+	if lastFetchErr != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), lastFetchErr.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_request", lastFetchErr)
+		return
+	}
+	groupInfoReqDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/groupinfo_request_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"winner_epoch", gi.Epoch,
+		"group_info_bytes", len(gi.GroupInfo),
+		"duration_ms", groupInfoReqDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "completed", c.clock.Now(), groupInfoReqDur, "")
+
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/groupinfo_received_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "started", stepStart, 0, "")
+	// Accept the GroupInfo if the winner's epoch has only advanced (never regressed).
+	// A hard TreeHash equality check would create false positives when the winning
+	// branch commits one or two more epochs between the MsgAnnounce we received and
+	// the GroupInfo we just fetched — a normal condition under any network traffic.
+	if gi.Epoch < event.RemoteEpoch {
+		err := fmt.Errorf("winner epoch regressed: got %d, expected >= %d", gi.Epoch, event.RemoteEpoch)
+		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_received", err)
+		return
+	}
+	if len(gi.TreeHash) > 0 && len(event.RemoteAnnounce.TreeHash) > 0 && !bytes.Equal(gi.TreeHash, event.RemoteAnnounce.TreeHash) {
+		slog.Warn("fork_heal/groupinfo_received_tree_hash_advanced",
+			"trace_id", traceID,
+			"group", event.GroupID,
+			"announce_tree_hash", hex.EncodeToString(event.RemoteAnnounce.TreeHash),
+			"fetched_tree_hash", hex.EncodeToString(gi.TreeHash),
+			"winner_epoch", gi.Epoch,
+		)
+	}
+	groupInfoRecvDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/groupinfo_received_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"winner_tree_hash", hex.EncodeToString(gi.TreeHash),
+		"duration_ms", groupInfoRecvDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "completed", c.clock.Now(), groupInfoRecvDur, "")
+
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/external_join_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "external_join", "started", stepStart, 0, "")
+	newState, externalCommit, newTreeHash, err := c.mls.ExternalJoin(ctx, gi.GroupInfo, c.signingKey)
+	if err != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "external_join", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_join", err)
+		return
+	}
+	newEpoch := gi.Epoch + 1
+	externalJoinDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/external_join_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"new_epoch", newEpoch,
+		"new_tree_hash", hex.EncodeToString(newTreeHash),
+		"external_commit_bytes", len(externalCommit),
+		"duration_ms", externalJoinDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "external_join", "completed", c.clock.Now(), externalJoinDur, "")
+
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/state_swap_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "started", stepStart, 0, "")
+	if err := c.applyHealedState(newState, newTreeHash, newEpoch, externalCommit); err != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "state_swap", err)
+		return
+	}
+	stateSwapDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/state_swap_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"new_epoch", newEpoch,
+		"duration_ms", stateSwapDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "completed", c.clock.Now(), stateSwapDur, "")
+
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/external_commit_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "started", stepStart, 0, "")
+	if err := c.broadcastExternalCommit(gi.Epoch, externalCommit, newTreeHash); err != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_commit", err)
+		return
+	}
+	externalCommitDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/external_commit_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"duration_ms", externalCommitDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "completed", c.clock.Now(), externalCommitDur, "")
+
+	// Replay body lands in Sprint 2E; keep step markers stable now so Phase 9.2
+	// parsers do not need to change when replay logic is added.
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/replay_started_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"partition_started_at_ms", event.PartitionStartedAt.UnixMilli(),
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "started", stepStart, 0, "")
+	replayWindow, err := c.collectReplayWindowMessages(event.PartitionStartedAt, startedAt)
+	if err != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "replay_started", err)
+		return
+	}
+	replayStartDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/replay_started_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"window_message_count", len(replayWindow),
+		"duration_ms", replayStartDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "completed", c.clock.Now(), replayStartDur, "")
+
+	stepStart = c.clock.Now()
+	slog.Info("fork_heal/replay_completed_started",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"window_message_count", len(replayWindow),
+		"replay_throttle_ms", c.cfg.ReplayThrottleMs,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "started", stepStart, 0, "")
+	replayedCount, err := c.replayWindowMessages(ctx, replayWindow)
+	if err != nil {
+		c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+		c.logHealFailed(traceID, event, startedAt, scheduledAt, "replay_completed", err)
+		return
+	}
+	replayCompletedDur := c.clock.Now().Sub(stepStart).Milliseconds()
+	slog.Info("fork_heal/replay_completed_completed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"replayed_count", replayedCount,
+		"duration_ms", replayCompletedDur,
+	)
+	c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "completed", c.clock.Now(), replayCompletedDur, "")
+
 	completedAt := c.clock.Now()
 	c.metrics.IncrForkHealingsSucceeded()
+	c.metrics.RecordExternalJoin(completedAt.Sub(startedAt))
 	slog.Info("fork_heal/completed",
 		"trace_id", traceID,
 		"group", event.GroupID,
-		"outcome", "scaffold",
+		"outcome", "success",
+		"new_epoch", newEpoch,
+		"new_tree_hash", hex.EncodeToString(newTreeHash),
 		"duration_ms", completedAt.Sub(startedAt).Milliseconds(),
 		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
 	)
-	// Aggregate line carries the per-heal summary used by Phase 9 evaluation
-	// scripts. Sprint 2D will extend it with new_epoch, new_tree_hash,
-	// replayed_message_count, etc., once those numbers are real.
+	slog.Info("fork_heal/aggregate",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"winner_peer", event.RemotePeer.String(),
+		"winner_epoch", gi.Epoch,
+		"winner_member_count", event.RemoteAnnounce.MemberCount,
+		"local_member_count_before", event.LocalAnnounce.MemberCount,
+		"new_epoch", newEpoch,
+		"new_tree_hash", hex.EncodeToString(newTreeHash),
+		"replayed_message_count", replayedCount,
+		"partition_window_ms", completedAt.Sub(event.PartitionStartedAt).Milliseconds(),
+		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
+	)
+	c.recordForkHealEvent(&ForkHealEventRecord{
+		TraceID:              traceID,
+		GroupID:              event.GroupID,
+		WinnerPeerID:         event.RemotePeer.String(),
+		WinnerEpoch:          gi.Epoch,
+		NewEpoch:             newEpoch,
+		Outcome:              "success",
+		FailedStep:           "",
+		WinnerTreeHash:       append([]byte(nil), gi.TreeHash...),
+		NewTreeHash:          append([]byte(nil), newTreeHash...),
+		PartitionStartedAtMs: event.PartitionStartedAt.UnixMilli(),
+		ScheduledAtMs:        scheduledAt.UnixMilli(),
+		StartedAtMs:          startedAt.UnixMilli(),
+		CompletedAtMs:        completedAt.UnixMilli(),
+		DurationMs:           completedAt.Sub(startedAt).Milliseconds(),
+		TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
+		ReplayedMessageCount: replayedCount,
+	})
+}
+
+func (c *Coordinator) fetchGroupInfoForHeal(ctx context.Context, remote peer.ID, groupID string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
+	if c.groupInfoFetch == nil {
+		return nil, fmt.Errorf("group-info fetcher not configured")
+	}
+	gi, err := c.groupInfoFetch(ctx, remote, groupID, withRatchetTree)
+	if err != nil {
+		return nil, err
+	}
+	if gi == nil {
+		return nil, fmt.Errorf("empty group-info response")
+	}
+	if len(gi.GroupInfo) == 0 {
+		return nil, fmt.Errorf("group-info response missing payload")
+	}
+	return gi, nil
+}
+
+func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch uint64, externalCommit []byte) error {
+	now := c.clock.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	prevRec, err := c.storage.GetGroupRecord(c.groupID)
+	if err != nil && !errors.Is(err, ErrGroupNotFound) {
+		return fmt.Errorf("load group record: %w", err)
+	}
+
+	role := RoleMember
+	groupType := ""
+	createdAt := now
+	if prevRec != nil {
+		if prevRec.MyRole != "" {
+			role = prevRec.MyRole
+		}
+		groupType = prevRec.GroupType
+		if !prevRec.CreatedAt.IsZero() {
+			createdAt = prevRec.CreatedAt
+		}
+	}
+	if err := c.storage.SaveGroupRecord(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      newEpoch,
+		TreeHash:   newTreeHash,
+		MyRole:     role,
+		GroupType:  groupType,
+		CreatedAt:  createdAt,
+		UpdatedAt:  now,
+	}); err != nil {
+		return fmt.Errorf("persist healed group state: %w", err)
+	}
+
+	c.groupState = append([]byte(nil), newState...)
+	c.treeHash = append([]byte(nil), newTreeHash...)
+	c.epoch = newEpoch
+	c.epochTracker = NewEpochTracker(newEpoch, newTreeHash)
+	c.singleWriter = NewSingleWriter(c.activeView, c.localID, newEpoch, c.cfg)
+
+	var commitHash []byte
+	if len(externalCommit) > 0 {
+		sum := sha256.Sum256(externalCommit)
+		commitHash = sum[:]
+	}
+	c.forkDetector.Reset()
+	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    newTreeHash,
+		MemberCount: c.activeView.Size(),
+		CommitHash:  commitHash,
+	})
+	if c.onEpochChange != nil {
+		c.onEpochChange(newEpoch)
+	}
+	return nil
+}
+
+func (c *Coordinator) broadcastExternalCommit(envelopeEpoch uint64, externalCommit, newTreeHash []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ts := c.hlc.Now()
+	wire := c.buildEnvelopeWithEpochAndTimestampLocked(MsgCommit, CommitMsg{
+		CommitData:  externalCommit,
+		NewTreeHash: newTreeHash,
+	}, envelopeEpoch, ts)
+	if len(wire) == 0 {
+		return fmt.Errorf("encode external commit envelope")
+	}
+	c.publishPreparedEnvelopeLocked(MsgCommit, wire)
+	c.appendOfflineEnvelopeLocked(wire)
+	return nil
+}
+
+func (c *Coordinator) logHealFailed(traceID string, event *ForkEvent, startedAt, scheduledAt time.Time, step string, err error) {
+	completedAt := c.clock.Now()
+	slog.Error("fork_heal/failed",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"step", step,
+		"error", err,
+		"duration_ms", completedAt.Sub(startedAt).Milliseconds(),
+		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
+	)
 	slog.Info("fork_heal/aggregate",
 		"trace_id", traceID,
 		"group", event.GroupID,
 		"winner_peer", event.RemotePeer.String(),
 		"winner_epoch", event.RemoteEpoch,
-		"winner_member_count", event.RemoteAnnounce.MemberCount,
-		"local_member_count_before", event.LocalAnnounce.MemberCount,
+		"outcome", "failed",
+		"failed_step", step,
 		"partition_window_ms", completedAt.Sub(event.PartitionStartedAt).Milliseconds(),
 		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
 	)
+	c.recordForkHealEvent(&ForkHealEventRecord{
+		TraceID:              traceID,
+		GroupID:              event.GroupID,
+		WinnerPeerID:         event.RemotePeer.String(),
+		WinnerEpoch:          event.RemoteEpoch,
+		NewEpoch:             c.CurrentEpoch(),
+		Outcome:              "failed",
+		FailedStep:           step,
+		WinnerTreeHash:       append([]byte(nil), event.RemoteAnnounce.TreeHash...),
+		NewTreeHash:          append([]byte(nil), c.GetTreeHash()...),
+		PartitionStartedAtMs: event.PartitionStartedAt.UnixMilli(),
+		ScheduledAtMs:        scheduledAt.UnixMilli(),
+		StartedAtMs:          startedAt.UnixMilli(),
+		CompletedAtMs:        completedAt.UnixMilli(),
+		DurationMs:           completedAt.Sub(startedAt).Milliseconds(),
+		TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
+		ReplayedMessageCount: 0,
+	})
+}
+
+func (c *Coordinator) recordForkHealAudit(traceID, groupID, step, status string, ts time.Time, durationMs int64, errMsg string) {
+	if traceID == "" || groupID == "" || step == "" || status == "" {
+		return
+	}
+	if err := c.storage.RecordForkHealAudit(&ForkHealAuditRecord{
+		TraceID:     traceID,
+		GroupID:     groupID,
+		Step:        step,
+		Status:      status,
+		TimestampMs: ts.UnixMilli(),
+		DurationMs:  durationMs,
+		Error:       errMsg,
+	}); err != nil {
+		slog.Warn("fork_heal/audit_persist_failed", "trace_id", traceID, "group", groupID, "step", step, "status", status, "err", err)
+	}
+}
+
+func (c *Coordinator) recordForkHealEvent(event *ForkHealEventRecord) {
+	if event == nil {
+		return
+	}
+	if err := c.storage.RecordForkHealEvent(event); err != nil {
+		slog.Warn("fork_heal/event_persist_failed", "trace_id", event.TraceID, "group", event.GroupID, "err", err)
+	}
+}
+
+func (c *Coordinator) collectReplayWindowMessages(partitionStart, healStartedAt time.Time) ([]*StoredMessage, error) {
+	if partitionStart.IsZero() {
+		return nil, nil
+	}
+	startMs := partitionStart.UnixMilli()
+	endMs := healStartedAt.UnixMilli()
+	msgs, err := c.storage.GetMessagesByOwnerInRange(c.groupID, c.localID.String(), startMs, endMs)
+	if err != nil {
+		return nil, fmt.Errorf("GetMessagesByOwnerInRange: %w", err)
+	}
+	return msgs, nil
+}
+
+func (c *Coordinator) replayWindowMessages(ctx context.Context, window []*StoredMessage) (int, error) {
+	if len(window) == 0 {
+		return 0, nil
+	}
+	throttle := time.Duration(c.cfg.ReplayThrottleMs) * time.Millisecond
+	replayed := 0
+	for i, msg := range window {
+		if ctx.Err() != nil {
+			return replayed, ctx.Err()
+		}
+		c.mu.Lock()
+		ciphertext, newState, err := c.mls.EncryptMessage(ctx, c.groupState, msg.Content)
+		if err != nil {
+			c.mu.Unlock()
+			return replayed, fmt.Errorf("EncryptMessage replay idx=%d: %w", i, err)
+		}
+		ts := c.hlc.Now()
+		wire := c.buildEnvelopeWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
+		if len(wire) == 0 {
+			c.mu.Unlock()
+			return replayed, fmt.Errorf("encode replay application envelope idx=%d", i)
+		}
+		c.groupState = newState
+		c.publishPreparedEnvelopeLocked(MsgApplication, wire)
+		c.appendOfflineEnvelopeLocked(wire)
+		now := c.clock.Now()
+		c.mu.Unlock()
+
+		// Mark the original stored message as replayed so the frontend can
+		// suppress it once the re-broadcast copy is received and stored.
+		if len(msg.EnvelopeHash) > 0 {
+			if mErr := c.storage.MarkMessageReplayed(c.groupID, msg.EnvelopeHash, now); mErr != nil {
+				slog.Warn("fork_heal/mark_replayed_failed", "group", c.groupID, "err", mErr)
+			}
+		}
+		replayed++
+
+		if throttle > 0 && i < len(window)-1 {
+			select {
+			case <-ctx.Done():
+				return replayed, ctx.Err()
+			case <-c.clock.After(throttle):
+			}
+		}
+	}
+	c.mu.Lock()
+	err := c.saveCurrentGroupStateLocked(c.clock.Now())
+	c.mu.Unlock()
+	if err != nil {
+		return replayed, err
+	}
+	return replayed, nil
+}
+
+func (c *Coordinator) saveCurrentGroupStateLocked(now time.Time) error {
+	prevRec, err := c.storage.GetGroupRecord(c.groupID)
+	if err != nil && !errors.Is(err, ErrGroupNotFound) {
+		return fmt.Errorf("load group record: %w", err)
+	}
+	role := RoleMember
+	groupType := ""
+	createdAt := now
+	if prevRec != nil {
+		if prevRec.MyRole != "" {
+			role = prevRec.MyRole
+		}
+		groupType = prevRec.GroupType
+		if !prevRec.CreatedAt.IsZero() {
+			createdAt = prevRec.CreatedAt
+		}
+	}
+	return c.storage.SaveGroupRecord(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: c.groupState,
+		Epoch:      c.epoch,
+		TreeHash:   c.treeHash,
+		MyRole:     role,
+		GroupType:  groupType,
+		CreatedAt:  createdAt,
+		UpdatedAt:  now,
+	})
 }
 
 // newTraceID returns a short hex identifier suitable for tagging log lines

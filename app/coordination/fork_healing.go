@@ -64,6 +64,12 @@ type ForkEvent struct {
 	Result           BranchResult
 	NeedExternalJoin bool // true if local branch lost and must ExternalJoin
 
+	// WinnerPeers is the set of all peers observed to be on the winning branch
+	// at the time the fork was detected. The triggering peer (RemotePeer) is
+	// always included. Used by runHeal to retry GroupInfo fetch across multiple
+	// peers if the first one is unreachable at heal time.
+	WinnerPeers []peer.ID
+
 	// PartitionStartedAt is the wall-clock time at which the local node first
 	// observed the divergent TreeHash from the *winning* remote branch. Used
 	// by Autonomous Replay (Sprint 2E) to determine the partition window of
@@ -155,6 +161,18 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 	}
 
 	result := CompareBranchWeight(*fd.local, ann)
+
+	// Collect all known peers on the winning branch so runHeal can retry across
+	// them if the triggering peer is unreachable at heal time.
+	winnerPeers := make([]peer.ID, 0, len(bi.peers))
+	// Put the triggering peer first — most likely to still be reachable.
+	winnerPeers = append(winnerPeers, from)
+	for p := range bi.peers {
+		if p != from {
+			winnerPeers = append(winnerPeers, p)
+		}
+	}
+
 	return &ForkEvent{
 		RemotePeer:         from,
 		LocalAnnounce:      *fd.local,
@@ -162,6 +180,7 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 		RemoteEpoch:        remoteEpoch,
 		Result:             result,
 		NeedExternalJoin:   result == BranchRemote,
+		WinnerPeers:        winnerPeers,
 		PartitionStartedAt: bi.firstSeenAt,
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -364,7 +365,10 @@ func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, _ []byte) ([]
 	if err := m.popError(); err != nil {
 		return nil, nil, nil, err
 	}
-	return groupInfo, []byte("ext-commit"), mockTreeHash(0), nil
+	newTH := mockTreeHash(1)
+	commitInfo := mockCommitData{NewEpoch: 1, NewTreeHash: hex.EncodeToString(newTH)}
+	commitBytes, _ := json.Marshal(commitInfo)
+	return groupInfo, commitBytes, newTH, nil
 }
 
 func (m *MockMLSEngine) ExportGroupInfo(_ context.Context, groupState []byte, withRatchetTree bool) ([]byte, error) {
@@ -408,6 +412,8 @@ type MockStorage struct {
 	pendingAck []PendingDeliveryAckRow
 	pullCursor map[string]int64 // "groupID|remotePeerID"
 	nextEnvID  map[string]int64 // groupID -> next seq
+	healEvents []*ForkHealEventRecord
+	healAudit  []*ForkHealAuditRecord
 
 	failApplyCommitOnce      bool
 	failApplyApplicationOnce bool
@@ -495,6 +501,41 @@ func (s *MockStorage) SaveMessage(msg *StoredMessage) error {
 	}
 	s.messages = append(s.messages, msg)
 	return nil
+}
+
+func (s *MockStorage) MarkMessageReplayed(groupID string, envelopeHash []byte, now time.Time) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	nowMs := now.UnixMilli()
+	for _, msg := range s.messages {
+		if msg.GroupID == groupID && bytes.Equal(msg.EnvelopeHash, envelopeHash) {
+			msg.ReplayedAt = &nowMs
+			return nil
+		}
+	}
+	return nil
+}
+
+func (s *MockStorage) GetMessagesByOwnerInRange(groupID, senderID string, startMs, endMs int64) ([]*StoredMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*StoredMessage
+	for _, msg := range s.messages {
+		if msg.GroupID != groupID {
+			continue
+		}
+		if msg.SenderID.String() != senderID {
+			continue
+		}
+		if msg.Timestamp.WallTimeMs < startMs || msg.Timestamp.WallTimeMs > endMs {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out, nil
 }
 
 func (s *MockStorage) HasAppliedEnvelope(groupID string, envelopeHash []byte) (bool, error) {
@@ -822,4 +863,68 @@ func (s *MockStorage) GetKnownGroupMembers(groupID string) ([]string, error) {
 		out = append(out, k)
 	}
 	return out, nil
+}
+
+func (s *MockStorage) RecordForkHealEvent(event *ForkHealEventRecord) error {
+	if event == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *event
+	cp.WinnerTreeHash = append([]byte(nil), event.WinnerTreeHash...)
+	cp.NewTreeHash = append([]byte(nil), event.NewTreeHash...)
+	s.healEvents = append(s.healEvents, &cp)
+	return nil
+}
+
+func (s *MockStorage) RecordForkHealAudit(audit *ForkHealAuditRecord) error {
+	if audit == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *audit
+	s.healAudit = append(s.healAudit, &cp)
+	return nil
+}
+
+func (s *MockStorage) ListForkHealEvents(groupID string, limit int) ([]*ForkHealEventRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*ForkHealEventRecord
+	for i := len(s.healEvents) - 1; i >= 0; i-- {
+		ev := s.healEvents[i]
+		if groupID != "" && ev.GroupID != groupID {
+			continue
+		}
+		cp := *ev
+		cp.WinnerTreeHash = append([]byte(nil), ev.WinnerTreeHash...)
+		cp.NewTreeHash = append([]byte(nil), ev.NewTreeHash...)
+		out = append(out, &cp)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (s *MockStorage) ListForkHealAudit(traceID string) ([]*ForkHealAuditRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*ForkHealAuditRecord
+	for _, row := range s.healAudit {
+		if traceID != "" && row.TraceID != traceID {
+			continue
+		}
+		cp := *row
+		out = append(out, &cp)
+	}
+	return out, nil
+}
+
+func (s *MockStorage) PruneForkHealHistory(cutoffUnix int64, maxPerGroup int) (int, error) {
+	_ = cutoffUnix
+	_ = maxPerGroup
+	return 0, nil
 }

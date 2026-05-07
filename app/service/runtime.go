@@ -228,6 +228,7 @@ func (r *Runtime) stopNetworkLocked() {
 		r.removeWelcomeDeliveryHandler()
 		r.removeGroupJoinAckHandler()
 		r.removeInviteStoreHandlers()
+		r.removeGroupInfoHandler()
 		r.removeOfflineSyncHandlers()
 		if r.blindStore != nil {
 			r.blindStore.Close()
@@ -300,6 +301,7 @@ func (r *Runtime) launchP2PNode() error {
 	r.registerWelcomeDeliveryHandler()
 	r.registerGroupJoinAckHandler()
 	r.registerInviteStoreHandlers()
+	r.registerGroupInfoHandler()
 	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})
 
