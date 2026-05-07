@@ -2,14 +2,14 @@ import { Activity, Files, MessageSquare, Settings } from 'lucide-react'
 
 interface PrimaryRailProps {
   isConnected: boolean
-  activeModule: 'chat' | 'invites' | 'settings' | 'admin'
-  onSelectModule: (module: 'chat' | 'invites' | 'settings' | 'admin') => void
+  activeModule: 'chat' | 'activity' | 'settings' | 'admin'
+  onSelectModule: (module: 'chat' | 'activity' | 'settings' | 'admin') => void
 }
 
 const modules = [
   { id: 'admin', icon: Activity, label: 'Admin' },
   { id: 'chat', icon: MessageSquare, label: 'Chats' },
-  { id: 'invites', icon: Files, label: 'Invites' },
+  { id: 'activity', icon: Files, label: 'Activity' },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ] as const
 

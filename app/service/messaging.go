@@ -49,6 +49,8 @@ func validateOutboundByGroupType(groupType string, text string) error {
 	switch strings.TrimSpace(strings.ToLower(groupType)) {
 	case "channel":
 		return validateChannelOutboundMessage(text)
+	case "group":
+		return validateDMOutboundMessage(text)
 	case "dm":
 		return validateDMOutboundMessage(text)
 	default:
@@ -108,7 +110,7 @@ func (r *Runtime) GetGroupMessages(groupID string, limit, offset int) ([]Message
 	if r.coordStorage == nil {
 		return nil, fmt.Errorf("storage not initialized")
 	}
- 
+
 	var msgs []*coordination.StoredMessage
 	var err error
 	if limit > 0 {

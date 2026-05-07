@@ -25,6 +25,11 @@ service MLSCryptoService {
   // Phase 4.1 — Add member / KeyPackage lifecycle
   rpc GenerateKeyPackage(GenerateKeyPackageRequest) returns (GenerateKeyPackageResponse);
   rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
+
+  // Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
+  // losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
+  // TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
+  rpc ExportGroupInfo(ExportGroupInfoRequest) returns (ExportGroupInfoResponse);
 }
 
 // ── Phase 2 Messages ──
@@ -189,4 +194,17 @@ message AddMembersResponse {
   bytes welcome_bytes = 2;
   bytes new_group_state = 3;
   bytes new_tree_hash = 4;
+}
+
+message ExportGroupInfoRequest {
+  bytes group_state = 1;
+  // When true (recommended for fork healing), the exported GroupInfo embeds
+  // a RatchetTreeExtension so the receiver can ExternalJoin without a
+  // separate ratchet tree exchange.
+  bool with_ratchet_tree = 2;
+}
+
+message ExportGroupInfoResponse {
+  // TLS-serialized MlsMessageOut containing GroupInfo (signed by exporter).
+  bytes group_info = 1;
 }

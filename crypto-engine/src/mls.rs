@@ -573,27 +573,90 @@ pub fn process_welcome(
     })
 }
 
+/// Exports a verifiable GroupInfo for the current group state, signed by the
+/// caller's signing key. Used by the winning branch during fork healing so
+/// peers on the losing branch can re-join via [`external_join`] without
+/// rebuilding the full ratchet tree out-of-band.
+///
+/// When `with_ratchet_tree` is true (recommended for fork healing), the
+/// returned MlsMessage embeds a `RatchetTreeExtension`, allowing the
+/// receiver to construct the public group from the GroupInfo alone. Returns
+/// the TLS-serialized `MlsMessageOut` bytes.
+pub fn export_group_info(
+    group_state: &[u8],
+    with_ratchet_tree: bool,
+) -> Result<Vec<u8>, String> {
+    let imp = import_state(group_state)?;
+
+    let group_info_msg = imp
+        .group
+        .export_group_info(imp.provider.crypto(), &imp.signer, with_ratchet_tree)
+        .map_err(|e| format!("export_group_info: {e:?}"))?;
+
+    let bytes = group_info_msg
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize group_info: {e:?}"))?;
+
+    Ok(bytes)
+}
+
+/// Performs an MLS External Commit into a target group given its signed
+/// `GroupInfo`. Used during fork healing: the losing branch drops its old
+/// MlsGroup and re-joins the winning branch by issuing an external commit
+/// at the winner's current epoch.
+///
+/// Forward Secrecy of the joining party's old leaf in the winner's tree is
+/// preserved automatically: OpenMLS's `ExternalCommitBuilder` injects a
+/// `Remove` proposal for any existing leaf that shares the new joiner's
+/// signature key (see openmls 0.8.0 `external_commits.rs:249-255`).
 pub fn external_join(
     group_info: &[u8],
     signing_key: &[u8],
 ) -> Result<ExternalJoinResult, String> {
-    // External join requires a verifiable GroupInfo from the winning branch.
-    // Full implementation deferred — return deterministic placeholder for now.
-    let state = format!(
-        "stub:external_join:info:{}:key:{}",
-        group_info.len(),
-        signing_key.len()
-    );
-    let tree_hash = {
-        let mut h = Sha256::new();
-        h.update(state.as_bytes());
-        h.finalize().to_vec()
+    let provider = OpenMlsRustCrypto::default();
+    let signer = reconstruct_signer(&provider, signing_key)?;
+
+    let mls_msg = MlsMessageIn::tls_deserialize_exact(group_info)
+        .map_err(|e| format!("deserialize group_info: {e:?}"))?;
+    let verifiable_group_info = match mls_msg.extract() {
+        MlsMessageBodyIn::GroupInfo(gi) => gi,
+        _ => return Err("expected MlsMessageBodyIn::GroupInfo body".into()),
     };
-    let commit = format!("stub:external_commit:info:{}", group_info.len());
+
+    let credential = BasicCredential::new(signer.to_public_vec());
+    let credential_with_key = CredentialWithKey {
+        credential: credential.into(),
+        signature_key: signer.to_public_vec().into(),
+    };
+
+    let (group, bundle) = MlsGroup::external_commit_builder()
+        .with_config(
+            MlsGroupJoinConfig::builder()
+                .use_ratchet_tree_extension(true)
+                .build(),
+        )
+        .build_group(&provider, verifiable_group_info, credential_with_key)
+        .map_err(|e| format!("external_commit_builder.build_group: {e:?}"))?
+        .load_psks(provider.storage())
+        .map_err(|e| format!("external_commit_builder.load_psks: {e:?}"))?
+        .build(provider.rand(), provider.crypto(), &signer, |_| true)
+        .map_err(|e| format!("external_commit_builder.build: {e:?}"))?
+        .finalize(&provider)
+        .map_err(|e| format!("external_commit_builder.finalize: {e:?}"))?;
+
+    let (commit_msg, _welcome_opt, _group_info_opt) = bundle.into_messages();
+    let commit_bytes = commit_msg
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize external commit: {e:?}"))?;
+
+    let group_id = String::from_utf8_lossy(group.group_id().as_slice()).to_string();
+    let epoch = get_epoch(&group);
+    let tree_hash = compute_tree_hash(&group_id, epoch);
+    let new_state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(ExternalJoinResult {
-        group_state: state.into_bytes(),
-        commit_bytes: commit.into_bytes(),
+        group_state: new_state,
+        commit_bytes,
         tree_hash,
     })
 }
@@ -711,6 +774,64 @@ mod tests {
         let dec_b = decrypt_message(&welcome_b.group_state, &enc_a.ciphertext)
             .expect("decrypt B");
         assert_eq!(dec_b.plaintext, b"hello from A");
+    }
+
+    #[test]
+    fn test_export_group_info_roundtrip() {
+        let sk = test_signing_key();
+        let cr = create_group("export-info-group", &sk).expect("create_group");
+
+        let group_info = export_group_info(&cr.group_state, true).expect("export_group_info");
+        assert!(!group_info.is_empty(), "exported GroupInfo should be non-empty");
+
+        // Re-export must succeed (stateless): the underlying group state is unchanged.
+        let group_info_2 = export_group_info(&cr.group_state, true).expect("export_group_info #2");
+        assert!(!group_info_2.is_empty());
+    }
+
+    /// Sprint 2A happy-path: simulates fork healing where node B (losing branch)
+    /// abandons its old group and re-joins node A's branch via External Commit.
+    /// After heal, A and B must converge to the same epoch, and B must be able to
+    /// encrypt application messages that A can decrypt at the new epoch.
+    #[test]
+    fn test_external_join_fork_heal_happy_path() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("fork-heal-group", &sk_a).expect("A create_group");
+
+        // A exports a GroupInfo at the current epoch (winning branch perspective).
+        let group_info = export_group_info(&group_a.group_state, true).expect("A export_group_info");
+        assert!(!group_info.is_empty());
+
+        // B (losing branch) external-joins A's branch using the GroupInfo.
+        let join_b = external_join(&group_info, &sk_b).expect("B external_join");
+        assert!(!join_b.group_state.is_empty(), "B group_state must be non-empty");
+        assert!(!join_b.commit_bytes.is_empty(), "B external commit bytes must be non-empty");
+        assert!(!join_b.tree_hash.is_empty());
+
+        // A processes B's external commit to advance its own state to the joined epoch.
+        let commit_a = process_commit(&group_a.group_state, &join_b.commit_bytes)
+            .expect("A process_commit(external)");
+        assert!(!commit_a.new_group_state.is_empty());
+
+        // B encrypts a message at the new epoch.
+        let enc_b = encrypt_message(&join_b.group_state, b"hello from rejoined B")
+            .expect("B encrypt after external join");
+        assert!(!enc_b.ciphertext.is_empty());
+
+        // A (now at the post-external-commit epoch) decrypts B's message.
+        let dec_a = decrypt_message(&commit_a.new_group_state, &enc_b.ciphertext)
+            .expect("A decrypt B");
+        assert_eq!(dec_a.plaintext, b"hello from rejoined B");
+    }
+
+    #[test]
+    fn test_external_join_rejects_invalid_group_info() {
+        let sk = test_signing_key();
+        // Random bytes are not a valid TLS-encoded MlsMessage.
+        let result = external_join(&[0xDE, 0xAD, 0xBE, 0xEF], &sk);
+        assert!(result.is_err(), "external_join must reject malformed group_info");
     }
 
     #[test]

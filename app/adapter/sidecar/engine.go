@@ -129,6 +129,17 @@ func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey 
 	return resp.GetGroupState(), resp.GetCommitBytes(), resp.GetTreeHash(), nil
 }
 
+func (g *GrpcMLSEngine) ExportGroupInfo(ctx context.Context, groupState []byte, withRatchetTree bool) (groupInfo []byte, err error) {
+	resp, err := g.client.ExportGroupInfo(ctx, &mls_service.ExportGroupInfoRequest{
+		GroupState:      groupState,
+		WithRatchetTree: withRatchetTree,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("grpc ExportGroupInfo: %w", err)
+	}
+	return resp.GetGroupInfo(), nil
+}
+
 func (g *GrpcMLSEngine) ExportSecret(ctx context.Context, groupState []byte, label string, length int) (secret []byte, err error) {
 	resp, err := g.client.ExportSecret(ctx, &mls_service.ExportSecretRequest{
 		GroupState: groupState,

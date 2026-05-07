@@ -33,8 +33,18 @@ func TestValidateOutboundByGroupType_Channel(t *testing.T) {
 	}
 }
 
-func TestValidateOutboundByGroupType_UnsupportedType(t *testing.T) {
+func TestValidateOutboundByGroupType_Group(t *testing.T) {
 	err := validateOutboundByGroupType("group", "hello")
+	if err != nil {
+		t.Fatalf("group valid should pass: %v", err)
+	}
+	if err := validateOutboundByGroupType("group", "   "); err == nil || !strings.Contains(err.Error(), "ERR_MESSAGE_EMPTY") {
+		t.Fatalf("group empty should fail with ERR_MESSAGE_EMPTY, got: %v", err)
+	}
+}
+
+func TestValidateOutboundByGroupType_UnsupportedType(t *testing.T) {
+	err := validateOutboundByGroupType("invalid", "hello")
 	if err == nil {
 		t.Fatal("unsupported group type should fail")
 	}
@@ -42,4 +52,3 @@ func TestValidateOutboundByGroupType_UnsupportedType(t *testing.T) {
 		t.Fatalf("expected ERR_GROUP_TYPE_INVALID, got: %v", err)
 	}
 }
-

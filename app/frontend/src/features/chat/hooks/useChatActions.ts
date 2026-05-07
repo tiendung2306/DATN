@@ -13,6 +13,8 @@ interface UseChatActionsOptions {
   setActiveGroupId: (groupId: string | null) => void
 }
 
+type ConversationCreateType = 'channel' | 'group' | 'dm'
+
 export function useChatActions({
   activeGroupId,
   localPeerId,
@@ -21,6 +23,7 @@ export function useChatActions({
 }: UseChatActionsOptions) {
   const messagesByGroup = useChatStore((s) => s.messagesByGroup)
   const pushMessage = useChatStore((s) => s.pushMessage)
+  const pushPost = useChatStore((s) => s.pushPost)
   const updateMessageStatus = useChatStore((s) => s.updateMessageStatus)
   const removeMessage = useChatStore((s) => s.removeMessage)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
@@ -34,35 +37,52 @@ export function useChatActions({
     markGroupRead(groupId)
   }
 
-  const handleCreateGroupWithDetails = async (groupId: string, groupType: 'channel' | 'dm', members: string[]) => {
+  const handleCreateGroupWithDetails = async (groupId: string, groupType: ConversationCreateType, members: string[]) => {
     groupId = groupId.trim()
-    if (!groupId) return
+    if (groupType !== 'dm' && !groupId) return
     setCreatingGroup(true)
     try {
-      await runtimeClient.createGroupChat(groupId, groupType)
+      if (groupType === 'dm') {
+        if (members.length !== 1) {
+          throw new Error('Direct message requires exactly one peer.')
+        }
+        groupId = await runtimeClient.startDirectMessage(members[0])
+      } else {
+        await runtimeClient.createGroupChat(groupId, groupType)
+      }
       
-      for (const peerId of members) {
-        if (peerId.trim()) {
-          try {
-            await runtimeClient.invitePeerToGroup(peerId.trim(), groupId)
-          } catch (e) {
-            console.error(`Failed to invite peer ${peerId}:`, e)
+      if (groupType !== 'dm') {
+        for (const peerId of members) {
+          if (peerId.trim()) {
+            try {
+              await runtimeClient.invitePeerToGroup(peerId.trim(), groupId)
+            } catch (e) {
+              console.error(`Failed to invite peer ${peerId}:`, e)
+            }
           }
         }
       }
 
       await refreshGroups()
       setActiveGroupId(groupId)
-      pushMessage(groupId, {
+      const createdAt = Date.now()
+      const systemMessage = {
         id: `system:create:${groupId}`,
         groupId,
         sender: 'system',
-        content: `Bạn đã tạo ${groupType === 'channel' ? 'Kênh' : 'Nhóm chat'} này.`,
-        timestamp: Date.now(),
+        content: `Bạn đã tạo ${
+          groupType === 'dm' ? 'cuộc trò chuyện trực tiếp' : groupType === 'group' ? 'nhóm chat' : 'kênh'
+        } này.`,
+        timestamp: createdAt,
         isMine: false,
         status: 'published',
         kind: 'system',
-      })
+      } as const
+      if (groupType === 'channel') {
+        pushPost(groupId, systemMessage)
+      } else {
+        pushMessage(groupId, systemMessage)
+      }
     } finally {
       setCreatingGroup(false)
     }
@@ -97,6 +117,7 @@ export function useChatActions({
     try {
       await runtimeClient.sendGroupMessage(activeGroupId, text)
       updateMessageStatus(activeGroupId, pendingId, 'published')
+      void refreshGroups()
     } catch (err) {
       updateMessageStatus(activeGroupId, pendingId, 'failed')
       const mapped = formatOutboundSendError(err)

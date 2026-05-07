@@ -79,6 +79,9 @@ func (r *Runtime) ListPendingInvites() ([]PendingInviteInfo, error) {
 	}
 	out := make([]PendingInviteInfo, 0, len(rows))
 	for _, inv := range rows {
+		if strings.EqualFold(strings.TrimSpace(inv.GroupType), "dm") {
+			continue
+		}
 		out = append(out, pendingInviteInfoFromStore(inv))
 	}
 	return out, nil
@@ -121,7 +124,12 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 		if err := database.MarkPendingInviteAccepted(inv.ID); err != nil {
 			return err
 		}
-		r.emit("invite:accepted", map[string]interface{}{"id": inv.ID, "group_id": inv.GroupID})
+		r.emit("invite:accepted", map[string]interface{}{
+			"id":       inv.ID,
+			"group_id": inv.GroupID,
+			"status":   store.PendingInviteStatusAccepted,
+			"reason":   "already_joined",
+		})
 		return nil
 	}
 
@@ -138,7 +146,12 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 	if err := database.MarkPendingInviteAccepted(inv.ID); err != nil {
 		return err
 	}
-	r.emit("invite:accepted", map[string]interface{}{"id": inv.ID, "group_id": inv.GroupID})
+	r.emit("invite:accepted", map[string]interface{}{
+		"id":       inv.ID,
+		"group_id": inv.GroupID,
+		"status":   store.PendingInviteStatusAccepted,
+		"reason":   "accepted",
+	})
 	return nil
 }
 
@@ -155,12 +168,32 @@ func (r *Runtime) RejectInvite(inviteID string) error {
 	if database == nil {
 		return fmt.Errorf("database not initialized")
 	}
+	inv, err := database.GetPendingInvite(inviteID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrInviteNotFound
+	}
+	if err != nil {
+		return err
+	}
 	if err := database.MarkPendingInviteRejected(inviteID); errors.Is(err, sql.ErrNoRows) {
 		return ErrInviteNotFound
 	} else if err != nil {
 		return err
 	}
-	r.emit("invite:rejected", map[string]interface{}{"id": inviteID})
+	// Keep rejected row as tombstone so passive/background refresh does not
+	// resurrect the same welcome immediately.
+	r.mu.RLock()
+	node := r.node
+	r.mu.RUnlock()
+	if node != nil {
+		_ = database.DeleteStoredWelcome(node.Host.ID().String(), inv.GroupID)
+	}
+	r.emit("invite:rejected", map[string]interface{}{
+		"id":       inviteID,
+		"group_id": inv.GroupID,
+		"status":   store.PendingInviteStatusRejected,
+		"reason":   "rejected",
+	})
 	return nil
 }
 

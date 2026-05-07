@@ -91,6 +91,70 @@ func TestPendingInvite_StatusTransitions(t *testing.T) {
 	}
 }
 
+func TestPendingWelcome_GetAnyPendingWelcomeForGroupIncludesDelivered(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.SavePendingWelcome("peer-a", "group-1", []byte("welcome-1")); err != nil {
+		t.Fatalf("SavePendingWelcome: %v", err)
+	}
+	rows, err := d.GetPendingWelcomesFor("peer-a")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("GetPendingWelcomesFor: rows=%d err=%v", len(rows), err)
+	}
+	if err := d.MarkWelcomeDelivered(rows[0].ID); err != nil {
+		t.Fatalf("MarkWelcomeDelivered: %v", err)
+	}
+	got, err := d.GetAnyPendingWelcomeForGroup("peer-a", "group-1")
+	if err != nil {
+		t.Fatalf("GetAnyPendingWelcomeForGroup: %v", err)
+	}
+	if string(got) != "welcome-1" {
+		t.Fatalf("welcome mismatch: got %q", string(got))
+	}
+}
+
+func TestPendingInvite_ReopenRejectedInvite(t *testing.T) {
+	d := setupTestDB(t)
+	firstWelcome := []byte("welcome-1")
+	secondWelcome := []byte("welcome-2")
+	if err := d.SavePendingInvite(&PendingInvite{
+		GroupID:       "group-1",
+		GroupType:     "group",
+		WelcomeBytes:  firstWelcome,
+		SourcePeerID:  "peer-a",
+		InviterPeerID: "peer-a",
+	}); err != nil {
+		t.Fatalf("SavePendingInvite: %v", err)
+	}
+	firstID := PendingInviteID("group-1", firstWelcome)
+	if err := d.MarkPendingInviteRejected(firstID); err != nil {
+		t.Fatalf("MarkPendingInviteRejected: %v", err)
+	}
+	reopenedID, err := d.ReopenRejectedInvite(&PendingInvite{
+		ID:            PendingInviteID("group-1", secondWelcome),
+		GroupID:       "group-1",
+		GroupType:     "group",
+		WelcomeBytes:  secondWelcome,
+		SourcePeerID:  "peer-a",
+		InviterPeerID: "peer-a",
+	})
+	if err != nil {
+		t.Fatalf("ReopenRejectedInvite: %v", err)
+	}
+	if reopenedID == firstID {
+		t.Fatalf("reopened id should be replaced with new welcome hash")
+	}
+	latest, err := d.GetLatestPendingInviteByGroup("group-1")
+	if err != nil {
+		t.Fatalf("GetLatestPendingInviteByGroup: %v", err)
+	}
+	if latest.Status != PendingInviteStatusPending {
+		t.Fatalf("latest status = %q, want pending", latest.Status)
+	}
+	if latest.ID != reopenedID {
+		t.Fatalf("latest id = %q, want %q", latest.ID, reopenedID)
+	}
+}
+
 func TestStoredWelcome_ListForInvitee(t *testing.T) {
 	d := setupTestDB(t)
 	if err := d.SaveStoredWelcome("peer-a", "group-1", "dm", []byte("welcome-1"), "peer-store"); err != nil {

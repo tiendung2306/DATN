@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { service } from '../../../../wailsjs/go/models'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
 import { messageInfoToChatMessage } from '../../../lib/chatModel'
@@ -29,6 +29,7 @@ export function useChatEvents({
   const incrementUnread = useChatStore((s) => s.incrementUnread)
   const groups = useGroupsStore((s) => s.groups)
   const setGroups = useGroupsStore((s) => s.setGroups)
+  const lastGroupsRefreshAtRef = useRef(0)
 
   const handleGroupMessage = useCallback(
     (payload: service.MessageInfo) => {
@@ -58,8 +59,13 @@ export function useChatEvents({
       } else {
         markGroupRead(targetGroup)
       }
+      const now = Date.now()
+      if (now - lastGroupsRefreshAtRef.current > 800) {
+        lastGroupsRefreshAtRef.current = now
+        void refreshGroups()
+      }
     },
-    [activeGroupId, incrementUnread, markGroupRead, pushPost, pushComment, upsertPublishedMessage],
+    [activeGroupId, incrementUnread, markGroupRead, pushPost, pushComment, upsertPublishedMessage, refreshGroups],
   )
 
   const handleGroupEpoch = useCallback(

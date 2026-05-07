@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -34,10 +35,16 @@ type MessageInfo struct {
 
 // GroupInfo is a summary of a joined group returned to the frontend.
 type GroupInfo struct {
-	GroupID   string `json:"group_id"`
-	Epoch     uint64 `json:"epoch"`
-	MyRole    string `json:"my_role"`
-	GroupType string `json:"group_type"`
+	GroupID            string `json:"group_id"`
+	Epoch              uint64 `json:"epoch"`
+	MyRole             string `json:"my_role"`
+	GroupType          string `json:"group_type"`
+	ConversationTitle  string `json:"conversation_title"`
+	ConversationSub    string `json:"conversation_subtitle,omitempty"`
+	ConversationAvatar string `json:"conversation_avatar_type"`
+	CounterpartyPeerID string `json:"counterparty_peer_id,omitempty"`
+	IsCounterpartyOn   bool   `json:"is_counterparty_online"`
+	LastActivityAt     int64  `json:"last_activity_at"`
 }
 
 // MemberInfo describes a peer in the coordination active view with liveness.
@@ -58,10 +65,17 @@ func normalizeGroupTypeRuntime(groupType string) (string, error) {
 	if normalized == "" {
 		return "channel", nil
 	}
-	if normalized != "channel" && normalized != "dm" {
-		return "", fmt.Errorf("invalid group type %q: must be one of [channel, dm]", groupType)
+	if normalized != "channel" && normalized != "dm" && normalized != "group" {
+		return "", fmt.Errorf("invalid group type %q: must be one of [channel, group, dm]", groupType)
 	}
 	return normalized, nil
+}
+
+func canonicalDMGroupID(peerA, peerB string) string {
+	ids := []string{strings.TrimSpace(peerA), strings.TrimSpace(peerB)}
+	sort.Strings(ids)
+	sum := sha256.Sum256([]byte(ids[0] + ":" + ids[1]))
+	return "dm-" + hex.EncodeToString(sum[:8])
 }
 
 // ─── Group chat operations ───────────────────────────────────────────────────
@@ -158,6 +172,67 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	return nil
 }
 
+// StartDirectMessage creates or reuses a deterministic DM conversation for local peer and target peer.
+func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return "", fmt.Errorf("peer ID is required")
+	}
+	if err := r.ensureSessionActive(); err != nil {
+		return "", err
+	}
+	targetID, err := peer.Decode(peerID)
+	if err != nil {
+		return "", fmt.Errorf("invalid peer ID %q: %w", peerID, err)
+	}
+
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	r.mu.RUnlock()
+	if node == nil || database == nil {
+		return "", fmt.Errorf("runtime not initialized")
+	}
+	if targetID == node.Host.ID() {
+		return "", fmt.Errorf("cannot create direct message with yourself")
+	}
+	groupID := canonicalDMGroupID(node.Host.ID().String(), targetID.String())
+
+	joined, err := database.HasGroup(groupID)
+	if err != nil {
+		return "", err
+	}
+	if !joined {
+		if err := r.CreateGroupChat(groupID, "dm"); err != nil && !strings.Contains(err.Error(), "already in group") {
+			return "", err
+		}
+	}
+
+	r.mu.RLock()
+	coord := r.coordinators[groupID]
+	r.mu.RUnlock()
+	if coord != nil {
+		for _, member := range coord.ActiveMembers() {
+			if member.String() == targetID.String() {
+				return groupID, nil
+			}
+		}
+	}
+
+	members, err := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+	if err == nil {
+		for _, rec := range members {
+			if rec.PeerID == targetID.String() {
+				return groupID, nil
+			}
+		}
+	}
+	if err := r.InvitePeerToGroup(targetID.String(), groupID); err != nil {
+		return "", err
+	}
+	return groupID, nil
+}
+
 // GetGroups returns all groups the local node has joined.
 func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 	if r.coordStorage == nil {
@@ -169,13 +244,82 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 		return nil, err
 	}
 
+	r.mu.RLock()
+	database := r.db
+	node := r.node
+	tr := r.transport
+	r.mu.RUnlock()
+
+	localPeerID := ""
+	if node != nil {
+		localPeerID = node.Host.ID().String()
+	}
+	if localPeerID == "" {
+		if info, err := r.GetOnboardingInfo(); err == nil && info != nil {
+			localPeerID = strings.TrimSpace(info.PeerID)
+		}
+	}
+	online := map[string]struct{}{}
+	if tr != nil {
+		for _, pid := range tr.ConnectedPeers() {
+			online[pid.String()] = struct{}{}
+		}
+	}
+	if node != nil {
+		online[node.Host.ID().String()] = struct{}{}
+	}
+
 	result := make([]GroupInfo, len(records))
-	for i, r := range records {
+	for i, rec := range records {
+		normalizedType, _ := normalizeGroupTypeRuntime(rec.GroupType)
+		title := rec.GroupID
+		subtitle := ""
+		counterpartyPeerID := ""
+		avatarType := normalizedType
+		isCounterpartyOnline := false
+
+		if normalizedType == "dm" && database != nil {
+			title = ""
+			members, err := database.ListGroupMembers(rec.GroupID, store.GroupMemberStatusActive)
+			if err == nil {
+				for _, m := range members {
+					if strings.TrimSpace(m.PeerID) == "" {
+						continue
+					}
+					if m.PeerID == localPeerID {
+						continue
+					}
+					counterpartyPeerID = m.PeerID
+					displayName := strings.TrimSpace(m.DisplayName)
+					if displayName == "" {
+						displayName = r.resolveDisplayNameForPeer(counterpartyPeerID)
+					}
+					if displayName != "" {
+						title = displayName
+					}
+					subtitle = counterpartyPeerID
+					_, isCounterpartyOnline = online[counterpartyPeerID]
+					break
+				}
+			}
+		}
+
+		var lastActivityAt int64
+		if msgs, err := r.coordStorage.GetMessagesPaginated(rec.GroupID, 1, 0); err == nil && len(msgs) > 0 {
+			lastActivityAt = msgs[0].Timestamp.WallTimeMs
+		}
+
 		result[i] = GroupInfo{
-			GroupID:   r.GroupID,
-			Epoch:     r.Epoch,
-			MyRole:    string(r.MyRole),
-			GroupType: r.GroupType,
+			GroupID:            rec.GroupID,
+			Epoch:              rec.Epoch,
+			MyRole:             string(rec.MyRole),
+			GroupType:          normalizedType,
+			ConversationTitle:  title,
+			ConversationSub:    subtitle,
+			ConversationAvatar: avatarType,
+			CounterpartyPeerID: counterpartyPeerID,
+			IsCounterpartyOn:   isCounterpartyOnline,
+			LastActivityAt:     lastActivityAt,
 		}
 	}
 	return result, nil
@@ -222,6 +366,22 @@ func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex strin
 	coord, ok := r.coordinators[groupID]
 	if !ok {
 		return "", fmt.Errorf("not in group %q", groupID)
+	}
+	if rec, recErr := r.coordStorage.GetGroupRecord(groupID); recErr == nil {
+		if normalized, normErr := normalizeGroupTypeRuntime(rec.GroupType); normErr == nil && normalized == "dm" {
+			members, listErr := r.db.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+			if listErr == nil {
+				activeCount := 0
+				for _, member := range members {
+					if strings.TrimSpace(member.PeerID) != "" {
+						activeCount++
+					}
+				}
+				if activeCount >= 2 {
+					return "", fmt.Errorf("direct message already has two members")
+				}
+			}
+		}
 	}
 
 	welcome, err := coord.AddMember(peer.ID(newMemberPeerID), raw)

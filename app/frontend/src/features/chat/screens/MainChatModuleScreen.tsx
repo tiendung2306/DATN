@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AppShell from '../../../components/layout/AppShell'
 import MainSidebar from '../../../components/layout/MainSidebar'
+import WorkspaceRail, { WorkspaceModule } from '../../../components/layout/WorkspaceRail'
 import ChatView from '../../../components/chat/ChatView'
 import RoomPanel from '../../../components/chat/RoomPanel'
 import { useChatRuntime } from '../hooks/useChatRuntime'
@@ -10,14 +11,28 @@ import InvitesScreen from '../../invites/screens/InvitesScreen'
 import SettingsScreen from '../../settings/screens/SettingsScreen'
 import AdminPanelScreen from '../../admin/screens/AdminPanelScreen'
 import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
+import { usePendingInvites } from '../../invites/hooks/usePendingInvites'
+import { getConversationKind } from '../../../lib/chatModel'
 
 interface MainChatModuleScreenProps {
   isAdmin: boolean
 }
 
 export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenProps) {
-  const [activeModule, setActiveModule] = useState<'chat' | 'invites' | 'settings' | 'admin'>('chat')
-  const [detailsOpen, setDetailsOpen] = useState(true)
+  const [activeModule, setActiveModule] = useState<WorkspaceModule>('chat')
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const { pending, refresh: refreshPendingInvites, accept, reject, busyId } = usePendingInvites()
+
+  const handleAcceptInvite = async (id: string) => {
+    await accept(id)
+    await refreshGroups()
+  }
+
+  const handleRejectInvite = async (id: string) => {
+    await reject(id)
+    await refreshGroups()
+  }
+
   const {
     displayName,
     groups,
@@ -61,13 +76,26 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
   } = useChatActions({ activeGroupId, localPeerId, refreshGroups, setActiveGroupId })
 
   const activeGroup = groups.find((g) => g.group_id === activeGroupId)
-  const isDM = activeGroup?.group_type === 'dm'
+  const activeKind = getConversationKind(activeGroup)
+  const usesMessageStream = activeKind === 'dm' || activeKind === 'group'
+
+  useEffect(() => {
+    if (activeModule !== 'chat' && detailsOpen) {
+      setDetailsOpen(false)
+    }
+  }, [activeModule, detailsOpen])
 
   useRuntimeEventStream({
     onEvent: async (event, payload, hasGap) => {
       const groupId = typeof payload.group_id === 'string' ? payload.group_id : ''
+      const isInviteEvent =
+        event.topic === 'invite:received' || event.topic === 'invite:accepted' || event.topic === 'invite:rejected'
       if (hasGap || event.topic === 'group:joined' || event.topic === 'group:left') {
         await refreshGroups()
+        await refreshPendingInvites()
+      }
+      if (isInviteEvent) {
+        await refreshPendingInvites()
       }
       if (event.topic === 'node:status' || event.topic === 'p2p:status' || hasGap) {
         await refreshNodeStatus()
@@ -84,6 +112,12 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
       subtitle={isAdmin ? 'Admin capability enabled' : 'Authorized device'}
     >
       <div className="flex h-full w-full">
+        <WorkspaceRail
+          activeModule={activeModule}
+          onSelectModule={setActiveModule}
+          isAdmin={isAdmin}
+          pendingInviteCount={pending.length}
+        />
         <MainSidebar
           displayName={displayName}
           localPeerId={localPeerId}
@@ -95,16 +129,14 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           creatingGroup={creatingGroup}
           onCreateGroupWithDetails={handleCreateGroupWithDetails}
           onSelectGroup={handleSelectGroup}
-          activeModule={activeModule}
-          onSelectModule={setActiveModule}
-          isAdmin={isAdmin}
+          showWorkspaceLists={activeModule === 'chat'}
         />
         {activeModule === 'chat' ? (
           <ChatView
             activeGroupId={activeGroupId}
             localPeerId={localPeerId}
             groups={groups}
-            messages={isDM ? activeMessages : activePosts}
+            messages={usesMessageStream ? activeMessages : activePosts}
             loadingMessages={loadingMessages}
             composingMessage={composingMessage}
             sending={sending}
@@ -115,9 +147,16 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((v) => !v)}
             activeGroupMembers={activeGroupMembers}
+            pendingInviteCount={pending.length}
+            pendingInvites={pending}
+            inviteBusyId={busyId}
+            activeKind={activeKind}
+            onAcceptInvite={handleAcceptInvite}
+            onRejectInvite={handleRejectInvite}
+            onRefreshPendingInvites={refreshPendingInvites}
             onLoadMore={async () => {
               if (activeGroupId) {
-                if (isDM) {
+                if (usesMessageStream) {
                   await loadMoreMessages(activeGroupId)
                 } else {
                   await loadMorePosts(activeGroupId)
@@ -132,9 +171,16 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             }}
           />
         ) : null}
-        {activeModule === 'invites' ? (
+        {activeModule === 'activity' ? (
           <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">
-            <InvitesScreen activeGroupId={activeGroupId} />
+            <InvitesScreen
+              activeGroupId={activeGroupId}
+              pendingInvites={pending}
+              busyInviteId={busyId}
+              onAcceptInvite={handleAcceptInvite}
+              onRejectInvite={handleRejectInvite}
+              onRefreshPendingInvites={refreshPendingInvites}
+            />
           </section>
         ) : null}
         {activeModule === 'settings' ? (
@@ -147,13 +193,12 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             {isAdmin ? <AdminPanelScreen /> : <p className="p-4 text-sm text-slate-400">Admin mode required.</p>}
           </section>
         ) : null}
-        {activeModule === 'chat' ? (
+        {activeModule === 'chat' && detailsOpen ? (
           <RoomPanel
             activeGroupId={activeGroupId}
-            isAdmin={isAdmin}
+            activeKind={activeKind}
             peers={activeGroupMembers}
-            collapsed={!detailsOpen}
-            onToggleCollapsed={() => setDetailsOpen((v) => !v)}
+            onClose={() => setDetailsOpen(false)}
             setActiveGroupId={setActiveGroupId}
             refreshGroups={refreshGroups}
           />

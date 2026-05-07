@@ -3,26 +3,25 @@ import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
-import { ChevronRight, Shield, Users } from 'lucide-react'
+import { LogOut, Shield, UserPlus, Users, X } from 'lucide-react'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import AddMemberModal from '../../features/chat/components/AddMemberModal'
+import { ConversationKind } from '../../lib/chatModel'
 
 interface RoomPanelProps {
   activeGroupId: string | null
-  isAdmin: boolean
+  activeKind: ConversationKind
   peers: service.MemberInfo[]
-  collapsed: boolean
-  onToggleCollapsed: () => void
+  onClose: () => void
   setActiveGroupId?: (id: string | null) => void
   refreshGroups?: () => Promise<void>
 }
 
 export default function RoomPanel({
   activeGroupId,
-  isAdmin,
+  activeKind,
   peers,
-  collapsed,
-  onToggleCollapsed,
+  onClose,
   setActiveGroupId,
   refreshGroups,
 }: RoomPanelProps) {
@@ -39,41 +38,29 @@ export default function RoomPanel({
       if (setActiveGroupId) setActiveGroupId(null)
       if (refreshGroups) await refreshGroups()
     } catch (e) {
-      console.error("Failed to leave group", e)
-      alert("Lỗi khi rời nhóm: " + e)
+      console.error('Failed to leave group', e)
+      alert('Lỗi khi rời nhóm: ' + e)
     } finally {
       setIsLeaving(false)
     }
   }
-  if (collapsed) {
-    return (
-      <aside className="flex w-12 border-l border-slate-800 bg-slate-950">
-        <button
-          type="button"
-          aria-label="Open group details"
-          className="m-2 flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-          onClick={onToggleCollapsed}
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </aside>
-    )
-  }
 
   return (
-    <aside className="flex w-80 flex-col border-l border-slate-800 bg-slate-950">
+    <aside className="flex w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-950">
       <div className="mb-4 flex items-center justify-between border-b border-slate-800 px-4 py-4">
         <div>
-          <p className="text-sm font-semibold text-slate-100">Group details</p>
+          <p className="text-sm font-semibold text-slate-100">
+            {activeKind === 'dm' ? 'Direct message details' : 'Group details'}
+          </p>
           <p className="text-xs text-slate-400">{activeGroupId || 'No group selected'}</p>
         </div>
         <button
           type="button"
-          aria-label="Collapse group details"
+          aria-label="Đóng chi tiết nhóm"
           className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100"
-          onClick={onToggleCollapsed}
+          onClick={onClose}
         >
-          <ChevronRight className="h-4 w-4 rotate-180" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
@@ -110,22 +97,26 @@ export default function RoomPanel({
       <div className="mt-auto space-y-2 border-t border-slate-800 p-4">
         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <Shield className="h-3.5 w-3.5" />
-          <span>Group actions</span>
+          <span>{activeKind === 'dm' ? 'DM actions' : 'Group actions'}</span>
         </div>
-        <Button 
-          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700" 
-          variant="secondary" 
-          disabled={!activeGroupId}
-          onClick={() => setIsAddModalOpen(true)}
-        >
-          Add Member
-        </Button>
-        <Button 
-          className="w-full text-slate-400 hover:text-red-400 hover:bg-red-500/10" 
-          variant="ghost" 
+        {activeKind !== 'dm' ? (
+          <Button
+            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 gap-2"
+            variant="secondary"
+            disabled={!activeGroupId}
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Member
+          </Button>
+        ) : null}
+        <Button
+          className="w-full text-slate-400 hover:text-red-400 hover:bg-red-500/10 gap-2"
+          variant="ghost"
           disabled={!activeGroupId || isLeaving}
-          onClick={handleLeaveGroup}
+          onClick={() => void handleLeaveGroup()}
         >
+          <LogOut className="h-4 w-4" />
           {isLeaving ? 'Leaving...' : 'Leave Group'}
         </Button>
       </div>

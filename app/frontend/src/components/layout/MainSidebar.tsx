@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { service } from '../../../wailsjs/go/models'
-import { shortPeerId } from '../../lib/chatModel'
+import { getConversationKind, shortPeerId, SidebarConversationItem } from '../../lib/chatModel'
 import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
 import { NetworkConnectionState } from '../../stores/useNetworkStore'
-import { Hash, MessageSquare, Plus, Settings, Shield, UserPlus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import CreateGroupModal from '../../features/chat/components/CreateGroupModal'
+import ChatListAvatar from '../chat/ChatListAvatar'
+import { useChatStore } from '../../stores/useChatStore'
 
 interface MainSidebarProps {
   displayName: string
@@ -16,11 +18,9 @@ interface MainSidebarProps {
   unreadByGroup: Record<string, number>
   peerCount: number
   creatingGroup: boolean
-  onCreateGroupWithDetails: (name: string, type: 'channel' | 'dm', members: string[]) => Promise<void>
+  onCreateGroupWithDetails: (name: string, type: 'channel' | 'group' | 'dm', members: string[]) => Promise<void>
   onSelectGroup: (groupId: string) => void
-  activeModule: 'chat' | 'invites' | 'settings' | 'admin'
-  onSelectModule: (module: 'chat' | 'invites' | 'settings' | 'admin') => void
-  isAdmin: boolean
+  showWorkspaceLists: boolean
 }
 
 export default function MainSidebar({
@@ -34,19 +34,95 @@ export default function MainSidebar({
   creatingGroup,
   onCreateGroupWithDetails,
   onSelectGroup,
-  activeModule,
-  onSelectModule,
-  isAdmin,
+  showWorkspaceLists,
 }: MainSidebarProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isChannelsExpanded, setIsChannelsExpanded] = useState(true)
+  const [isConversationsExpanded, setIsConversationsExpanded] = useState(true)
   const getDisplayName = useContactStore((s) => s.getDisplayName)
-  const modules = [
-    { id: 'chat' as const, label: 'Chats', icon: MessageSquare },
-    { id: 'invites' as const, label: 'Loi moi', icon: UserPlus },
-    ...(isAdmin ? [{ id: 'admin' as const, label: 'Quan tri', icon: Shield }] : []),
-    { id: 'settings' as const, label: 'Cai dat', icon: Settings },
-  ]
-  const showChatGroups = activeModule === 'chat'
+  const messagesByGroup = useChatStore((s) => s.messagesByGroup)
+  const postsByGroup = useChatStore((s) => s.postsByGroup)
+
+  useEffect(() => {
+    try {
+      const channelsPref = localStorage.getItem('sidebar.channels.expanded')
+      const conversationsPref = localStorage.getItem('sidebar.conversations.expanded')
+      if (channelsPref !== null) setIsChannelsExpanded(channelsPref === 'true')
+      if (conversationsPref !== null) setIsConversationsExpanded(conversationsPref === 'true')
+    } catch {
+      // ignore persistence read failure
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebar.channels.expanded', String(isChannelsExpanded))
+      localStorage.setItem('sidebar.conversations.expanded', String(isConversationsExpanded))
+    } catch {
+      // ignore persistence write failure
+    }
+  }, [isChannelsExpanded, isConversationsExpanded])
+
+  const getLastActivityAt = (groupId: string): number => {
+    const messages = messagesByGroup[groupId] ?? []
+    const posts = postsByGroup[groupId] ?? []
+    const msgTs = messages.length > 0 ? messages[messages.length - 1]?.timestamp ?? 0 : 0
+    const postTs = posts.length > 0 ? posts[posts.length - 1]?.timestamp ?? 0 : 0
+    return Math.max(msgTs, postTs, 0)
+  }
+
+  const channelItems = useMemo(() => {
+    const items: SidebarConversationItem[] = groups
+      .filter((g) => getConversationKind(g) === 'channel')
+      .map((g) => ({
+        id: g.group_id,
+        kind: 'channel',
+        title: String((g as any).conversation_title || g.group_id),
+        unreadCount: unreadByGroup[g.group_id] ?? 0,
+        lastActivityAt: Math.max(Number((g as any).last_activity_at || 0), getLastActivityAt(g.group_id)),
+        isChannel: true,
+      }))
+    return items.sort((a, b) => {
+      if (b.lastActivityAt !== a.lastActivityAt) return b.lastActivityAt - a.lastActivityAt
+      if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount
+      return a.title.localeCompare(b.title)
+    })
+  }, [groups, unreadByGroup, messagesByGroup, postsByGroup])
+
+  const conversationItems = useMemo(() => {
+    const items: SidebarConversationItem[] = groups
+      .filter((g) => {
+        const kind = getConversationKind(g)
+        return kind === 'dm' || kind === 'group'
+      })
+      .map((g) => {
+        const kind = getConversationKind(g)
+        const dmPeerId = kind === 'dm' ? String((g as any).counterparty_peer_id || '') : ''
+        const backendTitle = String((g as any).conversation_title || '')
+        const hasResolvedDmTitle = kind === 'dm' ? backendTitle.length > 0 && backendTitle !== g.group_id : true
+        const storeActivity = getLastActivityAt(g.group_id)
+        const backendActivity = Number((g as any).last_activity_at || 0)
+        return {
+          id: g.group_id,
+          kind,
+          title:
+            hasResolvedDmTitle && backendTitle
+              ? backendTitle
+              : kind === 'dm'
+                ? getDisplayName(dmPeerId || g.group_id)
+                : g.group_id,
+          unreadCount: unreadByGroup[g.group_id] ?? 0,
+          isOnline: kind === 'dm' ? Boolean((g as any).is_counterparty_online) : undefined,
+          lastActivityAt: Math.max(backendActivity, storeActivity),
+          isChannel: false,
+        } satisfies SidebarConversationItem
+      })
+    return items.sort((a, b) => {
+      if (b.lastActivityAt !== a.lastActivityAt) return b.lastActivityAt - a.lastActivityAt
+      if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount
+      return a.title.localeCompare(b.title)
+    })
+  }, [groups, unreadByGroup, getDisplayName, messagesByGroup, postsByGroup])
 
   return (
     <aside className="flex w-80 flex-col border-r border-slate-800 bg-slate-900">
@@ -65,75 +141,59 @@ export default function MainSidebar({
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 border-b border-slate-800 px-4 py-3">
-        {modules.map((module) => {
-          const Icon = module.icon
-          const active = activeModule === module.id
-          return (
-            <button
-              key={module.id}
-              type="button"
-              onClick={() => onSelectModule(module.id)}
-              className={`flex items-center gap-2 rounded-md px-2 py-2 text-xs font-medium transition ${
-                active
-                  ? 'bg-slate-800 text-emerald-300'
-                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-100'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {module.label}
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="px-4 py-3 border-b border-slate-800">
+      <div className="px-4 py-3 border-b border-slate-800 space-y-2">
         <Button
           onClick={() => setIsCreateModalOpen(true)}
-          disabled={!showChatGroups || creatingGroup}
-          className="w-full h-9 bg-emerald-500 hover:bg-emerald-400 text-slate-900 text-xs font-semibold gap-2 flex items-center justify-center rounded-md transition duration-200"
+          disabled={!showWorkspaceLists || creatingGroup}
+          className="w-full h-9 bg-violet-600 hover:bg-violet-500 text-slate-50 text-xs font-semibold gap-2 flex items-center justify-center rounded-md transition duration-200"
         >
           <Plus className="h-4 w-4" />
-          Tạo nhóm mới
+          Tạo hội thoại mới
         </Button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 space-y-4">
-        {/* GROUP CHANNELS */}
         <div>
-          <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
-            GROUP CHANNELS
-          </p>
-          <div className="mt-2 space-y-1">
-            {!showChatGroups ? (
+          <button
+            type="button"
+            className="w-full px-1 text-left text-[11px] font-semibold tracking-[0.16em] text-slate-500 flex items-center justify-between"
+            aria-expanded={isChannelsExpanded}
+            aria-controls="channels-list"
+            onClick={() => setIsChannelsExpanded((v) => !v)}
+          >
+            <span>CHANNELS</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition ${isChannelsExpanded ? '' : '-rotate-90'}`} />
+          </button>
+          <div id="channels-list" className={`mt-2 space-y-1 ${isChannelsExpanded ? '' : 'hidden'}`}>
+            {!showWorkspaceLists ? (
               <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
-                Switch to Chats
+                Chuyển sang Trò chuyện
               </div>
-            ) : groups.filter((g) => (g as any).group_type !== 'dm').length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-600 italic">No channels</div>
+            ) : channelItems.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có kênh</div>
             ) : (
-              groups
-                .filter((g) => (g as any).group_type !== 'dm')
-                .map((group) => {
-                  const active = group.group_id === activeGroupId
-                  const unread = unreadByGroup[group.group_id] ?? 0
+              channelItems.map((item) => {
+                  const active = item.id === activeGroupId
                   return (
                     <button
-                      key={group.group_id}
-                      onClick={() => onSelectGroup(group.group_id)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelectGroup(item.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
                         active
                           ? 'bg-slate-800 text-slate-100'
                           : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                       }`}
                     >
-                      <div className="min-w-0 flex items-center gap-2">
-                        <Hash className="h-3.5 w-3.5 opacity-80 text-emerald-400" />
-                        <p className="truncate">{group.group_id}</p>
+                      <div className="min-w-0 flex flex-1 items-center gap-2">
+                        <p className="truncate">
+                          <span className="text-emerald-400/90"># </span>
+                          {item.title}
+                        </p>
                       </div>
-                      {unread > 0 && (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
-                          {unread}
+                      {item.unreadCount > 0 && (
+                        <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                          {item.unreadCount}
                         </span>
                       )}
                     </button>
@@ -143,41 +203,52 @@ export default function MainSidebar({
           </div>
         </div>
 
-        {/* DIRECT MESSAGES */}
         <div>
-          <p className="px-1 text-[11px] font-semibold tracking-[0.16em] text-slate-500">
-            DIRECT MESSAGES
-          </p>
-          <div className="mt-2 space-y-1">
-            {!showChatGroups ? (
+          <button
+            type="button"
+            className="w-full px-1 text-left text-[11px] font-semibold tracking-[0.16em] text-slate-500 flex items-center justify-between"
+            aria-expanded={isConversationsExpanded}
+            aria-controls="conversations-list"
+            onClick={() => setIsConversationsExpanded((v) => !v)}
+          >
+            <span>CONVERSATIONS</span>
+            <ChevronDown className={`h-3.5 w-3.5 transition ${isConversationsExpanded ? '' : '-rotate-90'}`} />
+          </button>
+          <div id="conversations-list" className={`mt-2 space-y-1 ${isConversationsExpanded ? '' : 'hidden'}`}>
+            {!showWorkspaceLists ? (
               <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
-                Switch to Chats
+                Chuyển sang Trò chuyện
               </div>
-            ) : groups.filter((g) => (g as any).group_type === 'dm').length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-600 italic">No direct messages</div>
+            ) : conversationItems.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có hội thoại</div>
             ) : (
-              groups
-                .filter((g) => (g as any).group_type === 'dm')
-                .map((group) => {
-                  const active = group.group_id === activeGroupId
-                  const unread = unreadByGroup[group.group_id] ?? 0
+              conversationItems.map((item) => {
+                  const active = item.id === activeGroupId
                   return (
                     <button
-                      key={group.group_id}
-                      onClick={() => onSelectGroup(group.group_id)}
-                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelectGroup(item.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
                         active
                           ? 'bg-slate-800 text-slate-100'
                           : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                       }`}
                     >
-                      <div className="min-w-0 flex items-center gap-2">
-                        <MessageSquare className="h-3.5 w-3.5 opacity-80 text-sky-400" />
-                        <p className="truncate">{getDisplayName(group.group_id)}</p>
+                      <div className="min-w-0 flex flex-1 items-center gap-2">
+                        <ChatListAvatar variant={item.kind === 'dm' ? 'dm' : 'channel'} displayName={item.title} />
+                        <p className="truncate">{item.title}</p>
                       </div>
-                      {unread > 0 && (
-                        <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
-                          {unread}
+                      {item.kind === 'dm' ? (
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${item.isOnline ? 'bg-emerald-400' : 'bg-slate-500'}`}
+                          title={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
+                          aria-label={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
+                        />
+                      ) : null}
+                      {item.unreadCount > 0 && (
+                        <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                          {item.unreadCount}
                         </span>
                       )}
                     </button>

@@ -13,11 +13,12 @@ use mls_service::{
     AddMembersRequest, AddMembersResponse, CreateCommitRequest, CreateCommitResponse,
     CreateGroupRequest, CreateGroupResponse, CreateProposalRequest, CreateProposalResponse,
     DecryptMessageRequest, DecryptMessageResponse, EncryptMessageRequest, EncryptMessageResponse,
-    ExportIdentityRequest, ExportIdentityResponse, ExportSecretRequest, ExportSecretResponse,
-    ExternalJoinRequest, ExternalJoinResponse, GenerateIdentityRequest, GenerateIdentityResponse,
-    GenerateKeyPackageRequest, GenerateKeyPackageResponse, ImportIdentityRequest,
-    ImportIdentityResponse, PingRequest, PingResponse, ProcessCommitRequest, ProcessCommitResponse,
-    ProcessWelcomeRequest, ProcessWelcomeResponse,
+    ExportGroupInfoRequest, ExportGroupInfoResponse, ExportIdentityRequest, ExportIdentityResponse,
+    ExportSecretRequest, ExportSecretResponse, ExternalJoinRequest, ExternalJoinResponse,
+    GenerateIdentityRequest, GenerateIdentityResponse, GenerateKeyPackageRequest,
+    GenerateKeyPackageResponse, ImportIdentityRequest, ImportIdentityResponse, PingRequest,
+    PingResponse, ProcessCommitRequest, ProcessCommitResponse, ProcessWelcomeRequest,
+    ProcessWelcomeResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -263,6 +264,20 @@ impl MlsCryptoService for MyMlsService {
             })),
             Err(e) => {
                 eprintln!("add_members error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn export_group_info(
+        &self,
+        request: Request<ExportGroupInfoRequest>,
+    ) -> Result<Response<ExportGroupInfoResponse>, Status> {
+        let req = request.into_inner();
+        match mls::export_group_info(&req.group_state, req.with_ratchet_tree) {
+            Ok(group_info) => Ok(Response::new(ExportGroupInfoResponse { group_info })),
+            Err(e) => {
+                eprintln!("export_group_info error: {e}");
                 Err(Status::internal(e))
             }
         }

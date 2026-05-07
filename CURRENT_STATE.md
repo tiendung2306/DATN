@@ -16,6 +16,26 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2A: Rust foundation
+
+- **Real OpenMLS External Commit (replaces stub):**
+  - `crypto-engine/src/mls.rs::external_join` đã được rewrite thật bằng `MlsGroup::external_commit_builder()` chain (`build_group → load_psks → build → finalize`). Không còn placeholder bytes.
+  - Wire format: input là TLS-serialized `MlsMessageOut` containing `MlsMessageBodyIn::GroupInfo(VerifiableGroupInfo)`; output gồm `(group_state, commit_bytes, tree_hash)` — proto fields giữ nguyên, không breaking change.
+- **New RPC `ExportGroupInfo`:**
+  - Proto: `rpc ExportGroupInfo(ExportGroupInfoRequest) returns (ExportGroupInfoResponse)` — `proto/mls_service.proto`.
+  - Rust: `mls::export_group_info(group_state, with_ratchet_tree)` wraps `MlsGroup::export_group_info` (openmls 0.8.0 native API).
+  - Go: `coordination.MLSEngine.ExportGroupInfo(...)` interface + `GrpcMLSEngine` adapter + `MockMLSEngine` test impl.
+- **Forward Secrecy auto-handled by OpenMLS (CRITICAL design note):**
+  - Khi node B (nhánh thua) external-join vào nhánh thắng và B đã có leaf cũ trong nhánh thắng (cùng signature key), `ExternalCommitBuilder` **tự động chèn `Remove` proposal** cho leaf cũ trong cùng commit (xem `openmls-0.8.0/src/group/mls_group/commit_builder/external_commits.rs:249-255`).
+  - Hệ quả: Forward Secrecy của leaf cũ được crypto-shredded nguyên tử trong external commit. Coordination Layer (Go) **KHÔNG cần** tách thành hai commits riêng (External Join + Remove).
+- **Versioning:** `openmls = "0.8.0"` giữ nguyên (KHÔNG bump). Cả `external_commit_builder` và `export_group_info` đều có sẵn ở 0.8.0.
+- **Tests:** `cd crypto-engine && cargo test` — 11/11 PASS, gồm:
+  - `test_export_group_info_roundtrip`: export GroupInfo nhiều lần với cùng state → idempotent.
+  - `test_external_join_fork_heal_happy_path`: A tạo nhóm → A export GroupInfo → B external join → A process commit → B encrypt → A decrypt thành công ở epoch mới.
+  - `test_external_join_rejects_invalid_group_info`: malformed bytes bị reject ngay tại deserialize.
+- **Validation:** `cd app && go vet ./...; go test ./...; go build ./...` — toàn bộ PASS.
+- **Phạm vi Sprint 2A:** chỉ Rust + Proto + Go bridge + Mock. **Không** có coordination/service layer logic — đó là Sprint 2B–2G (auto-broadcast Announce, GroupInfo wire protocol, heal orchestrator, Autonomous Replay, persistence).
+
 ### Latest Delta (2026-05-02) ✅
 
 - **Message length limits (backend source of truth):** `app/service/message_limits.go` defines DM (4000 runes) and channel title/body/comment caps; `SendGroupMessage` validates DM and channel outbound text before MLS encrypt. Sentinel `ErrTextExceedsLimit` / `TEXT_TOO_LONG` for over-limit; empty-after-trim returns `ERR_MESSAGE_EMPTY`-style error. Tests in `message_limits_test.go`.
@@ -497,7 +517,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 
 **SQLite + transport:** `app/adapter/store` (`db.go`, `coordination_storage.go` — 8 tests store), `app/adapter/p2p/transport_adapter.go` (LibP2PTransport).
 
-**Rust:** `crypto-engine/` — OpenMLS stateless qua gRPC (xem `crypto-engine/src/mls.rs`).
+**Rust:** `crypto-engine/` — OpenMLS stateless qua gRPC (xem `crypto-engine/src/mls.rs`). `external_join` đã là implementation thật (Sprint 2A — 2026-05-07), `export_group_info` đã có (RPC mới).
 
 **Wails + FE:** Methods trên `app/service.Runtime` (tách file: `group.go`, `messaging.go`, `invite.go`, …). Bindings TS: `frontend/wailsjs/go/service/Runtime.*`, models namespace `service`. UI: `frontend/src/**/*.tsx` (import Runtime, không dùng `go/main/App`).
 
@@ -640,18 +660,22 @@ Hệ thống đã có:
 
 **Tiếp theo (ưu tiên):**
 
-1.  **Frontend FE-4 — Group & Invite Product Flows:**
+1.  **Fork Healing Orchestration (Sprint 2B–2G — đang tiếp tục sau 2A):**
+    - **2B:** Auto-broadcast `MsgAnnounce` trong `periodicLoop` (hiện chỉ heartbeat); thêm `AnnounceInterval` vào `CoordinatorConfig`; trigger heal goroutine khi `NeedExternalJoin==true`.
+    - **2C:** Wire protocol `/app/group-info/1.0.0` (request/response, copy pattern offline-sync); handler ở `app/service/group_info_sync.go`.
+    - **2D:** Heal orchestrator — call `ExportGroupInfo` (winner) / `ExternalJoin` (loser); atomic apply; broadcast external commit; drop+shred old state; reset epochTracker/singleWriter/forkDetector.
+    - **2E:** Autonomous Replay — re-encrypt own `MsgApplication` từ partition window; throttled bằng `CoordinatorConfig.ReplayThrottleMs` (default 100ms, configurable cho Phase 9.2 evaluation).
+    - **2F:** Persistence: bảng `fork_heal_events` + `fork_audit` (retention 30 ngày + 10 records/group); `Runtime.GetForkHealHistory` cho Developer Mode.
+    - **Logging contract (đã chốt):** mỗi step heal pipeline emit `_started` + `_completed`/`_failed` log với `trace_id` + `duration_ms`; aggregate log cuối có breakdown từng step. Phục vụ capture data Phase 9.2.
+
+2.  **Frontend FE-4 — Group & Invite Product Flows:**
     - Group info panel + add member/join code + pending invites + leave/remove UX.
     - Chuẩn hóa action policies theo backend hiện tại (không over-claim capability).
     - Giữ smart/dumb boundary và event cleanup contract.
 
-2.  **Phase 6 — Backend Productization (P1, có thể làm song song frontend):**
-    - Network/bootstrap runtime controls: local multiaddr, validate/set bootstrap, reconnect.
-    - Diagnostics snapshot/export logs cho Developer Mode.
-    - Message status/retry model nếu UI cần failed-message recovery.
-    - Admin issuance history nếu audit table vào scope.
+3.  **Phase 6 P1 còn lại:** developer diagnostics snapshot decision (đã có API, chỉ cần đóng gate).
 
-3.  **Phase 8–9:** file transfer (MLS exporter / swarming), evaluation đa node / partition / báo cáo luận văn.
+4.  **Phase 8–9:** file transfer (MLS exporter / swarming), evaluation đa node / partition / báo cáo luận văn.
 
 **Lưu ý thiết kế quan trọng:**
 *   **KHÔNG DÙNG "smallest hash" nữa** — phương pháp cũ đã bị thay thế bằng Single-Writer Protocol.

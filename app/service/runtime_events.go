@@ -92,6 +92,11 @@ func classifyRuntimeEvent(topic string, payload map[string]interface{}) (string,
 		return "admin_status", ""
 	case "runtime:health", "startup:progress", "startup:error", "app:state_changed":
 		return "runtime_health", ""
+	case "invite:received", "invite:accepted", "invite:rejected":
+		if groupID, _ := payload["group_id"].(string); strings.TrimSpace(groupID) != "" {
+			return "invite:" + groupID, groupID
+		}
+		return "invite", ""
 	default:
 		return topic, ""
 	}

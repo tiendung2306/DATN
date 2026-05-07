@@ -171,7 +171,6 @@ func (d *Database) createTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_stored_messages_post_id
 			ON stored_messages(json_extract(content, '$.post_id')) WHERE json_valid(content);`,
 
-
 		// Phase 7: Local directory caching PeerID -> Display Name.
 		`CREATE TABLE IF NOT EXISTS peer_directory (
 			peer_id      TEXT PRIMARY KEY,
@@ -834,6 +833,27 @@ func (d *Database) SavePendingWelcome(targetPeerID, groupID string, welcomeBytes
 	return nil
 }
 
+// GetAnyPendingWelcomeForGroup returns the latest stored welcome for a
+// (target_peer_id, group_id) pair regardless of delivered flag.
+func (d *Database) GetAnyPendingWelcomeForGroup(targetPeerID, groupID string) ([]byte, error) {
+	var welcome []byte
+	err := d.Conn.QueryRow(
+		`SELECT welcome_bytes
+		 FROM pending_welcomes_out
+		 WHERE target_peer_id = ? AND group_id = ?
+		 ORDER BY id DESC
+		 LIMIT 1`,
+		targetPeerID, groupID,
+	).Scan(&welcome)
+	if err != nil {
+		return nil, err
+	}
+	if len(welcome) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return welcome, nil
+}
+
 // PendingWelcome is one undelivered Welcome record.
 type PendingWelcome struct {
 	ID           int64
@@ -957,6 +977,25 @@ func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType st
 	return nil
 }
 
+// DeleteStoredWelcome removes a stored welcome replica for an invitee+group pair.
+func (d *Database) DeleteStoredWelcome(inviteePeerID, groupID string) error {
+	res, err := d.Conn.Exec(
+		`DELETE FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
+		inviteePeerID, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("DeleteStoredWelcome: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("DeleteStoredWelcome rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // GetStoredWelcome fetches a replicated Welcome for (invitee, group).
 func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, error) {
 	var wb []byte
@@ -1018,6 +1057,8 @@ func normalizeGroupType(groupType string) string {
 	switch strings.TrimSpace(groupType) {
 	case "dm":
 		return "dm"
+	case "group":
+		return "group"
 	case "channel":
 		return "channel"
 	default:
@@ -1089,7 +1130,7 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id, welcome_hash) DO UPDATE SET
 		   group_type = CASE
-		     WHEN excluded.group_type IN ('channel', 'dm') THEN excluded.group_type
+		     WHEN excluded.group_type IN ('channel', 'group', 'dm') THEN excluded.group_type
 		     ELSE pending_invites.group_type
 		   END,
 		   group_name = CASE
@@ -1194,6 +1235,39 @@ func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 	return &inv, nil
 }
 
+func (d *Database) GetLatestPendingInviteByGroup(groupID string) (*PendingInvite, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, sql.ErrNoRows
+	}
+	var inv PendingInvite
+	err := d.Conn.QueryRow(
+		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+		 FROM pending_invites
+		 WHERE group_id = ?
+		 ORDER BY updated_at DESC, received_at DESC
+		 LIMIT 1`,
+		groupID,
+	).Scan(
+		&inv.ID,
+		&inv.GroupID,
+		&inv.GroupType,
+		&inv.GroupName,
+		&inv.InviterPeerID,
+		&inv.WelcomeHash,
+		&inv.WelcomeBytes,
+		&inv.SourcePeerID,
+		&inv.Status,
+		&inv.ReceivedAt,
+		&inv.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	inv.GroupType = normalizeGroupType(inv.GroupType)
+	return &inv, nil
+}
+
 func (d *Database) MarkPendingInviteAccepted(id string) error {
 	return d.markPendingInviteStatus(id, PendingInviteStatusAccepted)
 }
@@ -1222,6 +1296,81 @@ func (d *Database) markPendingInviteStatus(id, status string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func (d *Database) DeletePendingInvite(id string) error {
+	res, err := d.Conn.Exec(`DELETE FROM pending_invites WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("DeletePendingInvite: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("DeletePendingInvite rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *Database) ReopenRejectedInvite(inv *PendingInvite) (string, error) {
+	if inv == nil {
+		return "", fmt.Errorf("ReopenRejectedInvite: invite is nil")
+	}
+	if strings.TrimSpace(inv.GroupID) == "" || len(inv.WelcomeBytes) == 0 {
+		return "", fmt.Errorf("ReopenRejectedInvite: group_id and welcome_bytes are required")
+	}
+	now := time.Now().Unix()
+	welcomeHash := append([]byte(nil), inv.WelcomeHash...)
+	if len(welcomeHash) == 0 {
+		welcomeHash = pendingInviteHash(inv.WelcomeBytes)
+	}
+	newID := strings.TrimSpace(inv.ID)
+	if newID == "" {
+		newID = PendingInviteID(inv.GroupID, inv.WelcomeBytes)
+	}
+	res, err := d.Conn.Exec(
+		`UPDATE pending_invites
+		 SET id = ?,
+		     group_type = ?,
+		     group_name = CASE WHEN ? != '' THEN ? ELSE group_name END,
+		     inviter_peer_id = CASE WHEN ? != '' THEN ? ELSE inviter_peer_id END,
+		     welcome_hash = ?,
+		     welcome_bytes = ?,
+		     source_peer_id = CASE WHEN ? != '' THEN ? ELSE source_peer_id END,
+		     status = ?,
+		     received_at = ?,
+		     updated_at = ?
+		 WHERE group_id = ? AND status = ?
+		   AND updated_at = (
+		     SELECT MAX(updated_at) FROM pending_invites WHERE group_id = ? AND status = ?
+		   )`,
+		newID,
+		normalizeGroupType(inv.GroupType),
+		strings.TrimSpace(inv.GroupName), strings.TrimSpace(inv.GroupName),
+		strings.TrimSpace(inv.InviterPeerID), strings.TrimSpace(inv.InviterPeerID),
+		welcomeHash,
+		inv.WelcomeBytes,
+		strings.TrimSpace(inv.SourcePeerID), strings.TrimSpace(inv.SourcePeerID),
+		PendingInviteStatusPending,
+		now,
+		now,
+		strings.TrimSpace(inv.GroupID),
+		PendingInviteStatusRejected,
+		strings.TrimSpace(inv.GroupID),
+		PendingInviteStatusRejected,
+	)
+	if err != nil {
+		return "", fmt.Errorf("ReopenRejectedInvite: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("ReopenRejectedInvite rows: %w", err)
+	}
+	if n == 0 {
+		return "", sql.ErrNoRows
+	}
+	return newID, nil
 }
 
 func (d *Database) HasGroup(groupID string) (bool, error) {

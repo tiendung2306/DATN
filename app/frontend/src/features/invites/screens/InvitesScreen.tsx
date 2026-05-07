@@ -1,32 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { service } from '../../../../wailsjs/go/models'
+import PendingInvitesPanel from '../components/PendingInvitesPanel'
 
 interface InvitesScreenProps {
   activeGroupId: string | null
+  pendingInvites: service.PendingInviteInfo[]
+  busyInviteId: string | null
+  onAcceptInvite: (id: string) => void | Promise<void>
+  onRejectInvite: (id: string) => void | Promise<void>
+  onRefreshPendingInvites: () => void | Promise<void>
 }
 
-export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
-  const [pending, setPending] = useState<service.PendingInviteInfo[]>([])
+export default function InvitesScreen({
+  activeGroupId,
+  pendingInvites,
+  busyInviteId,
+  onAcceptInvite,
+  onRejectInvite,
+  onRefreshPendingInvites,
+}: InvitesScreenProps) {
   const [joinCode, setJoinCode] = useState('')
   const [invitePeerId, setInvitePeerId] = useState('')
   const [inviteJoinCode, setInviteJoinCode] = useState('')
   const [inviteCodePeerId, setInviteCodePeerId] = useState('')
   const [invitingWithCode, setInvitingWithCode] = useState(false)
-  const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
-
-  const refresh = useCallback(async () => {
-    try {
-      setPending(await runtimeClient.listPendingInvites())
-    } catch (err) {
-      setError(String(err))
-    }
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
 
   const handleGenerateJoinCode = async () => {
     const result = await runtimeClient.generateJoinCode()
@@ -58,37 +57,30 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
     }
   }
 
-  const handleAccept = async (id: string) => {
-    setBusyId(id)
-    try {
-      await runtimeClient.acceptInvite(id)
-      await refresh()
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const handleReject = async (id: string) => {
-    setBusyId(id)
-    try {
-      await runtimeClient.rejectInvite(id)
-      await refresh()
-    } finally {
-      setBusyId(null)
-    }
-  }
-
   return (
     <div className="space-y-6 p-6 max-w-xl text-slate-200">
       <h3 className="text-lg font-bold text-slate-100 tracking-tight">Quản lý lời mời & Kết nối</h3>
-      
+
       {error && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-400">
-          {error}
-        </div>
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-xs text-red-400">{error}</div>
       )}
 
-      {/* 1. Generate Join Code (Alice generates this for Bob) */}
+      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-100">Lời mời vào nhóm đang chờ</h4>
+          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+            Duyệt hoặc từ chối lời mời để tham gia các nhóm chat và channels mới.
+          </p>
+        </div>
+        <PendingInvitesPanel
+          pending={pendingInvites}
+          busyId={busyInviteId}
+          onAccept={(id) => void onAcceptInvite(id)}
+          onReject={(id) => void onRejectInvite(id)}
+          onRefresh={() => void onRefreshPendingInvites()}
+        />
+      </div>
+
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">Mã kết nối của bạn</h4>
@@ -96,9 +88,10 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
             Tạo mã kết nối (KeyPackage) và gửi cho bạn bè để họ có thể thêm bạn vào các kênh thảo luận riêng tư.
           </p>
         </div>
-        <button 
-          className="px-3 py-1.5 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-semibold rounded-lg transition" 
-          onClick={handleGenerateJoinCode}
+        <button
+          type="button"
+          className="px-3 py-1.5 bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs font-semibold rounded-lg transition"
+          onClick={() => void handleGenerateJoinCode()}
         >
           Tạo mã kết nối
         </button>
@@ -110,7 +103,6 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
         )}
       </div>
 
-      {/* 2. Invite Peer by PeerID (Fast-path using Kademlia) */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">Mời thành viên (Qua PeerID)</h4>
@@ -126,9 +118,10 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
             placeholder="Nhập PeerID của thành viên..."
             disabled={!activeGroupId}
           />
-          <button 
-            className="px-4 py-2 bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 text-xs font-semibold rounded-lg transition shrink-0" 
-            onClick={handleInvitePeer} 
+          <button
+            type="button"
+            className="px-4 py-2 bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 text-xs font-semibold rounded-lg transition shrink-0"
+            onClick={() => void handleInvitePeer()}
             disabled={!activeGroupId || !invitePeerId.trim()}
           >
             Mời
@@ -139,7 +132,6 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
         )}
       </div>
 
-      {/* 3. Add Member with manual Join Code */}
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
         <div>
           <h4 className="text-sm font-semibold text-slate-100">Thêm thành viên thủ công (Qua Mã kết nối)</h4>
@@ -164,58 +156,15 @@ export default function InvitesScreen({ activeGroupId }: InvitesScreenProps) {
             disabled={!activeGroupId}
           />
           <div className="flex justify-end">
-            <button 
-              className="px-4 py-2 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold rounded-lg transition" 
-              onClick={handleAddMemberWithCode} 
+            <button
+              type="button"
+              className="px-4 py-2 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50 text-xs font-semibold rounded-lg transition"
+              onClick={() => void handleAddMemberWithCode()}
               disabled={invitingWithCode || !activeGroupId || !inviteJoinCode.trim() || !inviteCodePeerId.trim()}
             >
               {invitingWithCode ? 'Đang thêm...' : 'Xác nhận Thêm'}
             </button>
           </div>
-        </div>
-      </div>
-
-      {/* 4. Pending Invites List */}
-      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-sm font-semibold text-slate-100">Lời mời đang chờ xử lý</h4>
-          <button 
-            className="text-xs text-slate-400 hover:text-emerald-400 transition font-medium" 
-            onClick={refresh}
-          >
-            Làm mới
-          </button>
-        </div>
-        
-        <div className="space-y-2">
-          {pending.length === 0 ? (
-            <p className="text-xs text-slate-500 italic py-2">Không có lời mời nào đang chờ.</p>
-          ) : (
-            pending.map((invite) => (
-              <div key={invite.id} className="rounded-lg bg-slate-950/60 border border-slate-800/80 p-3 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                <div>
-                  <p className="font-semibold text-slate-100 text-xs">{invite.group_name || invite.group_id}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Người mời: {invite.inviter_peer || 'Ẩn danh'}</p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-semibold rounded-lg transition"
-                    disabled={busyId === invite.id}
-                    onClick={() => void handleAccept(invite.id)}
-                  >
-                    Đồng ý
-                  </button>
-                  <button
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-semibold rounded-lg transition"
-                    disabled={busyId === invite.id}
-                    onClick={() => void handleReject(invite.id)}
-                  >
-                    Từ chối
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
         </div>
       </div>
     </div>

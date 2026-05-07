@@ -2,6 +2,25 @@ import { service } from '../../wailsjs/go/models'
 import { ChatMessage } from '../stores/useChatStore'
 import { useContactStore } from '../stores/useContactStore'
 
+export type ConversationKind = 'dm' | 'group' | 'channel'
+
+export function getConversationKind(group: { group_type?: string } | null | undefined): ConversationKind {
+  const raw = String(group?.group_type ?? '').trim().toLowerCase()
+  if (raw === 'dm') return 'dm'
+  if (raw === 'channel') return 'channel'
+  return 'group'
+}
+
+export interface SidebarConversationItem {
+  id: string
+  kind: ConversationKind
+  title: string
+  unreadCount: number
+  isOnline?: boolean
+  lastActivityAt: number
+  isChannel: boolean
+}
+
 export function messageInfoToChatMessage(message: service.MessageInfo): ChatMessage {
   const fallbackId = `${message.group_id}:${message.sender}:${message.timestamp}:${message.content}`
   

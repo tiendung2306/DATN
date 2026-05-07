@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
-import { messageInfoToChatMessage, shortPeerId } from '../../../lib/chatModel'
+import { getConversationKind, messageInfoToChatMessage, shortPeerId } from '../../../lib/chatModel'
 import { mapNodeStatusToNetworkState } from '../../../lib/networkModel'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useNetworkStore } from '../../../stores/useNetworkStore'
@@ -221,10 +221,11 @@ export function useChatRuntime() {
   useEffect(() => {
     if (!activeGroupId) return
     const group = groups.find((g) => g.group_id === activeGroupId)
-    if (group?.group_type === 'dm') {
-      void loadMessages(activeGroupId)
-    } else {
+    const kind = getConversationKind(group)
+    if (kind === 'channel') {
       void loadPosts(activeGroupId)
+    } else {
+      void loadMessages(activeGroupId)
     }
     void loadGroupMembers(activeGroupId)
   }, [activeGroupId, loadMessages, loadPosts, loadGroupMembers, groups])

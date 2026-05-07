@@ -345,6 +345,20 @@ func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, _ []byte) ([]
 	return groupInfo, []byte("ext-commit"), mockTreeHash(0), nil
 }
 
+func (m *MockMLSEngine) ExportGroupInfo(_ context.Context, groupState []byte, withRatchetTree bool) ([]byte, error) {
+	if err := m.popError(); err != nil {
+		return nil, err
+	}
+	prefix := []byte("group-info:rt=0:")
+	if withRatchetTree {
+		prefix = []byte("group-info:rt=1:")
+	}
+	out := make([]byte, 0, len(prefix)+len(groupState))
+	out = append(out, prefix...)
+	out = append(out, groupState...)
+	return out, nil
+}
+
 func (m *MockMLSEngine) ExportSecret(_ context.Context, _ []byte, label string, length int) ([]byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, err

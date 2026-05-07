@@ -101,6 +101,15 @@ type MLSEngine interface {
 	// Used during fork healing when a node on the losing branch joins the winner.
 	ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error)
 
+	// ExportGroupInfo serializes a verifiable GroupInfo for the current group
+	// state, signed by the caller's signing key. Used by the winning branch
+	// during fork healing so peers on the losing branch can re-join via
+	// ExternalJoin without rebuilding the ratchet tree out-of-band.
+	//
+	// When withRatchetTree is true (recommended), the returned bytes embed a
+	// RatchetTreeExtension so the receiver can ExternalJoin standalone.
+	ExportGroupInfo(ctx context.Context, groupState []byte, withRatchetTree bool) (groupInfo []byte, err error)
+
 	// ExportSecret derives a secret from the current MLS epoch using the
 	// Exporter mechanism (RFC 9420 §8). Used for file transfer key derivation.
 	ExportSecret(ctx context.Context, groupState []byte, label string, length int) (secret []byte, err error)

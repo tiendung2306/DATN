@@ -106,4 +106,12 @@ export const runtimeClient = {
   createBundleFromRequest: CreateBundleFromRequest,
   listIssuanceHistory: ListIssuanceHistory,
   createAndImportSelfBundle: CreateAndImportSelfBundle,
+  startDirectMessage: async (peerId: string): Promise<string> => {
+    const runtime = (window as unknown as { go?: { service?: { Runtime?: { StartDirectMessage?: (id: string) => Promise<string> } } } }).go
+      ?.service?.Runtime
+    if (runtime?.StartDirectMessage) {
+      return runtime.StartDirectMessage(peerId)
+    }
+    throw new Error('Runtime.StartDirectMessage is not available in current build.')
+  },
 }

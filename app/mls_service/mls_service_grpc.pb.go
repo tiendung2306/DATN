@@ -34,6 +34,7 @@ const (
 	MLSCryptoService_ExportSecret_FullMethodName       = "/mls_service.MLSCryptoService/ExportSecret"
 	MLSCryptoService_GenerateKeyPackage_FullMethodName = "/mls_service.MLSCryptoService/GenerateKeyPackage"
 	MLSCryptoService_AddMembers_FullMethodName         = "/mls_service.MLSCryptoService/AddMembers"
+	MLSCryptoService_ExportGroupInfo_FullMethodName    = "/mls_service.MLSCryptoService/ExportGroupInfo"
 )
 
 // MLSCryptoServiceClient is the client API for MLSCryptoService service.
@@ -58,6 +59,10 @@ type MLSCryptoServiceClient interface {
 	// Phase 4.1 — Add member / KeyPackage lifecycle
 	GenerateKeyPackage(ctx context.Context, in *GenerateKeyPackageRequest, opts ...grpc.CallOption) (*GenerateKeyPackageResponse, error)
 	AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error)
+	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
+	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
+	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
+	ExportGroupInfo(ctx context.Context, in *ExportGroupInfoRequest, opts ...grpc.CallOption) (*ExportGroupInfoResponse, error)
 }
 
 type mLSCryptoServiceClient struct {
@@ -218,6 +223,16 @@ func (c *mLSCryptoServiceClient) AddMembers(ctx context.Context, in *AddMembersR
 	return out, nil
 }
 
+func (c *mLSCryptoServiceClient) ExportGroupInfo(ctx context.Context, in *ExportGroupInfoRequest, opts ...grpc.CallOption) (*ExportGroupInfoResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportGroupInfoResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ExportGroupInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MLSCryptoServiceServer is the server API for MLSCryptoService service.
 // All implementations must embed UnimplementedMLSCryptoServiceServer
 // for forward compatibility.
@@ -240,6 +255,10 @@ type MLSCryptoServiceServer interface {
 	// Phase 4.1 — Add member / KeyPackage lifecycle
 	GenerateKeyPackage(context.Context, *GenerateKeyPackageRequest) (*GenerateKeyPackageResponse, error)
 	AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error)
+	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
+	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
+	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
+	ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error)
 	mustEmbedUnimplementedMLSCryptoServiceServer()
 }
 
@@ -294,6 +313,9 @@ func (UnimplementedMLSCryptoServiceServer) GenerateKeyPackage(context.Context, *
 }
 func (UnimplementedMLSCryptoServiceServer) AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddMembers not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportGroupInfo not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) mustEmbedUnimplementedMLSCryptoServiceServer() {}
 func (UnimplementedMLSCryptoServiceServer) testEmbeddedByValue()                          {}
@@ -586,6 +608,24 @@ func _MLSCryptoService_AddMembers_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLSCryptoService_ExportGroupInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportGroupInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ExportGroupInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ExportGroupInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ExportGroupInfo(ctx, req.(*ExportGroupInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MLSCryptoService_ServiceDesc is the grpc.ServiceDesc for MLSCryptoService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -652,6 +692,10 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddMembers",
 			Handler:    _MLSCryptoService_AddMembers_Handler,
+		},
+		{
+			MethodName: "ExportGroupInfo",
+			Handler:    _MLSCryptoService_ExportGroupInfo_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
