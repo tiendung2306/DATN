@@ -26,6 +26,15 @@ service MLSCryptoService {
   rpc GenerateKeyPackage(GenerateKeyPackageRequest) returns (GenerateKeyPackageResponse);
   rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
 
+  // Phase 6 — Group lifecycle: remove members. Targets are matched by
+  // BasicCredential identity bytes (peer ID raw bytes). The Welcome field in
+  // the response is empty for pure remove operations.
+  rpc RemoveMembers(RemoveMembersRequest) returns (RemoveMembersResponse);
+  // Query whether the given BasicCredential identity bytes are still a member
+  // of the provided group_state. Used by Go coordinator to detect if local
+  // node has been removed after applying a commit.
+  rpc HasMember(HasMemberRequest) returns (HasMemberResponse);
+
   // Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
   // losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
   // TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
@@ -194,6 +203,29 @@ message AddMembersResponse {
   bytes welcome_bytes = 2;
   bytes new_group_state = 3;
   bytes new_tree_hash = 4;
+}
+
+message RemoveMembersRequest {
+  bytes group_state = 1;
+  // Each entry is the raw identity bytes of one BasicCredential to remove
+  // (MLS signing public-key bytes in this application). Order is irrelevant; a single
+  // commit bundles all removals atomically.
+  repeated bytes target_identities = 2;
+}
+
+message RemoveMembersResponse {
+  bytes commit_bytes = 1;
+  bytes new_group_state = 2;
+  bytes new_tree_hash = 3;
+}
+
+message HasMemberRequest {
+  bytes group_state = 1;
+  bytes identity = 2;
+}
+
+message HasMemberResponse {
+  bool is_member = 1;
 }
 
 message ExportGroupInfoRequest {

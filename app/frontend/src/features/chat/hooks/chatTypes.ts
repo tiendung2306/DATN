@@ -3,6 +3,18 @@ export interface GroupEpochPayload {
   epoch: number
 }
 
+export interface GroupLeftPayload {
+  group_id: string
+  reason?: 'left' | 'removed' | string
+  epoch?: number
+}
+
+export interface GroupMembersChangedPayload {
+  group_id: string
+  reason?: string
+  target_peer_id?: string
+}
+
 export interface MentionVM {
   user_id: string
   display_name: string

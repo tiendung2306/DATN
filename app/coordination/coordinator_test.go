@@ -3,9 +3,11 @@ package coordination
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
+	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -85,6 +87,46 @@ func exchangeHeartbeats(nodes []*testNode, network *FakeNetwork) {
 		n.coord.BroadcastHeartbeat()
 	}
 	network.DrainAll()
+}
+
+func mustRealPeerID(t *testing.T) peer.ID {
+	t.Helper()
+	priv, _, err := p2pcrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key: %v", err)
+	}
+	id, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("IDFromPrivateKey: %v", err)
+	}
+	return id
+}
+
+func setupClusterWithIDs(t *testing.T, ids []peer.ID, groupID string) ([]*testNode, *FakeNetwork, *FakeClock) {
+	t.Helper()
+	network := NewFakeNetwork()
+	clk := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	nodes := make([]*testNode, 0, len(ids))
+
+	for i, id := range ids {
+		transport := network.AddNode(id)
+		mls := NewMockMLSEngine()
+		storage := NewMockStorage()
+		coord, err := NewCoordinator(CoordinatorOpts{
+			Config:    TestConfig(),
+			Transport: transport,
+			Clock:     clk,
+			MLS:       mls,
+			Storage:   storage,
+			LocalID:   id,
+			GroupID:   groupID,
+		})
+		if err != nil {
+			t.Fatalf("NewCoordinator[%d]: %v", i, err)
+		}
+		nodes = append(nodes, &testNode{id: id, coord: coord, mls: mls, storage: storage})
+	}
+	return nodes, network, clk
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -453,5 +495,181 @@ func TestCoordinator_DoesNotAdvanceEpochWhenCommitPersistFails(t *testing.T) {
 
 	if holder.coord.CurrentEpoch() != 0 {
 		t.Fatalf("holder epoch advanced despite persist failure: got %d want 0", holder.coord.CurrentEpoch())
+	}
+}
+
+func TestCoordinator_RemoveMember_TokenHolderCommitsImmediately(t *testing.T) {
+	aliceID := mustRealPeerID(t)
+	bobID := mustRealPeerID(t)
+	nodes, network, _ := setupClusterWithIDs(t, []peer.ID{aliceID, bobID}, "grp-remove-holder")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder, other *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+		} else {
+			other = n
+		}
+	}
+	if holder == nil || other == nil {
+		t.Fatal("failed to elect holder/other")
+	}
+
+	if err := holder.coord.RemoveMember([]byte("target-identity-bob")); err != nil {
+		t.Fatalf("RemoveMember(holder): %v", err)
+	}
+
+	network.DrainAll() // deliver holder's commit to other
+
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 1 {
+			t.Fatalf("node %s: expected epoch 1 after remove commit, got %d", n.id, n.coord.CurrentEpoch())
+		}
+	}
+	snap := holder.coord.GetMetrics()
+	if snap.CommitsIssued != 1 {
+		t.Fatalf("holder commits_issued=%d, want 1", snap.CommitsIssued)
+	}
+}
+
+func TestCoordinator_RemoveMember_NonHolderProposesAndHolderCommits(t *testing.T) {
+	aliceID := mustRealPeerID(t)
+	bobID := mustRealPeerID(t)
+	nodes, network, _ := setupClusterWithIDs(t, []peer.ID{aliceID, bobID}, "grp-remove-non-holder")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder, other *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+		} else {
+			other = n
+		}
+	}
+	if holder == nil || other == nil {
+		t.Fatal("failed to elect holder/other")
+	}
+
+	if err := other.coord.RemoveMember([]byte("target-identity-alice")); err != nil {
+		t.Fatalf("RemoveMember(non-holder): %v", err)
+	}
+
+	network.DrainAll() // proposal reaches holder -> holder auto-commits
+	network.DrainAll() // commit reaches proposer
+
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 1 {
+			t.Fatalf("node %s: expected epoch 1 after remove proposal flow, got %d", n.id, n.coord.CurrentEpoch())
+		}
+	}
+	snap := holder.coord.GetMetrics()
+	if snap.CommitsIssued != 1 {
+		t.Fatalf("holder commits_issued=%d, want 1", snap.CommitsIssued)
+	}
+}
+
+func TestCoordinator_LocalRemovedAfterCommit_BlocksMutations(t *testing.T) {
+	nodes, network, _ := setupCluster(t, 2, "grp-removed-local")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Simulate that node[1] is no longer in membership after processing epoch 1.
+	nodes[1].mls.SetHasMemberFunc(func(groupState []byte, _ []byte) (bool, error) {
+		var st mockGroupState
+		if err := json.Unmarshal(groupState, &st); err != nil {
+			return false, err
+		}
+		return st.Epoch == 0, nil
+	})
+
+	var holder, removed *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+		} else {
+			removed = n
+		}
+	}
+	if holder == nil || removed == nil {
+		t.Fatal("failed to elect holder/removed")
+	}
+	removed.coord.localIdentity = []byte("local-identity")
+
+	if err := holder.coord.ProposeUpdate([]byte("rotate")); err != nil {
+		t.Fatalf("holder propose update: %v", err)
+	}
+	network.DrainAll()
+
+	if removed.coord.CurrentEpoch() != 1 {
+		t.Fatalf("removed node epoch=%d, want 1", removed.coord.CurrentEpoch())
+	}
+	if _, err := removed.coord.SendMessage([]byte("blocked")); !errors.Is(err, ErrAccessRevoked) {
+		t.Fatalf("SendMessage err=%v, want ErrAccessRevoked", err)
+	}
+	if err := removed.coord.ProposeUpdate([]byte("blocked")); !errors.Is(err, ErrAccessRevoked) {
+		t.Fatalf("ProposeUpdate err=%v, want ErrAccessRevoked", err)
+	}
+}
+
+func TestCoordinator_LocalRemoved_CallbackFiresOnceOnDuplicateReplay(t *testing.T) {
+	nodes, network, _ := setupCluster(t, 2, "grp-removed-callback")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var callbackCount int
+	nodes[1].coord.onAccessLost = func(_ string, _ uint64, _ string) {
+		callbackCount++
+	}
+	nodes[1].coord.localIdentity = []byte("local-identity")
+	nodes[1].mls.SetHasMemberFunc(func(groupState []byte, _ []byte) (bool, error) {
+		var st mockGroupState
+		if err := json.Unmarshal(groupState, &st); err != nil {
+			return false, err
+		}
+		return st.Epoch == 0, nil
+	})
+
+	var holder, removed *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+		} else {
+			removed = n
+		}
+	}
+	if holder == nil || removed == nil {
+		t.Fatal("failed to elect holder/removed")
+	}
+
+	if err := holder.coord.ProposeUpdate([]byte("rotate")); err != nil {
+		t.Fatalf("holder propose update: %v", err)
+	}
+	network.DrainAll()
+
+	// Re-apply the same commit envelope via replay path; callback must not fire again.
+	recs, err := holder.storage.GetEnvelopesSince("grp-removed-callback", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEnvelopesSince: %v", err)
+	}
+	if len(recs) == 0 {
+		t.Fatal("expected at least one envelope")
+	}
+	_, err = removed.coord.ReplayEnvelopes([][]byte{recs[0].Envelope, recs[0].Envelope})
+	if err != nil {
+		t.Fatalf("ReplayEnvelopes: %v", err)
+	}
+	deadline := time.Now().Add(200 * time.Millisecond)
+	for callbackCount < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if callbackCount != 1 {
+		t.Fatalf("access-lost callback count=%d, want 1", callbackCount)
 	}
 }

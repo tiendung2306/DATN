@@ -16,9 +16,9 @@ use mls_service::{
     ExportGroupInfoRequest, ExportGroupInfoResponse, ExportIdentityRequest, ExportIdentityResponse,
     ExportSecretRequest, ExportSecretResponse, ExternalJoinRequest, ExternalJoinResponse,
     GenerateIdentityRequest, GenerateIdentityResponse, GenerateKeyPackageRequest,
-    GenerateKeyPackageResponse, ImportIdentityRequest, ImportIdentityResponse, PingRequest,
-    PingResponse, ProcessCommitRequest, ProcessCommitResponse, ProcessWelcomeRequest,
-    ProcessWelcomeResponse,
+    GenerateKeyPackageResponse, HasMemberRequest, HasMemberResponse, ImportIdentityRequest,
+    ImportIdentityResponse, PingRequest, PingResponse, ProcessCommitRequest, ProcessCommitResponse,
+    ProcessWelcomeRequest, ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -32,10 +32,7 @@ pub struct MyMlsService;
 
 #[tonic::async_trait]
 impl MlsCryptoService for MyMlsService {
-    async fn ping(
-        &self,
-        _request: Request<PingRequest>,
-    ) -> Result<Response<PingResponse>, Status> {
+    async fn ping(&self, _request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
         let reply = PingResponse {
             message: "Pong from Rust Crypto Engine!".to_string(),
             timestamp: Utc::now().timestamp(),
@@ -66,14 +63,18 @@ impl MlsCryptoService for MyMlsService {
         &self,
         _request: Request<ExportIdentityRequest>,
     ) -> Result<Response<ExportIdentityResponse>, Status> {
-        Err(Status::unimplemented("ExportIdentity — planned for Phase 5"))
+        Err(Status::unimplemented(
+            "ExportIdentity — planned for Phase 5",
+        ))
     }
 
     async fn import_identity(
         &self,
         _request: Request<ImportIdentityRequest>,
     ) -> Result<Response<ImportIdentityResponse>, Status> {
-        Err(Status::unimplemented("ImportIdentity — planned for Phase 5"))
+        Err(Status::unimplemented(
+            "ImportIdentity — planned for Phase 5",
+        ))
     }
 
     // ── Phase 4: Group Operations (Stateless — Real OpenMLS) ─────────────
@@ -278,6 +279,38 @@ impl MlsCryptoService for MyMlsService {
             Ok(group_info) => Ok(Response::new(ExportGroupInfoResponse { group_info })),
             Err(e) => {
                 eprintln!("export_group_info error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn remove_members(
+        &self,
+        request: Request<RemoveMembersRequest>,
+    ) -> Result<Response<RemoveMembersResponse>, Status> {
+        let req = request.into_inner();
+        match mls::remove_members(&req.group_state, &req.target_identities) {
+            Ok(result) => Ok(Response::new(RemoveMembersResponse {
+                commit_bytes: result.commit_bytes,
+                new_group_state: result.new_group_state,
+                new_tree_hash: result.new_tree_hash,
+            })),
+            Err(e) => {
+                eprintln!("remove_members error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn has_member(
+        &self,
+        request: Request<HasMemberRequest>,
+    ) -> Result<Response<HasMemberResponse>, Status> {
+        let req = request.into_inner();
+        match mls::has_member(&req.group_state, &req.identity) {
+            Ok(is_member) => Ok(Response::new(HasMemberResponse { is_member })),
+            Err(e) => {
+                eprintln!("has_member error: {e}");
                 Err(Status::internal(e))
             }
         }

@@ -3,6 +3,7 @@ package coordination
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,9 @@ type CoordinatorOpts struct {
 
 	OnMessage     func(*StoredMessage) // called when an application message is decrypted
 	OnEpochChange func(uint64)         // called when the group advances to a new epoch
+	// OnAccessLost is called once when local membership is revoked by a valid
+	// MLS commit (e.g. removed from group).
+	OnAccessLost func(groupID string, epoch uint64, reason string)
 	// OnEnvelopeBroadcast is called when this local node publishes a commit or
 	// application envelope to the group topic. Intended for offline replication
 	// layers (e.g. blind-store) and not invoked for replayed remote envelopes.
@@ -61,10 +65,12 @@ type Coordinator struct {
 	hlc     *HLC
 	metrics *Metrics
 
-	onMessage     func(*StoredMessage)
-	onEpochChange func(uint64)
-	onEnvelope    func(MessageType, string, []byte)
+	onMessage      func(*StoredMessage)
+	onEpochChange  func(uint64)
+	onAccessLost   func(string, uint64, string)
+	onEnvelope     func(MessageType, string, []byte)
 	groupInfoFetch GroupInfoFetchFunc
+	localIdentity  []byte
 
 	// Mutable state (protected by mu)
 	mu           sync.Mutex
@@ -84,6 +90,9 @@ type Coordinator struct {
 	// via atomic CAS so handleAnnounceLocked never blocks on a long heal and
 	// duplicate fork events do not trigger overlapping heal pipelines.
 	healing atomic.Bool
+	// accessRevoked flips when local membership no longer exists in MLS state.
+	// All local mutation APIs are blocked once this is true.
+	accessRevoked bool
 }
 
 // GroupInfoFetchResult is the winner-branch snapshot fetched over
@@ -105,20 +114,22 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 	}
 
 	c := &Coordinator{
-		cfg:           opts.Config,
-		transport:     opts.Transport,
-		clock:         opts.Clock,
-		mls:           opts.MLS,
-		storage:       opts.Storage,
-		localID:       opts.LocalID,
-		groupID:       opts.GroupID,
-		signingKey:    opts.SigningKey,
-		hlc:           NewHLC(opts.Clock, opts.LocalID.String()),
-		metrics:       NewMetrics(),
-		onMessage:     opts.OnMessage,
-		onEpochChange: opts.OnEpochChange,
-		onEnvelope:    opts.OnEnvelopeBroadcast,
+		cfg:            opts.Config,
+		transport:      opts.Transport,
+		clock:          opts.Clock,
+		mls:            opts.MLS,
+		storage:        opts.Storage,
+		localID:        opts.LocalID,
+		groupID:        opts.GroupID,
+		signingKey:     opts.SigningKey,
+		hlc:            NewHLC(opts.Clock, opts.LocalID.String()),
+		metrics:        NewMetrics(),
+		onMessage:      opts.OnMessage,
+		onEpochChange:  opts.OnEpochChange,
+		onAccessLost:   opts.OnAccessLost,
+		onEnvelope:     opts.OnEnvelopeBroadcast,
 		groupInfoFetch: opts.GroupInfoFetcher,
+		localIdentity:  deriveIdentityFromSigningKey(opts.SigningKey),
 	}
 
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, nil)
@@ -360,6 +371,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	}
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
+	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
 	return true
 }
@@ -470,6 +482,7 @@ func (c *Coordinator) tryCommitLocked() {
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
+	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 }
@@ -528,6 +541,15 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 	if !c.started {
 		return nil, fmt.Errorf("coordinator not started")
 	}
+	if c.accessRevoked {
+		slog.Warn("Mutation rejected: access revoked",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"op", "AddMember",
+			"reason", "access_revoked",
+			"violation_source", "local_membership_guard")
+		return nil, ErrAccessRevoked
+	}
 	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
 		return nil, ErrNotTokenHolder
 	}
@@ -564,10 +586,82 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
+	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 
 	return welcomeBytes, nil
+}
+
+// RemoveMember removes an existing member from the group.
+//
+// Behavior follows Single-Writer:
+//   - If local node is Token Holder, it commits removal immediately.
+//   - Otherwise it broadcasts a ProposalRemove and waits for the holder commit.
+//
+// targetIdentity must be the MLS BasicCredential identity bytes (signing public
+// key bytes) for the member to remove.
+func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.started {
+		return fmt.Errorf("coordinator not started")
+	}
+	if c.accessRevoked {
+		slog.Warn("Mutation rejected: access revoked",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"op", "RemoveMember",
+			"reason", "access_revoked",
+			"violation_source", "local_membership_guard")
+		return ErrAccessRevoked
+	}
+	if len(targetIdentity) == 0 {
+		return fmt.Errorf("target identity is required")
+	}
+
+	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
+		return c.proposeLocked(ProposalRemove, targetIdentity)
+	}
+
+	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(c.ctx, c.groupState, [][]byte{targetIdentity})
+	if err != nil {
+		return fmt.Errorf("RemoveMembers: %w", err)
+	}
+
+	commitMsg := CommitMsg{
+		CommitData:  commitBytes,
+		NewTreeHash: newTreeHash,
+	}
+	ts := c.hlc.Now()
+	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
+	if len(envBytes) == 0 {
+		return fmt.Errorf("failed to encode commit envelope")
+	}
+	nextEpoch := c.epoch + 1
+	now := c.clock.Now()
+	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: newState,
+		Epoch:      nextEpoch,
+		TreeHash:   newTreeHash,
+		UpdatedAt:  now,
+	}, MsgCommit, envBytes, ts)
+	if err != nil {
+		return fmt.Errorf("persist commit: %w", err)
+	}
+	if !applied {
+		return fmt.Errorf("commit envelope already applied")
+	}
+	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
+
+	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
+	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
+	c.metrics.IncrCommitsIssued()
+	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+
+	return nil
 }
 
 // SendMessage encrypts plaintext and broadcasts it as an application message.
@@ -582,6 +676,15 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 
 	if !c.started {
 		return nil, fmt.Errorf("coordinator not started")
+	}
+	if c.accessRevoked {
+		slog.Warn("Mutation rejected: access revoked",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"op", "SendMessage",
+			"reason", "access_revoked",
+			"violation_source", "local_membership_guard")
+		return nil, ErrAccessRevoked
 	}
 
 	ts := c.hlc.Now()
@@ -651,8 +754,21 @@ func (c *Coordinator) propose(pType ProposalType, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	return c.proposeLocked(pType, data)
+}
+
+func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 	if !c.started {
 		return fmt.Errorf("coordinator not started")
+	}
+	if c.accessRevoked {
+		slog.Warn("Mutation rejected: access revoked",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"op", "Propose",
+			"reason", "access_revoked",
+			"violation_source", "local_membership_guard")
+		return ErrAccessRevoked
 	}
 
 	proposalBytes, err := c.mls.CreateProposal(c.ctx, c.groupState, pType, data)
@@ -669,6 +785,43 @@ func (c *Coordinator) propose(pType ProposalType, data []byte) error {
 		c.tryCommitLocked()
 	}
 	return nil
+}
+
+func deriveIdentityFromSigningKey(signingKey []byte) []byte {
+	if len(signingKey) != ed25519.SeedSize {
+		return nil
+	}
+	pk := ed25519.NewKeyFromSeed(signingKey).Public().(ed25519.PublicKey)
+	out := make([]byte, len(pk))
+	copy(out, pk)
+	return out
+}
+
+// updateLocalAccessRevocationLocked checks local membership against the latest
+// MLS state and flips accessRevoked once if local identity is no longer present.
+// Caller must hold c.mu.
+func (c *Coordinator) updateLocalAccessRevocationLocked(groupState []byte, epoch uint64) {
+	if c.accessRevoked {
+		return
+	}
+	if len(c.localIdentity) == 0 {
+		return
+	}
+	ok, err := c.mls.HasMember(c.ctx, groupState, c.localIdentity)
+	if err != nil {
+		slog.Warn("Failed membership query", "group", c.groupID, "epoch", epoch, "err", err)
+		return
+	}
+	if ok {
+		return
+	}
+	c.accessRevoked = true
+	slog.Warn("Local membership revoked", "group", c.groupID, "epoch", epoch)
+	if c.onAccessLost != nil {
+		cb := c.onAccessLost
+		groupID := c.groupID
+		go cb(groupID, epoch, "removed")
+	}
 }
 
 // ─── Broadcasting ────────────────────────────────────────────────────────────

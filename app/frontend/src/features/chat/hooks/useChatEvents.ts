@@ -4,10 +4,12 @@ import { useWailsEvent } from '../../../hooks/useWailsEvent'
 import { messageInfoToChatMessage } from '../../../lib/chatModel'
 import { useChatStore } from '../../../stores/useChatStore'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
-import { GroupEpochPayload } from './chatTypes'
+import { useToastStore } from '../../../stores/useToastStore'
+import { GroupEpochPayload, GroupLeftPayload, GroupMembersChangedPayload } from './chatTypes'
 
 interface UseChatEventsOptions {
   activeGroupId: string | null
+  localPeerId: string
   refreshGroups: () => Promise<void>
   refreshNodeStatus: () => Promise<void>
   refreshGroupMembers: (groupId: string) => Promise<void>
@@ -16,6 +18,7 @@ interface UseChatEventsOptions {
 
 export function useChatEvents({
   activeGroupId,
+  localPeerId,
   refreshGroups,
   refreshNodeStatus,
   refreshGroupMembers,
@@ -91,20 +94,36 @@ export function useChatEvents({
   )
 
   const handleMembersChanged = useCallback(
-    async (payload: { group_id: string }) => {
+    async (payload: GroupMembersChangedPayload) => {
       if (!payload?.group_id) return
       if (payload.group_id === activeGroupId) {
         await refreshGroupMembers(payload.group_id)
       }
+      if (payload.reason === 'removed' && payload.target_peer_id === localPeerId) {
+        await refreshGroups()
+        setActiveGroupId(null)
+        useToastStore.getState().pushToast({
+          title: 'Bạn đã bị xóa khỏi nhóm',
+          description: `Không còn quyền truy cập nhóm ${payload.group_id}.`,
+          variant: 'destructive',
+        })
+      }
     },
-    [activeGroupId, refreshGroupMembers],
+    [activeGroupId, localPeerId, refreshGroupMembers, refreshGroups, setActiveGroupId],
   )
 
   const handleGroupLeft = useCallback(
-    async (payload: { group_id: string }) => {
+    async (payload: GroupLeftPayload) => {
       await refreshGroups()
       if (payload?.group_id && payload.group_id === activeGroupId) {
         setActiveGroupId(null)
+      }
+      if (payload?.reason === 'removed') {
+        useToastStore.getState().pushToast({
+          title: 'Quyền truy cập nhóm đã bị thu hồi',
+          description: `Bạn đã bị xóa khỏi nhóm ${payload.group_id}.`,
+          variant: 'destructive',
+        })
       }
     },
     [activeGroupId, refreshGroups, setActiveGroupId],
@@ -120,8 +139,8 @@ export function useChatEvents({
   useWailsEvent<service.MessageInfo>('group:message', handleGroupMessage)
   useWailsEvent<GroupEpochPayload>('group:epoch', handleGroupEpoch)
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
-  useWailsEvent<{ group_id: string }>('group:left', handleGroupLeft)
-  useWailsEvent<{ group_id: string }>('group:members_changed', handleMembersChanged)
+  useWailsEvent<GroupLeftPayload>('group:left', handleGroupLeft)
+  useWailsEvent<GroupMembersChangedPayload>('group:members_changed', handleMembersChanged)
   useWailsEvent('node:status', handleNodeStatusChanged)
   useWailsEvent('p2p:status', handleNodeStatusChanged)
 }

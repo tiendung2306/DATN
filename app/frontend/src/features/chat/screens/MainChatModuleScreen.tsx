@@ -57,6 +57,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
 
   useChatEvents({
     activeGroupId,
+    localPeerId,
     refreshGroups,
     refreshNodeStatus,
     refreshGroupMembers: loadGroupMembers,
@@ -93,6 +94,9 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
       if (hasGap || event.topic === 'group:joined' || event.topic === 'group:left') {
         await refreshGroups()
         await refreshPendingInvites()
+      }
+      if (event.topic === 'group:left' && groupId && groupId === activeGroupId) {
+        setActiveGroupId(null)
       }
       if (isInviteEvent) {
         await refreshPendingInvites()
@@ -197,6 +201,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           <RoomPanel
             activeGroupId={activeGroupId}
             activeKind={activeKind}
+            myRole={activeGroup?.my_role}
+            localPeerId={localPeerId}
             peers={activeGroupMembers}
             onClose={() => setDetailsOpen(false)}
             setActiveGroupId={setActiveGroupId}

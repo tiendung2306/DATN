@@ -16,6 +16,45 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-08) ✅ — Hạng mục 3 hardening: local-remove cryptographic detection + revoke enforcement
+
+- **MLS membership query RPC mới (`HasMember`) đã được thêm end-to-end:**
+  - Proto: `HasMember(HasMemberRequest{group_state, identity}) -> HasMemberResponse{is_member}`.
+  - Rust: `mls::has_member(...)` dùng `member_leaf_index(BasicCredential(identity))`.
+  - gRPC/Go bridge: regenerated `app/mls_service/*.pb.go`, sidecar adapter + `coordination.MLSEngine.HasMember`.
+  - Test/mocks: `MockMLSEngine` + service test engine stubs cập nhật interface.
+- **Coordinator giờ detect local bị remove bằng cryptographic state sau khi apply commit:**
+  - `coordinator.go` thêm `updateLocalAccessRevocationLocked(...)` gọi `MLSEngine.HasMember` sau commit path (both inbound process commit và local commit/remove/add).
+  - Nếu local không còn trong ratchet tree: set `accessRevoked=true` (idempotent) + gọi callback `OnAccessLost(groupID, epoch, reason)`.
+  - Các mutation APIs bị chặn khi revoked: `SendMessage`, `Propose*`, `AddMember`, `RemoveMember` trả `ErrAccessRevoked`.
+- **Service event bridge chuẩn hóa theo contract đã chốt:**
+  - `group:left` luôn có `reason`:
+    - voluntary leave: `reason="left"`,
+    - local access lost (removed): `reason="removed"` + `epoch`.
+  - `Runtime.makeAccessLostHandler(...)` dừng coordinator, `MarkGroupLeft`, cập nhật roster local left, emit `group:left` + `group:members_changed`.
+- **Frontend đồng bộ handling cho removed UX:**
+  - Typed payload mới: `GroupLeftPayload`, `GroupMembersChangedPayload`.
+  - `useChatEvents` xử lý `group:left(reason=removed)` để clear active room + toast cảnh báo.
+  - `MainChatModuleScreen` runtime stream path cũng clear active group khi nhận `group:left` (parity live/replay).
+- **Byzantine/replay hardening tests đã bổ sung:**
+  - `TestCoordinator_LocalRemovedAfterCommit_BlocksMutations`.
+  - `TestCoordinator_LocalRemoved_CallbackFiresOnceOnDuplicateReplay` (idempotent callback under duplicate replay).
+  - `TestAccessLostHandler_EmitsGroupLeftRemovedAndMarksGroupLeft`.
+- **Validation:** `go test ./...`, `go vet ./...`, `cargo test`, `npm run build` — PASS.
+
+### Latest Delta (2026-05-08) ✅ — Hạng mục 3 polish: stable error-code contract Backend ↔ Frontend
+
+- **Backend (`app/service/membership.go`) định nghĩa stable error codes wire format `"<ERR_CODE>: <english detail>"`:**
+  - `ERR_GROUP_NOT_FOUND`, `ERR_REMOVE_MEMBER_FORBIDDEN`, `ERR_REMOVE_MEMBER_SELF`,
+    `ERR_REMOVE_MEMBER_PEER_NOT_VERIFIED`, `ERR_REMOVE_MEMBER_ACCESS_REVOKED`,
+    `ERR_REMOVE_MEMBER_CRYPTO_FAILURE`, `ERR_REMOVE_MEMBER_INVALID_PEER_ID`,
+    `ERR_RUNTIME_NOT_INITIALIZED`.
+  - `RemoveMemberFromGroup` map `coordination.ErrAccessRevoked` → `ErrRemoveMemberAccessRevoked` để FE phân biệt rõ "bạn đã bị kick" vs "lỗi crypto khác".
+  - Đã bỏ sentinel chết `ErrRemoveMemberNotSupported`.
+- **Frontend `app/frontend/src/lib/formatRemoveMemberError.ts` mới:** map error codes → toast tiếng Việt thân thiện với title + description (destructive). Có handler riêng cho `formatLeaveGroupError` và case `session has been replaced`.
+- **`RoomPanel.tsx` chuyển `alert(...)` → `useToastStore.pushToast`:** thêm cả success toast cho leave/remove. Không còn message raw kiểu `Lỗi khi xóa thành viên: Error: remove member: …` lọt ra UI.
+- **Validation:** `go vet`, `go test ./service ./coordination -count=1`, `npm run build` — PASS.
+
 ### Latest Delta (2026-05-07) ✅ — Fork Healing Sprint 2G: Integration tests (multi-node + persistence/failure coverage)
 
 - **Integration test end-to-end cho fork healing đã được bổ sung (`app/coordination/fork_heal_integration_test.go`):**

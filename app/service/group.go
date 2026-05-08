@@ -130,17 +130,18 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	}
 
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-		Config:        coordination.DefaultConfig(),
-		Transport:     r.transport,
-		Clock:         coordination.RealClock{},
-		MLS:           r.mlsEngine,
-		Storage:       r.coordStorage,
-		LocalID:       r.node.Host.ID(),
-		GroupID:       groupID,
-		SigningKey:    identity.SigningKeyPrivate,
+		Config:           coordination.DefaultConfig(),
+		Transport:        r.transport,
+		Clock:            coordination.RealClock{},
+		MLS:              r.mlsEngine,
+		Storage:          r.coordStorage,
+		LocalID:          r.node.Host.ID(),
+		GroupID:          groupID,
+		SigningKey:       identity.SigningKeyPrivate,
 		GroupInfoFetcher: r.fetchGroupInfoForHeal,
-		OnMessage:     r.makeMessageHandler(groupID),
-		OnEpochChange: r.makeEpochHandler(groupID),
+		OnMessage:        r.makeMessageHandler(groupID),
+		OnEpochChange:    r.makeEpochHandler(groupID),
+		OnAccessLost:     r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
@@ -474,17 +475,18 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}
 
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-		Config:        coordination.DefaultConfig(),
-		Transport:     r.transport,
-		Clock:         coordination.RealClock{},
-		MLS:           r.mlsEngine,
-		Storage:       r.coordStorage,
-		LocalID:       r.node.Host.ID(),
-		GroupID:       groupID,
-		SigningKey:    identity.SigningKeyPrivate,
+		Config:           coordination.DefaultConfig(),
+		Transport:        r.transport,
+		Clock:            coordination.RealClock{},
+		MLS:              r.mlsEngine,
+		Storage:          r.coordStorage,
+		LocalID:          r.node.Host.ID(),
+		GroupID:          groupID,
+		SigningKey:       identity.SigningKeyPrivate,
 		GroupInfoFetcher: r.fetchGroupInfoForHeal,
-		OnMessage:     r.makeMessageHandler(groupID),
-		OnEpochChange: r.makeEpochHandler(groupID),
+		OnMessage:        r.makeMessageHandler(groupID),
+		OnEpochChange:    r.makeEpochHandler(groupID),
+		OnAccessLost:     r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
@@ -645,17 +647,18 @@ func (r *Runtime) loadExistingGroupsLocked() {
 
 	for _, rec := range groups {
 		coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-			Config:        coordination.DefaultConfig(),
-			Transport:     r.transport,
-			Clock:         coordination.RealClock{},
-			MLS:           r.mlsEngine,
-			Storage:       r.coordStorage,
-			LocalID:       r.node.Host.ID(),
-			GroupID:       rec.GroupID,
-			SigningKey:    identity.SigningKeyPrivate,
+			Config:           coordination.DefaultConfig(),
+			Transport:        r.transport,
+			Clock:            coordination.RealClock{},
+			MLS:              r.mlsEngine,
+			Storage:          r.coordStorage,
+			LocalID:          r.node.Host.ID(),
+			GroupID:          rec.GroupID,
+			SigningKey:       identity.SigningKeyPrivate,
 			GroupInfoFetcher: r.fetchGroupInfoForHeal,
-			OnMessage:     r.makeMessageHandler(rec.GroupID),
-			OnEpochChange: r.makeEpochHandler(rec.GroupID),
+			OnMessage:        r.makeMessageHandler(rec.GroupID),
+			OnEpochChange:    r.makeEpochHandler(rec.GroupID),
+			OnAccessLost:     r.makeAccessLostHandler(rec.GroupID),
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 				r.publishBlindStoreEnvelope(mt, gid, wire)
 			},
@@ -711,6 +714,52 @@ func (r *Runtime) makeEpochHandler(groupID string) func(uint64) {
 		r.emit("group:epoch", map[string]interface{}{
 			"group_id": groupID,
 			"epoch":    epoch,
+		})
+	}
+}
+
+func (r *Runtime) makeAccessLostHandler(groupID string) func(string, uint64, string) {
+	return func(_ string, epoch uint64, reason string) {
+		if reason == "" {
+			reason = "removed"
+		}
+
+		r.mu.Lock()
+		var coordToStop interface{ Stop() }
+		if r.coordinators != nil {
+			if coord := r.coordinators[groupID]; coord != nil {
+				coordToStop = coord
+				delete(r.coordinators, groupID)
+			}
+		}
+		database := r.db
+		node := r.node
+		r.mu.Unlock()
+
+		if coordToStop != nil {
+			coordToStop.Stop()
+		}
+		if database != nil {
+			_ = database.MarkGroupLeft(groupID)
+			localPeerID := ""
+			if node != nil {
+				localPeerID = node.Host.ID().String()
+			} else if info, err := r.GetOnboardingInfo(); err == nil && info != nil {
+				localPeerID = strings.TrimSpace(info.PeerID)
+			}
+			if localPeerID != "" {
+				_ = database.MarkGroupMemberLeft(groupID, localPeerID, 0)
+			}
+		}
+
+		r.emit("group:left", map[string]interface{}{
+			"group_id": groupID,
+			"reason":   reason,
+			"epoch":    epoch,
+		})
+		r.emit("group:members_changed", map[string]interface{}{
+			"group_id": groupID,
+			"reason":   "removed_self",
 		})
 	}
 }

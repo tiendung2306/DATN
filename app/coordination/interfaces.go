@@ -91,6 +91,18 @@ type MLSEngine interface {
 	// AddMembers performs an MLS add (proposal+commit+welcome) for the given KeyPackages.
 	AddMembers(ctx context.Context, groupState []byte, keyPackages [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error)
 
+	// RemoveMembers performs an MLS remove for the given target identities (raw
+	// BasicCredential identity bytes, MLS-canonical resolution via tree scan).
+	// No Welcome is produced; the response carries only the commit and the
+	// post-commit group state. Used by Phase 6 group lifecycle and reusable
+	// from the Token Holder commit path when buffered ProposalRemove
+	// descriptors are flushed.
+	RemoveMembers(ctx context.Context, groupState []byte, targetIdentities [][]byte) (commitBytes, newGroupState, newTreeHash []byte, err error)
+
+	// HasMember reports whether identity bytes currently exist in the MLS group
+	// state as a BasicCredential identity.
+	HasMember(ctx context.Context, groupState []byte, identity []byte) (bool, error)
+
 	// EncryptMessage encrypts plaintext using the current epoch's application secret.
 	EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error)
 

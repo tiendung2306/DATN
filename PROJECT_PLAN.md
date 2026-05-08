@@ -412,7 +412,7 @@
   - recommended: soft leave by default (stop active participation, keep local history).
 - **Task:** Emit group/member change events for frontend refresh.
 - **Success Criteria:** Group Info UI can perform real leave/remove actions or display a truthful disabled state backed by backend policy.
-- **Status:** Completed. `LeaveGroup` performs soft leave and keeps local history; `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is productized.
+- **Status:** Completed (2026-05-08). `LeaveGroup` performs soft leave and keeps local history. `RemoveMemberFromGroup` is end-to-end: creator-only role guard + strict MLS identity resolution via verified `InvitationToken` + MLS proposal/commit + cryptographic local-removal detection (`HasMember` RPC, `accessRevoked` mutation guards, `OnAccessLost` callback) + standardized `group:left{reason}` / `group:members_changed` events. FE consumes stable `ERR_*` error codes via `formatRemoveMemberError`.
 
 ### 6.3. Session Takeover Lifecycle [P0]
 - **Task:** Productize the existing `SessionClaim` single-active-device mechanism into explicit runtime state/events.

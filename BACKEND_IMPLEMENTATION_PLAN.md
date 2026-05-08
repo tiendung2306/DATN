@@ -187,7 +187,7 @@ Frontend copy should be user-friendly:
 
 ## 5. P0 Workstream B - Group Membership Lifecycle
 
-**Status:** Completed. Implemented `LeaveGroup` as soft leave with history retained. `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is implemented end-to-end.
+**Status:** Completed (2026-05-08). `LeaveGroup` is soft leave with history retained. `RemoveMemberFromGroup` is now end-to-end: creator-only role guard, strict MLS identity resolution via verified `InvitationToken`, MLS proposal/commit through coordinator, cryptographic local-removal detection (`HasMember` RPC + `accessRevoked` flag), `OnAccessLost` callback, and standardized `group:left{reason}` / `group:members_changed` events. Backend exposes stable `ERR_*` codes consumed by the frontend toast translator (`app/frontend/src/lib/formatRemoveMemberError.ts`). Threat model: hardened against valid-identity-but-Byzantine peers via mutation guards on `accessRevoked`.
 
 ### Goal
 

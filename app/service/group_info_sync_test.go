@@ -34,6 +34,12 @@ func (m *groupInfoTestMLSEngine) GenerateKeyPackage(context.Context, []byte) ([]
 func (m *groupInfoTestMLSEngine) AddMembers(context.Context, []byte, [][]byte) ([]byte, []byte, []byte, []byte, error) {
 	return nil, nil, nil, nil, errors.New("not implemented")
 }
+func (m *groupInfoTestMLSEngine) RemoveMembers(context.Context, []byte, [][]byte) ([]byte, []byte, []byte, error) {
+	return nil, nil, nil, errors.New("not implemented")
+}
+func (m *groupInfoTestMLSEngine) HasMember(context.Context, []byte, []byte) (bool, error) {
+	return false, errors.New("not implemented")
+}
 func (m *groupInfoTestMLSEngine) EncryptMessage(context.Context, []byte, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }

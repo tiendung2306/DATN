@@ -81,7 +81,8 @@ fn import_state(state_bytes: &[u8]) -> Result<ImportedGroup, String> {
             .and_then(|v| v.get("version").cloned())
             .is_none()
         {
-            "group_state is in legacy format (no crypto data); please recreate the group".to_string()
+            "group_state is in legacy format (no crypto data); please recreate the group"
+                .to_string()
         } else {
             format!("invalid persisted group state: {e}")
         }
@@ -108,7 +109,12 @@ fn import_state(state_bytes: &[u8]) -> Result<ImportedGroup, String> {
 
     let group_id_mls = GroupId::from_slice(persisted.group_id.as_bytes());
     let group = MlsGroup::load(provider.storage(), &group_id_mls)
-        .map_err(|e| format!("storage error loading group '{}': {e:?}", persisted.group_id))?
+        .map_err(|e| {
+            format!(
+                "storage error loading group '{}': {e:?}",
+                persisted.group_id
+            )
+        })?
         .ok_or_else(|| {
             format!(
                 "group '{}' not found in restored storage",
@@ -227,12 +233,7 @@ pub fn generate_key_package(signing_key: &[u8]) -> Result<GenerateKeyPackageResu
     };
 
     let bundle = KeyPackageBuilder::new()
-        .build(
-            CIPHERSUITE,
-            &provider,
-            &signer,
-            credential_with_key,
-        )
+        .build(CIPHERSUITE, &provider, &signer, credential_with_key)
         .map_err(|e| format!("KeyPackageBuilder::build: {e:?}"))?;
 
     let key_package_bytes = bundle
@@ -240,13 +241,94 @@ pub fn generate_key_package(signing_key: &[u8]) -> Result<GenerateKeyPackageResu
         .tls_serialize_detached()
         .map_err(|e| format!("serialize KeyPackage: {e:?}"))?;
 
-    let key_package_bundle_private = serde_json::to_vec(&bundle)
-        .map_err(|e| format!("serialize KeyPackageBundle: {e}"))?;
+    let key_package_bundle_private =
+        serde_json::to_vec(&bundle).map_err(|e| format!("serialize KeyPackageBundle: {e}"))?;
 
     Ok(GenerateKeyPackageResult {
         key_package_bytes,
         key_package_bundle_private,
     })
+}
+
+/// Remove one or more members from the group, identified by their
+/// BasicCredential identity bytes. Used by Phase 6 group lifecycle (creator
+/// removes member) and reusable from `create_commit` when buffered
+/// `ProposalRemove` descriptors are flushed by the Token Holder.
+///
+/// Identity matching is a tree scan via `MlsGroup::member_leaf_index` — the
+/// MLS-canonical resolution per RFC 9420. Welcome is always `None` for pure
+/// remove, so the response carries an empty `welcome_bytes`.
+///
+/// Errors if any target identity cannot be located on the current ratchet
+/// tree, or if `target_identities` is empty.
+pub fn remove_members(
+    group_state: &[u8],
+    target_identities: &[Vec<u8>],
+) -> Result<CommitResult, String> {
+    let mut imp = import_state(group_state)?;
+
+    if target_identities.is_empty() {
+        return Err("no target identities".into());
+    }
+
+    let mut leaf_indices: Vec<LeafNodeIndex> = Vec::with_capacity(target_identities.len());
+    for identity in target_identities {
+        let credential: Credential = BasicCredential::new(identity.clone()).into();
+        let idx = imp.group.member_leaf_index(&credential).ok_or_else(|| {
+            format!(
+                "remove_members: identity (len={}) not found in ratchet tree",
+                identity.len()
+            )
+        })?;
+        leaf_indices.push(idx);
+    }
+
+    let (commit_out, welcome_out, _group_info) = imp
+        .group
+        .remove_members(&imp.provider, &imp.signer, &leaf_indices)
+        .map_err(|e| format!("remove_members: {e:?}"))?;
+
+    imp.group
+        .merge_pending_commit(&imp.provider)
+        .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
+
+    let commit_bytes = commit_out
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize commit: {e:?}"))?;
+
+    // Welcome is always None for pure removal; surface an empty Vec to keep
+    // the wire format stable with add_members / create_commit.
+    let welcome_bytes: Vec<u8> = match welcome_out {
+        Some(w) => w
+            .tls_serialize_detached()
+            .map_err(|e| format!("serialize welcome: {e:?}"))?,
+        None => Vec::new(),
+    };
+
+    let epoch = get_epoch(&imp.group);
+    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
+
+    Ok(CommitResult {
+        commit_bytes,
+        welcome_bytes,
+        new_group_state: new_state,
+        new_tree_hash,
+    })
+}
+
+/// Returns true if `identity` is present in the group's current ratchet tree as
+/// a BasicCredential identity, false otherwise.
+///
+/// This is a pure state query used by the Go coordinator to determine whether
+/// the local device has been removed after applying a commit.
+pub fn has_member(group_state: &[u8], identity: &[u8]) -> Result<bool, String> {
+    if identity.is_empty() {
+        return Err("identity is required".into());
+    }
+    let imp = import_state(group_state)?;
+    let credential: Credential = BasicCredential::new(identity.to_vec()).into();
+    Ok(imp.group.member_leaf_index(&credential).is_some())
 }
 
 /// Add one or more members via their KeyPackages (commit + welcome in one step).
@@ -300,14 +382,13 @@ pub fn add_members(
     })
 }
 
-pub fn create_group(
-    group_id: &str,
-    signing_key: &[u8],
-) -> Result<CreateGroupResult, String> {
+pub fn create_group(group_id: &str, signing_key: &[u8]) -> Result<CreateGroupResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let signer = reconstruct_signer(&provider, signing_key)?;
 
-    let credential = BasicCredential::new(group_id.as_bytes().to_vec());
+    // Keep identity scheme consistent with key packages/external join:
+    // BasicCredential identity is always the MLS signing public key bytes.
+    let credential = BasicCredential::new(signer.to_public_vec());
     let credential_with_key = CredentialWithKey {
         credential: credential.into(),
         signature_key: signer.to_public_vec().into(),
@@ -339,10 +420,7 @@ pub fn create_group(
     })
 }
 
-pub fn encrypt_message(
-    group_state: &[u8],
-    plaintext: &[u8],
-) -> Result<EncryptResult, String> {
+pub fn encrypt_message(group_state: &[u8], plaintext: &[u8]) -> Result<EncryptResult, String> {
     let mut imp = import_state(group_state)?;
 
     let mls_out = imp
@@ -363,10 +441,7 @@ pub fn encrypt_message(
     })
 }
 
-pub fn decrypt_message(
-    group_state: &[u8],
-    ciphertext: &[u8],
-) -> Result<DecryptResult, String> {
+pub fn decrypt_message(group_state: &[u8], ciphertext: &[u8]) -> Result<DecryptResult, String> {
     let mut imp = import_state(group_state)?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(ciphertext)
@@ -415,37 +490,48 @@ pub fn create_proposal(
     serde_json::to_vec(&desc).map_err(|e| format!("serialize proposal descriptor: {e}"))
 }
 
-pub fn create_commit(
-    group_state: &[u8],
-    proposals: &[Vec<u8>],
-) -> Result<CommitResult, String> {
-    let mut imp = import_state(group_state)?;
-
+pub fn create_commit(group_state: &[u8], proposals: &[Vec<u8>]) -> Result<CommitResult, String> {
     if proposals.is_empty() {
         return Err("no proposals to commit".into());
     }
 
+    // Classify the batch. Sprint 3A intentionally rejects mixed batches
+    // (update + remove + add in one commit) — the coordination layer always
+    // funnels homogeneous proposal types in practice.
     let mut update_count = 0u32;
+    let mut remove_targets: Vec<Vec<u8>> = Vec::new();
     for raw in proposals {
         let desc: ProposalDescriptor =
             serde_json::from_slice(raw).map_err(|e| format!("parse proposal descriptor: {e}"))?;
         match desc.proposal_type {
-            2 => update_count += 1, // ProposalUpdate
+            2 => update_count += 1,              // ProposalUpdate
+            1 => remove_targets.push(desc.data), // ProposalRemove → identity bytes
             0 => {
                 return Err(
                     "Add proposals require KeyPackage generation (not yet implemented)".into(),
                 )
             }
-            1 => {
-                return Err("Remove proposals not yet implemented with real OpenMLS".into())
-            }
             _ => return Err(format!("unknown proposal type: {}", desc.proposal_type)),
         }
+    }
+
+    if update_count > 0 && !remove_targets.is_empty() {
+        return Err("create_commit: mixed update+remove batches not supported".into());
+    }
+
+    if !remove_targets.is_empty() {
+        // Delegate to the dedicated remove path so persistence/wire shapes
+        // stay identical regardless of whether the caller is the Token Holder
+        // committing buffered ProposalRemove descriptors or invoking the
+        // direct RemoveMembers RPC.
+        return remove_members(group_state, &remove_targets);
     }
 
     if update_count == 0 {
         return Err("no supported proposals to commit".into());
     }
+
+    let mut imp = import_state(group_state)?;
 
     let bundle = imp
         .group
@@ -582,10 +668,7 @@ pub fn process_welcome(
 /// returned MlsMessage embeds a `RatchetTreeExtension`, allowing the
 /// receiver to construct the public group from the GroupInfo alone. Returns
 /// the TLS-serialized `MlsMessageOut` bytes.
-pub fn export_group_info(
-    group_state: &[u8],
-    with_ratchet_tree: bool,
-) -> Result<Vec<u8>, String> {
+pub fn export_group_info(group_state: &[u8], with_ratchet_tree: bool) -> Result<Vec<u8>, String> {
     let imp = import_state(group_state)?;
 
     let group_info_msg = imp
@@ -609,10 +692,7 @@ pub fn export_group_info(
 /// preserved automatically: OpenMLS's `ExternalCommitBuilder` injects a
 /// `Remove` proposal for any existing leaf that shares the new joiner's
 /// signature key (see openmls 0.8.0 `external_commits.rs:249-255`).
-pub fn external_join(
-    group_info: &[u8],
-    signing_key: &[u8],
-) -> Result<ExternalJoinResult, String> {
+pub fn external_join(group_info: &[u8], signing_key: &[u8]) -> Result<ExternalJoinResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let signer = reconstruct_signer(&provider, signing_key)?;
 
@@ -661,11 +741,7 @@ pub fn external_join(
     })
 }
 
-pub fn export_secret(
-    group_state: &[u8],
-    label: &str,
-    length: u32,
-) -> Result<Vec<u8>, String> {
+pub fn export_secret(group_state: &[u8], label: &str, length: u32) -> Result<Vec<u8>, String> {
     let imp = import_state(group_state)?;
 
     let secret = imp
@@ -695,8 +771,7 @@ mod tests {
         assert!(!result.group_state.is_empty());
         assert!(!result.tree_hash.is_empty());
 
-        let persisted: PersistedGroupState =
-            serde_json::from_slice(&result.group_state).unwrap();
+        let persisted: PersistedGroupState = serde_json::from_slice(&result.group_state).unwrap();
         assert_eq!(persisted.group_id, "test-group-1");
         assert_eq!(persisted.epoch, 0);
         assert_eq!(persisted.version, STATE_VERSION);
@@ -704,12 +779,23 @@ mod tests {
     }
 
     #[test]
+    fn test_create_group_local_identity_is_member() {
+        let sk = test_signing_key();
+        let group = create_group("test-group-local-member", &sk).expect("create_group");
+        let id = invitee_identity_bytes(&sk);
+        let is_member = has_member(&group.group_state, &id).expect("has_member");
+        assert!(
+            is_member,
+            "creator signing public key must be present in group"
+        );
+    }
+
+    #[test]
     fn test_encrypt_message() {
         let sk = test_signing_key();
         let cr = create_group("test-encrypt", &sk).expect("create_group");
 
-        let enc = encrypt_message(&cr.group_state, b"Hello, MLS!")
-            .expect("encrypt_message");
+        let enc = encrypt_message(&cr.group_state, b"Hello, MLS!").expect("encrypt_message");
         assert!(!enc.ciphertext.is_empty());
         assert!(!enc.new_group_state.is_empty());
     }
@@ -739,8 +825,7 @@ mod tests {
         let sk = test_signing_key();
         let cr = create_group("test-export", &sk).expect("create_group");
 
-        let secret = export_secret(&cr.group_state, "test-label", 32)
-            .expect("export_secret");
+        let secret = export_secret(&cr.group_state, "test-label", 32).expect("export_secret");
         assert_eq!(secret.len(), 32);
     }
 
@@ -760,7 +845,8 @@ mod tests {
         let cr = create_group("add-member-group", &sk_a).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
 
-        let commit = add_members(&cr.group_state, &[kp_b.key_package_bytes.clone()]).expect("add_members");
+        let commit =
+            add_members(&cr.group_state, &[kp_b.key_package_bytes.clone()]).expect("add_members");
 
         let welcome_b = process_welcome(
             &commit.welcome_bytes,
@@ -769,10 +855,8 @@ mod tests {
         )
         .expect("process_welcome B");
 
-        let enc_a = encrypt_message(&commit.new_group_state, b"hello from A")
-            .expect("encrypt A");
-        let dec_b = decrypt_message(&welcome_b.group_state, &enc_a.ciphertext)
-            .expect("decrypt B");
+        let enc_a = encrypt_message(&commit.new_group_state, b"hello from A").expect("encrypt A");
+        let dec_b = decrypt_message(&welcome_b.group_state, &enc_a.ciphertext).expect("decrypt B");
         assert_eq!(dec_b.plaintext, b"hello from A");
     }
 
@@ -782,7 +866,10 @@ mod tests {
         let cr = create_group("export-info-group", &sk).expect("create_group");
 
         let group_info = export_group_info(&cr.group_state, true).expect("export_group_info");
-        assert!(!group_info.is_empty(), "exported GroupInfo should be non-empty");
+        assert!(
+            !group_info.is_empty(),
+            "exported GroupInfo should be non-empty"
+        );
 
         // Re-export must succeed (stateless): the underlying group state is unchanged.
         let group_info_2 = export_group_info(&cr.group_state, true).expect("export_group_info #2");
@@ -801,13 +888,20 @@ mod tests {
         let group_a = create_group("fork-heal-group", &sk_a).expect("A create_group");
 
         // A exports a GroupInfo at the current epoch (winning branch perspective).
-        let group_info = export_group_info(&group_a.group_state, true).expect("A export_group_info");
+        let group_info =
+            export_group_info(&group_a.group_state, true).expect("A export_group_info");
         assert!(!group_info.is_empty());
 
         // B (losing branch) external-joins A's branch using the GroupInfo.
         let join_b = external_join(&group_info, &sk_b).expect("B external_join");
-        assert!(!join_b.group_state.is_empty(), "B group_state must be non-empty");
-        assert!(!join_b.commit_bytes.is_empty(), "B external commit bytes must be non-empty");
+        assert!(
+            !join_b.group_state.is_empty(),
+            "B group_state must be non-empty"
+        );
+        assert!(
+            !join_b.commit_bytes.is_empty(),
+            "B external commit bytes must be non-empty"
+        );
         assert!(!join_b.tree_hash.is_empty());
 
         // A processes B's external commit to advance its own state to the joined epoch.
@@ -821,8 +915,8 @@ mod tests {
         assert!(!enc_b.ciphertext.is_empty());
 
         // A (now at the post-external-commit epoch) decrypts B's message.
-        let dec_a = decrypt_message(&commit_a.new_group_state, &enc_b.ciphertext)
-            .expect("A decrypt B");
+        let dec_a =
+            decrypt_message(&commit_a.new_group_state, &enc_b.ciphertext).expect("A decrypt B");
         assert_eq!(dec_a.plaintext, b"hello from rejoined B");
     }
 
@@ -831,7 +925,158 @@ mod tests {
         let sk = test_signing_key();
         // Random bytes are not a valid TLS-encoded MlsMessage.
         let result = external_join(&[0xDE, 0xAD, 0xBE, 0xEF], &sk);
-        assert!(result.is_err(), "external_join must reject malformed group_info");
+        assert!(
+            result.is_err(),
+            "external_join must reject malformed group_info"
+        );
+    }
+
+    /// Helper that mirrors `generate_key_package`: BasicCredential identity is the
+    /// signer's public key bytes. Used by remove_members tests to look up
+    /// invitee leaf indices.
+    fn invitee_identity_bytes(signing_key: &[u8]) -> Vec<u8> {
+        let provider = OpenMlsRustCrypto::default();
+        let signer = reconstruct_signer(&provider, signing_key).expect("reconstruct_signer");
+        signer.to_public_vec()
+    }
+
+    /// Sprint 3A happy path: 2-member group → remove the invitee → epoch advances,
+    /// remaining state is non-empty, no welcome was emitted.
+    #[test]
+    fn test_remove_members_happy_path() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("rm-happy-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+
+        let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members");
+
+        let target = invitee_identity_bytes(&sk_b);
+        let commit_rm =
+            remove_members(&commit_add.new_group_state, &[target]).expect("remove_members");
+
+        assert!(
+            !commit_rm.commit_bytes.is_empty(),
+            "remove commit bytes must be non-empty"
+        );
+        assert!(
+            commit_rm.welcome_bytes.is_empty(),
+            "pure remove must not emit a Welcome"
+        );
+        assert!(
+            !commit_rm.new_group_state.is_empty(),
+            "remove must produce a new group state"
+        );
+        // Tree hash must change between the add-epoch and the remove-epoch.
+        assert_ne!(
+            commit_rm.new_tree_hash, commit_add.new_tree_hash,
+            "remove must advance the epoch (different tree hash)"
+        );
+    }
+
+    /// Forward secrecy: after remove, the removed member cannot decrypt
+    /// subsequent messages produced under the new epoch state by the surviving
+    /// group. Their pre-remove ciphertext path is irrelevant to this check —
+    /// what matters is that the post-remove epoch keys are unreachable to them.
+    #[test]
+    fn test_remove_members_forward_secrecy() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("rm-fs-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+
+        let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members");
+        let join_b = process_welcome(
+            &commit_add.welcome_bytes,
+            &sk_b,
+            &kp_b.key_package_bundle_private,
+        )
+        .expect("process_welcome B");
+
+        // B's view at the add-epoch is captured; we will try to use it after A removes B.
+        let b_state_pre_remove = join_b.group_state.clone();
+
+        let target = invitee_identity_bytes(&sk_b);
+        let commit_rm =
+            remove_members(&commit_add.new_group_state, &[target]).expect("remove_members");
+
+        // A encrypts a message at the post-remove epoch.
+        let enc = encrypt_message(&commit_rm.new_group_state, b"after-remove")
+            .expect("encrypt post-remove");
+
+        // B's stale state must not decrypt this — forward secrecy on remove.
+        let dec = decrypt_message(&b_state_pre_remove, &enc.ciphertext);
+        assert!(
+            dec.is_err(),
+            "removed member must not decrypt post-remove epoch ciphertext"
+        );
+    }
+
+    /// Identity that is not present in the ratchet tree must be rejected with
+    /// a clear error rather than committing a no-op.
+    #[test]
+    fn test_remove_members_unknown_identity() {
+        let sk_a = test_signing_key();
+        let group_a = create_group("rm-unknown-group", &sk_a).expect("create_group");
+
+        // 32-byte identity that no member ever advertised.
+        let bogus = vec![0xAB; 32];
+        let result = remove_members(&group_a.group_state, &[bogus]);
+        assert!(result.is_err(), "must reject unknown identity");
+        if let Err(msg) = result {
+            assert!(
+                msg.contains("not found"),
+                "expected 'not found' error, got: {msg}"
+            );
+        }
+    }
+
+    /// `create_commit` is used by the Token Holder path in the coordination
+    /// layer. Buffered ProposalRemove descriptors must be committable end-to-end
+    /// without any out-of-band knowledge of leaf indices.
+    #[test]
+    fn test_create_commit_with_remove_proposals() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("rm-commit-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members");
+
+        let target = invitee_identity_bytes(&sk_b);
+        let proposal_descriptor =
+            create_proposal(&commit_add.new_group_state, 1, &target).expect("create_proposal");
+
+        let commit_rm = create_commit(&commit_add.new_group_state, &[proposal_descriptor])
+            .expect("create_commit with ProposalRemove");
+
+        assert!(commit_rm.welcome_bytes.is_empty());
+        assert_ne!(commit_rm.new_tree_hash, commit_add.new_tree_hash);
+    }
+
+    #[test]
+    fn test_has_member_true_and_false_after_remove() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("has-member-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members");
+
+        let id_b = invitee_identity_bytes(&sk_b);
+        let before = has_member(&commit_add.new_group_state, &id_b).expect("has_member before");
+        assert!(before, "invitee should be present before remove");
+
+        let commit_rm =
+            remove_members(&commit_add.new_group_state, &[id_b.clone()]).expect("remove_members");
+        let after = has_member(&commit_rm.new_group_state, &id_b).expect("has_member after");
+        assert!(!after, "invitee should be absent after remove");
     }
 
     #[test]

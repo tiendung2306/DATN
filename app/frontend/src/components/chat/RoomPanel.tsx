@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
+import { formatLeaveGroupError, formatRemoveMemberError } from '../../lib/formatRemoveMemberError'
 import { useContactStore } from '../../stores/useContactStore'
+import { useToastStore } from '../../stores/useToastStore'
 import { Button } from '../ui/button'
-import { LogOut, Shield, UserPlus, Users, X } from 'lucide-react'
+import { LogOut, Shield, UserMinus, UserPlus, Users, X } from 'lucide-react'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import AddMemberModal from '../../features/chat/components/AddMemberModal'
 import { ConversationKind } from '../../lib/chatModel'
@@ -11,6 +13,8 @@ import { ConversationKind } from '../../lib/chatModel'
 interface RoomPanelProps {
   activeGroupId: string | null
   activeKind: ConversationKind
+  myRole?: string
+  localPeerId?: string
   peers: service.MemberInfo[]
   onClose: () => void
   setActiveGroupId?: (id: string | null) => void
@@ -20,14 +24,19 @@ interface RoomPanelProps {
 export default function RoomPanel({
   activeGroupId,
   activeKind,
+  myRole,
+  localPeerId,
   peers,
   onClose,
   setActiveGroupId,
   refreshGroups,
 }: RoomPanelProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
+  const pushToast = useToastStore((s) => s.pushToast)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isLeaving, setIsLeaving] = useState(false)
+  const [removingPeerId, setRemovingPeerId] = useState<string | null>(null)
+  const canRemoveMembers = activeKind !== 'dm' && myRole === 'creator'
 
   const handleLeaveGroup = async () => {
     if (!activeGroupId) return
@@ -37,11 +46,33 @@ export default function RoomPanel({
       await runtimeClient.leaveGroup(activeGroupId)
       if (setActiveGroupId) setActiveGroupId(null)
       if (refreshGroups) await refreshGroups()
+      pushToast({ title: 'Đã rời nhóm', description: 'Bạn đã rời nhóm thành công.', variant: 'default' })
     } catch (e) {
       console.error('Failed to leave group', e)
-      alert('Lỗi khi rời nhóm: ' + e)
+      pushToast(formatLeaveGroupError(e))
     } finally {
       setIsLeaving(false)
+    }
+  }
+
+  const handleRemoveMember = async (peerId: string) => {
+    if (!activeGroupId || !canRemoveMembers || !peerId || peerId === localPeerId) return
+    const displayName = getDisplayName(peerId)
+    if (!confirm(`Bạn có chắc chắn muốn loại thành viên ${displayName} khỏi nhóm?`)) return
+    setRemovingPeerId(peerId)
+    try {
+      await runtimeClient.removeMemberFromGroup(activeGroupId, peerId)
+      if (refreshGroups) await refreshGroups()
+      pushToast({
+        title: 'Đã loại thành viên',
+        description: `${displayName} đã được loại khỏi nhóm.`,
+        variant: 'default',
+      })
+    } catch (e) {
+      console.error('Failed to remove member', e)
+      pushToast(formatRemoveMemberError(e))
+    } finally {
+      setRemovingPeerId(null)
     }
   }
 
@@ -82,12 +113,25 @@ export default function RoomPanel({
                   <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
                   <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
                 </div>
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    peer.is_online ? 'bg-emerald-400' : 'bg-slate-500'
-                  }`}
-                  title={peer.is_online ? 'online' : 'offline'}
-                />
+                <div className="flex items-center gap-2">
+                  {canRemoveMembers && peer.peer_id !== localPeerId ? (
+                    <button
+                      type="button"
+                      aria-label={`Xóa ${getDisplayName(peer.peer_id)} khỏi nhóm`}
+                      disabled={removingPeerId === peer.peer_id}
+                      className="rounded p-1 text-slate-400 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void handleRemoveMember(peer.peer_id)}
+                    >
+                      <UserMinus className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      peer.is_online ? 'bg-emerald-400' : 'bg-slate-500'
+                    }`}
+                    title={peer.is_online ? 'online' : 'offline'}
+                  />
+                </div>
               </div>
             ))
           )}

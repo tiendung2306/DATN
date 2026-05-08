@@ -34,6 +34,8 @@ const (
 	MLSCryptoService_ExportSecret_FullMethodName       = "/mls_service.MLSCryptoService/ExportSecret"
 	MLSCryptoService_GenerateKeyPackage_FullMethodName = "/mls_service.MLSCryptoService/GenerateKeyPackage"
 	MLSCryptoService_AddMembers_FullMethodName         = "/mls_service.MLSCryptoService/AddMembers"
+	MLSCryptoService_RemoveMembers_FullMethodName      = "/mls_service.MLSCryptoService/RemoveMembers"
+	MLSCryptoService_HasMember_FullMethodName          = "/mls_service.MLSCryptoService/HasMember"
 	MLSCryptoService_ExportGroupInfo_FullMethodName    = "/mls_service.MLSCryptoService/ExportGroupInfo"
 )
 
@@ -59,6 +61,14 @@ type MLSCryptoServiceClient interface {
 	// Phase 4.1 — Add member / KeyPackage lifecycle
 	GenerateKeyPackage(ctx context.Context, in *GenerateKeyPackageRequest, opts ...grpc.CallOption) (*GenerateKeyPackageResponse, error)
 	AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error)
+	// Phase 6 — Group lifecycle: remove members. Targets are matched by
+	// BasicCredential identity bytes (peer ID raw bytes). The Welcome field in
+	// the response is empty for pure remove operations.
+	RemoveMembers(ctx context.Context, in *RemoveMembersRequest, opts ...grpc.CallOption) (*RemoveMembersResponse, error)
+	// Query whether the given BasicCredential identity bytes are still a member
+	// of the provided group_state. Used by Go coordinator to detect if local
+	// node has been removed after applying a commit.
+	HasMember(ctx context.Context, in *HasMemberRequest, opts ...grpc.CallOption) (*HasMemberResponse, error)
 	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
@@ -223,6 +233,26 @@ func (c *mLSCryptoServiceClient) AddMembers(ctx context.Context, in *AddMembersR
 	return out, nil
 }
 
+func (c *mLSCryptoServiceClient) RemoveMembers(ctx context.Context, in *RemoveMembersRequest, opts ...grpc.CallOption) (*RemoveMembersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveMembersResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_RemoveMembers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) HasMember(ctx context.Context, in *HasMemberRequest, opts ...grpc.CallOption) (*HasMemberResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HasMemberResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_HasMember_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *mLSCryptoServiceClient) ExportGroupInfo(ctx context.Context, in *ExportGroupInfoRequest, opts ...grpc.CallOption) (*ExportGroupInfoResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExportGroupInfoResponse)
@@ -255,6 +285,14 @@ type MLSCryptoServiceServer interface {
 	// Phase 4.1 — Add member / KeyPackage lifecycle
 	GenerateKeyPackage(context.Context, *GenerateKeyPackageRequest) (*GenerateKeyPackageResponse, error)
 	AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error)
+	// Phase 6 — Group lifecycle: remove members. Targets are matched by
+	// BasicCredential identity bytes (peer ID raw bytes). The Welcome field in
+	// the response is empty for pure remove operations.
+	RemoveMembers(context.Context, *RemoveMembersRequest) (*RemoveMembersResponse, error)
+	// Query whether the given BasicCredential identity bytes are still a member
+	// of the provided group_state. Used by Go coordinator to detect if local
+	// node has been removed after applying a commit.
+	HasMember(context.Context, *HasMemberRequest) (*HasMemberResponse, error)
 	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
@@ -313,6 +351,12 @@ func (UnimplementedMLSCryptoServiceServer) GenerateKeyPackage(context.Context, *
 }
 func (UnimplementedMLSCryptoServiceServer) AddMembers(context.Context, *AddMembersRequest) (*AddMembersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AddMembers not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) RemoveMembers(context.Context, *RemoveMembersRequest) (*RemoveMembersResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveMembers not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) HasMember(context.Context, *HasMemberRequest) (*HasMemberResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HasMember not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportGroupInfo not implemented")
@@ -608,6 +652,42 @@ func _MLSCryptoService_AddMembers_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLSCryptoService_RemoveMembers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveMembersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).RemoveMembers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_RemoveMembers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).RemoveMembers(ctx, req.(*RemoveMembersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_HasMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HasMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).HasMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_HasMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).HasMember(ctx, req.(*HasMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MLSCryptoService_ExportGroupInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExportGroupInfoRequest)
 	if err := dec(in); err != nil {
@@ -692,6 +772,14 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddMembers",
 			Handler:    _MLSCryptoService_AddMembers_Handler,
+		},
+		{
+			MethodName: "RemoveMembers",
+			Handler:    _MLSCryptoService_RemoveMembers_Handler,
+		},
+		{
+			MethodName: "HasMember",
+			Handler:    _MLSCryptoService_HasMember_Handler,
 		},
 		{
 			MethodName: "ExportGroupInfo",

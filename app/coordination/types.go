@@ -204,13 +204,13 @@ type ForkHealEventRecord struct {
 
 // ForkHealAuditRecord is one per-step persisted audit row for a heal trace.
 type ForkHealAuditRecord struct {
-	TraceID    string
-	GroupID    string
-	Step       string
-	Status     string
+	TraceID     string
+	GroupID     string
+	Step        string
+	Status      string
 	TimestampMs int64
-	DurationMs int64
-	Error      string
+	DurationMs  int64
+	Error       string
 }
 
 // ─── Enum Types ──────────────────────────────────────────────────────────────
@@ -260,4 +260,5 @@ var (
 	ErrGroupNotFound  = errors.New("coordination: group not found")
 	ErrNoActiveView   = errors.New("coordination: active view is empty")
 	ErrInvalidConfig  = errors.New("coordination: invalid configuration")
+	ErrAccessRevoked  = errors.New("coordination: local membership revoked")
 )

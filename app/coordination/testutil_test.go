@@ -232,8 +232,9 @@ type mockCommitData struct {
 }
 
 type MockMLSEngine struct {
-	mu      sync.Mutex
-	nextErr error
+	mu          sync.Mutex
+	nextErr     error
+	hasMemberFn func(groupState []byte, identity []byte) (bool, error)
 }
 
 var _ MLSEngine = (*MockMLSEngine)(nil)
@@ -253,6 +254,13 @@ func (m *MockMLSEngine) popError() error {
 	err := m.nextErr
 	m.nextErr = nil
 	return err
+}
+
+// SetHasMemberFunc overrides HasMember behavior in tests.
+func (m *MockMLSEngine) SetHasMemberFunc(fn func(groupState []byte, identity []byte) (bool, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.hasMemberFn = fn
 }
 
 func mockTreeHash(epoch uint64) []byte {
@@ -345,6 +353,40 @@ func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, _ [][]b
 	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
 	commitBytes, _ := json.Marshal(commitInfo)
 	return commitBytes, []byte("mock-welcome"), newStateBytes, newTH, nil
+}
+
+func (m *MockMLSEngine) RemoveMembers(_ context.Context, groupState []byte, targetIdentities [][]byte) ([]byte, []byte, []byte, error) {
+	if err := m.popError(); err != nil {
+		return nil, nil, nil, err
+	}
+	if len(targetIdentities) == 0 {
+		return nil, nil, nil, fmt.Errorf("mock: no target identities")
+	}
+	var state mockGroupState
+	if err := json.Unmarshal(groupState, &state); err != nil {
+		return nil, nil, nil, fmt.Errorf("mock: bad state: %w", err)
+	}
+	state.Epoch++
+	newTH := mockTreeHash(state.Epoch)
+	state.TreeHash = hex.EncodeToString(newTH)
+	newStateBytes, _ := json.Marshal(state)
+	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
+	commitBytes, _ := json.Marshal(commitInfo)
+	return commitBytes, newStateBytes, newTH, nil
+}
+
+func (m *MockMLSEngine) HasMember(_ context.Context, groupState []byte, identity []byte) (bool, error) {
+	if err := m.popError(); err != nil {
+		return false, err
+	}
+	m.mu.Lock()
+	fn := m.hasMemberFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(groupState, identity)
+	}
+	// Default mock behavior keeps caller as member unless identity is empty.
+	return len(identity) > 0, nil
 }
 
 func (m *MockMLSEngine) EncryptMessage(_ context.Context, groupState, plaintext []byte) ([]byte, []byte, error) {
@@ -639,7 +681,7 @@ func (s *MockStorage) GetMessagesPaginated(groupID string, limit, offset int) ([
 	// (Actually MockStorage stores in insertion order, which is roughly ASC)
 	// For tests, we'll just reverse the order and apply offset/limit.
 	// But wait, scanMessages in production handles the sorting via SQL ORDER BY.
-	
+
 	// A simple mock pagination:
 	if offset >= len(out) {
 		return nil, nil

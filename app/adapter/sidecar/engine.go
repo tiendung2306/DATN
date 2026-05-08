@@ -96,6 +96,28 @@ func (g *GrpcMLSEngine) AddMembers(ctx context.Context, groupState []byte, keyPa
 	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
+func (g *GrpcMLSEngine) RemoveMembers(ctx context.Context, groupState []byte, targetIdentities [][]byte) (commitBytes, newGroupState, newTreeHash []byte, err error) {
+	resp, err := g.client.RemoveMembers(ctx, &mls_service.RemoveMembersRequest{
+		GroupState:       groupState,
+		TargetIdentities: targetIdentities,
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("grpc RemoveMembers: %w", err)
+	}
+	return resp.GetCommitBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
+}
+
+func (g *GrpcMLSEngine) HasMember(ctx context.Context, groupState []byte, identity []byte) (bool, error) {
+	resp, err := g.client.HasMember(ctx, &mls_service.HasMemberRequest{
+		GroupState: groupState,
+		Identity:   identity,
+	})
+	if err != nil {
+		return false, fmt.Errorf("grpc HasMember: %w", err)
+	}
+	return resp.GetIsMember(), nil
+}
+
 func (g *GrpcMLSEngine) EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error) {
 	resp, err := g.client.EncryptMessage(ctx, &mls_service.EncryptMessageRequest{
 		GroupState: groupState,
