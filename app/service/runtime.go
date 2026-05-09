@@ -306,9 +306,34 @@ func (r *Runtime) launchP2PNode() error {
 	r.registerFileTransferHandler()
 	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})
+	go r.kickInitialOfflineSync(nodeCtx)
 
 	go r.advertiseKeyPackage()
 	go r.offlineEnvelopeGCLoop(nodeCtx)
 
 	return nil
+}
+
+// kickInitialOfflineSync proactively schedules offline pulls for peers that may
+// already be connected before Notifee registration (startup race window).
+func (r *Runtime) kickInitialOfflineSync(ctx context.Context) {
+	// Two quick passes cover the common race where identify/protocol handlers
+	// settle shortly after startup.
+	delays := []time.Duration{400 * time.Millisecond, 2 * time.Second}
+	for _, d := range delays {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(d):
+		}
+		r.mu.RLock()
+		tr := r.transport
+		r.mu.RUnlock()
+		if tr == nil {
+			continue
+		}
+		for _, p := range tr.ConnectedPeers() {
+			go r.scheduleOfflineSyncPull(p)
+		}
+	}
 }

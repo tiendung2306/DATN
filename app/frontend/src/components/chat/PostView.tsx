@@ -1,13 +1,13 @@
-import { ReactNode, useState, useRef, useEffect } from 'react'
+import { ReactNode, useState, useRef } from 'react'
 import { ChatMessage, useChatStore } from '../../stores/useChatStore'
 import { useContactStore } from '../../stores/useContactStore'
 import {
-  parseMessageContent,
   serializePostPayload,
   MentionCandidate,
   serializeCommentPayload,
   extractMentionsFromBody,
   MentionEntity,
+  FileAttachment,
 } from '../../lib/chatModel'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../lib/formatSendError'
@@ -16,8 +16,9 @@ import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
 import { useToastStore } from '../../stores/useToastStore'
 import PostComposerCard from './posts/PostComposerCard'
 import PostCard, { PostCardHandle } from './posts/PostCard'
-import { Button } from '../ui/button'
-import { ChevronUp, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+
+const MAX_ATTACHMENTS_PER_POST = 10
 
 interface PostViewProps {
   activeGroupId: string | null
@@ -55,10 +56,44 @@ export default function PostView({
   const [postTitle, setPostTitle] = useState('')
   const [postContent, setPostContent] = useState('')
   const [submittingPost, setSubmittingPost] = useState(false)
+  const [attachingFile, setAttachingFile] = useState(false)
+  const [pendingAttachments, setPendingAttachments] = useState<FileAttachment[]>([])
+  const [fileStateByKey, setFileStateByKey] = useState<Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>>({})
+  const [filePathByKey, setFilePathByKey] = useState<Record<string, string>>({})
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const sortedPosts = [...messages].sort((a, b) => b.timestamp - a.timestamp)
+
+  const attachmentStateKey = (messageId: string, fileId: string) => `${messageId}:${fileId}`
+
+  const fromPreparedDTO = (dto: unknown): FileAttachment | null => {
+    const rec = dto as Record<string, unknown>
+    const fileID = String(rec.file_id ?? rec.FileID ?? '').trim()
+    const name = String(rec.file_name ?? rec.FileName ?? '').trim()
+    const ext = String(rec.file_ext ?? rec.FileExt ?? '').trim()
+    const mimeType = String(rec.mime_type ?? rec.MimeType ?? '').trim()
+    const size = Number(rec.plaintext_size ?? rec.PlaintextSize ?? 0)
+    const sha256 = String(rec.plaintext_sha256_hex ?? rec.PlaintextSHA256Hex ?? '').trim()
+    const chunkCount = Number(rec.chunk_count ?? rec.ChunkCount ?? 0)
+    const chunkSize = Number(rec.chunk_size ?? rec.ChunkSize ?? 0)
+    const exportEpoch = Number(rec.export_epoch ?? rec.ExportEpoch ?? 0)
+    const senderPeerID = String(rec.sender_peer_id ?? rec.SenderPeerID ?? '').trim()
+    if (!fileID || !name || !mimeType || !sha256 || !senderPeerID) return null
+    return {
+      type: 'file',
+      file_id: fileID,
+      name,
+      ext: ext || undefined,
+      mime_type: mimeType,
+      size: Number.isFinite(size) ? size : 0,
+      sha256,
+      chunk_count: Number.isFinite(chunkCount) ? chunkCount : 0,
+      chunk_size: Number.isFinite(chunkSize) ? chunkSize : 0,
+      export_epoch: Number.isFinite(exportEpoch) ? exportEpoch : 0,
+      sender_peer_id: senderPeerID,
+    }
+  }
 
   const handleCreatePost = async () => {
     if (!postContent.trim()) return
@@ -83,10 +118,12 @@ export default function PostView({
         title: postTitle,
         body: bodyTrim,
         mentions,
+        attachments: pendingAttachments,
       })
       await runtimeClient.sendGroupMessage(activeGroupId!, payload)
       setPostTitle('')
       setPostContent('')
+      setPendingAttachments([])
     } catch (err) {
       const mapped = formatOutboundSendError(err)
       useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
@@ -106,6 +143,78 @@ export default function PostView({
       useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
     } finally {
       setSendingReplyForPostId(null)
+    }
+  }
+
+  const isUserCancelled = (err: unknown): boolean => {
+    const raw = err instanceof Error ? err.message : String(err)
+    return raw.includes('ERR_USER_CANCELLED')
+  }
+
+  const handleAttachFile = async () => {
+    if (!activeGroupId || attachingFile || submittingPost) return
+    if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_POST) {
+      const mapped = formatOutboundSendError(new Error('ERR_TOO_MANY_ATTACHMENTS'))
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+      return
+    }
+    setAttachingFile(true)
+    try {
+      const prepared = await runtimeClient.prepareGroupFile(activeGroupId)
+      const attachment = fromPreparedDTO(prepared)
+      if (!attachment) {
+        throw new Error('ERR_INVALID_FILE_PREPARE_DTO')
+      }
+      setPendingAttachments((prev) => {
+        if (prev.some((entry) => entry.file_id === attachment.file_id)) return prev
+        return [...prev, attachment].slice(0, MAX_ATTACHMENTS_PER_POST)
+      })
+    } catch (err) {
+      if (!isUserCancelled(err)) {
+        const mapped = formatOutboundSendError(err)
+        useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+      }
+    } finally {
+      setAttachingFile(false)
+    }
+  }
+
+  const handleDownloadFile = async (messageId: string, file: FileAttachment) => {
+    if (!activeGroupId) return
+    const key = attachmentStateKey(messageId, file.file_id)
+    setFileStateByKey((prev) => ({ ...prev, [key]: 'downloading' }))
+    try {
+      const path = await runtimeClient.downloadGroupFile(activeGroupId, file.file_id, file.sender_peer_id, file.name)
+      if (path) {
+        setFileStateByKey((prev) => ({ ...prev, [key]: 'completed' }))
+        setFilePathByKey((prev) => ({ ...prev, [key]: path }))
+      } else {
+        setFileStateByKey((prev) => ({ ...prev, [key]: 'idle' }))
+      }
+    } catch (err) {
+      if (isUserCancelled(err)) {
+        setFileStateByKey((prev) => ({ ...prev, [key]: 'idle' }))
+        return
+      }
+      setFileStateByKey((prev) => ({ ...prev, [key]: 'failed' }))
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+    }
+  }
+
+  const handleOpenFile = async (messageId: string, file: FileAttachment) => {
+    if (!activeGroupId) return
+    const key = attachmentStateKey(messageId, file.file_id)
+    const fallbackPath = filePathByKey[key] ?? ''
+    try {
+      const openedPath = await runtimeClient.openDownloadedFile(activeGroupId, file.file_id, fallbackPath)
+      if (openedPath) {
+        setFileStateByKey((prev) => ({ ...prev, [key]: 'completed' }))
+        setFilePathByKey((prev) => ({ ...prev, [key]: openedPath }))
+      }
+    } catch (err) {
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
     }
   }
 
@@ -147,8 +256,15 @@ export default function PostView({
           mentionCandidates={mentionCandidates}
           maxTitleRunes={channelTitleMaxRunes}
           maxBodyRunes={channelBodyMaxRunes}
+          pendingAttachments={pendingAttachments}
+          attachingFile={attachingFile}
+          maxAttachments={MAX_ATTACHMENTS_PER_POST}
           onTitleChange={setPostTitle}
           onBodyChange={setPostContent}
+          onAttachFile={handleAttachFile}
+          onRemoveAttachment={(fileId) =>
+            setPendingAttachments((prev) => prev.filter((entry) => entry.file_id !== fileId))
+          }
           onSubmit={handleCreatePost}
         />
 
@@ -227,6 +343,10 @@ export default function PostView({
                       el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                     }, 100)
                   }}
+                  onDownloadFile={handleDownloadFile}
+                  onOpenFile={handleOpenFile}
+                  fileStateByKey={fileStateByKey}
+                  fileLocalPathByKey={filePathByKey}
                 />
               )
             })}

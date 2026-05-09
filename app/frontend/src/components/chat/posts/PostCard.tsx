@@ -1,13 +1,16 @@
 import { ReactNode, useRef, useImperativeHandle, forwardRef } from 'react'
 import {
   formatMessageTime,
+  FileAttachment,
   MentionEntity,
   parseMessageContent,
+  isFilePayload,
+  MentionCandidate,
 } from '../../../lib/chatModel'
 import { ChatMessage } from '../../../stores/useChatStore'
-import { MentionCandidate } from '../../../lib/chatModel'
 import CommentList from './CommentList'
 import CommentComposer, { CommentComposerHandle } from './CommentComposer'
+import FileAttachmentCard from '../FileAttachmentCard'
 
 interface PostCardProps {
   post: ChatMessage
@@ -24,6 +27,10 @@ interface PostCardProps {
   onSendComment: () => Promise<void>
   onReplyComment: (comment: ChatMessage) => void
   onLoadMoreComments?: (postId: string) => Promise<void>
+  onDownloadFile?: (messageId: string, file: FileAttachment) => void
+  onOpenFile?: (messageId: string, file: FileAttachment) => void
+  fileStateByKey?: Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>
+  fileLocalPathByKey?: Record<string, string>
 }
 
 export interface PostCardHandle {
@@ -47,10 +54,16 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
       onSendComment,
       onReplyComment,
       onLoadMoreComments,
+      onDownloadFile,
+      onOpenFile,
+      fileStateByKey,
+      fileLocalPathByKey,
     },
     ref,
   ) => {
     const parsedPost = parseMessageContent(post.content)
+    const attachments = parsedPost.attachments ?? (parsedPost.file ? [parsedPost.file] : [])
+    const isFilePost = isFilePayload(post)
     const composerRef = useRef<CommentComposerHandle>(null)
 
     useImperativeHandle(ref, () => ({
@@ -74,8 +87,22 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
         <h3 className="mt-3 text-lg font-bold text-slate-50">{parsedPost.title}</h3>
       )}
       <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] text-[15px] leading-relaxed text-slate-300">
-        {renderMentionedBody(parsedPost.body, parsedPost.mentions)}
+        {renderMentionedBody(parsedPost.body || (attachments[0] ? `Da chia se tep: ${attachments[0].name}` : ''), parsedPost.mentions)}
       </p>
+      {attachments.map((file) => {
+        const key = `${post.id}:${file.file_id}`
+        return (
+          <FileAttachmentCard
+            key={key}
+            file={file}
+            isMine={post.isMine}
+            state={fileStateByKey?.[key] ?? 'idle'}
+            localPath={fileLocalPathByKey?.[key]}
+            onDownload={onDownloadFile ? () => onDownloadFile(post.id, file) : undefined}
+            onOpenFile={onOpenFile ? () => onOpenFile(post.id, file) : undefined}
+          />
+        )
+      })}
 
       <div className="mt-4 border-t border-slate-800/50 pt-3">
         <button
@@ -83,7 +110,7 @@ const PostCard = forwardRef<PostCardHandle, PostCardProps>(
           onClick={onToggleComments}
           className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 transition hover:text-emerald-400"
         >
-          <span>{post.commentCount && post.commentCount > 0 ? `${post.commentCount} bình luận` : 'Thảo luận'}</span>
+          <span>{post.commentCount && post.commentCount > 0 ? `${post.commentCount} binh luan` : isFilePost ? 'Thao luan ve tep' : 'Thao luan'}</span>
         </button>
       </div>
 

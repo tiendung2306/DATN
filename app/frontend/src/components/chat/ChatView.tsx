@@ -26,10 +26,16 @@ interface ChatViewProps {
   loadingMessages: boolean
   composingMessage: string
   sending: boolean
+  attachingFile: boolean
   onComposingChange: (value: string) => void
   onSend: () => void
+  onAttachFile: () => void
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
+  onDownloadFile: (messageId: string) => void
+  onOpenDownloadedFile: (messageId: string) => void
+  fileTransferStateByMessage: Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>
+  fileLocalPathByMessage: Record<string, string>
   onToggleDetails: () => void
   detailsOpen: boolean
   activeGroupMembers: service.MemberInfo[]
@@ -53,10 +59,16 @@ export default function ChatView({
   loadingMessages,
   composingMessage,
   sending,
+  attachingFile,
   onComposingChange,
   onSend,
+  onAttachFile,
   onRetry,
   onRemoveFailed,
+  onDownloadFile,
+  onOpenDownloadedFile,
+  fileTransferStateByMessage,
+  fileLocalPathByMessage,
   onToggleDetails,
   detailsOpen,
   activeGroupMembers,
@@ -231,16 +243,23 @@ export default function ChatView({
               renderMentionedBody={renderMentionedBody}
               onRetry={onRetry}
               onRemoveFailed={onRemoveFailed}
+              onDownloadFile={onDownloadFile}
+              onOpenDownloadedFile={onOpenDownloadedFile}
+              fileTransferStateByMessage={fileTransferStateByMessage}
+              fileLocalPathByMessage={fileLocalPathByMessage}
+              fileActionDisabled={attachingFile || sending}
             />
           </div>
 
           <div className="border-t border-slate-800 px-5 py-4">
             <MessageComposer
               value={composingMessage}
-              disabled={sending || !activeGroupId}
+              disabled={sending || attachingFile || !activeGroupId}
+              attachingFile={attachingFile}
               mentionCandidates={mentionCandidates}
               maxRunes={isDM ? dmMaxRunes : undefined}
               onChange={onComposingChange}
+              onAttachFile={onAttachFile}
               onSend={() => {
                 onSend()
                 setTimeout(() => scrollToBottom('smooth'), 100)

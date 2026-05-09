@@ -69,9 +69,15 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     composingMessage,
     setComposingMessage,
     sending,
+    attachingFile,
+    fileTransferStateByMessage,
+    fileLocalPathByMessage,
     handleSelectGroup,
     handleCreateGroupWithDetails,
     handleSendMessage,
+    handleSendFile,
+    handleDownloadFile,
+    handleOpenDownloadedFile,
     handleRetryMessage,
     handleRemoveFailed,
   } = useChatActions({ activeGroupId, localPeerId, refreshGroups, setActiveGroupId })
@@ -144,10 +150,16 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             loadingMessages={loadingMessages}
             composingMessage={composingMessage}
             sending={sending}
+            attachingFile={attachingFile}
             onComposingChange={setComposingMessage}
             onSend={handleSendMessage}
+            onAttachFile={handleSendFile}
             onRetry={handleRetryMessage}
             onRemoveFailed={handleRemoveFailed}
+            onDownloadFile={handleDownloadFile}
+            onOpenDownloadedFile={handleOpenDownloadedFile}
+            fileTransferStateByMessage={fileTransferStateByMessage}
+            fileLocalPathByMessage={fileLocalPathByMessage}
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((v) => !v)}
             activeGroupMembers={activeGroupMembers}

@@ -5,6 +5,7 @@ import { countUnicodeRunes } from '../../../lib/textLimits'
 import { useChatStore } from '../../../stores/useChatStore'
 import { useMessageLimitsStore } from '../../../stores/useMessageLimitsStore'
 import { useToastStore } from '../../../stores/useToastStore'
+import { parseMessageContent } from '../../../lib/chatModel'
 
 interface UseChatActionsOptions {
   activeGroupId: string | null
@@ -31,6 +32,9 @@ export function useChatActions({
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [composingMessage, setComposingMessage] = useState('')
   const [sending, setSending] = useState(false)
+  const [attachingFile, setAttachingFile] = useState(false)
+  const [fileTransferStateByMessage, setFileTransferStateByMessage] = useState<Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>>({})
+  const [fileLocalPathByMessage, setFileLocalPathByMessage] = useState<Record<string, string>>({})
 
   const handleSelectGroup = (groupId: string) => {
     setActiveGroupId(groupId)
@@ -177,15 +181,105 @@ export function useChatActions({
     removeMessage(activeGroupId, messageId)
   }
 
+  const isUserCancelled = (err: unknown): boolean => {
+    const raw = err instanceof Error ? err.message : String(err)
+    return raw.includes('ERR_USER_CANCELLED')
+  }
+
+  const handleSendFile = async () => {
+    if (!activeGroupId || attachingFile || sending) return
+    setAttachingFile(true)
+    try {
+      await runtimeClient.sendGroupFile(activeGroupId)
+      void refreshGroups()
+    } catch (err) {
+      if (!isUserCancelled(err)) {
+        const mapped = formatOutboundSendError(err)
+        useToastStore.getState().pushToast({
+          title: mapped.title,
+          description: mapped.description,
+          variant: mapped.variant,
+        })
+      }
+    } finally {
+      setAttachingFile(false)
+    }
+  }
+
+  const handleDownloadFile = async (messageId: string) => {
+    if (!activeGroupId) return
+    if (fileTransferStateByMessage[messageId] === 'downloading') return
+    const messages = messagesByGroup[activeGroupId] ?? []
+    const target = messages.find((m) => m.id === messageId)
+    if (!target) return
+    const parsed = parseMessageContent(target.content)
+    const file = parsed.file ?? parsed.attachments?.[0]
+    if (!file) return
+
+    setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'downloading' }))
+    try {
+      const savedPath = await runtimeClient.downloadGroupFile(activeGroupId, file.file_id, file.sender_peer_id, file.name)
+      if (savedPath) {
+        setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'completed' }))
+        setFileLocalPathByMessage((prev) => ({ ...prev, [messageId]: savedPath }))
+      } else {
+        setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'idle' }))
+      }
+    } catch (err) {
+      if (isUserCancelled(err)) {
+        setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'idle' }))
+        return
+      }
+      setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'failed' }))
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
+    }
+  }
+
+  const handleOpenDownloadedFile = async (messageId: string) => {
+    if (!activeGroupId) return
+    const messages = messagesByGroup[activeGroupId] ?? []
+    const target = messages.find((m) => m.id === messageId)
+    if (!target) return
+    const parsed = parseMessageContent(target.content)
+    const file = parsed.file ?? parsed.attachments?.[0]
+    if (!file) return
+    const fallbackPath = fileLocalPathByMessage[messageId] ?? ''
+    try {
+      const openedPath = await runtimeClient.openDownloadedFile(activeGroupId, file.file_id, fallbackPath)
+      if (openedPath) {
+        setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'completed' }))
+        setFileLocalPathByMessage((prev) => ({ ...prev, [messageId]: openedPath }))
+      }
+    } catch (err) {
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
+    }
+  }
+
   return {
     creatingGroup,
     composingMessage,
     setComposingMessage,
     sending,
+    attachingFile,
+    fileTransferStateByMessage,
+    fileLocalPathByMessage,
     handleSelectGroup,
     handleCreateGroupWithDetails,
     handleSendMessage,
     handleRetryMessage,
     handleRemoveFailed,
+    handleSendFile,
+    handleDownloadFile,
+    handleOpenDownloadedFile,
   }
 }

@@ -56,12 +56,14 @@ export function shortPeerId(peerId: string): string {
   return `${peerId.slice(0, 6)}...${peerId.slice(-6)}`
 }
 export interface ParsedPayload {
-  type: 'post' | 'comment' | 'legacy'
+  type: 'post' | 'comment' | 'file' | 'legacy'
   title?: string
   body: string
   postId?: string
   replyToCommentId?: string
   mentions?: MentionEntity[]
+  file?: FileAttachment
+  attachments?: FileAttachment[]
 }
 
 export interface MentionEntity {
@@ -76,6 +78,7 @@ export interface PostPayload {
   title?: string
   body: string
   mentions?: MentionEntity[]
+  attachments?: FileAttachment[]
 }
 
 export interface CommentPayload {
@@ -84,6 +87,20 @@ export interface CommentPayload {
   body: string
   mentions?: MentionEntity[]
   reply_to_comment_id?: string
+}
+
+export interface FileAttachment {
+  type: 'file'
+  file_id: string
+  name: string
+  ext?: string
+  mime_type: string
+  size: number
+  sha256: string
+  chunk_count: number
+  chunk_size: number
+  export_epoch: number
+  sender_peer_id: string
 }
 
 export function parseMessageContent(content: string): ParsedPayload {
@@ -98,7 +115,19 @@ export function parseMessageContent(content: string): ParsedPayload {
             ? data.content
             : ''
         const mentions = normalizeMentions(data.mentions)
-        return { type: 'post', title, body, mentions }
+        const attachments = normalizeAttachments(data.attachments)
+        return { type: 'post', title, body, mentions, attachments }
+      }
+      if (data.type === 'file') {
+        const file = normalizeFileAttachment(data)
+        if (file) {
+          return {
+            type: 'file',
+            body: typeof data.body === 'string' ? data.body : '',
+            file,
+            attachments: [file],
+          }
+        }
       }
       if (data.type === 'comment') {
         const postId = typeof data.post_id === 'string' ? data.post_id : ''
@@ -119,6 +148,82 @@ export function parseMessageContent(content: string): ParsedPayload {
     // Ignore JSON parse failure
   }
   return { type: 'legacy', body: content }
+}
+
+function normalizeAttachments(raw: unknown): FileAttachment[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const mapped = raw
+    .map((item) => normalizeFileAttachment(item))
+    .filter((item): item is FileAttachment => item !== null)
+  return mapped.length > 0 ? mapped : undefined
+}
+
+function normalizeFileAttachment(raw: unknown): FileAttachment | null {
+  if (!raw || typeof raw !== 'object') return null
+  const entry = raw as Record<string, unknown>
+  const type = String(entry.type ?? '').trim().toLowerCase()
+  if (type !== 'file') return null
+  const fileID = String(entry.file_id ?? '').trim()
+  const name = String(entry.name ?? '').trim()
+  const mimeType = String(entry.mime_type ?? '').trim()
+  const size = Number(entry.size ?? 0)
+  const sha256 = String(entry.sha256 ?? '').trim()
+  const chunkCount = Number(entry.chunk_count ?? 0)
+  const chunkSize = Number(entry.chunk_size ?? 0)
+  const exportEpoch = Number(entry.export_epoch ?? 0)
+  const senderPeerID = String(entry.sender_peer_id ?? '').trim()
+  if (!fileID || !name || !mimeType || !sha256 || !senderPeerID) return null
+  return {
+    type: 'file',
+    file_id: fileID,
+    name,
+    ext: String(entry.ext ?? '').trim() || undefined,
+    mime_type: mimeType,
+    size: Number.isFinite(size) ? size : 0,
+    sha256,
+    chunk_count: Number.isFinite(chunkCount) ? chunkCount : 0,
+    chunk_size: Number.isFinite(chunkSize) ? chunkSize : 0,
+    export_epoch: Number.isFinite(exportEpoch) ? exportEpoch : 0,
+    sender_peer_id: senderPeerID,
+  }
+}
+
+export function formatFileSize(bytes: number): string {
+  const n = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = n / 1024
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`
+}
+
+export function fileIconByMimeOrExt(file: Pick<FileAttachment, 'mime_type' | 'ext' | 'name'>): 'pdf' | 'doc' | 'sheet' | 'archive' | 'image' | 'video' | 'audio' | 'file' {
+  const mime = String(file.mime_type || '').toLowerCase()
+  const extRaw = String(file.ext || '').toLowerCase().replace(/^\./, '')
+  const ext = extRaw || String(file.name || '').toLowerCase().split('.').pop() || ''
+  if (mime.includes('pdf') || ext === 'pdf') return 'pdf'
+  if (mime.includes('word') || ['doc', 'docx'].includes(ext)) return 'doc'
+  if (mime.includes('sheet') || ['xls', 'xlsx', 'csv'].includes(ext)) return 'sheet'
+  if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
+  if (mime.startsWith('video/') || ['mp4', 'mov', 'mkv', 'webm'].includes(ext)) return 'video'
+  if (mime.startsWith('audio/') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) return 'audio'
+  if (
+    mime.includes('zip') ||
+    mime.includes('compressed') ||
+    ['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)
+  ) {
+    return 'archive'
+  }
+  return 'file'
+}
+
+export function isFilePayload(message: { content: string }): boolean {
+  const parsed = parseMessageContent(message.content)
+  return parsed.type === 'file' || Boolean(parsed.attachments?.length)
 }
 
 function normalizeMentions(raw: unknown): MentionEntity[] | undefined {
@@ -143,12 +248,13 @@ function normalizeMentions(raw: unknown): MentionEntity[] | undefined {
   return mentions.length > 0 ? mentions : undefined
 }
 
-export function serializePostPayload(input: { title?: string; body: string; mentions?: MentionEntity[] }): string {
+export function serializePostPayload(input: { title?: string; body: string; mentions?: MentionEntity[]; attachments?: FileAttachment[] }): string {
   const payload: PostPayload = {
     type: 'post',
     title: input.title?.trim() || undefined,
     body: input.body,
     mentions: input.mentions && input.mentions.length > 0 ? input.mentions : undefined,
+    attachments: input.attachments && input.attachments.length > 0 ? input.attachments : undefined,
   }
   return JSON.stringify(payload)
 }

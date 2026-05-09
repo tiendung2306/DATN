@@ -9,9 +9,11 @@ import { cn } from '@/lib/utils'
 interface MessageComposerProps {
   value: string
   disabled: boolean
+  attachingFile?: boolean
   mentionCandidates: MentionCandidate[]
   onChange: (value: string) => void
   onSend: () => void
+  onAttachFile?: () => void
   /** When set, shows a rune counter and blocks send while over limit (preflight also runs in useChatActions). */
   maxRunes?: number
 }
@@ -19,14 +21,16 @@ interface MessageComposerProps {
 export default function MessageComposer({
   value,
   disabled,
+  attachingFile = false,
   mentionCandidates,
   onChange,
   onSend,
+  onAttachFile,
   maxRunes,
 }: MessageComposerProps) {
   const usedRunes = maxRunes != null ? countUnicodeRunes(value.trim()) : 0
   const overLimit = maxRunes != null && usedRunes > maxRunes
-  const sendBlocked = disabled || !value.trim() || overLimit
+  const sendBlocked = disabled || attachingFile || !value.trim() || overLimit
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -43,7 +47,8 @@ export default function MessageComposer({
           variant="ghost"
           size="icon-sm"
           className="mb-1 text-slate-400 hover:text-slate-100"
-          disabled={disabled}
+          disabled={disabled || attachingFile || !onAttachFile}
+          onClick={onAttachFile}
         >
           <Paperclip className="h-4 w-4" />
         </Button>
@@ -69,6 +74,7 @@ export default function MessageComposer({
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
         <p className="text-slate-400">Enter để gửi · Shift+Enter xuống dòng</p>
+        {attachingFile ? <p className="text-emerald-300">Đang mã hóa file...</p> : null}
         {maxRunes != null ? (
           <p
             className={cn(

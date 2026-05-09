@@ -136,6 +136,25 @@ export function useChatEvents({
     }
   }, [activeGroupId, refreshGroupMembers, refreshNodeStatus])
 
+  const handleFilePrepare = useCallback((payload: { group_id?: string; file_id?: string; bytes?: number }) => {
+    // Deliberately silent: local UI already shows attaching state, avoid noisy duplicate toasts.
+    void payload
+  }, [])
+
+  const handleFileSent = useCallback((payload: { group_id?: string; file_id?: string; peer?: string }) => {
+    // Deliberately silent: metadata send is expected and frequent.
+    void payload
+  }, [])
+
+  const handleFileReceived = useCallback((payload: { group_id?: string; file_id?: string; path?: string }) => {
+    if (!payload?.file_id) return
+    useToastStore.getState().pushToast({
+      title: 'Tải tệp thành công',
+      description: payload.path ? `Đã lưu vào ${payload.path}` : `Đã tải xong tệp ${payload.file_id}.`,
+      variant: 'default',
+    })
+  }, [])
+
   useWailsEvent<service.MessageInfo>('group:message', handleGroupMessage)
   useWailsEvent<GroupEpochPayload>('group:epoch', handleGroupEpoch)
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
@@ -143,4 +162,7 @@ export function useChatEvents({
   useWailsEvent<GroupMembersChangedPayload>('group:members_changed', handleMembersChanged)
   useWailsEvent('node:status', handleNodeStatusChanged)
   useWailsEvent('p2p:status', handleNodeStatusChanged)
+  useWailsEvent<{ group_id?: string; file_id?: string; bytes?: number }>('file:prepare', handleFilePrepare)
+  useWailsEvent<{ group_id?: string; file_id?: string; peer?: string }>('file:sent', handleFileSent)
+  useWailsEvent<{ group_id?: string; file_id?: string; path?: string }>('file:received', handleFileReceived)
 }
