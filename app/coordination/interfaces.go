@@ -124,7 +124,8 @@ type MLSEngine interface {
 
 	// ExportSecret derives a secret from the current MLS epoch using the
 	// Exporter mechanism (RFC 9420 §8). Used for file transfer key derivation.
-	ExportSecret(ctx context.Context, groupState []byte, label string, length int) (secret []byte, err error)
+	// Context binds the derived secret (e.g. SHA-256 of file plaintext).
+	ExportSecret(ctx context.Context, groupState []byte, label string, context []byte, length int) (secret []byte, err error)
 }
 
 // ─── CoordinationStorage ─────────────────────────────────────────────────────

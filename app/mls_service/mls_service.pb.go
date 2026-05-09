@@ -1328,10 +1328,13 @@ func (x *ExternalJoinResponse) GetTreeHash() []byte {
 }
 
 type ExportSecretRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	GroupState    []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
-	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
-	Length        uint32                 `protobuf:"varint,3,opt,name=length,proto3" json:"length,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	GroupState []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
+	Label      string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Length     uint32                 `protobuf:"varint,3,opt,name=length,proto3" json:"length,omitempty"`
+	// RFC 9420 exporter context (e.g. SHA-256 digest of plaintext file for Phase 8).
+	// Empty bytes preserve legacy behavior (same as zero-length context).
+	Context       []byte `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1385,6 +1388,13 @@ func (x *ExportSecretRequest) GetLength() uint32 {
 		return x.Length
 	}
 	return 0
+}
+
+func (x *ExportSecretRequest) GetContext() []byte {
+	if x != nil {
+		return x.Context
+	}
+	return nil
 }
 
 type ExportSecretResponse struct {
@@ -1652,7 +1662,7 @@ type RemoveMembersRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	GroupState []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
 	// Each entry is the raw identity bytes of one BasicCredential to remove
-	// (peer ID raw bytes for our application). Order is irrelevant; a single
+	// (MLS signing public-key bytes in this application). Order is irrelevant; a single
 	// commit bundles all removals atomically.
 	TargetIdentities [][]byte `protobuf:"bytes,2,rep,name=target_identities,json=targetIdentities,proto3" json:"target_identities,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -2061,12 +2071,13 @@ const file_mls_service_proto_rawDesc = "" +
 	"\vgroup_state\x18\x01 \x01(\fR\n" +
 	"groupState\x12!\n" +
 	"\fcommit_bytes\x18\x02 \x01(\fR\vcommitBytes\x12\x1b\n" +
-	"\ttree_hash\x18\x03 \x01(\fR\btreeHash\"d\n" +
+	"\ttree_hash\x18\x03 \x01(\fR\btreeHash\"~\n" +
 	"\x13ExportSecretRequest\x12\x1f\n" +
 	"\vgroup_state\x18\x01 \x01(\fR\n" +
 	"groupState\x12\x14\n" +
 	"\x05label\x18\x02 \x01(\tR\x05label\x12\x16\n" +
-	"\x06length\x18\x03 \x01(\rR\x06length\".\n" +
+	"\x06length\x18\x03 \x01(\rR\x06length\x12\x18\n" +
+	"\acontext\x18\x04 \x01(\fR\acontext\".\n" +
 	"\x14ExportSecretResponse\x12\x16\n" +
 	"\x06secret\x18\x01 \x01(\fR\x06secret\"<\n" +
 	"\x19GenerateKeyPackageRequest\x12\x1f\n" +

@@ -529,6 +529,8 @@
 
 **Goal:** Secure high-speed file transfer and thesis documentation.
 
+**MVP backend scope (current implementation):** Phase 8 ships **direct** libp2p sender→receiver chunked transfer on `/app/file/1.0.0` with MLS exporter context binding (`ExportSecret` + `context=file_sha256`); **multi-peer swarming** from the bullets below remains future work.
+
 ### 8.1. Secure Direct Swarming (MLS Exporter-based)
 - **Design link:** Application **plaintext** caps (README Section 3.2.1) intentionally keep MLS payloads bounded; users who need to share **large text or binaries** should use this phase’s encrypted file path instead of stretching DM/channel body limits.
 - **Task:** Derive one-time symmetric key using `MLS Exporter` (label: `"file-transfer"`, context: `file_hash`).

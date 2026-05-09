@@ -30,6 +30,7 @@ type Config struct {
 	BlindStoreParticipant bool
 	OfflineReplicaK       int
 	RuntimeEventReplay    bool
+	FileTransferChunkBytes int
 }
 
 // Parse parses command-line flags into Config. Call once from main.
@@ -61,6 +62,7 @@ func Parse() *Config {
 	flag.BoolVar(&cfg.BlindStoreParticipant, "blind-store-participant", true, "Enable selective blind-store participation for non-store nodes")
 	flag.IntVar(&cfg.OfflineReplicaK, "offline-replica-k", 2, "Number of non-store blind-store peers targeted for replica persistence")
 	flag.BoolVar(&cfg.RuntimeEventReplay, "runtime-event-replay-enabled", true, "Enable durable runtime event log + replay APIs")
+	flag.IntVar(&cfg.FileTransferChunkBytes, "file-chunk-bytes", 1<<20, "Plaintext chunk size for MLS file transfer (Phase 8)")
 
 	flag.Parse()
 	if cfg.StoreNode {
@@ -68,6 +70,9 @@ func Parse() *Config {
 	}
 	if cfg.OfflineReplicaK < 0 {
 		cfg.OfflineReplicaK = 0
+	}
+	if cfg.FileTransferChunkBytes <= 0 {
+		cfg.FileTransferChunkBytes = 1 << 20
 	}
 	return cfg
 }

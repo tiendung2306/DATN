@@ -87,7 +87,7 @@ func (m *membershipTestMLSEngine) ExternalJoin(context.Context, []byte, []byte) 
 func (m *membershipTestMLSEngine) ExportGroupInfo(context.Context, []byte, bool) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *membershipTestMLSEngine) ExportSecret(context.Context, []byte, string, int) ([]byte, error) {
+func (m *membershipTestMLSEngine) ExportSecret(context.Context, []byte, string, []byte, int) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 

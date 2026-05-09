@@ -369,6 +369,22 @@ func (d *Database) createTables() error {
 			ON fork_audit(trace_id, id ASC);`,
 		`CREATE INDEX IF NOT EXISTS idx_fork_audit_group_created
 			ON fork_audit(group_id, created_at DESC, id DESC);`,
+		`CREATE TABLE IF NOT EXISTS file_transfers (
+			file_id           TEXT PRIMARY KEY,
+			group_id          TEXT    NOT NULL,
+			direction         TEXT    NOT NULL,
+			plaintext_sha256  BLOB    NOT NULL,
+			plaintext_size    INTEGER NOT NULL,
+			chunk_size        INTEGER NOT NULL,
+			chunk_count       INTEGER NOT NULL,
+			export_epoch      INTEGER NOT NULL,
+			sender_peer_id    TEXT    NOT NULL DEFAULT '',
+			ciphertext_dir    TEXT    NOT NULL,
+			state             TEXT    NOT NULL,
+			created_at        INTEGER NOT NULL,
+			updated_at        INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_file_transfers_group ON file_transfers(group_id);`,
 	}
 
 	for _, q := range queries {

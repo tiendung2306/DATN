@@ -225,7 +225,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ExportSecretRequest>,
     ) -> Result<Response<ExportSecretResponse>, Status> {
         let req = request.into_inner();
-        match mls::export_secret(&req.group_state, &req.label, req.length) {
+        match mls::export_secret(&req.group_state, &req.label, &req.context, req.length) {
             Ok(secret) => Ok(Response::new(ExportSecretResponse { secret })),
             Err(e) => {
                 eprintln!("export_secret error: {e}");

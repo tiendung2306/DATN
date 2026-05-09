@@ -55,7 +55,7 @@ func (m *groupInfoTestMLSEngine) ExportGroupInfo(_ context.Context, groupState [
 	}
 	return m.exportFn(groupState, withRatchetTree)
 }
-func (m *groupInfoTestMLSEngine) ExportSecret(context.Context, []byte, string, int) ([]byte, error) {
+func (m *groupInfoTestMLSEngine) ExportSecret(context.Context, []byte, string, []byte, int) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 

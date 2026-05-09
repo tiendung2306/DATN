@@ -427,15 +427,16 @@ func (m *MockMLSEngine) ExportGroupInfo(_ context.Context, groupState []byte, wi
 	return out, nil
 }
 
-func (m *MockMLSEngine) ExportSecret(_ context.Context, _ []byte, label string, length int) ([]byte, error) {
+func (m *MockMLSEngine) ExportSecret(_ context.Context, _ []byte, label string, context []byte, length int) ([]byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, err
 	}
-	h := sha256.Sum256([]byte(label))
-	if length > len(h) {
-		length = len(h)
+	h := sha256.Sum256(append(append([]byte(label+":"), context...), byte(length)))
+	out := make([]byte, length)
+	for i := 0; i < length; i++ {
+		out[i] = h[i%32] ^ byte(i)
 	}
-	return h[:length], nil
+	return out, nil
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

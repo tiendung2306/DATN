@@ -16,6 +16,13 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-09) ✅ — Phase 8 MVP: file transfer (MLS exporter + direct pull)
+
+- Proto `ExportSecretRequest.context` → Rust/OpenMLS exporter context (RFC 9420); Go `MLSEngine.ExportSecret(..., context []byte, length)`.
+- Phase 8 MVP: AES-GCM chunks (`app/pkg/filetransfer`), SQLite `file_transfers`, `/app/file/1.0.0` **direct sender→receiver pull only** (không swarming).
+- Runtime: `PrepareOutgoingFileTransfer`, `PullFileTransferFromPeer`; events `file:prepare` / `file:sent` / `file:received`; `-file-chunk-bytes`.
+- `PROJECT_PLAN.md` §8: một dòng scope MVP (direct; swarming sau).
+
 ### Latest Delta (2026-05-08) ✅ — Hạng mục 3 hardening: local-remove cryptographic detection + revoke enforcement
 
 - **MLS membership query RPC mới (`HasMember`) đã được thêm end-to-end:**

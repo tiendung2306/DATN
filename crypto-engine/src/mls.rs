@@ -741,12 +741,17 @@ pub fn external_join(group_info: &[u8], signing_key: &[u8]) -> Result<ExternalJo
     })
 }
 
-pub fn export_secret(group_state: &[u8], label: &str, length: u32) -> Result<Vec<u8>, String> {
+pub fn export_secret(
+    group_state: &[u8],
+    label: &str,
+    context: &[u8],
+    length: u32,
+) -> Result<Vec<u8>, String> {
     let imp = import_state(group_state)?;
 
     let secret = imp
         .group
-        .export_secret(imp.provider.crypto(), label, &[], length as usize)
+        .export_secret(imp.provider.crypto(), label, context, length as usize)
         .map_err(|e| format!("export_secret: {e:?}"))?;
 
     Ok(secret)
@@ -825,8 +830,14 @@ mod tests {
         let sk = test_signing_key();
         let cr = create_group("test-export", &sk).expect("create_group");
 
-        let secret = export_secret(&cr.group_state, "test-label", 32).expect("export_secret");
+        let secret = export_secret(&cr.group_state, "test-label", &[], 32).expect("export_secret");
         assert_eq!(secret.len(), 32);
+
+        let ctx_a = b"context-a";
+        let ctx_b = b"context-b";
+        let sa = export_secret(&cr.group_state, "test-label", ctx_a, 32).expect("export a");
+        let sb = export_secret(&cr.group_state, "test-label", ctx_b, 32).expect("export b");
+        assert_ne!(sa, sb, "different exporter context must yield different secrets");
     }
 
     #[test]

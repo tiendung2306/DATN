@@ -177,6 +177,9 @@ message ExportSecretRequest {
   bytes group_state = 1;
   string label = 2;
   uint32 length = 3;
+  // RFC 9420 exporter context (e.g. SHA-256 digest of plaintext file for Phase 8).
+  // Empty bytes preserve legacy behavior (same as zero-length context).
+  bytes context = 4;
 }
 
 message ExportSecretResponse {

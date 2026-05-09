@@ -162,11 +162,12 @@ func (g *GrpcMLSEngine) ExportGroupInfo(ctx context.Context, groupState []byte, 
 	return resp.GetGroupInfo(), nil
 }
 
-func (g *GrpcMLSEngine) ExportSecret(ctx context.Context, groupState []byte, label string, length int) (secret []byte, err error) {
+func (g *GrpcMLSEngine) ExportSecret(ctx context.Context, groupState []byte, label string, context []byte, length int) (secret []byte, err error) {
 	resp, err := g.client.ExportSecret(ctx, &mls_service.ExportSecretRequest{
 		GroupState: groupState,
 		Label:      label,
 		Length:     uint32(length),
+		Context:    append([]byte(nil), context...),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("grpc ExportSecret: %w", err)
