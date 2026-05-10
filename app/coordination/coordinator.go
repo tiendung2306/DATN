@@ -677,6 +677,7 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 	if !c.started {
 		return nil, fmt.Errorf("coordinator not started")
 	}
+	c.updateLocalAccessRevocationLocked(c.groupState, c.epoch)
 	if c.accessRevoked {
 		slog.Warn("Mutation rejected: access revoked",
 			"group", c.groupID,
@@ -788,12 +789,17 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 }
 
 func deriveIdentityFromSigningKey(signingKey []byte) []byte {
-	if len(signingKey) != ed25519.SeedSize {
+	var pub ed25519.PublicKey
+	switch len(signingKey) {
+	case ed25519.SeedSize:
+		pub = ed25519.NewKeyFromSeed(signingKey).Public().(ed25519.PublicKey)
+	case ed25519.PrivateKeySize:
+		pub = ed25519.PrivateKey(signingKey).Public().(ed25519.PublicKey)
+	default:
 		return nil
 	}
-	pk := ed25519.NewKeyFromSeed(signingKey).Public().(ed25519.PublicKey)
-	out := make([]byte, len(pk))
-	copy(out, pk)
+	out := make([]byte, len(pub))
+	copy(out, pub)
 	return out
 }
 

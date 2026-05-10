@@ -83,15 +83,15 @@ func (r *Runtime) GenerateKeys() (*OnboardingInfo, error) {
 	if r.db == nil || r.privKey == nil {
 		return nil, fmt.Errorf("app not initialized")
 	}
-	if r.mlsClient == nil {
-		return nil, fmt.Errorf("crypto engine not available — build the Rust project first:\n  cd crypto-engine && cargo build")
-	}
 	has, err := r.db.HasMLSIdentity()
 	if err != nil {
 		return nil, fmt.Errorf("check identity: %w", err)
 	}
 	if has {
 		return nil, fmt.Errorf("key pair already exists; use GetOnboardingInfo to retrieve it")
+	}
+	if r.mlsClient == nil {
+		return nil, fmt.Errorf("crypto engine not available — build the Rust project first:\n  cd crypto-engine && cargo build")
 	}
 	if err := p2p.OnboardNewUser(r.appCtx(), r.db, r.mlsClient); err != nil {
 		return nil, fmt.Errorf("generate key pair: %w", err)

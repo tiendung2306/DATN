@@ -1,0 +1,9 @@
+---
+description: Do not skip or gate tests to hide failures; surface real CI signal.
+alwaysApply: true
+---
+
+# Tests — no hiding failures
+
+- Do not add `t.Skip`, commented-out test bodies, or `if testing.Short()` branches to make suites green while scenarios are broken or unimplemented.
+- Prefer fixing the code or the test harness; if a test is genuinely optional or prohibitively slow, split it with an explicit build tag or documented `-short` policy agreed in the repo — do not invent silent skips while iterating.

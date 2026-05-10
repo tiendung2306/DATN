@@ -19,7 +19,7 @@ This document outlines the core principles, mandates, and operational guidelines
 1. **Understand Requirements:** Analyze the user's request, the `PROJECT_PLAN.md`, and `README.md` thoroughly.
 2. **Plan:** Build a coherent plan based on understanding. For complex tasks, break them down into subtasks and use the `write_todos` tool to track progress. Share concise plans with the user when helpful.
 3. **Implement:** Use available tools (e.g., `replace`, `write_file`, `run_shell_command`) strictly adhering to project conventions.
-4. **Verify (Tests):** If applicable, verify changes using project's testing procedures. NEVER assume standard test commands. Prefer "run once" or "CI" modes.
+4. **Verify (Tests):** If applicable, verify changes using project's testing procedures. NEVER assume standard test commands. Prefer "run once" or "CI" modes. Do not use `t.Skip`, build-tag workarounds, or `testing.Short()` branches to hide failing tests or pretend scenarios pass — failures must surface in CI/local runs. Optional slow tests may use `-short` only when the team has explicitly documented that split.
 5. **Verify (Standards):** After code changes, execute project-specific build, linting, and type-checking commands (e.g., `tsc`, `npm run lint`, `go vet`, `cargo check`).
 6. **Finalize:** After all verification passes, the task is complete.
 

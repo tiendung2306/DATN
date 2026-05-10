@@ -51,6 +51,7 @@ Lệnh đề xuất:
 ```powershell
 cd app
 go test -tags=business_integration ./service -count=1 -run TestBusinessP0
+go test -tags=business_integration ./service -count=1 -run TestBusinessP1_Sprint2
 ```
 
 ### Lớp 2: In-Process Multi-Node Business Suite

@@ -410,14 +410,17 @@ func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex strin
 		return "", fmt.Errorf("decode key package hex: %w", err)
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+	// Do not hold r.mu Lock across coord.AddMember: the coordinator may call
+	// OnEnvelopeBroadcast → publishBlindStoreEnvelope, which takes r.mu RLock.
+	// Lock→RLock on the same goroutine deadlocks (sync.RWMutex is not re-entrant).
+	r.mu.RLock()
 	if r.coordinators == nil {
+		r.mu.RUnlock()
 		return "", fmt.Errorf("coordination stack not initialized")
 	}
 	coord, ok := r.coordinators[groupID]
 	if !ok {
+		r.mu.RUnlock()
 		return "", fmt.Errorf("not in group %q", groupID)
 	}
 	if rec, recErr := r.coordStorage.GetGroupRecord(groupID); recErr == nil {
@@ -431,15 +434,21 @@ func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex strin
 					}
 				}
 				if activeCount >= 2 {
+					r.mu.RUnlock()
 					return "", fmt.Errorf("direct message already has two members")
 				}
 			}
 		}
 	}
+	r.mu.RUnlock()
 
 	welcome, err := coord.AddMember(peer.ID(newMemberPeerID), raw)
 	if err != nil {
 		return "", err
+	}
+	newMemberPeerID = strings.TrimSpace(newMemberPeerID)
+	if newMemberPeerID != "" {
+		_ = r.upsertGroupMember(groupID, newMemberPeerID, "member", "add")
 	}
 	return hex.EncodeToString(welcome), nil
 }
