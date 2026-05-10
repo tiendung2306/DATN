@@ -32,9 +32,9 @@ func (s *SQLiteCoordinationStorage) GetGroupRecord(groupID string) (*coordinatio
 	var role string
 	var createdAt, updatedAt string
 	err := s.db.Conn.QueryRow(
-		`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, created_at, updated_at
+		`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, created_at, updated_at
 		 FROM mls_groups WHERE group_id = ?`, groupID,
-	).Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &role, &rec.GroupType, &createdAt, &updatedAt)
+	).Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &role, &rec.GroupType, &rec.CategoryID, &createdAt, &updatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, coordination.ErrGroupNotFound
@@ -49,17 +49,25 @@ func (s *SQLiteCoordinationStorage) GetGroupRecord(groupID string) (*coordinatio
 
 func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecord) error {
 	_, err := s.db.Conn.Exec(
-		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id) DO UPDATE SET
 		     group_state = excluded.group_state,
 		     epoch       = excluded.epoch,
 		     tree_hash   = excluded.tree_hash,
 		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
 		     group_type  = COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type),
+		     category_id = CASE
+		     	WHEN COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type) = 'channel'
+		     		THEN CASE
+		     			WHEN trim(excluded.category_id) != '' THEN excluded.category_id
+		     			ELSE mls_groups.category_id
+		     		END
+		     	ELSE ''
+		     END,
 		     updated_at  = excluded.updated_at`,
 		rec.GroupID, rec.GroupState, rec.Epoch, rec.TreeHash,
-		string(rec.MyRole), rec.GroupType, rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),
+		string(rec.MyRole), rec.GroupType, rec.CategoryID, rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),
 	)
 	if err != nil {
 		return fmt.Errorf("SaveGroupRecord(%q): %w", rec.GroupID, err)
@@ -69,7 +77,7 @@ func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecor
 
 func (s *SQLiteCoordinationStorage) ListGroups() ([]*coordination.GroupRecord, error) {
 	rows, err := s.db.Conn.Query(
-		`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, created_at, updated_at
+		`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, created_at, updated_at
 		 FROM mls_groups
 		 WHERE lifecycle_status = 'active'`,
 	)
@@ -82,7 +90,7 @@ func (s *SQLiteCoordinationStorage) ListGroups() ([]*coordination.GroupRecord, e
 	for rows.Next() {
 		var rec coordination.GroupRecord
 		var role, createdAt, updatedAt string
-		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &role, &rec.GroupType, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &role, &rec.GroupType, &rec.CategoryID, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("ListGroups scan: %w", err)
 		}
 		rec.MyRole = coordination.GroupRole(role)
@@ -510,16 +518,25 @@ func hasAppliedEnvelopeTx(tx *sql.Tx, groupID string, envelopeHash []byte) (bool
 
 func saveGroupRecordTx(tx *sql.Tx, rec *coordination.GroupRecord) error {
 	_, err := tx.Exec(
-		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id) DO UPDATE SET
 		     group_state = excluded.group_state,
 		     epoch       = excluded.epoch,
 		     tree_hash   = excluded.tree_hash,
 		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
+		     group_type  = COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type),
+		     category_id = CASE
+		     	WHEN COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type) = 'channel'
+		     		THEN CASE
+		     			WHEN trim(excluded.category_id) != '' THEN excluded.category_id
+		     			ELSE mls_groups.category_id
+		     		END
+		     	ELSE ''
+		     END,
 		     updated_at  = excluded.updated_at`,
 		rec.GroupID, rec.GroupState, rec.Epoch, rec.TreeHash,
-		string(rec.MyRole), rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),
+		string(rec.MyRole), rec.GroupType, rec.CategoryID, rec.CreatedAt.Format(time.DateTime), rec.UpdatedAt.Format(time.DateTime),
 	)
 	return err
 }

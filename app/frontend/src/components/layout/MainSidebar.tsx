@@ -4,10 +4,15 @@ import { getConversationKind, shortPeerId, SidebarConversationItem } from '../..
 import { useContactStore } from '../../stores/useContactStore'
 import { Button } from '../ui/button'
 import { NetworkConnectionState } from '../../stores/useNetworkStore'
-import { ChevronDown, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, FolderPlus, Plus, Trash2 } from 'lucide-react'
 import CreateGroupModal from '../../features/chat/components/CreateGroupModal'
 import ChatListAvatar from '../chat/ChatListAvatar'
 import { useChatStore } from '../../stores/useChatStore'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
+import { useToastStore } from '../../stores/useToastStore'
+import { ChannelCategory } from '../../features/chat/hooks/useChannelCategories'
 
 interface MainSidebarProps {
   displayName: string
@@ -18,10 +23,15 @@ interface MainSidebarProps {
   unreadByGroup: Record<string, number>
   peerCount: number
   creatingGroup: boolean
-  onCreateGroupWithDetails: (name: string, type: 'channel' | 'group' | 'dm', members: string[]) => Promise<void>
+  onCreateGroupWithDetails: (name: string, type: 'channel' | 'group' | 'dm', members: string[], categoryId?: string) => Promise<void>
+  channelCategories: ChannelCategory[]
+  onCreateCategory: (name: string) => Promise<void>
+  onDeleteCategory: (categoryID: string) => Promise<void>
   onSelectGroup: (groupId: string) => void
   showWorkspaceLists: boolean
 }
+
+const CATEGORY_COLLAPSE_STORAGE_KEY = 'sidebar.channel.category-collapse.v2'
 
 export default function MainSidebar({
   displayName,
@@ -33,22 +43,35 @@ export default function MainSidebar({
   peerCount,
   creatingGroup,
   onCreateGroupWithDetails,
+  channelCategories,
+  onCreateCategory,
+  onDeleteCategory,
   onSelectGroup,
   showWorkspaceLists,
 }: MainSidebarProps) {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isCreateCategoryOpen, setIsCreateCategoryOpen] = useState(false)
+  const [categoryDraft, setCategoryDraft] = useState('')
+  const [categoryIdForQuickCreate, setCategoryIdForQuickCreate] = useState<string | null>(null)
   const [isChannelsExpanded, setIsChannelsExpanded] = useState(true)
   const [isConversationsExpanded, setIsConversationsExpanded] = useState(true)
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({})
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const messagesByGroup = useChatStore((s) => s.messagesByGroup)
   const postsByGroup = useChatStore((s) => s.postsByGroup)
+  const pushToast = useToastStore((s) => s.pushToast)
 
   useEffect(() => {
     try {
       const channelsPref = localStorage.getItem('sidebar.channels.expanded')
       const conversationsPref = localStorage.getItem('sidebar.conversations.expanded')
+      const collapsedPref = localStorage.getItem(CATEGORY_COLLAPSE_STORAGE_KEY)
       if (channelsPref !== null) setIsChannelsExpanded(channelsPref === 'true')
       if (conversationsPref !== null) setIsConversationsExpanded(conversationsPref === 'true')
+      if (collapsedPref) {
+        const parsed = JSON.parse(collapsedPref) as Record<string, boolean>
+        setCollapsedCategories(parsed || {})
+      }
     } catch {
       // ignore persistence read failure
     }
@@ -58,10 +81,11 @@ export default function MainSidebar({
     try {
       localStorage.setItem('sidebar.channels.expanded', String(isChannelsExpanded))
       localStorage.setItem('sidebar.conversations.expanded', String(isConversationsExpanded))
+      localStorage.setItem(CATEGORY_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedCategories))
     } catch {
       // ignore persistence write failure
     }
-  }, [isChannelsExpanded, isConversationsExpanded])
+  }, [collapsedCategories, isChannelsExpanded, isConversationsExpanded])
 
   const getLastActivityAt = (groupId: string): number => {
     const messages = messagesByGroup[groupId] ?? []
@@ -88,6 +112,31 @@ export default function MainSidebar({
       return a.title.localeCompare(b.title)
     })
   }, [groups, unreadByGroup, messagesByGroup, postsByGroup])
+
+  const categorizedChannels = useMemo(() => {
+    const categoryMap = new Map<string, SidebarConversationItem[]>()
+    for (const item of channelItems) {
+      const g = groups.find((entry) => entry.group_id === item.id)
+      const categoryID = String((g as any)?.category_id || '').trim()
+      if (!categoryID) continue
+      const list = categoryMap.get(categoryID) ?? []
+      list.push(item)
+      categoryMap.set(categoryID, list)
+    }
+    return channelCategories.map((category) => ({
+      ...category,
+      channels: (categoryMap.get(category.category_id) ?? []).sort((a, b) => a.title.localeCompare(b.title)),
+    }))
+  }, [channelCategories, channelItems, groups])
+
+  const uncategorizedChannels = useMemo(() => {
+    const known = new Set(channelCategories.map((c) => c.category_id))
+    return channelItems.filter((item) => {
+      const g = groups.find((entry) => entry.group_id === item.id)
+      const categoryID = String((g as any)?.category_id || '').trim()
+      return !categoryID || !known.has(categoryID)
+    })
+  }, [channelCategories, channelItems, groups])
 
   const conversationItems = useMemo(() => {
     const items: SidebarConversationItem[] = groups
@@ -123,6 +172,38 @@ export default function MainSidebar({
       return a.title.localeCompare(b.title)
     })
   }, [groups, unreadByGroup, getDisplayName, messagesByGroup, postsByGroup])
+
+  const handleCreateCategory = async () => {
+    const name = categoryDraft.trim()
+    if (!name) return
+    try {
+      await onCreateCategory(name)
+      setCategoryDraft('')
+      setIsCreateCategoryOpen(false)
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err)
+      pushToast({
+        title: 'Tạo danh mục thất bại',
+        description: raw,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleDeleteCategory = async (categoryID: string) => {
+    try {
+      await onDeleteCategory(categoryID)
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err)
+      pushToast({
+        title: 'Không thể xóa danh mục',
+        description: raw.includes('ERR_CATEGORY_NOT_EMPTY')
+          ? 'Danh mục vẫn còn ít nhất một kênh bên trong.'
+          : raw,
+        variant: 'destructive',
+      })
+    }
+  }
 
   return (
     <aside className="flex w-80 flex-col border-r border-slate-800 bg-slate-900">
@@ -162,43 +243,133 @@ export default function MainSidebar({
             onClick={() => setIsChannelsExpanded((v) => !v)}
           >
             <span>CHANNELS</span>
-            <ChevronDown className={`h-3.5 w-3.5 transition ${isChannelsExpanded ? '' : '-rotate-90'}`} />
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setIsCreateCategoryOpen(true)
+                }}
+                title="Tạo danh mục"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+              <ChevronDown className={`h-3.5 w-3.5 transition ${isChannelsExpanded ? '' : '-rotate-90'}`} />
+            </div>
           </button>
           <div id="channels-list" className={`mt-2 space-y-1 ${isChannelsExpanded ? '' : 'hidden'}`}>
             {!showWorkspaceLists ? (
               <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
                 Chuyển sang Trò chuyện
               </div>
-            ) : channelItems.length === 0 ? (
+            ) : channelItems.length === 0 && channelCategories.length === 0 ? (
               <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có kênh</div>
             ) : (
-              channelItems.map((item) => {
-                  const active = item.id === activeGroupId
+              <>
+                {categorizedChannels.map((category) => {
+                  const isCollapsed = Boolean(collapsedCategories[category.category_id])
                   return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onSelectGroup(item.id)}
-                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
-                        active
-                          ? 'bg-slate-800 text-slate-100'
-                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="min-w-0 flex flex-1 items-center gap-2">
-                        <p className="truncate">
-                          <span className="text-emerald-400/90"># </span>
-                          {item.title}
-                        </p>
+                    <div key={category.category_id} className="space-y-1">
+                      <div className="flex items-center justify-between rounded px-1">
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 hover:text-slate-300"
+                          onClick={() =>
+                            setCollapsedCategories((prev) => ({ ...prev, [category.category_id]: !prev[category.category_id] }))
+                          }
+                        >
+                          {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          <span className="truncate">{category.name}</span>
+                        </button>
+                        <div className="flex items-center">
+                          <button
+                            type="button"
+                            className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                            title="Tạo kênh trong danh mục"
+                            onClick={() => {
+                              setCategoryIdForQuickCreate(category.category_id)
+                              setIsCreateModalOpen(true)
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-300"
+                            title="Xóa danh mục"
+                            onClick={() => handleDeleteCategory(category.category_id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      {item.unreadCount > 0 && (
-                        <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
-                          {item.unreadCount}
-                        </span>
-                      )}
-                    </button>
+                      {!isCollapsed &&
+                        category.channels.map((item) => {
+                          const active = item.id === activeGroupId
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => onSelectGroup(item.id)}
+                              className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
+                                active
+                                  ? 'bg-slate-800 text-slate-100'
+                                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                              }`}
+                            >
+                              <div className="min-w-0 flex flex-1 items-center gap-2">
+                                <p className="truncate">
+                                  <span className="text-emerald-400/90"># </span>
+                                  {item.title}
+                                </p>
+                              </div>
+                              {item.unreadCount > 0 && (
+                                <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                                  {item.unreadCount}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                    </div>
                   )
-                })
+                })}
+                {uncategorizedChannels.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      Chưa gán danh mục
+                    </div>
+                    {uncategorizedChannels.map((item) => {
+                      const active = item.id === activeGroupId
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => onSelectGroup(item.id)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
+                            active
+                              ? 'bg-slate-800 text-slate-100'
+                              : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                          }`}
+                        >
+                          <div className="min-w-0 flex flex-1 items-center gap-2">
+                            <p className="truncate">
+                              <span className="text-emerald-400/90"># </span>
+                              {item.title}
+                            </p>
+                          </div>
+                          {item.unreadCount > 0 && (
+                            <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                              {item.unreadCount}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -223,37 +394,37 @@ export default function MainSidebar({
               <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có hội thoại</div>
             ) : (
               conversationItems.map((item) => {
-                  const active = item.id === activeGroupId
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onSelectGroup(item.id)}
-                      className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
-                        active
-                          ? 'bg-slate-800 text-slate-100'
-                          : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                      }`}
-                    >
-                      <div className="min-w-0 flex flex-1 items-center gap-2">
-                        <ChatListAvatar variant={item.kind === 'dm' ? 'dm' : 'channel'} displayName={item.title} />
-                        <p className="truncate">{item.title}</p>
-                      </div>
-                      {item.kind === 'dm' ? (
-                        <span
-                          className={`h-2 w-2 shrink-0 rounded-full ${item.isOnline ? 'bg-emerald-400' : 'bg-slate-500'}`}
-                          title={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
-                          aria-label={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
-                        />
-                      ) : null}
-                      {item.unreadCount > 0 && (
-                        <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
-                          {item.unreadCount}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
+                const active = item.id === activeGroupId
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectGroup(item.id)}
+                    className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-sm transition ${
+                      active
+                        ? 'bg-slate-800 text-slate-100'
+                        : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="min-w-0 flex flex-1 items-center gap-2">
+                      <ChatListAvatar variant={item.kind === 'dm' ? 'dm' : 'channel'} displayName={item.title} />
+                      <p className="truncate">{item.title}</p>
+                    </div>
+                    {item.kind === 'dm' ? (
+                      <span
+                        className={`h-2 w-2 shrink-0 rounded-full ${item.isOnline ? 'bg-emerald-400' : 'bg-slate-500'}`}
+                        title={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
+                        aria-label={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
+                      />
+                    ) : null}
+                    {item.unreadCount > 0 && (
+                      <span className="shrink-0 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[11px] text-emerald-300">
+                        {item.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })
             )}
           </div>
         </div>
@@ -265,10 +436,58 @@ export default function MainSidebar({
 
       <CreateGroupModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false)
+          setCategoryIdForQuickCreate(null)
+        }}
         onCreate={onCreateGroupWithDetails}
         creating={creatingGroup}
+        initialType={categoryIdForQuickCreate ? 'channel' : 'group'}
+        forcedType={categoryIdForQuickCreate ? 'channel' : undefined}
+        forcedCategoryId={categoryIdForQuickCreate ?? undefined}
+        channelCategories={channelCategories}
+        title={
+          categoryIdForQuickCreate
+            ? `Tạo kênh trong ${channelCategories.find((c) => c.category_id === categoryIdForQuickCreate)?.name ?? 'danh mục'}`
+            : undefined
+        }
       />
+
+      <Dialog open={isCreateCategoryOpen} onOpenChange={(open) => !open && setIsCreateCategoryOpen(false)}>
+        <DialogContent className="sm:max-w-md bg-slate-900 border-slate-800 text-slate-100 ring-1 ring-slate-800 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold text-slate-100">Tạo danh mục mới</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="category-name" className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+              Tên danh mục
+            </Label>
+            <Input
+              id="category-name"
+              value={categoryDraft}
+              onChange={(event) => setCategoryDraft(event.target.value)}
+              placeholder="Ví dụ: Phòng ban kỹ thuật"
+              className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-emerald-500"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              className="text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+              onClick={() => setIsCreateCategoryOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              onClick={handleCreateCategory}
+              className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
+              disabled={!categoryDraft.trim()}
+            >
+              Tạo danh mục
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   )
 }

@@ -16,6 +16,18 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-09) ✅ — File transfer UX hardening + channel multi-attachments
+
+- **Downloaded file actions (receiver UX):**
+  - Added `Runtime.OpenDownloadedFile(groupID, fileID, fallbackPath)` to open previously downloaded files.
+  - Download path is persisted in SQLite `file_transfers` for inbound rows (`direction=in`, states: `transferring/completed/failed`) so "Open file" still works after app restart.
+  - `FileAttachmentCard` now supports `Mở file` + `Tải lại/Thử lại`; frontend maps `ERR_FILE_NOT_DOWNLOADED`, `ERR_FILE_MISSING_LOCAL`, `ERR_FILE_OPEN_FAILED` to user-friendly messages.
+- **Channel post composer now supports multi-file attachments (product flow):**
+  - Added backend API `PrepareGroupFile(groupID)` (open dialog + validate + prepare ciphertext, **no auto announce**).
+  - Channel UI moved attach action into `PostComposerCard` and supports pending attachment list with remove action.
+  - Publishing a channel post now sends a single `post` payload with `attachments[]` (max **10** files/post), replacing the old "one attached file = one separate auto-post" behavior.
+  - `PostCard` renders multiple attachment cards per post; file download/open state is tracked per attachment key (`postId:fileId`) to avoid state collision.
+
 ### Latest Delta (2026-05-09) ✅ — Phase 8 MVP: file transfer (MLS exporter + direct pull)
 
 - Proto `ExportSecretRequest.context` → Rust/OpenMLS exporter context (RFC 9420); Go `MLSEngine.ExportSecret(..., context []byte, length)`.

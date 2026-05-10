@@ -1,14 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { formatLeaveGroupError, formatRemoveMemberError } from '../../lib/formatRemoveMemberError'
 import { useContactStore } from '../../stores/useContactStore'
 import { useToastStore } from '../../stores/useToastStore'
 import { Button } from '../ui/button'
-import { LogOut, Shield, UserMinus, UserPlus, Users, X } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
+import { LogOut, Settings, Shield, UserMinus, UserPlus, Users, X } from 'lucide-react'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import AddMemberModal from '../../features/chat/components/AddMemberModal'
 import { ConversationKind } from '../../lib/chatModel'
+import { formatOutboundSendError } from '../../lib/formatSendError'
+import { cn } from '@/lib/utils'
 
 interface RoomPanelProps {
   activeGroupId: string | null
@@ -19,6 +22,15 @@ interface RoomPanelProps {
   onClose: () => void
   setActiveGroupId?: (id: string | null) => void
   refreshGroups?: () => Promise<void>
+}
+
+type InviteListItem = {
+  request_id?: string
+  target_peer_id?: string
+  requester_peer_id?: string
+  status?: string
+  created_at?: number
+  updated_at?: number
 }
 
 export default function RoomPanel({
@@ -36,7 +48,147 @@ export default function RoomPanel({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isLeaving, setIsLeaving] = useState(false)
   const [removingPeerId, setRemovingPeerId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'members' | 'invites'>('members')
+  const [inviteItems, setInviteItems] = useState<InviteListItem[]>([])
+  const [loadingInvites, setLoadingInvites] = useState(false)
+  const [changingInviteId, setChangingInviteId] = useState<string | null>(null)
+  const [invitePolicy, setInvitePolicy] = useState<'creator_approval' | 'any_member' | null>(null)
+  const [loadingPolicy, setLoadingPolicy] = useState(false)
+  const [savingPolicy, setSavingPolicy] = useState(false)
+  const [settingsDraftPolicy, setSettingsDraftPolicy] = useState<'creator_approval' | 'any_member'>(
+    'creator_approval',
+  )
+  const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
   const canRemoveMembers = activeKind !== 'dm' && myRole === 'creator'
+
+  useEffect(() => {
+    if (!activeGroupId || activeKind === 'dm') {
+      setInvitePolicy(null)
+      return
+    }
+    let alive = true
+    ;(async () => {
+      setLoadingPolicy(true)
+      try {
+        const p = await runtimeClient.getGroupInvitePolicy(activeGroupId)
+        if (alive) setInvitePolicy(p)
+      } catch {
+        if (alive) setInvitePolicy('creator_approval')
+      } finally {
+        if (alive) setLoadingPolicy(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [activeGroupId, activeKind])
+
+  const sortInviteRequestsNewestFirst = (items: InviteListItem[]) =>
+    [...items].sort(
+      (a, b) =>
+        Number(b.created_at ?? b.updated_at ?? 0) - Number(a.created_at ?? a.updated_at ?? 0),
+    )
+
+  const loadPendingInviteRequests = async () => {
+    if (!activeGroupId || activeKind === 'dm') {
+      setInviteItems([])
+      return
+    }
+    setLoadingInvites(true)
+    try {
+      const statuses = ['pending', 'processing']
+      let result = await runtimeClient.listGroupInviteRequests(activeGroupId, statuses, '', 100)
+      let raw: InviteListItem[] = Array.isArray(result.items) ? (result.items as InviteListItem[]) : []
+
+      if (invitePolicy === 'creator_approval' && localPeerId) {
+        const syncTargets = raw.filter(
+          (row) =>
+            String(row.requester_peer_id ?? '') === localPeerId &&
+            (String(row.status ?? '') === 'pending' || String(row.status ?? '') === 'processing'),
+        )
+        for (const row of syncTargets) {
+          const rid = String(row.request_id ?? '')
+          if (!rid) continue
+          try {
+            await runtimeClient.syncInviteRequestFromCreator(rid)
+          } catch {
+            /* creator offline — keep cached mirror */
+          }
+        }
+        result = await runtimeClient.listGroupInviteRequests(activeGroupId, statuses, '', 100)
+        raw = Array.isArray(result.items) ? (result.items as InviteListItem[]) : []
+      }
+
+      setInviteItems(sortInviteRequestsNewestFirst(raw))
+    } catch (err) {
+      pushToast(formatOutboundSendError(err))
+    } finally {
+      setLoadingInvites(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!activeGroupId || activeKind === 'dm') {
+      setInviteItems([])
+      return
+    }
+    let cancelled = false
+    void loadPendingInviteRequests().finally(() => {
+      if (cancelled) return
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroupId, activeKind])
+
+  useEffect(() => {
+    if (!activeGroupId || activeKind === 'dm' || activeTab !== 'invites') return
+    void loadPendingInviteRequests()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, invitePolicy, localPeerId])
+
+  useEffect(() => {
+    if (!isGroupSettingsOpen || invitePolicy === null) return
+    setSettingsDraftPolicy(invitePolicy)
+  }, [isGroupSettingsOpen, invitePolicy])
+
+  const handleCloseGroupSettings = () => {
+    if (invitePolicy !== null) {
+      setSettingsDraftPolicy(invitePolicy)
+    }
+    setIsGroupSettingsOpen(false)
+  }
+
+  const handleSaveGroupSettings = async () => {
+    if (!activeGroupId || invitePolicy === null) return
+    if (settingsDraftPolicy === invitePolicy) {
+      setIsGroupSettingsOpen(false)
+      return
+    }
+    setSavingPolicy(true)
+    try {
+      await runtimeClient.setGroupInvitePolicy(activeGroupId, settingsDraftPolicy)
+      setInvitePolicy(settingsDraftPolicy)
+      pushToast({
+        title: 'Đã lưu cài đặt',
+        description:
+          settingsDraftPolicy === 'any_member'
+            ? 'Thành viên có thể mời người mới; hệ thống sẽ xử lý lời mời theo quy tắc nhóm.'
+            : 'Chỉ người tạo nhóm duyệt các yêu cầu mời từ thành viên khác.',
+        variant: 'default',
+      })
+      await loadPendingInviteRequests()
+      setIsGroupSettingsOpen(false)
+    } catch (err) {
+      pushToast(formatOutboundSendError(err))
+    } finally {
+      setSavingPolicy(false)
+    }
+  }
+
+  const settingsDirty =
+    invitePolicy !== null && settingsDraftPolicy !== invitePolicy
 
   const handleLeaveGroup = async () => {
     if (!activeGroupId) return
@@ -76,6 +228,24 @@ export default function RoomPanel({
     }
   }
 
+  const handleInviteAction = async (requestId: string, action: 'approve' | 'reject' | 'cancel') => {
+    if (!requestId) return
+    setChangingInviteId(requestId)
+    try {
+      if (action === 'approve') await runtimeClient.approveGroupInviteRequest(requestId)
+      if (action === 'reject') await runtimeClient.rejectGroupInviteRequest(requestId, '')
+      if (action === 'cancel') await runtimeClient.cancelGroupInviteRequest(requestId)
+      await loadPendingInviteRequests()
+    } catch (err) {
+      pushToast(formatOutboundSendError(err))
+    } finally {
+      setChangingInviteId(null)
+    }
+  }
+
+  const pendingInviteBadgeCount =
+    activeKind !== 'dm' ? inviteItems.length : 0
+
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-950">
       <div className="mb-4 flex items-center justify-between border-b border-slate-800 px-4 py-4">
@@ -96,9 +266,36 @@ export default function RoomPanel({
       </div>
 
       <div className="px-4">
+        {activeKind !== 'dm' ? (
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-800 p-1">
+            <Button
+              type="button"
+              variant={activeTab === 'members' ? 'secondary' : 'ghost'}
+              className="h-8 min-h-0 gap-0 px-1.5 text-xs"
+              onClick={() => setActiveTab('members')}
+            >
+              Thành viên
+            </Button>
+            <Button
+              type="button"
+              variant={activeTab === 'invites' ? 'secondary' : 'ghost'}
+              className="h-8 min-h-0 gap-1.5 px-1.5 text-xs"
+              onClick={() => setActiveTab('invites')}
+            >
+              <span className="truncate">Yêu cầu tham gia</span>
+              {pendingInviteBadgeCount > 0 ? (
+                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold tabular-nums text-white">
+                  {pendingInviteBadgeCount > 99 ? '99+' : pendingInviteBadgeCount}
+                </span>
+              ) : null}
+            </Button>
+          </div>
+        ) : null}
+        {activeTab === 'members' || activeKind === 'dm' ? (
+          <>
         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <Users className="h-3.5 w-3.5" />
-          <span>Members</span>
+          <span>Thành viên</span>
         </div>
         <div className="space-y-2 pb-4">
           {peers.length === 0 ? (
@@ -136,6 +333,72 @@ export default function RoomPanel({
             ))
           )}
         </div>
+          </>
+        ) : (
+          <>
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <Users className="h-3.5 w-3.5" />
+              <span>Yêu cầu tham gia</span>
+            </div>
+            <div className="space-y-2 pb-4">
+              {loadingInvites ? (
+                <p className="text-xs text-slate-500">Đang tải...</p>
+              ) : null}
+              {!loadingInvites && inviteItems.length === 0 ? (
+                <p className="text-xs text-slate-500">Không có yêu cầu nào đang chờ duyệt.</p>
+              ) : null}
+              {inviteItems.map((item) => {
+                const requestId = String(item.request_id ?? '')
+                const targetPeer = String(item.target_peer_id ?? '')
+                const requesterPeer = String(item.requester_peer_id ?? '')
+                const isBusy = changingInviteId === requestId
+                return (
+                  <div key={requestId} className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
+                    <p className="text-xs font-medium text-slate-200">{getDisplayName(targetPeer)}</p>
+                    <p className="text-[11px] text-slate-500">{shortPeerId(targetPeer)}</p>
+                    {requesterPeer ? (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Người gửi yêu cầu: {getDisplayName(requesterPeer)}
+                      </p>
+                    ) : null}
+                    {canRemoveMembers ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          disabled={isBusy}
+                          onClick={() => void handleInviteAction(requestId, 'approve')}
+                        >
+                          Duyệt
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-[11px]"
+                          disabled={isBusy}
+                          onClick={() => void handleInviteAction(requestId, 'reject')}
+                        >
+                          Từ chối
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-[11px]"
+                          disabled={isBusy}
+                          onClick={() => void handleInviteAction(requestId, 'cancel')}
+                        >
+                          Hủy yêu cầu
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[11px] text-slate-500">Chỉ người tạo nhóm có thể duyệt.</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="mt-auto space-y-2 border-t border-slate-800 p-4">
@@ -143,6 +406,17 @@ export default function RoomPanel({
           <Shield className="h-3.5 w-3.5" />
           <span>{activeKind === 'dm' ? 'DM actions' : 'Group actions'}</span>
         </div>
+        {activeKind !== 'dm' && canRemoveMembers ? (
+          <Button
+            className="w-full gap-2 border border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
+            variant="secondary"
+            disabled={!activeGroupId}
+            onClick={() => setIsGroupSettingsOpen(true)}
+          >
+            <Settings className="h-4 w-4" />
+            Cài đặt nhóm
+          </Button>
+        ) : null}
         {activeKind !== 'dm' ? (
           <Button
             className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 gap-2"
@@ -170,9 +444,139 @@ export default function RoomPanel({
         onClose={() => setIsAddModalOpen(false)}
         groupId={activeGroupId || ''}
         onSuccess={() => {
-          if (refreshGroups) refreshGroups()
+          if (refreshGroups) void refreshGroups()
+          void loadPendingInviteRequests()
         }}
       />
+
+      <Dialog
+        open={isGroupSettingsOpen}
+        onOpenChange={(open) => {
+          setIsGroupSettingsOpen(open)
+          if (!open && invitePolicy !== null) {
+            setSettingsDraftPolicy(invitePolicy)
+          }
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className={cn(
+            'flex max-h-[90vh] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden border border-slate-700/90 bg-slate-950 p-0 text-slate-100 shadow-2xl shadow-black/50 sm:max-w-lg',
+          )}
+        >
+          <div className="border-b border-slate-800/90 bg-slate-900/40 px-6 py-5">
+            <DialogHeader className="gap-2">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-700/80 bg-slate-900">
+                  <Settings className="h-5 w-5 text-emerald-400/90" aria-hidden />
+                </span>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <DialogTitle className="text-lg font-semibold tracking-tight text-slate-50">
+                    Cài đặt nhóm
+                  </DialogTitle>
+                  <DialogDescription className="text-sm leading-relaxed text-slate-400">
+                    Chỉnh sửa rồi bấm <span className="text-slate-300">Lưu</span> để áp dụng.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
+              <div className="flex gap-3 border-b border-slate-800/80 pb-4">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80 text-emerald-400/90">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-100">Mời thành viên</h3>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                    Ai được phép mời người mới và có cần người tạo nhóm duyệt hay không.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-5 space-y-3" role="radiogroup" aria-label="Chính sách mời">
+                {loadingPolicy || invitePolicy === null ? (
+                  <p className="text-sm text-slate-500">Đang tải...</p>
+                ) : (
+                  <>
+                    <label
+                      className={cn(
+                        'flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors',
+                        settingsDraftPolicy === 'creator_approval'
+                          ? 'border-emerald-600/45 bg-emerald-950/35 ring-1 ring-emerald-500/15'
+                          : 'border-slate-800 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-900/60',
+                        savingPolicy && 'pointer-events-none opacity-60',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="invite-policy-modal"
+                        className="mt-0.5 accent-emerald-500"
+                        checked={settingsDraftPolicy === 'creator_approval'}
+                        disabled={savingPolicy}
+                        onChange={() => setSettingsDraftPolicy('creator_approval')}
+                      />
+                      <span className="min-w-0 text-sm leading-snug">
+                        <span className="font-medium text-slate-100">Chỉ người tạo nhóm duyệt</span>
+                        <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                          Thành viên gửi yêu cầu mời → chỉ người tạo nhóm duyệt. Phù hợp nhóm kín.
+                        </span>
+                      </span>
+                    </label>
+                    <label
+                      className={cn(
+                        'flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors',
+                        settingsDraftPolicy === 'any_member'
+                          ? 'border-emerald-600/45 bg-emerald-950/35 ring-1 ring-emerald-500/15'
+                          : 'border-slate-800 bg-slate-950/40 hover:border-slate-700 hover:bg-slate-900/60',
+                        savingPolicy && 'pointer-events-none opacity-60',
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="invite-policy-modal"
+                        className="mt-0.5 accent-emerald-500"
+                        checked={settingsDraftPolicy === 'any_member'}
+                        disabled={savingPolicy}
+                        onChange={() => setSettingsDraftPolicy('any_member')}
+                      />
+                      <span className="min-w-0 text-sm leading-snug">
+                        <span className="font-medium text-slate-100">Mọi thành viên đều có thể mời</span>
+                        <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                          Hệ thống xử lý lời mời theo quy tắc nhóm, không cần chờ duyệt từng yêu cầu.
+                        </span>
+                      </span>
+                    </label>
+                  </>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <DialogFooter className="gap-2 border-t border-slate-800/90 bg-slate-900/50 px-6 py-4 sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={savingPolicy}
+              className="border-slate-600 bg-slate-950/50 text-slate-200 hover:bg-slate-800 hover:text-white"
+              onClick={() => handleCloseGroupSettings()}
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={savingPolicy || loadingPolicy || invitePolicy === null || !settingsDirty}
+              className="border border-emerald-600/50 bg-emerald-600 text-white shadow-sm shadow-emerald-950/40 hover:bg-emerald-500 disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none"
+              onClick={() => void handleSaveGroupSettings()}
+            >
+              {savingPolicy ? 'Đang lưu...' : 'Lưu'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   )
 }

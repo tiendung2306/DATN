@@ -1,11 +1,12 @@
 import {
-  AcceptInvite,
   AddMemberToGroup,
   CheckDHTWelcome,
+  CreateChannelCategory,
   CreateAndImportSelfBundle,
   CreateBundle,
   CreateBundleFromRequest,
   CreateGroupChat,
+  DeleteChannelCategory,
   DeleteLocalMessage,
   DownloadGroupFile,
   ExportDiagnostics,
@@ -33,26 +34,36 @@ import {
   GetRuntimeEventCursor,
   GetRuntimeEventsSince,
   GetSessionStatus,
+  GetGroupInvitePolicy,
   InitAdminKey,
   ImportIdentityFromFile,
   InvitePeerToGroup,
   JoinGroupWithWelcome,
   LeaveGroup,
+  ListGroupInviteRequests,
   ListIssuanceHistory,
-  ListPendingInvites,
+  ListChannelCategories,
   OpenDownloadedFile,
   OpenLogFolder,
   OpenAndImportBundle,
   ParseDeviceRequestJSON,
+  AssignChannelCategory,
   PrepareGroupFile,
   PrepareOutgoingFileTransfer,
+  ApproveGroupInviteRequest,
+  CancelGroupInviteRequest,
   ReconnectP2P,
-  RejectInvite,
+  RejectGroupInviteRequest,
   RemoveMemberFromGroup,
+  RequestGroupInvite,
+  RetryGroupInviteRequest,
   RetryMessage,
   SendGroupMessage,
   SendGroupFile,
   SetBootstrapAddress,
+  SetGroupInvitePolicy,
+  StartDirectMessage,
+  SyncInviteRequestFromCreator,
   TriggerOfflineSync,
   ValidateMultiaddr,
   VerifyAdminPassphrase,
@@ -89,6 +100,10 @@ export const runtimeClient = {
   getGroupPosts: GetGroupPosts,
   getPostComments: GetPostComments,
   createGroupChat: CreateGroupChat,
+  listChannelCategories: ListChannelCategories,
+  createChannelCategory: CreateChannelCategory,
+  deleteChannelCategory: DeleteChannelCategory,
+  assignChannelCategory: AssignChannelCategory,
   sendGroupMessage: SendGroupMessage,
   sendGroupFile: SendGroupFile,
   prepareGroupFile: PrepareGroupFile,
@@ -100,11 +115,23 @@ export const runtimeClient = {
   addMemberToGroup: AddMemberToGroup,
   generateJoinCode: GenerateJoinCode,
   invitePeerToGroup: InvitePeerToGroup,
+  requestGroupInvite: RequestGroupInvite,
+  listGroupInviteRequests: ListGroupInviteRequests,
+  approveGroupInviteRequest: ApproveGroupInviteRequest,
+  rejectGroupInviteRequest: RejectGroupInviteRequest,
+  cancelGroupInviteRequest: CancelGroupInviteRequest,
+  retryGroupInviteRequest: RetryGroupInviteRequest,
+  setGroupInvitePolicy: SetGroupInvitePolicy,
+  getGroupInvitePolicy: async (groupId: string): Promise<'creator_approval' | 'any_member'> => {
+    try {
+      const p = await GetGroupInvitePolicy(groupId)
+      return p === 'any_member' ? 'any_member' : 'creator_approval'
+    } catch {
+      return 'creator_approval'
+    }
+  },
   checkDHTWelcome: CheckDHTWelcome,
   joinGroupWithWelcome: JoinGroupWithWelcome,
-  listPendingInvites: ListPendingInvites,
-  acceptInvite: AcceptInvite,
-  rejectInvite: RejectInvite,
   triggerOfflineSync: TriggerOfflineSync,
   exportDeviceRequestJson: ExportDeviceRequestJSON,
   exportIdentity: ExportIdentity,
@@ -116,12 +143,6 @@ export const runtimeClient = {
   createBundleFromRequest: CreateBundleFromRequest,
   listIssuanceHistory: ListIssuanceHistory,
   createAndImportSelfBundle: CreateAndImportSelfBundle,
-  startDirectMessage: async (peerId: string): Promise<string> => {
-    const runtime = (window as unknown as { go?: { service?: { Runtime?: { StartDirectMessage?: (id: string) => Promise<string> } } } }).go
-      ?.service?.Runtime
-    if (runtime?.StartDirectMessage) {
-      return runtime.StartDirectMessage(peerId)
-    }
-    throw new Error('Runtime.StartDirectMessage is not available in current build.')
-  },
+  syncInviteRequestFromCreator: SyncInviteRequestFromCreator,
+  startDirectMessage: StartDirectMessage,
 }

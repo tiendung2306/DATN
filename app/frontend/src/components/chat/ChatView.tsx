@@ -8,13 +8,6 @@ import { service } from '../../../wailsjs/go/models'
 import { useMentions } from '../../features/chat/hooks/useMentions'
 import { useEffect, useRef, useState } from 'react'
 import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog'
-import PendingInvitesPanel from '../../features/invites/components/PendingInvitesPanel'
 import ChatListAvatar from './ChatListAvatar'
 import { ConversationKind } from '../../lib/chatModel'
 
@@ -40,12 +33,6 @@ interface ChatViewProps {
   detailsOpen: boolean
   activeGroupMembers: service.MemberInfo[]
   activeKind: ConversationKind
-  pendingInviteCount: number
-  pendingInvites: service.PendingInviteInfo[]
-  inviteBusyId: string | null
-  onAcceptInvite: (id: string) => void | Promise<void>
-  onRejectInvite: (id: string) => void | Promise<void>
-  onRefreshPendingInvites: () => void | Promise<void>
   onLoadMore?: () => Promise<void>
   onLoadComments?: (postId: string) => Promise<void>
   onLoadMoreComments?: (postId: string) => Promise<void>
@@ -73,12 +60,6 @@ export default function ChatView({
   detailsOpen,
   activeGroupMembers,
   activeKind,
-  pendingInviteCount,
-  pendingInvites,
-  inviteBusyId,
-  onAcceptInvite,
-  onRejectInvite,
-  onRefreshPendingInvites,
   onLoadMore,
   onLoadComments,
   onLoadMoreComments,
@@ -96,7 +77,6 @@ export default function ChatView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
-  const [invitesModalOpen, setInvitesModalOpen] = useState(false)
 
   const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
     if (scrollRef.current) {
@@ -188,41 +168,6 @@ export default function ChatView({
           </div>
         </div>
       </div>
-
-      {pendingInviteCount > 0 ? (
-        <button
-          type="button"
-          className="w-full border-b border-amber-900/40 bg-amber-950/25 px-5 py-2.5 text-left text-xs text-amber-100/95 transition hover:bg-amber-950/40"
-          onClick={() => setInvitesModalOpen(true)}
-        >
-          Bạn có <span className="font-semibold text-amber-50">{pendingInviteCount}</span> lời mời đang chờ xử lý —
-          bấm để xem
-        </button>
-      ) : null}
-
-      <Dialog
-        open={invitesModalOpen}
-        onOpenChange={(open) => {
-          setInvitesModalOpen(open)
-          if (open) void onRefreshPendingInvites()
-        }}
-      >
-        <DialogContent
-          showCloseButton
-          className="max-h-[85vh] overflow-y-auto border-slate-700 bg-slate-900 text-slate-100 sm:max-w-lg"
-        >
-          <DialogHeader>
-            <DialogTitle className="text-slate-100">Lời mời đang chờ</DialogTitle>
-          </DialogHeader>
-          <PendingInvitesPanel
-            pending={pendingInvites}
-            busyId={inviteBusyId}
-            onAccept={(id) => void onAcceptInvite(id)}
-            onReject={(id) => void onRejectInvite(id)}
-            onRefresh={() => void onRefreshPendingInvites()}
-          />
-        </DialogContent>
-      </Dialog>
 
       {!isChannel ? (
         <>

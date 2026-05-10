@@ -44,9 +44,10 @@ type Runtime struct {
 
 	health RuntimeHealth
 
-	adminUnlockedUntil time.Time
-	adminUnlockTimer   *time.Timer
-	eventRevisions     map[string]int64
+	adminUnlockedUntil      time.Time
+	adminUnlockTimer        *time.Timer
+	eventRevisions          map[string]int64
+	inviteMaintenanceCancel context.CancelFunc
 }
 
 // NewRuntime creates a Runtime for the given CLI config.
@@ -127,6 +128,7 @@ func (r *Runtime) Startup(ctx context.Context) {
 		return
 	}
 	r.db = database
+	r.startInviteMaintenanceLoop()
 	if override, err := database.GetConfig(bootstrapOverrideConfigKey); err == nil && len(override) > 0 {
 		r.cfg.BootstrapAddr = string(override)
 	}
@@ -201,6 +203,10 @@ func (r *Runtime) teardown() {
 		r.adminUnlockTimer.Stop()
 		r.adminUnlockTimer = nil
 	}
+	if r.inviteMaintenanceCancel != nil {
+		r.inviteMaintenanceCancel()
+		r.inviteMaintenanceCancel = nil
+	}
 	r.stopCoordinatorsLocked()
 	r.stopNetworkLocked()
 
@@ -229,6 +235,8 @@ func (r *Runtime) stopNetworkLocked() {
 		r.removeGroupJoinAckHandler()
 		r.removeInviteStoreHandlers()
 		r.removeGroupInfoHandler()
+		r.removeGroupInviteRequestHandler()
+		r.removeChannelCategorySyncHandler()
 		r.removeFileTransferHandler()
 		r.removeOfflineSyncHandlers()
 		if r.blindStore != nil {
@@ -303,6 +311,8 @@ func (r *Runtime) launchP2PNode() error {
 	r.registerGroupJoinAckHandler()
 	r.registerInviteStoreHandlers()
 	r.registerGroupInfoHandler()
+	r.registerGroupInviteRequestHandler()
+	r.registerChannelCategorySyncHandler()
 	r.registerFileTransferHandler()
 	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})

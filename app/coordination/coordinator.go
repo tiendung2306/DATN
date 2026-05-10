@@ -1414,12 +1414,14 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 
 	role := RoleMember
 	groupType := ""
+	categoryID := ""
 	createdAt := now
 	if prevRec != nil {
 		if prevRec.MyRole != "" {
 			role = prevRec.MyRole
 		}
 		groupType = prevRec.GroupType
+		categoryID = prevRec.CategoryID
 		if !prevRec.CreatedAt.IsZero() {
 			createdAt = prevRec.CreatedAt
 		}
@@ -1431,6 +1433,7 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 		TreeHash:   newTreeHash,
 		MyRole:     role,
 		GroupType:  groupType,
+		CategoryID: categoryID,
 		CreatedAt:  createdAt,
 		UpdatedAt:  now,
 	}); err != nil {
@@ -1616,12 +1619,14 @@ func (c *Coordinator) saveCurrentGroupStateLocked(now time.Time) error {
 	}
 	role := RoleMember
 	groupType := ""
+	categoryID := ""
 	createdAt := now
 	if prevRec != nil {
 		if prevRec.MyRole != "" {
 			role = prevRec.MyRole
 		}
 		groupType = prevRec.GroupType
+		categoryID = prevRec.CategoryID
 		if !prevRec.CreatedAt.IsZero() {
 			createdAt = prevRec.CreatedAt
 		}
@@ -1633,6 +1638,7 @@ func (c *Coordinator) saveCurrentGroupStateLocked(now time.Time) error {
 		TreeHash:   c.treeHash,
 		MyRole:     role,
 		GroupType:  groupType,
+		CategoryID: categoryID,
 		CreatedAt:  createdAt,
 		UpdatedAt:  now,
 	})

@@ -97,6 +97,8 @@ func classifyRuntimeEvent(topic string, payload map[string]interface{}) (string,
 			return "invite:" + groupID, groupID
 		}
 		return "invite", ""
+	case "channel_categories:changed":
+		return "workspace_categories", ""
 	default:
 		return topic, ""
 	}

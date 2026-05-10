@@ -132,6 +132,7 @@ type GroupRecord struct {
 	TreeHash   []byte
 	MyRole     GroupRole
 	GroupType  string // channel | dm
+	CategoryID string // channel category identifier (empty for dm/group)
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

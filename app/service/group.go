@@ -44,6 +44,7 @@ type GroupInfo struct {
 	Epoch              uint64 `json:"epoch"`
 	MyRole             string `json:"my_role"`
 	GroupType          string `json:"group_type"`
+	CategoryID         string `json:"category_id,omitempty"`
 	ConversationTitle  string `json:"conversation_title"`
 	ConversationSub    string `json:"conversation_subtitle,omitempty"`
 	ConversationAvatar string `json:"conversation_avatar_type"`
@@ -87,7 +88,7 @@ func canonicalDMGroupID(peerA, peerB string) string {
 
 // CreateGroupChat creates a new MLS group, starts the Coordinator, and
 // subscribes to the group's GossipSub topic. The group ID must be unique.
-func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
+func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID string) error {
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
 	}
@@ -95,14 +96,44 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 	if err != nil {
 		return err
 	}
+	categoryID = strings.TrimSpace(categoryID)
+	r.mu.RLock()
+	db := r.db
+	r.mu.RUnlock()
+	if db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if normalizedGroupType == "channel" {
+		if categoryID == "" {
+			return fmt.Errorf("ERR_CATEGORY_REQUIRED: channel category is required")
+		}
+		if _, err := db.GetChannelCategory(categoryID); err != nil {
+			return fmt.Errorf("ERR_CATEGORY_NOT_FOUND: %w", err)
+		}
+	}
 	if err := r.ensureSessionActive(); err != nil {
 		return err
 	}
 
 	r.mu.Lock()
 	emitMembersChanged := false
+	emitCategoryAssigned := false
 	defer func() {
 		r.mu.Unlock()
+		if emitCategoryAssigned {
+			r.emit("channel_categories:changed", map[string]interface{}{
+				"reason":      "assigned",
+				"channel_id":  groupID,
+				"category_id": categoryID,
+			})
+			r.broadcastChannelCategoryFrame(p2p.ChannelCategorySyncFrameV1{
+				V:          1,
+				Type:       "assign_channel",
+				EventID:    newCategoryEventID("assign", groupID),
+				ChannelID:  groupID,
+				CategoryID: categoryID,
+			})
+		}
 		if emitMembersChanged {
 			r.emit("group:members_changed", map[string]interface{}{
 				"group_id": groupID,
@@ -154,10 +185,24 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string) error {
 		return fmt.Errorf("create group: %w", err)
 	}
 
-	// Workplace UX: Inject metadata before starting the coordinator
-	if rec, err := r.coordStorage.GetGroupRecord(groupID); err == nil {
-		rec.GroupType = normalizedGroupType
-		_ = r.coordStorage.SaveGroupRecord(rec)
+	rec, err := r.coordStorage.GetGroupRecord(groupID)
+	if err != nil {
+		return fmt.Errorf("group record after create: %w", err)
+	}
+	rec.GroupType = normalizedGroupType
+	if normalizedGroupType == "channel" {
+		rec.CategoryID = categoryID
+	} else {
+		rec.CategoryID = ""
+	}
+	if err := r.coordStorage.SaveGroupRecord(rec); err != nil {
+		return fmt.Errorf("save group metadata: %w", err)
+	}
+	if normalizedGroupType == "channel" && categoryID != "" {
+		if err := r.db.AssignCategoryToGroup(groupID, categoryID); err != nil {
+			return err
+		}
+		emitCategoryAssigned = true
 	}
 
 	if err := coord.Start(r.ctx); err != nil {
@@ -210,7 +255,7 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 		return "", err
 	}
 	if !joined {
-		if err := r.CreateGroupChat(groupID, "dm"); err != nil && !strings.Contains(err.Error(), "already in group") {
+		if err := r.CreateGroupChat(groupID, "dm", ""); err != nil && !strings.Contains(err.Error(), "already in group") {
 			return "", err
 		}
 	}
@@ -321,6 +366,7 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 			Epoch:              rec.Epoch,
 			MyRole:             string(rec.MyRole),
 			GroupType:          normalizedType,
+			CategoryID:         rec.CategoryID,
 			ConversationTitle:  title,
 			ConversationSub:    subtitle,
 			ConversationAvatar: avatarType,
@@ -468,6 +514,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		TreeHash:   treeHash,
 		MyRole:     coordination.RoleMember,
 		GroupType:  normalizedGroupType,
+		CategoryID: "",
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}); err != nil {

@@ -5,6 +5,7 @@ import { Label } from '../../../components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../../components/ui/dialog'
 import { Search, Check, UserPlus } from 'lucide-react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
+import { formatOutboundSendError } from '../../../lib/formatSendError'
 
 interface AddMemberModalProps {
   isOpen: boolean
@@ -75,13 +76,14 @@ export default function AddMemberModal({
     setError('')
     try {
       for (const peerId of selectedPeers) {
-        await runtimeClient.invitePeerToGroup(peerId, groupId)
+        await runtimeClient.requestGroupInvite(groupId, peerId)
       }
       setSelectedPeers([])
       if (onSuccess) onSuccess()
       onClose()
     } catch (err) {
-      setError(String(err))
+      const mapped = formatOutboundSendError(err)
+      setError(mapped.description ? `${mapped.title}: ${mapped.description}` : mapped.title)
     } finally {
       setInviting(false)
     }

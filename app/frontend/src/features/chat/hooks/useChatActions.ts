@@ -41,7 +41,12 @@ export function useChatActions({
     markGroupRead(groupId)
   }
 
-  const handleCreateGroupWithDetails = async (groupId: string, groupType: ConversationCreateType, members: string[]) => {
+  const handleCreateGroupWithDetails = async (
+    groupId: string,
+    groupType: ConversationCreateType,
+    members: string[],
+    categoryId?: string,
+  ) => {
     groupId = groupId.trim()
     if (groupType !== 'dm' && !groupId) return
     setCreatingGroup(true)
@@ -52,17 +57,19 @@ export function useChatActions({
         }
         groupId = await runtimeClient.startDirectMessage(members[0])
       } else {
-        await runtimeClient.createGroupChat(groupId, groupType)
+        await runtimeClient.createGroupChat(groupId, groupType, categoryId || '')
       }
-      
+
+      const inviteFailures: string[] = []
       if (groupType !== 'dm') {
         for (const peerId of members) {
-          if (peerId.trim()) {
-            try {
-              await runtimeClient.invitePeerToGroup(peerId.trim(), groupId)
-            } catch (e) {
-              console.error(`Failed to invite peer ${peerId}:`, e)
-            }
+          const trimmed = peerId.trim()
+          if (!trimmed) continue
+          try {
+            await runtimeClient.invitePeerToGroup(trimmed, groupId)
+          } catch (e) {
+            const mapped = formatOutboundSendError(e)
+            inviteFailures.push(`${mapped.title}: ${mapped.description}`)
           }
         }
       }
@@ -86,6 +93,14 @@ export function useChatActions({
         pushPost(groupId, systemMessage)
       } else {
         pushMessage(groupId, systemMessage)
+      }
+
+      if (inviteFailures.length > 0) {
+        useToastStore.getState().pushToast({
+          title: 'Không gửi được một số lời mời',
+          description: inviteFailures.slice(0, 4).join(' · '),
+          variant: 'destructive',
+        })
       }
     } finally {
       setCreatingGroup(false)

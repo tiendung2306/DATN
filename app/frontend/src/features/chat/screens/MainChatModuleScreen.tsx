@@ -7,11 +7,10 @@ import RoomPanel from '../../../components/chat/RoomPanel'
 import { useChatRuntime } from '../hooks/useChatRuntime'
 import { useChatEvents } from '../hooks/useChatEvents'
 import { useChatActions } from '../hooks/useChatActions'
-import InvitesScreen from '../../invites/screens/InvitesScreen'
+import { useChannelCategories } from '../hooks/useChannelCategories'
 import SettingsScreen from '../../settings/screens/SettingsScreen'
 import AdminPanelScreen from '../../admin/screens/AdminPanelScreen'
 import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
-import { usePendingInvites } from '../../invites/hooks/usePendingInvites'
 import { getConversationKind } from '../../../lib/chatModel'
 
 interface MainChatModuleScreenProps {
@@ -21,17 +20,12 @@ interface MainChatModuleScreenProps {
 export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenProps) {
   const [activeModule, setActiveModule] = useState<WorkspaceModule>('chat')
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const { pending, refresh: refreshPendingInvites, accept, reject, busyId } = usePendingInvites()
-
-  const handleAcceptInvite = async (id: string) => {
-    await accept(id)
-    await refreshGroups()
-  }
-
-  const handleRejectInvite = async (id: string) => {
-    await reject(id)
-    await refreshGroups()
-  }
+  const {
+    categories: channelCategories,
+    refresh: refreshChannelCategories,
+    create: createChannelCategory,
+    remove: deleteChannelCategory,
+  } = useChannelCategories()
 
   const {
     displayName,
@@ -95,17 +89,14 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
   useRuntimeEventStream({
     onEvent: async (event, payload, hasGap) => {
       const groupId = typeof payload.group_id === 'string' ? payload.group_id : ''
-      const isInviteEvent =
-        event.topic === 'invite:received' || event.topic === 'invite:accepted' || event.topic === 'invite:rejected'
       if (hasGap || event.topic === 'group:joined' || event.topic === 'group:left') {
         await refreshGroups()
-        await refreshPendingInvites()
+      }
+      if (event.topic === 'channel_categories:changed' || hasGap) {
+        await refreshChannelCategories()
       }
       if (event.topic === 'group:left' && groupId && groupId === activeGroupId) {
         setActiveGroupId(null)
-      }
-      if (isInviteEvent) {
-        await refreshPendingInvites()
       }
       if (event.topic === 'node:status' || event.topic === 'p2p:status' || hasGap) {
         await refreshNodeStatus()
@@ -126,7 +117,6 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           activeModule={activeModule}
           onSelectModule={setActiveModule}
           isAdmin={isAdmin}
-          pendingInviteCount={pending.length}
         />
         <MainSidebar
           displayName={displayName}
@@ -138,6 +128,9 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           peerCount={connectedPeers.length}
           creatingGroup={creatingGroup}
           onCreateGroupWithDetails={handleCreateGroupWithDetails}
+          channelCategories={channelCategories}
+          onCreateCategory={createChannelCategory}
+          onDeleteCategory={deleteChannelCategory}
           onSelectGroup={handleSelectGroup}
           showWorkspaceLists={activeModule === 'chat'}
         />
@@ -163,13 +156,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             detailsOpen={detailsOpen}
             onToggleDetails={() => setDetailsOpen((v) => !v)}
             activeGroupMembers={activeGroupMembers}
-            pendingInviteCount={pending.length}
-            pendingInvites={pending}
-            inviteBusyId={busyId}
             activeKind={activeKind}
-            onAcceptInvite={handleAcceptInvite}
-            onRejectInvite={handleRejectInvite}
-            onRefreshPendingInvites={refreshPendingInvites}
             onLoadMore={async () => {
               if (activeGroupId) {
                 if (usesMessageStream) {
@@ -188,16 +175,10 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           />
         ) : null}
         {activeModule === 'activity' ? (
-          <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">
-            <InvitesScreen
-              activeGroupId={activeGroupId}
-              pendingInvites={pending}
-              busyInviteId={busyId}
-              onAcceptInvite={handleAcceptInvite}
-              onRejectInvite={handleRejectInvite}
-              onRefreshPendingInvites={refreshPendingInvites}
-            />
-          </section>
+          <section
+            className="min-h-0 min-w-0 flex-1 bg-slate-900"
+            aria-label="Hoạt động"
+          />
         ) : null}
         {activeModule === 'settings' ? (
           <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">

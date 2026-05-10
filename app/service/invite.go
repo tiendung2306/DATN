@@ -28,6 +28,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
@@ -1173,9 +1174,18 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string) error {
 	if err != nil {
 		return fmt.Errorf("no local KeyPackage bundle found — was advertiseKeyPackage called? %w", err)
 	}
+	welcomeRaw, err := hex.DecodeString(strings.TrimSpace(welcomeHex))
+	if err != nil {
+		return fmt.Errorf("decode welcome hex: %w", err)
+	}
 
 	if err := r.joinGroupWithWelcome(groupID, welcomeHex, hex.EncodeToString(privateBundle), groupType); err != nil {
 		return err
+	}
+	fp := fallbackWelcomeFingerprint(groupID, welcomeRaw)
+	if inserted, markErr := database.MarkWelcomeApplied(fp, groupID, time.Now().Unix()); markErr == nil && !inserted {
+		// Replay-safe no-op: this welcome has already been applied earlier.
+		slog.Debug("welcome fingerprint already applied", "group", groupID)
 	}
 
 	// KP is consumed after a successful join; generate a fresh one for next invite.
@@ -1187,6 +1197,17 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string) error {
 	go r.broadcastGroupJoinAck(groupID)
 	slog.Info("Joined group via Welcome", "group", groupID)
 	return nil
+}
+
+func fallbackWelcomeFingerprint(groupID string, welcomeBytes []byte) string {
+	hasher := sha256.New()
+	group := strings.TrimSpace(groupID)
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(group)))
+	hasher.Write(lenBuf[:])
+	hasher.Write([]byte(group))
+	hasher.Write(welcomeBytes)
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 func (r *Runtime) broadcastGroupJoinAck(groupID string) {
@@ -1351,6 +1372,7 @@ func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
 	// Keep key package replicas fresh whenever a verified peer connects.
 	go h.rt.advertiseKeyPackage()
 	go h.rt.scheduleOfflineSyncPull(p)
+	go h.rt.scheduleChannelCategorySync(p)
 	go h.rt.flushPendingDeliveryAcksTo(p)
 	go h.rt.emitNodeStatusChanged("peer_connected")
 	go h.rt.emitAllGroupsMembersChanged("presence")

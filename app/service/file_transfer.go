@@ -416,6 +416,8 @@ func (r *Runtime) PrepareOutgoingFileTransfer(groupID string, sourcePath string)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	groupState := coord.GetGroupState()
 	exportEpoch := coord.CurrentEpoch()
 	rawSecret, err := mls.ExportSecret(ctx, groupState, filetransfer.Label, fileSum, filetransfer.ExportSecretLen)
@@ -654,7 +656,9 @@ func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPa
 		return fmt.Errorf("open file-transfer stream: %w", err)
 	}
 	defer s.Close()
-	_ = s.SetDeadline(time.Now().Add(2 * time.Hour))
+	// Keep pre-manifest phase short so UI does not appear stuck forever when peer
+	// does not respond with file metadata.
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
 
 	pull := p2p.FilePullRequestV1{V: 1, FileID: fileID}
 	if err := p2p.WriteFileTransferJSONFrame(s, &pull); err != nil {
@@ -665,6 +669,8 @@ func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPa
 	if err := p2p.ReadFileTransferJSONFrame(s, &manifest); err != nil {
 		return fmt.Errorf("read manifest: %w", err)
 	}
+	// Manifest received; allow long-running chunk stream for large files.
+	_ = s.SetDeadline(time.Now().Add(2 * time.Hour))
 	if manifest.V != 1 {
 		return fmt.Errorf("unsupported manifest version %d", manifest.V)
 	}

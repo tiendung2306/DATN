@@ -1,15 +1,14 @@
-import { Activity, Files, MessageSquare, Settings } from 'lucide-react'
+import { Activity, MessageSquare, Settings } from 'lucide-react'
 
 interface PrimaryRailProps {
   isConnected: boolean
-  activeModule: 'chat' | 'activity' | 'settings' | 'admin'
-  onSelectModule: (module: 'chat' | 'activity' | 'settings' | 'admin') => void
+  activeModule: 'chat' | 'settings' | 'admin'
+  onSelectModule: (module: 'chat' | 'settings' | 'admin') => void
 }
 
 const modules = [
   { id: 'admin', icon: Activity, label: 'Admin' },
   { id: 'chat', icon: MessageSquare, label: 'Chats' },
-  { id: 'activity', icon: Files, label: 'Activity' },
   { id: 'settings', icon: Settings, label: 'Settings' },
 ] as const
 

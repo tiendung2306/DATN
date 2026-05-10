@@ -108,6 +108,46 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
     }
   }
 
+  if (raw.includes('ERR_INVITE_REQUEST_STATE_CONFLICT')) {
+    return {
+      title: 'Yêu cầu đã thay đổi',
+      description: 'Yêu cầu này đã được xử lý hoặc đang được xử lý. Vui lòng tải lại danh sách.',
+      variant: 'default',
+    }
+  }
+
+  if (raw.includes('ERR_INVITE_PROCESSING_TIMEOUT')) {
+    return {
+      title: 'Xử lý lời mời bị quá hạn',
+      description: 'Yêu cầu đã bị timeout khi xử lý. Người tạo có thể thử lại.',
+      variant: 'destructive',
+    }
+  }
+
+  if (raw.includes('ERR_INVITE_MAX_ATTEMPTS_EXCEEDED')) {
+    return {
+      title: 'Đã vượt quá số lần thử',
+      description: 'Yêu cầu này đã thử quá nhiều lần và không thể tự xử lý tiếp.',
+      variant: 'destructive',
+    }
+  }
+
+  if (raw.includes('ERR_CREATOR_UNREACHABLE')) {
+    return {
+      title: 'Không liên hệ được người tạo nhóm',
+      description: 'Không thể liên hệ người tạo nhóm, thử lại sau.',
+      variant: 'destructive',
+    }
+  }
+
+  if (raw.includes('ERR_GROUP_CREATOR_UNKNOWN')) {
+    return {
+      title: 'Chưa đồng bộ nhóm',
+      description: 'Chưa đồng bộ đủ thông tin nhóm.',
+      variant: 'destructive',
+    }
+  }
+
   // File transfer: sender reached but metadata/chunks not ready.
   if (rawLower.includes('read manifest') || rawLower.includes('file-transfer: not available')) {
     return {

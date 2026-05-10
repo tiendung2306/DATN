@@ -135,6 +135,8 @@ func (d *Database) createTables() error {
 			lifecycle_status TEXT    NOT NULL DEFAULT 'active',
 			left_at          INTEGER NOT NULL DEFAULT 0,
 			group_type       TEXT    NOT NULL DEFAULT 'channel',
+			category_id      TEXT    NOT NULL DEFAULT '',
+			invite_policy    TEXT    NOT NULL DEFAULT 'creator_approval',
 			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP
 		);`,
@@ -193,6 +195,18 @@ func (d *Database) createTables() error {
 			ON group_members(group_id, status);`,
 		`CREATE INDEX IF NOT EXISTS idx_group_members_peer
 			ON group_members(peer_id);`,
+		`CREATE TABLE IF NOT EXISTS channel_categories (
+			category_id TEXT PRIMARY KEY,
+			name        TEXT    NOT NULL,
+			sort_order  INTEGER NOT NULL DEFAULT 0,
+			created_by  TEXT    NOT NULL DEFAULT '',
+			created_at  INTEGER NOT NULL,
+			updated_at  INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS channel_category_sync_events (
+			event_id   TEXT PRIMARY KEY,
+			applied_at INTEGER NOT NULL
+		);`,
 
 		// Phase 5: local KeyPackage private bundles (one active per peer; reused after group join).
 		// public_kp is used for invite distribution; private_bundle stays local forever.
@@ -307,6 +321,40 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_pending_invites_status_received
 			ON pending_invites(status, received_at);`,
+		`CREATE TABLE IF NOT EXISTS group_invite_requests (
+			request_id             TEXT PRIMARY KEY,
+			group_id               TEXT NOT NULL,
+			requester_peer_id      TEXT NOT NULL,
+			target_peer_id         TEXT NOT NULL,
+			status                 TEXT NOT NULL,
+			failure_code           TEXT NOT NULL DEFAULT '',
+			failure_message        TEXT NOT NULL DEFAULT '',
+			rejection_reason       TEXT NOT NULL DEFAULT '',
+			attempt_count          INTEGER NOT NULL DEFAULT 0,
+			max_attempts           INTEGER NOT NULL DEFAULT 5,
+			processing_started_at  INTEGER,
+			expires_at             INTEGER NOT NULL,
+			created_at             INTEGER NOT NULL,
+			updated_at             INTEGER NOT NULL,
+			is_mirror              INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (group_id) REFERENCES mls_groups(group_id) ON DELETE CASCADE
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_group_invite_requests_active_unique
+			ON group_invite_requests(group_id, target_peer_id)
+			WHERE (status = 'pending' OR status = 'processing');`,
+		`CREATE INDEX IF NOT EXISTS idx_group_invite_requests_group_status_created
+			ON group_invite_requests(group_id, status, created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_invite_requests_processing_watchdog
+			ON group_invite_requests(status, processing_started_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_invite_requests_expiry
+			ON group_invite_requests(status, expires_at);`,
+		`CREATE TABLE IF NOT EXISTS applied_welcomes (
+			welcome_fingerprint TEXT PRIMARY KEY,
+			group_id            TEXT NOT NULL,
+			applied_at          INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_applied_welcomes_group_applied_at
+			ON applied_welcomes(group_id, applied_at);`,
 		`CREATE TABLE IF NOT EXISTS admin_issuance_history (
 			id             TEXT PRIMARY KEY,
 			display_name   TEXT NOT NULL,
@@ -407,10 +455,19 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("mls_groups", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("mls_groups", "category_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "invite_policy", "TEXT NOT NULL DEFAULT 'creator_approval'"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("stored_welcomes", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
 	if err := d.ensureColumnExists("pending_invites", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("group_invite_requests", "is_mirror", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if _, err := d.Conn.Exec(
@@ -425,6 +482,13 @@ func (d *Database) createTables() error {
 		 ON stored_messages(group_id, sender_id, hlc_wall_time_ms)`,
 	); err != nil {
 		return fmt.Errorf("create stored_messages sender_window index: %w", err)
+	}
+	if _, err := d.Conn.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_mls_groups_type_category
+		 ON mls_groups(group_type, category_id)
+		 WHERE lifecycle_status = 'active'`,
+	); err != nil {
+		return fmt.Errorf("create mls_groups type_category index: %w", err)
 	}
 	return nil
 }
@@ -1107,6 +1171,38 @@ func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome,
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// GetGroupInviteCreatorHint returns source_peer_id from replicated Welcome / pending invite metadata.
+// Joined members often lack role=creator in group_members; the welcome sender is the group creator.
+func (d *Database) GetGroupInviteCreatorHint(groupID string) (string, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return "", sql.ErrNoRows
+	}
+	var src string
+	err := d.Conn.QueryRow(
+		`SELECT source_peer_id FROM stored_welcomes
+		 WHERE group_id = ? AND trim(source_peer_id) != ''
+		 ORDER BY created_at DESC LIMIT 1`,
+		groupID,
+	).Scan(&src)
+	if err == nil && strings.TrimSpace(src) != "" {
+		return strings.TrimSpace(src), nil
+	}
+	err = d.Conn.QueryRow(
+		`SELECT source_peer_id FROM pending_invites
+		 WHERE group_id = ? AND trim(source_peer_id) != ''
+		 ORDER BY received_at DESC LIMIT 1`,
+		groupID,
+	).Scan(&src)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(src) == "" {
+		return "", sql.ErrNoRows
+	}
+	return strings.TrimSpace(src), nil
 }
 
 const (

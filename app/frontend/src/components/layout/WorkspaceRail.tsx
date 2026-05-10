@@ -6,14 +6,12 @@ interface WorkspaceRailProps {
   activeModule: WorkspaceModule
   onSelectModule: (module: WorkspaceModule) => void
   isAdmin: boolean
-  pendingInviteCount: number
 }
 
 export default function WorkspaceRail({
   activeModule,
   onSelectModule,
   isAdmin,
-  pendingInviteCount,
 }: WorkspaceRailProps) {
   const itemClass = (id: WorkspaceModule) =>
     `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-medium transition ${
@@ -33,14 +31,7 @@ export default function WorkspaceRail({
           onClick={() => onSelectModule('activity')}
           title="Hoạt động"
         >
-          <span className="relative flex h-6 w-6 items-center justify-center">
-            <Bell className="h-5 w-5" />
-            {pendingInviteCount > 0 ? (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold text-white">
-                {pendingInviteCount > 9 ? '9+' : pendingInviteCount}
-              </span>
-            ) : null}
-          </span>
+          <Bell className="h-5 w-5" />
           <span className="leading-tight text-center">Hoạt động</span>
         </button>
 
