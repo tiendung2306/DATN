@@ -110,15 +110,8 @@ func (r *Runtime) handleGroupInviteWireRPC(remote peer.ID, req *p2p.GroupInviteW
 		}
 		out.OK = true
 		out.Record = inviteRecordToWire(rec)
-	case "cancel":
-		rec, err := r.rpcCancelInviteRequest(remote, req)
-		if err != nil {
-			out.Error = err.Error()
-			return out
-		}
-		out.OK = true
-		out.Record = inviteRecordToWire(rec)
 	default:
+		// `cancel` was removed (2026-05-10). See group_invite_requests.go.
 		out.Error = "unknown op"
 	}
 	return out
@@ -157,8 +150,13 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		}
 		return nil, err
 	}
-	if policy != store.GroupInvitePolicyCreatorApproval {
-		return nil, fmt.Errorf("%s: group does not use creator approval policy", errInviteForbidden)
+	// Both policies are accepted at the wire layer:
+	//   - creator_approval → row stays pending; creator decides via UI.
+	//   - any_member       → row is auto-approved by the creator below
+	//                        (the creator is the Token Holder so it is the
+	//                        only node entitled to issue the MLS Commit).
+	if policy != store.GroupInvitePolicyCreatorApproval && policy != store.GroupInvitePolicyAnyMember {
+		return nil, fmt.Errorf("%s: unsupported invite policy %q", errInviteForbidden, policy)
 	}
 	members, err := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
 	if err != nil {
@@ -204,12 +202,37 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		}
 		return nil, err
 	}
+	// Cache the requester-attached target KeyPackage BEFORE processing so
+	// processInviteRequest → InvitePeerToGroup → fetchPeerKeyPackage hits
+	// the local cache (`stored_keypackages`) instead of running a fresh
+	// discovery from the creator. The creator may not have a live link
+	// with the target — relying on its own fetch is the exact failure path
+	// that caused ERR_INVITE_ADD_MEMBER_FAILED in production.
+	if len(req.TargetKeyPackage) > 0 {
+		// source_peer_id = requester so audit trails reflect the actual
+		// peer that mediated this KP delivery. Errors are non-fatal: if
+		// the cache write fails we still try the legacy fetch path.
+		if cacheErr := database.SaveStoredKeyPackage(targetPeerID, req.TargetKeyPackage, remote.String()); cacheErr != nil {
+			slog.Debug("rpcSubmitInviteRequest: SaveStoredKeyPackage failed (non-fatal)",
+				"group_id", groupID, "target_peer_id", targetPeerID, "error", cacheErr)
+		}
+	}
 	r.emit("group:invite_request_changed", map[string]interface{}{
 		"group_id":   groupID,
 		"request_id": id,
 		"status":     store.InviteRequestStatusPending,
 		"reason":     "created_remote",
 	})
+	// any_member auto-approve: creator (= Token Holder by default) commits
+	// the AddMember locally so the requester does not need to wait for a
+	// manual approval step. Failures keep the row pending/failed for retry
+	// or manual recovery via ApproveGroupInviteRequest.
+	if policy == store.GroupInvitePolicyAnyMember {
+		if perr := r.processInviteRequest(id, false); perr != nil {
+			slog.Warn("any_member auto-approve failed; row remains for retry",
+				"group_id", groupID, "request_id", id, "error", perr)
+		}
+	}
 	out, err := database.GetGroupInviteRequest(id)
 	if err != nil {
 		return nil, err
@@ -249,65 +272,6 @@ func (r *Runtime) rpcSyncInviteRequest(remote peer.ID, req *p2p.GroupInviteWireC
 		return nil, fmt.Errorf("%s: only the requester can sync this row", errInviteForbidden)
 	}
 	return rec, nil
-}
-
-func (r *Runtime) rpcCancelInviteRequest(remote peer.ID, req *p2p.GroupInviteWireClientReqV1) (*store.GroupInviteRequestRecord, error) {
-	requestID := strings.TrimSpace(req.RequestID)
-	if requestID == "" {
-		return nil, fmt.Errorf("request_id is required")
-	}
-	r.mu.RLock()
-	database := r.db
-	r.mu.RUnlock()
-	if database == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-	rec, err := database.GetGroupInviteRequest(requestID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("%s: request not found", errInviteNotFound)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if rec.IsMirror {
-		return nil, fmt.Errorf("%s: cannot cancel mirror on creator node", errInviteForbidden)
-	}
-	isCreator, err := r.isLocalCreator(rec.GroupID)
-	if err != nil {
-		return nil, err
-	}
-	if !isCreator {
-		return nil, fmt.Errorf("%s: only creator can cancel authority rows here", errInviteForbidden)
-	}
-	if remote.String() != rec.RequesterPeerID {
-		return nil, fmt.Errorf("%s: only the requester can cancel this request remotely", errInviteForbidden)
-	}
-	if rec.Status == store.InviteRequestStatusProcessing {
-		return nil, fmt.Errorf("%s: request is processing", errInviteStateConflict)
-	}
-	ok, err := database.TryTransitionInviteRequest(requestID,
-		[]string{store.InviteRequestStatusPending, store.InviteRequestStatusFailed, store.InviteRequestStatusPermanentlyFailed},
-		store.InviteRequestStatusCancelled,
-		store.InviteRequestTransitionPatch{ClearFailure: true},
-	)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, fmt.Errorf("%s: request cannot be cancelled in current state", errInviteStateConflict)
-	}
-	out, err := database.GetGroupInviteRequest(requestID)
-	if err != nil {
-		return nil, err
-	}
-	r.emit("group:invite_request_decided", map[string]interface{}{
-		"group_id":       rec.GroupID,
-		"request_id":     requestID,
-		"status":         store.InviteRequestStatusCancelled,
-		"requester_id":   rec.RequesterPeerID,
-		"target_peer_id": rec.TargetPeerID,
-	})
-	return out, nil
 }
 
 func (r *Runtime) applyInviteRequestPushFromCreator(remote peer.ID, push *p2p.GroupInviteWirePushV1) {

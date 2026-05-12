@@ -98,7 +98,9 @@ These belong after chat/group/migration/admin UX is stable.
 
 ## 4. P0 Workstream A - Invite & Pending Invite Lifecycle
 
-**Status:** Completed. Implemented `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`, pending invite persistence, Welcome list discovery, and backup/import support.
+**Status:** Completed. Implemented `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`, pending invite persistence, Welcome list discovery, backup/import support, and auto-join (2026-05-10).
+
+> **Auto-join semantics (2026-05-10):** The product behaviour is "Discord/Slack-style" — when a Welcome reaches the invitee runtime via direct stream / replication / blind-store, `savePendingInviteFromWelcome` applies it immediately for every group type and emits `invite:auto_joined` so the UI can show a passive toast. The pending row is preserved as an audit trail with `status=accepted`. Rows that cannot be applied yet (sidecar not ready, KP rotated, transient MLS failure) stay `pending` and `processPendingWelcomesOnStartup` retries them on the next P2P launch. `AcceptInvite` is kept as an idempotent manual-recovery API but is no longer wired into the production UI; `RejectInvite` only acts on rows still in `pending`. Once a group has been auto-joined the user opts out via `LeaveGroup`.
 
 ### Goal
 

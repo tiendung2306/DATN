@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -176,6 +178,8 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
+		OnAddCommitted: r.makeAddCommittedHandler(groupID),
+		OnPeerObserved: r.makePeerObservedHandler(groupID),
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -442,24 +446,80 @@ func (r *Runtime) AddMemberToGroup(groupID, newMemberPeerID, keyPackageHex strin
 	}
 	r.mu.RUnlock()
 
-	welcome, err := coord.AddMember(peer.ID(newMemberPeerID), raw)
+	newMemberPeerID = strings.TrimSpace(newMemberPeerID)
+	targetID, decErr := peer.Decode(newMemberPeerID)
+	if decErr != nil {
+		return "", fmt.Errorf("invalid peer ID %q: %w", newMemberPeerID, decErr)
+	}
+	kpHash := computeKeyPackageHash(raw)
+	opID := coordinationAddOpID(groupID, newMemberPeerID, kpHash)
+	result, err := coord.AddMember(coordination.AddMemberRequest{
+		TargetPeerID:    targetID,
+		KeyPackageBytes: raw,
+		OperationID:     opID,
+		KeyPackageHash:  hexDecodedOrNil(kpHash),
+	})
 	if err != nil {
 		return "", err
 	}
-	newMemberPeerID = strings.TrimSpace(newMemberPeerID)
 	if newMemberPeerID != "" {
 		_ = r.upsertGroupMember(groupID, newMemberPeerID, "member", "add")
 	}
-	return hex.EncodeToString(welcome), nil
+	// On the deferred path this node was NOT the Token Holder. We never
+	// fabricate a Welcome locally — that would require ephemeral key
+	// material we do not own. Caller (legacy diagnostic UI / tests) gets
+	// an empty welcomeHex meaning "proposal broadcast; Welcome will arrive
+	// from the actual Token Holder out-of-band".
+	return hex.EncodeToString(result.Welcome), nil
+}
+
+// coordinationAddOpID is a thin wrapper that mirrors ComputeAddOperationID in
+// invite.go so callers in group.go don't need to reach into invite-internal
+// helpers. Kept package-private to discourage random callers from inventing
+// new operation ids.
+func coordinationAddOpID(groupID, targetPeerID, kpHash string) string {
+	return ComputeAddOperationID(groupID, targetPeerID, kpHash)
 }
 
 // JoinGroupWithWelcome joins an existing group using a Welcome message and the
 // private KeyPackage bundle from [App.GenerateKeyPackage] for this invite flow.
 func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex string) error {
-	return r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "")
+	return r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", "")
 }
 
-func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType string) error {
+// resolveChannelCategoryForWelcomeJoin returns category_id already associated
+// with this exact Welcome bytes on the invitee (pending_invites or
+// stored_welcomes). Used when JoinGroupWithWelcome runs without an inline hint
+// so replicated invite metadata still lands in mls_groups on first save.
+func (r *Runtime) resolveChannelCategoryForWelcomeJoin(groupID string, welcomeRaw []byte, normalizedGroupType string) string {
+	if !strings.EqualFold(strings.TrimSpace(normalizedGroupType), "channel") {
+		return ""
+	}
+	if r.db == nil || r.node == nil {
+		return ""
+	}
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || len(welcomeRaw) == 0 {
+		return ""
+	}
+	id := store.PendingInviteID(groupID, welcomeRaw)
+	if inv, err := r.db.GetPendingInvite(id); err == nil && inv != nil {
+		if c := strings.TrimSpace(inv.CategoryID); c != "" {
+			return c
+		}
+	}
+	localPeer := r.node.Host.ID().String()
+	wb, _, cat, _, err := r.db.GetStoredWelcome(localPeer, groupID)
+	if err != nil || len(wb) == 0 {
+		return ""
+	}
+	if !bytes.Equal(wb, welcomeRaw) {
+		return ""
+	}
+	return strings.TrimSpace(cat)
+}
+
+func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType, categoryIDHint string) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
@@ -482,6 +542,8 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 
 	r.mu.Lock()
 	emitMembersChanged := false
+	emitCategoryAfterUnlock := ""
+	runLeafBackfill := false
 	defer func() {
 		r.mu.Unlock()
 		if emitMembersChanged {
@@ -489,6 +551,21 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 				"group_id": groupID,
 				"reason":   "joined",
 			})
+		}
+		if emitCategoryAfterUnlock != "" {
+			r.emit("channel_categories:changed", map[string]interface{}{
+				"reason":      "welcome_join",
+				"channel_id":  groupID,
+				"category_id": emitCategoryAfterUnlock,
+			})
+		}
+		// MLS leaf enumeration runs after r.mu is released because the
+		// helper takes its own RLock (sync.RWMutex is not re-entrant).
+		// This guarantees Tester2 sees Tester1 (and every other leaf) in
+		// the roster the instant JoinGroupWithWelcome returns, without
+		// waiting for any of them to send a message.
+		if runLeafBackfill {
+			r.backfillMLSLeafRoster(groupID)
 		}
 	}()
 
@@ -515,6 +592,12 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		return err
 	}
 
+	hint := strings.TrimSpace(categoryIDHint)
+	resolvedCat := hint
+	if resolvedCat == "" && strings.EqualFold(normalizedGroupType, "channel") {
+		resolvedCat = r.resolveChannelCategoryForWelcomeJoin(groupID, welcomeRaw, normalizedGroupType)
+	}
+
 	now := time.Now()
 	if err := r.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
 		GroupID:    groupID,
@@ -523,7 +606,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		TreeHash:   treeHash,
 		MyRole:     coordination.RoleMember,
 		GroupType:  normalizedGroupType,
-		CategoryID: "",
+		CategoryID: resolvedCat,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}); err != nil {
@@ -546,6 +629,8 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
+		OnAddCommitted: r.makeAddCommittedHandler(groupID),
+		OnPeerObserved: r.makePeerObservedHandler(groupID),
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -564,6 +649,10 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		UpdatedAt:   time.Now().Unix(),
 	})
 	emitMembersChanged = true
+	runLeafBackfill = true
+	if resolvedCat != "" && strings.EqualFold(normalizedGroupType, "channel") && hint == "" {
+		emitCategoryAfterUnlock = resolvedCat
+	}
 	slog.Info("Joined group via Welcome", "group_id", groupID, "epoch", epoch)
 	return nil
 }
@@ -613,7 +702,11 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 		if displayName == "" {
 			displayName = r.resolveDisplayNameForPeer(rec.PeerID)
 			if displayName != "" && displayName != rec.DisplayName {
-				_ = database.UpsertGroupMember(store.GroupMemberRecord{
+				// Profile refresh: caller is updating display_name only,
+				// not asserting anything about role. Use the preserving
+				// variant so we cannot ever clobber a creator row even by
+				// echoing rec.Role back into the upsert.
+				_ = database.UpsertGroupMemberPreservingRole(store.GroupMemberRecord{
 					GroupID:     rec.GroupID,
 					PeerID:      rec.PeerID,
 					DisplayName: displayName,
@@ -680,7 +773,35 @@ func (r *Runtime) initCoordinationStackLocked() {
 	}
 
 	r.coordinators = make(map[string]*coordination.Coordinator)
+	r.seedSelfPeerDirectoryRowLocked()
 	r.loadExistingGroupsLocked()
+}
+
+// seedSelfPeerDirectoryRowLocked persists this node's own (peer_id,
+// display_name, public_key_hex) tuple into peer_directory so MLS leaf
+// enumeration can resolve the local leaf back to a peer.ID without falling
+// through to a heartbeat self-observation (impossible — the node never
+// heartbeats itself). This is idempotent: callers may invoke it on every
+// coordination-stack init without churning the directory.
+//
+// Must be called with r.mu held.
+func (r *Runtime) seedSelfPeerDirectoryRowLocked() {
+	if r.db == nil || r.node == nil {
+		return
+	}
+	identity, err := r.db.GetMLSIdentity()
+	if err != nil || identity == nil {
+		return
+	}
+	pubHex := ""
+	if len(identity.PublicKey) > 0 {
+		pubHex = hex.EncodeToString(identity.PublicKey)
+	}
+	_ = r.db.UpsertPeerProfileWithKey(
+		r.node.Host.ID().String(),
+		strings.TrimSpace(identity.DisplayName),
+		pubHex,
+	)
 }
 
 // loadExistingGroupsLocked restores Coordinators for groups persisted in SQLite.
@@ -718,6 +839,8 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 				r.publishBlindStoreEnvelope(mt, gid, wire)
 			},
+			OnAddCommitted: r.makeAddCommittedHandler(rec.GroupID),
+			OnPeerObserved: r.makePeerObservedHandler(rec.GroupID),
 		})
 		if err != nil {
 			slog.Warn("Failed to create coordinator for existing group",
@@ -732,6 +855,49 @@ func (r *Runtime) loadExistingGroupsLocked() {
 		r.coordinators[rec.GroupID] = coord
 		slog.Info("Restored group from DB", "group_id", rec.GroupID, "epoch", rec.Epoch)
 	}
+
+	r.recoverStaleAddOperationsLocked()
+}
+
+// recoverStaleAddOperationsLocked surfaces any Add operation that was
+// mid-flight when the process exited (proposal_broadcast / commit_observed /
+// welcome_queued for more than the recovery threshold).
+//
+// We intentionally do NOT silently re-broadcast a stale ProposalAdd: the
+// proposal bytes were authored against the pre-restart MLS epoch and would
+// fail validation under the new epoch on every other peer. Instead we emit
+// a diagnostic event so the UI can prompt the operator (or higher-level
+// retry logic) to issue a fresh invite. Pending Welcomes still in the
+// outbox (pending_welcomes_out) are retried by the existing connect-time
+// retry path; this recovery loop only ensures the audit row stays in sync.
+//
+// Must be called with r.mu held.
+func (r *Runtime) recoverStaleAddOperationsLocked() {
+	if r.db == nil {
+		return
+	}
+	const stallThresholdSeconds = 60
+	ops, err := r.db.ListRecoverableAddOperations(stallThresholdSeconds)
+	if err != nil || len(ops) == 0 {
+		return
+	}
+	for _, op := range ops {
+		slog.Warn("Stale group_add_operation observed at startup",
+			"operation_id", op.OperationID,
+			"group_id", op.GroupID,
+			"target", op.TargetPeerID,
+			"status", op.Status,
+			"updated_at", op.UpdatedAt,
+		)
+		// Detach the emit from the locked section.
+		op := op
+		go r.emit("group:add_operation_stale", map[string]interface{}{
+			"operation_id": op.OperationID,
+			"group_id":     op.GroupID,
+			"target":       op.TargetPeerID,
+			"status":       op.Status,
+		})
+	}
 }
 
 // ─── Event handlers ──────────────────────────────────────────────────────────
@@ -745,7 +911,11 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 		}
 		r.mu.Unlock()
 		if !isMine {
-			if err := r.upsertGroupMember(groupID, msg.SenderID.String(), "member", "message"); err == nil {
+			// Observation only: the sender exists in the group. We have no
+			// authoritative information about their role, so route through
+			// the preserving variant — never overwrite a creator row that
+			// might be authored for this peer locally.
+			if err := r.upsertGroupMemberFromRosterSync(groupID, msg.SenderID.String(), "message"); err == nil {
 				r.emit("group:members_changed", map[string]interface{}{
 					"group_id": groupID,
 					"reason":   "message_sender",
@@ -770,6 +940,115 @@ func (r *Runtime) makeEpochHandler(groupID string) func(uint64) {
 		r.emit("group:epoch", map[string]interface{}{
 			"group_id": groupID,
 			"epoch":    epoch,
+		})
+	}
+}
+
+// makeAddCommittedHandler wires the per-group OnAddCommitted callback.
+//
+// The callback fires in two distinct scenarios with different responsibilities:
+//
+//   - welcome != nil: the local node ran CreateCommit (Token Holder path).
+//     It now owns the only copy of the ephemeral keys that authored the
+//     Welcome bytes. The runtime persists pending_welcomes_out, replicates
+//     to verified store peers, and fires direct-stream delivery so the
+//     invitee can auto-join.
+//
+//   - welcome == nil: the local node observed a remote Commit referencing
+//     an AddCommitDelivery on the group topic (any non-holder receiver).
+//     We MUST NOT attempt to reconstruct a Welcome here — only the node
+//     that ran CreateCommit has the ephemeral material. We only advance
+//     the local group_add_operations row to commit_observed for audit/UI.
+//
+// Per the Single-Writer Protocol research notes: the Welcome is generated
+// by the node that runs CreateCommit, and only that node may send it.
+func (r *Runtime) makeAddCommittedHandler(groupID string) func(coordination.AddCommitDelivery, uint64, []byte) {
+	return func(delivery coordination.AddCommitDelivery, commitEpoch uint64, welcome []byte) {
+		r.mu.RLock()
+		database := r.db
+		r.mu.RUnlock()
+		if database == nil || strings.TrimSpace(delivery.OperationID) == "" {
+			return
+		}
+
+		welcomeHashHex := ""
+		if len(delivery.WelcomeHash) > 0 {
+			welcomeHashHex = hex.EncodeToString(delivery.WelcomeHash)
+		}
+		commitHash := []byte(nil)
+		if len(delivery.WelcomeHash) > 0 {
+			commitHash = nil // commit_hash is reserved for raw MLS commit fingerprint
+		}
+
+		if mErr := database.MarkAddCommitObserved(delivery.OperationID, commitEpoch, commitHash); mErr != nil &&
+			!errors.Is(mErr, store.ErrAddOperationTerminal) {
+			slog.Warn("MarkAddCommitObserved failed",
+				"operation", delivery.OperationID, "group", groupID, "err", mErr)
+		}
+
+		// Observer path: nothing more to do beyond audit. The Token Holder
+		// will deliver the Welcome out-of-band to the invitee.
+		if len(welcome) == 0 {
+			r.emit("group:add_committed", map[string]interface{}{
+				"group_id":     groupID,
+				"operation_id": delivery.OperationID,
+				"target":       delivery.TargetPeerID,
+				"epoch":        commitEpoch,
+				"welcome_hash": welcomeHashHex,
+				"role":         "observer",
+			})
+			return
+		}
+
+		// Token Holder path: dispatch Welcome through the outbox helper.
+		r.dispatchTokenHolderWelcome(database, groupID, delivery, welcome)
+		r.emit("group:add_committed", map[string]interface{}{
+			"group_id":     groupID,
+			"operation_id": delivery.OperationID,
+			"target":       delivery.TargetPeerID,
+			"epoch":        commitEpoch,
+			"welcome_hash": welcomeHashHex,
+			"role":         "token_holder",
+		})
+	}
+}
+
+// makePeerObservedHandler wires the per-group OnPeerObserved callback fired by
+// the coordinator the first time a remote peer transitions absent→present in
+// the ActiveView via a heartbeat (Phase A: heartbeat-driven roster sync).
+//
+// We use this callback as a self-healing complement to MLS leaf enumeration:
+//   - When Welcome only persists (self, inviter), or when the joiner cannot
+//     resolve every MLS leaf via the peer_directory (e.g. the peer has not
+//     yet handshaked / verified), every heartbeat from that peer still gives
+//     us a verified, online peer.ID we can upsert into group_members.
+//   - We only fire once per (group, peer) transition — Phase A's job is not
+//     to spam every ~5s heartbeat, only to surface fresh observations.
+//
+// The handler runs in a goroutine spawned by the coordinator, so it is safe
+// to perform DB writes here without blocking heartbeat processing.
+func (r *Runtime) makePeerObservedHandler(groupID string) func(string, peer.ID, time.Time) {
+	return func(_ string, peerID peer.ID, _ time.Time) {
+		peerStr := peerID.String()
+		if peerStr == "" {
+			return
+		}
+		r.mu.RLock()
+		node := r.node
+		r.mu.RUnlock()
+		if node != nil && peerID == node.Host.ID() {
+			return
+		}
+		// Heartbeat is a pure liveness signal. Caller has no opinion on the
+		// peer's role, so use the preserving variant.
+		if err := r.upsertGroupMemberFromRosterSync(groupID, peerStr, "heartbeat"); err != nil {
+			slog.Debug("OnPeerObserved upsert failed",
+				"group_id", groupID, "peer", peerStr, "err", err)
+			return
+		}
+		r.emit("group:members_changed", map[string]interface{}{
+			"group_id": groupID,
+			"reason":   "peer_observed",
 		})
 	}
 }

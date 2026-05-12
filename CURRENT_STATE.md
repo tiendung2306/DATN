@@ -16,6 +16,170 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-11) ✅ — Requester-attached TargetKeyPackage on `submit` wire frame (fixes ERR_INVITE_ADD_MEMBER_FAILED on disconnected creator)
+
+- **User report:** *"Vẫn không được nhé, cái cái nhóm vvvvvvvvvvvvvvvvvvvvvv tôi lấy node 2 tạo, node 1 mời node 3 thì không được? Xem db rồi debug thật kỹ cho tôi"*
+- **DB inspection cho group `vvvv...`** (3 DB local: `app.db`/`dev-wails-sibling.db`/`dev-wails-peer3.db`):
+  - NODE2 (sibling.db, Tester1) = **creator** (`my_role=creator`, `invite_policy=any_member`).
+  - NODE1 (app.db, Admin) = member (`my_role=member`).
+  - NODE3 (peer3.db, Tester2) = invitee mới, chưa join.
+  - `group_invite_requests` ở NODE2: 2 records `failure_code=ERR_INVITE_ADD_MEMBER_FAILED`, `is_mirror=0` → creator nhận wire submit từ NODE1 OK, nhưng tự execute AddMember thất bại.
+  - **`source_peer_id` đúng** (= creator/Tester1) ở mọi DB → fix trước (ngày 11/5) hoạt động chính xác. Đây là lớp lỗi MỚI, không phải regression cùng kiểu.
+- **Root cause kiến trúc — KP không được forward qua wire:** Khi NODE1 (member) gọi `RequestGroupInvite("vvvv", Tester2)`:
+  1. Forward `submit` đến NODE2 (creator) qua `/app/group-invite-request/1.0.0`.
+  2. Wire frame `GroupInviteWireClientReqV1` cũ **chỉ chứa `target_peer_id`** — KHÔNG có KeyPackage.
+  3. NODE2 auto-approve (`any_member`) → `processInviteRequest` → `r.InvitePeerToGroup(target=Tester2)` → `fetchPeerKeyPackage(Tester2)`.
+  4. Direct fetch fail (NODE2 chưa verified với Tester2 / không còn live link) → cache miss → store-peer fallback fail nốt (NODE2 đi tìm khắp nơi, không ai có KP cached).
+  5. → AddMember fail với `ERR_INVITE_ADD_MEMBER_FAILED`.
+- **Tại sao đây là bug kiến trúc, không phải vá săm:** Topology cho thấy **requester là node có likelihood cao nhất sở hữu KP fresh của target** (vừa fetch lúc user click "Invite"). Bắt creator chạy lại discovery là race với network state — luôn có khả năng fail trong môi trường mDNS phân mảnh, late-join, NAT, v.v. Đính kèm KP vào wire submit biến luồng từ "creator phải tự khám phá" sang "requester chuyển tay KP" — deterministic, một-shot.
+- **Fix triệt để (3 điểm chỉnh sửa, additive — backward compat):**
+  - **Wire schema** (`app/adapter/p2p/group_invite_request_wire.go`): `GroupInviteWireClientReqV1` thêm field `TargetKeyPackage []byte json:"target_key_package,omitempty"` (omitempty → peer cũ không gửi vẫn parse OK; receiver không có field vẫn hoạt động).
+  - **Requester side** (`app/service/group_invite_requests.go::RequestGroupInvite`): Trước khi forward `submit`, gọi `r.fetchPeerKeyPackage(targetID)` (đã sẵn có path direct → cache → store fallback). Đính kèm vào `TargetKeyPackage`. Failure tại đây non-fatal — log debug và vẫn forward (creator vẫn có thể fetch tự lập).
+  - **Creator side** (`app/service/group_invite_request_p2p.go::rpcSubmitInviteRequest`): Sau `CreateGroupInviteRequest` thành công và TRƯỚC `processInviteRequest` (auto-approve), nếu `req.TargetKeyPackage` không rỗng thì gọi `database.SaveStoredKeyPackage(targetPeerID, req.TargetKeyPackage, requesterPeerID)`. Subsequent `fetchPeerKeyPackage` → direct fail → **cache hit** → AddMember chạy ngon. Source = requester để audit trail rõ ai đã chuyển KP.
+- **Test E2E mới (`app/service/business_e2e_group_integrity_test.go`, 2 test pass):**
+  - **BI-119** `TestBusinessP1_E2E_BI119_CreatorMissingKP_RequesterAttachesKP_AutoApproveSucceeds`: Reproduce production bug exactly.
+    - Setup: `e2eAliceBobCharlie` 3-node, Alice creator `any_member`.
+    - Bug condition: `DELETE FROM stored_keypackages WHERE peer_id = charlie` trên Alice → creator không có KP target.
+    - Lấy KP thật của Charlie từ `charlie.db.GetKPBundle`, seed vào Bob (`bobDB.SaveStoredKeyPackage`) — mô phỏng requester đã fetch trước khi forward.
+    - Bob gửi wire submit kèm `TargetKeyPackage=rawKP`.
+    - Assertions: `resp.OK==true`, `resp.Record.Status=="approved"` (không còn `ERR_INVITE_ADD_MEMBER_FAILED`); Alice's `stored_keypackages` có KP cho Charlie sau xử lý; `pending_welcomes_out` có welcome cho Charlie (smoking gun = AddMember đã thật sự chạy).
+  - **BI-120** `TestBusinessP1_E2E_BI120_NoTargetKeyPackage_FallsBackToCreatorFetch`: Backward compat — peer cũ không gửi KP, Alice vẫn có KP cache → vẫn approve. Đảm bảo field thuần additive.
+- **Validation:**
+  - `go vet ./...`, `go vet -tags=business_integration ./service/...` PASS.
+  - `go test -tags=business_integration -run BI119|BI120 ./service/...` PASS 1.244s.
+  - **Full business suite** `go test -tags=business_integration -timeout 600s ./service/... -count=1` PASS 31.786s, 162 tests total.
+- **Tài liệu:** `docs/testing/BUSINESS_INTEGRATION_TEST_SCENARIOS.md` thêm BI-119 (P0) + BI-120 (P1) vào matrix với mô tả setup/action/expected.
+- **Đánh giá best-practice:**
+  - **Topology-aware**: data đi theo node có quyền tin cậy nhất (requester vừa verified target để tạo invite UI).
+  - **Backward compat**: wire field omitempty + creator side fallback giữ luồng cũ → mixed-version cluster vẫn hoạt động.
+  - **No silent failure**: nếu requester không lấy được KP, vẫn forward; creator log error rõ; row chuyển sang `failed` cho retry — không có "vô hình" bị nuốt lỗi.
+  - **Audit trail đúng**: `stored_keypackages.source_peer_id = requester` thay vì target — phản ánh ai đã thực sự chuyển KP.
+
+### Latest Delta (2026-05-11) ✅ — Source-peer-id invariant hardening + invite-creator hint protocol round-trip + 4 new E2E regression tests
+
+- **User report:** *"sao những lỗi như này mà chạy test không phát hiện? kiểm tra còn đường đi nào sót, hãy code thêm test bao phủ hết đi, để tránh lỗi thêm khi test manual"* — sau khi fix `fetchWelcomeFromStorePeers` không truyền `localID` làm source nữa, user yêu cầu audit toàn diện và code test cover hết đường đi để tránh tái lập tương lai.
+- **Audit kết quả — phát hiện 4 gap còn lại trong creator-hint chain (đường đi mà non-creator member dùng để forward `RequestGroupInvite` về creator):**
+  1. `WelcomeFetchResponseV1` thiếu `SourcePeerID` — invitee fetch welcome qua **store peer C** (không phải creator A) sẽ lưu C làm source → creator hint sai.
+  2. `checkStoredWelcomes` (luồng pull on connect) truyền `""` cho `sourcePeerID` → row mất hint hoàn toàn.
+  3. Không có defensive guard ở chokepoint `savePendingInviteFromWelcome` → caller mới ghi nhầm `localID` lần nữa thì silent break (đây là exact bug class vừa fix).
+  4. `SaveStoredWelcome` / `SaveStoredWelcomeIfNewer` upsert ghi đè `source_peer_id` không có heal — caller bug ghi `""` sẽ wipe hint tốt sẵn có ở row cũ.
+- **Fix triệt để (4 vá kiến trúc, không vá săm):**
+  - **Gap 1 — Wire contract:** `app/adapter/p2p/invite_store_wire.go::WelcomeFetchResponseV1` thêm field `SourcePeerID` (`json:"source_peer_id,omitempty"`). Server side `handleWelcomeFetchStream` (trong `invite.go`) fill từ `database.GetStoredWelcome` (đã trả `srcPeerID` ở fix trước). Client side trong `fetchWelcomeFromStorePeers`: `source := strings.TrimSpace(resp.SourcePeerID); if source == "" { source = pid.String() }` — ưu tiên explicit field, fallback responder peer ID chỉ khi field thiếu (legacy responder chưa upgrade).
+  - **Gap 2 — Source propagation:** `fetchWelcomeFromStorePeers` đổi return signature từ `([]byte, string, string, error)` thành `([]byte, string, string, string, error)` (welcome, groupType, categoryID, **sourcePeerID**, err). `checkStoredWelcomes` nhận và truyền source thật đó vào `savePendingInviteFromWelcome` thay vì `""`.
+  - **Gap 3 — Defensive guard:** trong `app/service/invite.go::savePendingInviteFromWelcome`, sau khi resolve `localID`, thêm:
+    ```go
+    if sourcePeerID != "" && localID != "" && sourcePeerID == localID {
+        slog.Warn("savePendingInviteFromWelcome: dropping self as source (programmer error)", ...)
+        sourcePeerID = ""
+    }
+    ```
+    → Self-as-source là programmer bug; thay vì silent break, drop xuống `""` (row vẫn được save, hint resolve fallback sang row khác hoặc fail rõ ràng với ERR_GROUP_CREATOR_UNKNOWN).
+  - **Gap 4 — DB heal semantics:** `app/adapter/store/db.go::SaveStoredWelcome` và `SaveStoredWelcomeIfNewer` đổi clause `source_peer_id = excluded.source_peer_id` thành `source_peer_id = CASE WHEN trim(excluded.source_peer_id) <> '' THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END` (tương tự `category_id` heal đã có). Một caller blank source không bao giờ wipe hint tốt sẵn có. `IfNewer` còn kết hợp với điều kiện `created_at >= existing` để giữ tính chất "newer wins".
+- **Test bao phủ mới (5 test, tất cả pass):**
+  - **Unit (`app/adapter/store/invite_lifecycle_test.go`):**
+    - `TestGetGroupInviteCreatorHint_SkipsEmptySourceRows`: 2 rows trong stored_welcomes (newer blank, older inviter) → query phải trả inviter, blank không shadow.
+    - `TestStoredWelcome_RoundTrip_PreservesInviterIdentity`: SaveStoredWelcome → GetStoredWelcome carry full inviter context, source != invitee.
+    - `TestStoredWelcome_BlankSource_DoesNotClobberGoodHint`: heal contract cho upsert chính.
+    - `TestStoredWelcomeIfNewer_BlankSource_DoesNotClobberGoodHint`: heal contract cho replication path.
+  - **Integration E2E (`app/service/business_e2e_group_integrity_test.go`):**
+    - **BI-115** `TestBusinessP1_E2E_BI115_SelfAsSource_NeverPersisted`: pass `bobInfo.PeerID` làm sourcePeerID → defensive guard phải drop, hint vẫn = Alice.
+    - **BI-116** `TestBusinessP1_E2E_BI116_MemberResolvesCreatorAfterAutoJoin`: `bob.resolveGroupCreatorPeerID` qua (1) members table và (2) hint fallback (xoá members rồi check) — cả 2 đều = Alice. Đây là exact code path mà `RequestGroupInvite` non-creator phụ thuộc.
+    - **BI-117** `TestBusinessP1_E2E_BI117_RestartReplay_PreservesInviterAsSource`: simulate restart bằng cách gọi `bob.fetchWelcomeFromStorePeers(gid)` → kích hoạt nhánh local-row → assert pre-state, replay-state, post-state đều giữ Alice là source.
+    - **BI-118** `TestBusinessP1_E2E_BI118_WelcomeFetchResponse_CarriesSourcePeerID`: build `WelcomeFetchResponseV1` từ DB và assert `resp.SourcePeerID` được fill — guard refactor sau drop trường này (silent JSON omit).
+- **Validation:** `go vet ./...`, `go vet -tags=business_integration ./...` PASS, unit tests `./adapter/store/...` PASS, integration E2E suite (`-tags=business_integration ./service/... -count=1`) PASS 28.026s với 160+ tests gồm 4 BI mới.
+- **Tài liệu:** `docs/testing/BUSINESS_INTEGRATION_TEST_SCENARIOS.md` thêm hàng BI-115..BI-118 vào matrix với mô tả setup/action/expected — kèm flag "Fail = bug 'non-creator can't invite anymore' đã regress" để rõ vai trò regression-guard.
+- **Đánh giá best-practice:**
+  - **Defense in depth**: 1 cùng invariant ("source != self") được enforce ở 3 lớp — wire (BI-118), service guard (BI-115), DB heal (BlankSource tests). Một lớp fail thì lớp kia còn bắt được.
+  - **Wire field omitempty**: backward compat với responder cũ chưa upgrade. Client side fallback sang `pid.String()` — không vỡ tuyệt đối, chỉ degrade về behavior cũ cho cặp legacy.
+  - **Heal vs hard-overwrite**: cùng triết lý với `category_id` heal — blank không bao giờ wipe known-good. Áp dụng nhất quán cho cả `SaveStoredWelcome` và `SaveStoredWelcomeIfNewer`.
+
+### Latest Delta (2026-05-10) ✅ — Welcome wire carries `category_id` inline (deterministic restore) + 3-node E2E group integrity tests
+
+- **Bug recurrence reported:** *"Lại bị lỗi khi node 1 tạo nhóm và chỉnh ai cũng có thể mời, node 2 mời node 3 thì cái nhóm của node 3 đã mất danh mục."* — confirms previous fix (post-apply snapshot pull) was a band-aid: pull races with peer verification on first connect, can fail silently. Plus user thông báo thiếu test E2E nghiệp vụ kiểm tra integrity nhóm sau chuỗi action.
+- **Root cause architectural:** Welcome bytes (RFC 9420) không carry category metadata; recovery dựa vào async snapshot pull → race với peer verification trong `node.AuthProtocol.IsVerified` → pull silent-fail → Charlie thấy nhóm orphan. Fix vá săm trước (gọi `scheduleChannelCategorySync` ngay sau apply welcome) chỉ giảm xác suất chứ không loại bỏ race.
+- **Fix triệt để (deterministic, không phụ thuộc network state):** ship `category_id` inline trong **mọi** wire frame chuyển welcome, persist xuống stored_welcomes / pending_invites để startup recovery cũng có nguyên metadata.
+  - Wire frames thêm field `category_id`:
+    - `app/service/invite.go::welcomeDeliveryWire` (direct stream `/app/welcome-delivery/1.0.0`).
+    - `app/adapter/p2p/invite_store_wire.go::WelcomeStoreRequestV1` / `WelcomeFetchResponseV1` / `WelcomeListItemV1` (offline replication + retrieval + list).
+    - `app/service/blind_store.go::blindStoreEnvelopeV1` (blind-store gossip object).
+  - Schema migration (`app/adapter/store/db.go`): `stored_welcomes.category_id`, `pending_invites.category_id` (cả 2 có DEFAULT '' để legacy rows OK), heal semantics: incoming non-empty value luôn thắng (chữa được legacy rows lưu trước migration).
+  - DB API:
+    - `SaveStoredWelcome` / `SaveStoredWelcomeIfNewer` thêm `categoryID` param.
+    - `GetStoredWelcome` đổi return → `([]byte, string, string, error)` (welcome, groupType, categoryID, err).
+    - `StoredWelcome` / `PendingInvite` struct thêm `CategoryID`.
+    - `ReopenRejectedInvite` heal `category_id` qua `CASE WHEN ? != ''` để re-invite carry value mới.
+  - Service layer:
+    - `InvitePeerToGroup` resolve `categoryID` từ `coordStorage.GetGroupRecord(gid).CategoryID` (đã được `AssignCategoryToGroup` cập nhật trong `mls_groups`) rồi truyền xuống `replicateWelcomeToStorePeers` + `deliverWelcome`.
+    - `savePendingInviteFromWelcome` ký mới: `(groupID, groupType, categoryID, welcome, sourcePeerID, reopenRejected)`. Sau `applyWelcome` OK gọi `applyChannelCategoryAfterAutoJoin`:
+      - Path 1 (deterministic): nếu `categoryID != ""` → `db.AssignCategoryToGroup(groupID, categoryID)` + emit `channel_categories:changed{reason:"welcome_inline"}` → return.
+      - Path 2 (fallback): chỉ chạy khi inline trống → giữ `scheduleChannelCategorySync(sourcePID)` cũ.
+    - `processPendingWelcomesOnStartup` đọc `inv.CategoryID` từ pending row và truyền vào helper → startup recovery cũng deterministic không cần network.
+    - `CheckDHTWelcome` (legacy API) cũng gọi `applyChannelCategoryAfterAutoJoin` sau khi apply.
+  - Helper cũ `maybeSyncChannelCategoryAfterAutoJoin` được thay bằng `applyChannelCategoryAfterAutoJoin` (logic gồm cả inline write + fallback pull, gắn ở 1 chokepoint). Không còn vá săm rải rác.
+- **End-to-end test mới (`app/service/business_e2e_group_integrity_test.go`):** đáp ứng yêu cầu user *"chưa có test nào kiểu làm một loạt các hành động nghiệp vụ và cuối cùng check xem đã vào được nhóm chưa và check xem các thông tin nhóm như danh mục, cấu hình security..."*
+  - `TestBusinessP1_E2E_BI070_BobInvitesCharlie_AnyMember_GroupIntegrityIntact`: Alice tạo category → tạo channel → set policy `any_member` → Bob auto-join (mới wire-frame có category) → Bob gửi wire submit cho Charlie → Alice (Token Holder) auto-approve → kéo welcome từ Alice's `pending_welcomes_out` + categoryID từ Alice's `coordStorage` (mô phỏng deliverWelcome wire frame) → đẩy vào `charlie.savePendingInviteFromWelcome`. Cuối pipeline assert tất cả: `HasGroup`, `GroupRecord.GroupType`, `GroupRecord.CategoryID`, `ListGroupMembers` (có inviter), Alice's `GroupInvitePolicy` vẫn `any_member`. Đây chính là kịch bản user report — pass = bug fix triệt để.
+  - `TestBusinessP1_E2E_BI071_FallbackPath_NoInlineCategory_StillJoins`: cùng setup nhưng deliberately truyền `categoryID = ""` (mô phỏng legacy / blind-store frame chưa upgrade) — assert auto-join vẫn thành công, fallback path không block join (UI sẽ show category sau khi pull thành công ở peer-connect tiếp theo).
+  - Helper `assertGroupIntegrity` bundle 4 check (HasGroup, group_type, category_id, members) — tái dùng được ở các test sau.
+- **Đánh giá best-practice (không phải fix vá săm nữa):**
+  - **Single source of truth**: `category_id` chỉ resolve một lần ở inviter từ `coordStorage.GetGroupRecord(...)`, di chuyển nguyên vẹn trên dây và xuống đĩa, áp ngay khi nhận. Không có duplicate logic, không có cache stale risk.
+  - **Backward compatible**: incoming non-empty heal nodes upgrade dần; field `omitempty` không làm vỡ peer cũ.
+  - **Deterministic > eventually-consistent** cho metadata UI cần ngay. Pull snapshot vẫn còn nhưng bị degrade thành fallback đúng vai trò của nó.
+  - **Test đi đến cuối ống dẫn**: assert state ở receiver runtime, không phải ở midstream (`pending_welcomes_out`). Mọi regression làm welcome mất category sẽ fail BI-070 ngay.
+- **Validation:** `go vet ./...`, `go vet -tags=business_integration ./...`, `go build ./...`, `go test ./...` PASS, `go test -tags=business_integration -timeout 300s ./service` PASS (160 tests, 25.866s) gồm BI-070 + BI-071 mới, `npm run build` PASS.
+
+### Latest Delta (2026-05-10) ✅ — Member invite forwards to creator + Welcome carries category
+
+- **User reports cần fix cùng lúc:**
+  1. *"Node 2 không mời được node 3, chỉ Node 1 mời được."* — Bug 1.
+  2. *"Nhóm chat đang từ có danh mục thành mất danh mục."* — Bug 2.
+
+- **Bug 1 — Root cause sâu:** `any_member` policy trước đây đi nhánh "member tự execute" (`processInviteRequest(id, true)` → `r.InvitePeerToGroup` → `coord.AddMember`). Nhưng theo **Single-Writer Invariant** (`coordinator.go:553-554`), chỉ Token Holder mới được phát Commit. Default Token Holder ở epoch 0/1 là creator → member luôn dính `ErrNotTokenHolder`. Lazy-sync hôm trước chỉ chữa triệu chứng (`ERR_INVITE_REQUEST_FORBIDDEN`), không chữa bệnh. Lazy-sync làm member rơi xuống nhánh self-process → tiếp tục fail ở MLS layer thay vì wire layer. Đây là lý do Node 2 vẫn không mời được sau patch trước.
+- **Bug 1 — Fix kiến trúc đúng (2 file):**
+  - `app/service/group_invite_requests.go::RequestGroupInvite`: bỏ phân nhánh local policy. Non-creator → **luôn** forward `submit` qua wire tới creator. Member không đọc local `invite_policy` nữa (creator là authority duy nhất + là Token Holder + nắm DB authoritative). Lazy-sync hook bị gỡ (logic mới không phụ thuộc local cache nữa).
+  - `app/service/group_invite_request_p2p.go::rpcSubmitInviteRequest`: bỏ block `policy != creator_approval`. Cả 2 policy đều accept. Sau khi tạo pending row:
+    - `creator_approval` → row đứng pending, creator quyết qua UI.
+    - `any_member` → gọi `processInviteRequest(id, false)` ngay tại creator (Token Holder) để auto-approve. Trả record với status đã update.
+- **Bug 1 — Hệ quả (semantics rõ ràng):** "any_member" trong P2P thesis = "creator auto-approves", **không phải** "member tự commit độc lập". Đây là giải thích đúng dưới Single-Writer Invariant. Member vẫn xuất hiện trên UI là người mời; creator's runtime chỉ là execution engine.
+- **Bug 2 — Root cause:** `joinGroupWithWelcome` (group.go:519-531) tạo `GroupRecord` với `CategoryID=""` vì Welcome bytes (RFC 9420) không carry category metadata. Production có path `scheduleChannelCategorySync` chạy ở `peer_connected` event (invite.go:1456) — nhưng race với welcome arrival: Welcome đến qua direct stream **trước** khi peer_connected fired (cả 2 đều ở runtime của Tester1 nhưng concurrent). Invitee thấy nhóm xuất hiện "không có danh mục" cho tới khi snapshot pull tiếp theo trigger.
+- **Bug 2 — Fix (`app/service/invite.go::savePendingInviteFromWelcome`):** sau `applyWelcome` thành công, nếu group là `channel`, spawn `go r.scheduleChannelCategorySync(sourcePID)` ngay lập tức để đóng race window. `scheduleChannelCategorySync` đã idempotent (3 backoffs, idempotent upsert) nên gọi 2 lần không hại.
+- **Tests (`business_invite_request_integration_test.go`):**
+  - BI-058 / BI-059 / BI-060 viết lại — không gọi `bob.RequestGroupInvite` (gater chặn dial trong harness) mà invoke trực tiếp `alice.handleGroupInviteWireRPC(bobPID, submit)`. Đây là contract creator-side mới. Tests vẫn cover: (a) any_member auto-approves, (b) duplicate guard, (c) target-already-member reject.
+  - `TestBusinessP1_PolicyDrift_WireErrorContractStable` — gỡ (hợp đồng cũ "wire reject any_member với câu cố định" không còn tồn tại). Thay bằng 2 test mới:
+    - `TestBusinessP1_AnyMember_WireSubmitAutoApproves` — wire submit any_member → record approved.
+    - `TestBusinessP1_CreatorApproval_WireSubmitStaysPending` — wire submit creator_approval → record pending.
+  - `business_integration_harness_test.go`: gỡ `businessSeedGroupInvitePolicy`, `sprint4MirrorInvitePolicyAfterCreator`, `sprint4EnsureAliceOnBobMemberTable` (dead helpers — kiến trúc mới member không có local policy state cần seed nữa).
+- **Validation:** `go vet ./...`, `go vet -tags=business_integration ./service/...`, `go build ./...`, `go test ./...` PASS, `go test -tags=business_integration -timeout 120s ./service` PASS (25.231s), `npm run build` PASS.
+- **Trade-off / future work:** với `any_member`, requester phải online & connected tới creator để submit thành công. Nếu creator offline → `errCreatorUnreachable`. Đây là hạn chế tự nhiên của Single-Writer + serverless: không có ai khác hợp lệ để Commit trong khi creator down. Mở rộng tương lai (ngoài thesis): bầu Token Holder rotate, hoặc designated co-admin.
+
+### Latest Delta (2026-05-10) ✅ — Removed Cancel of group invite request (no CRDT cancel in P2P)
+
+- **Quyết định nghiệp vụ:** trong môi trường P2P serverless, "rút lại yêu cầu" của requester về bản chất là CRDT — phải race với creator approve, đồng bộ qua gossip mesh, và tránh split-brain (cancel cục bộ thành công trong khi creator đã sinh Welcome). Quá phức tạp so với phạm vi luận văn → bỏ tính năng, chỉ giữ Approve / Reject (creator quyết định cuối cùng).
+- **Backend (`app/service/group_invite_requests.go`):** xoá hẳn method public `CancelGroupInviteRequest`. Comment giữ lại để giải thích lý do và signpost cho future work nếu thêm CRDT layer.
+- **Backend wire (`app/service/group_invite_request_p2p.go`):** xoá case `"cancel"` trong `handleGroupInviteWireRPC` và hàm `rpcCancelInviteRequest`. RPC giờ chỉ còn `submit` + `sync`. Op `cancel` đến sẽ trả `unknown op`.
+- **Frontend (`runtimeClient.ts`):** bỏ import `CancelGroupInviteRequest` và wrapper `cancelGroupInviteRequest`. Wails generated bindings sẽ tự drop ở lần `wails generate` kế tiếp.
+- **Frontend (`RoomPanel.tsx`):** đơn giản hoá UI yêu cầu tham gia — creator chỉ thấy `Duyệt` + `Từ chối`; mọi vai khác (requester / target / observer) thấy text "Đang chờ người tạo nhóm duyệt." Không còn nút `Hủy yêu cầu`. Handler `handleInviteAction` thu hẹp signature thành `'approve' | 'reject'`.
+- **Tests đã gỡ:** `TestBusinessP1_Sprint4_BI063_CancelGroupInviteRequest_ByRequester` (business integration) và `TestCancelGroupInviteRequest_ProcessingReturnsConflict` (unit). Cả 2 thay bằng comment giải thích.
+- **Docs:** `BUSINESS_INTEGRATION_TEST_SCENARIOS.md` BI-063 đánh dấu (removed) thay vì xoá hẳn để giữ lịch sử quyết định.
+- **Schema:** const `store.InviteRequestStatusCancelled` giữ nguyên để row cũ (nếu có trong DB) vẫn load được; không có code path nào sinh ra status này nữa.
+- **Validation:** `go vet ./...`, `go vet -tags=business_integration ./service/...`, `go build ./...`, `go test ./...` (PASS), `go test -tags=business_integration ./service` (PASS, 23.113s), `npm run build` (PASS).
+
+### Latest Delta (2026-05-10) ✅ — Auto-join semantics for incoming Welcome (Discord/Slack-style invite)
+
+- **Quyết định nghiệp vụ:** invitee không cần bấm "Accept" — Welcome đến nơi là vào nhóm luôn, đối xứng với policy phía inviter (`creator_approval` / `any_member`). User opt-out bằng `LeaveGroup`, không còn semantics "từ chối lời mời" trong UI.
+- **Backend (`app/service/invite.go`):**
+  - `savePendingInviteFromWelcome` mở rộng nhánh auto-apply cho **mọi** group type (không chỉ `dm`). Khi `applyWelcome` thành công, row pending lưu lại với `status=accepted` làm audit trail và emit `invite:auto_joined{id, group_id, group_type, inviter_peer}`. Khi fail (sidecar chưa ready, KP rotated, MLS rejection) → giữ `status=pending` cho retry sau.
+  - Method mới `processPendingWelcomesOnStartup(ctx)` chạy goroutine sau `launchP2PNode`: refresh từ store peers rồi sweep `pending_invites` `status=pending`, retry `applyWelcome`. Best-effort, fail giữ pending cho lần startup tiếp theo.
+- **Routing event (`app/service/runtime_events.go`):** thêm `invite:auto_joined` vào case aggregate routing để frontend event log nhận đúng `invite:<group_id>`.
+- **Frontend (`app/frontend/src/features/chat/hooks/useChatEvents.ts`):** subscribe `invite:auto_joined` qua `useWailsEvent`; handler refresh group list + members rồi `pushToast` "X đã thêm bạn vào nhóm Y" (resolve display name qua `useContactStore`). UI **không** thêm danh sách pending welcomes / nút Accept/Reject — luồng manual coi như fallback của API public.
+- **Tests mới (`business_invite_integration_test.go`):**
+  - `TestBusinessP1_AutoJoin_OnIncomingWelcome` — `savePendingInviteFromWelcome` → `HasGroup=true` ngay, row `accepted`.
+  - `TestBusinessP1_AutoJoin_ProcessesPendingOnStartup` — pre-seed `pending_invites` → gọi `processPendingWelcomesOnStartup` → row chuyển `accepted`, group joined.
+  - `TestBusinessP1_AutoJoin_DeferredWhenKPMissing` — không có KP bundle → row giữ `pending`; persist KP rồi sweep lại → join thành công.
+- **Test contract đã cập nhật:** `BUSINESS_INTEGRATION_TEST_SCENARIOS.md` BI-046 đổi sang manual seed only; bổ sung BI-046b/c/d cho auto-join (online happy path, startup recovery, deferred fallback). BI-047/048/049 giữ vì `AcceptInvite`/`RejectInvite` còn là idempotent manual-recovery API.
+- **Đề xuất A — Wire-path harness + end-of-pipe regression guard (2026-05-10):** sửa `sprint4AliceBobJoinedChannel` (`business_integration_harness_test.go`) chuyển từ `JoinGroupWithWelcome` thủ công → đi qua `savePendingInviteFromWelcome` (cùng chokepoint với direct stream / replication / blind-store), kèm assert `bobDB.HasGroup(gid)` ngay trong helper. Hậu quả: 13 test BI-055..BI-067 (sprint4) tự động trở thành regression guard cho auto-join — nếu auto-join gãy, helper fail → toàn bộ sprint4 đỏ ngay. Bổ sung test mới `TestBusinessP1_WirePath_AliceInvitesBob_BobAutoJoinsEndToEnd` (BI-046e): chạy thật `alice.InvitePeerToGroup` → lấy welcome bytes từ `pending_welcomes_out` → đẩy vào `bob.savePendingInviteFromWelcome` → assert end-of-pipe (Bob trong nhóm + invite `accepted`). Đây chính là loại test mà 100+ test cũ thiếu vì assert dừng ở midstream (`pending_welcomes_out` là endpoint của sender) chứ không đi đến chokepoint receiver.
+- **Validation:** `go vet ./...`, `go vet -tags=business_integration ./...`, `go build ./...`, `go test ./...`, `go test -tags=business_integration ./service` (full suite, 24.485s, PASS), `npm run build` — PASS.
+- **Side effect tốt:** Welcome cũ kẹt trong `pending_invites` từ phiên trước (vd. kenh1/kenh2 trên DB Tester1) tự được auto-join ngay khi user restart Wails app, không cần xoá DB hay thao tác thủ công.
+
 ### Latest Delta (2026-05-09) ✅ — File transfer UX hardening + channel multi-attachments
 
 - **Downloaded file actions (receiver UX):**

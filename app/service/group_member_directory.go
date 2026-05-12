@@ -1,7 +1,10 @@
 package service
 
 import (
+	"context"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -68,6 +71,13 @@ func (r *Runtime) resolveDisplayNameForPeer(peerID string) string {
 	return shortPeerID(peerID)
 }
 
+// upsertGroupMember is the AUTHORITATIVE write path: caller knows the role
+// (e.g. CreateGroupChat passing "creator"). For roster-sync writes where
+// the caller only observed a peer's existence but does NOT have role
+// information, use upsertGroupMemberFromRosterSync instead — that one
+// preserves the existing role column verbatim so the local creator row
+// is never silently demoted to "member" by a heartbeat / MLS leaf /
+// welcome-source observation.
 func (r *Runtime) upsertGroupMember(groupID, peerID, role, source string) error {
 	groupID = strings.TrimSpace(groupID)
 	peerID = strings.TrimSpace(peerID)
@@ -96,6 +106,44 @@ func (r *Runtime) upsertGroupMember(groupID, peerID, role, source string) error 
 	})
 }
 
+// upsertGroupMemberFromRosterSync is the ROSTER-SYNC write path: caller
+// observed a peer (heartbeat, MLS leaf enumeration, message-sender,
+// welcome-source, stored-message history, etc.) but has NO authoritative
+// information about the peer's role. The DB-level method this delegates
+// to leaves the role column untouched on existing rows so the creator's
+// own "creator" annotation is never demoted to "member" by a refresh.
+//
+// For brand-new rows the row lands with role="member" (default — the
+// observation alone doesn't promote anyone to "creator"; only an
+// explicit CreateGroupChat does).
+func (r *Runtime) upsertGroupMemberFromRosterSync(groupID, peerID, source string) error {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	if groupID == "" || peerID == "" {
+		return fmt.Errorf("group_id and peer_id are required")
+	}
+	if !isValidPeerID(peerID) {
+		return fmt.Errorf("invalid peer_id format")
+	}
+	r.mu.RLock()
+	database := r.db
+	r.mu.RUnlock()
+	if database == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	displayName := r.resolveDisplayNameForPeer(peerID)
+	return database.UpsertGroupMemberPreservingRole(store.GroupMemberRecord{
+		GroupID:     groupID,
+		PeerID:      peerID,
+		DisplayName: displayName,
+		Role:        "member",
+		Status:      store.GroupMemberStatusActive,
+		Source:      source,
+		UpdatedAt:   time.Now().Unix(),
+	})
+}
+
 func (r *Runtime) ensureGroupRosterBackfilled(groupID string) {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" || r.coordStorage == nil {
@@ -105,17 +153,133 @@ func (r *Runtime) ensureGroupRosterBackfilled(groupID string) {
 	node := r.node
 	r.mu.RUnlock()
 	if node != nil {
-		_ = r.upsertGroupMember(groupID, node.Host.ID().String(), "member", "self")
+		// Self observation — caller has no opinion on role. Preserve so the
+		// creator's own "creator" annotation set by CreateGroupChat survives
+		// every UI refresh.
+		_ = r.upsertGroupMemberFromRosterSync(groupID, node.Host.ID().String(), "self")
 	}
 
 	known, err := r.coordStorage.GetKnownGroupMembers(groupID)
-	if err != nil {
+	if err == nil {
+		for _, peerID := range known {
+			if !isValidPeerID(peerID) {
+				continue
+			}
+			_ = r.upsertGroupMemberFromRosterSync(groupID, peerID, "history")
+		}
+	}
+	// MLS leaf enumeration: every refresh asks the crypto sidecar for the
+	// authoritative roster directly so we recover from any local drift
+	// (stale stored_messages cache, fork heal, missed welcome-source).
+	r.backfillMLSLeafRoster(groupID)
+}
+
+// backfillMLSLeafRoster reconstructs the local group_members roster from
+// cryptographic ground truth by enumerating every leaf in the MLS group's
+// ratchet tree and translating each leaf's BasicCredential identity into a
+// peer.ID via the peer_directory pubkey index.
+//
+// This is the Phase B "MLS leaf enumeration" path: independent of welcome-
+// source, message history, and heartbeats, it guarantees that any joiner
+// who has completed JoinGroupWithWelcome sees the full membership of the
+// group in its UI immediately. The complementary Phase A heartbeat path
+// (Coordinator.OnPeerObserved) catches any leaf whose pubkey is not yet
+// in the directory because the inviting handshake has not completed.
+//
+// Safe to call repeatedly: UpsertGroupMember is idempotent, the call
+// requires no extra MLS state mutation, and missing leaves (directory
+// miss) are demoted to a debug-level log instead of failing the refresh.
+func (r *Runtime) backfillMLSLeafRoster(groupID string) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
 		return
 	}
-	for _, peerID := range known {
-		if !isValidPeerID(peerID) {
+	r.mu.RLock()
+	engine := r.mlsEngine
+	storage := r.coordStorage
+	database := r.db
+	ctx := r.ctx
+	node := r.node
+	r.mu.RUnlock()
+	if engine == nil || storage == nil || database == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	rec, err := storage.GetGroupRecord(groupID)
+	if err != nil || rec == nil || len(rec.GroupState) == 0 {
+		return
+	}
+	identities, err := engine.ListMemberIdentities(ctx, rec.GroupState)
+	if err != nil {
+		slog.Debug("backfillMLSLeafRoster ListMemberIdentities failed",
+			"group_id", groupID, "err", err)
+		return
+	}
+	if len(identities) == 0 {
+		return
+	}
+
+	localPubHex := ""
+	localPeerID := ""
+	if id, err := database.GetMLSIdentity(); err == nil && id != nil {
+		if len(id.PublicKey) > 0 {
+			localPubHex = strings.ToLower(hex.EncodeToString(id.PublicKey))
+		}
+	}
+	if node != nil {
+		localPeerID = node.Host.ID().String()
+	}
+
+	resolved := 0
+	missed := 0
+	for _, id := range identities {
+		if len(id) == 0 {
 			continue
 		}
-		_ = r.upsertGroupMember(groupID, peerID, "member", "history")
+		pubHex := strings.ToLower(hex.EncodeToString(id))
+		if pubHex == localPubHex {
+			if localPeerID != "" {
+				_ = r.upsertGroupMemberFromRosterSync(groupID, localPeerID, "self")
+			}
+			continue
+		}
+		peerID, lookupErr := database.GetPeerIDByPublicKeyHex(pubHex)
+		if lookupErr != nil {
+			slog.Debug("backfillMLSLeafRoster lookup failed",
+				"group_id", groupID, "pubkey", pubHex, "err", lookupErr)
+			missed++
+			continue
+		}
+		if peerID == "" {
+			missed++
+			continue
+		}
+		if err := r.upsertGroupMemberFromRosterSync(groupID, peerID, "mls_leaf"); err != nil {
+			slog.Debug("backfillMLSLeafRoster upsert failed",
+				"group_id", groupID, "peer", peerID, "err", err)
+			continue
+		}
+		resolved++
 	}
+	if missed > 0 {
+		slog.Debug("backfillMLSLeafRoster directory misses",
+			"group_id", groupID, "resolved", resolved, "missed", missed,
+			"hint", "Phase A heartbeat path will recover once peer handshakes")
+	}
+	// NOTE: do NOT emit group:members_changed from here. backfillMLSLeafRoster
+	// is intentionally called from inside GetGroupMembers (via
+	// ensureGroupRosterBackfilled), and the frontend listens to that event by
+	// re-calling GetGroupMembers — emitting unconditionally on every UI fetch
+	// creates a self-perpetuating refresh storm:
+	//
+	//   GetGroupMembers -> backfill (resolved>0) -> emit -> UI handleMembersChanged
+	//     -> refreshGroupMembers -> GetGroupMembers -> backfill -> emit -> ...
+	//
+	// The caller that genuinely changes state (joinGroupWithWelcome,
+	// makePeerObservedHandler) is responsible for emitting members_changed
+	// exactly once per state transition; backfill remains pure read-through
+	// reconciliation.
 }

@@ -87,3 +87,39 @@ func TestGroupLifecycle_BackupRestorePreservesLeftState(t *testing.T) {
 		t.Fatalf("restored left group reported active")
 	}
 }
+
+func TestGroupLifecycle_BackupRestorePreservesChannelCategory(t *testing.T) {
+	d := setupTestDB(t)
+	s := NewSQLiteCoordinationStorage(d)
+	now := time.Now()
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "chan-1",
+		GroupState: []byte("state"),
+		MyRole:     coordination.RoleMember,
+		GroupType:  "channel",
+		CategoryID: "cat-test-restore",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	backup, err := d.GetAllGroupsForBackup()
+	if err != nil {
+		t.Fatalf("GetAllGroupsForBackup: %v", err)
+	}
+	if len(backup) != 1 || backup[0].CategoryID != "cat-test-restore" || backup[0].GroupType != "channel" {
+		t.Fatalf("backup metadata: %+v", backup[0])
+	}
+	restored := setupTestDB(t)
+	if err := restored.RestoreGroupsFromBackup(backup); err != nil {
+		t.Fatalf("RestoreGroupsFromBackup: %v", err)
+	}
+	rs := NewSQLiteCoordinationStorage(restored)
+	rec, err := rs.GetGroupRecord("chan-1")
+	if err != nil {
+		t.Fatalf("GetGroupRecord: %v", err)
+	}
+	if rec.GroupType != "channel" || rec.CategoryID != "cat-test-restore" {
+		t.Fatalf("restored group: type=%q category=%q", rec.GroupType, rec.CategoryID)
+	}
+}

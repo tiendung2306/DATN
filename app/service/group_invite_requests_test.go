@@ -1,14 +1,11 @@
 package service
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"app/adapter/store"
 	"app/coordination"
-
-	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 )
 
 func TestProcessInviteRequest_AlreadyMemberAutoApproves(t *testing.T) {
@@ -60,54 +57,8 @@ func TestProcessInviteRequest_AlreadyMemberAutoApproves(t *testing.T) {
 	}
 }
 
-func TestCancelGroupInviteRequest_ProcessingReturnsConflict(t *testing.T) {
-	rt := setupMembershipRuntime(t)
-	now := time.Now()
-	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
-		GroupID:    "group-invite-2",
-		GroupState: []byte("state"),
-		MyRole:     coordination.RoleCreator,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}); err != nil {
-		t.Fatalf("SaveGroupRecord: %v", err)
-	}
-
-	priv, _, err := p2pCrypto.GenerateKeyPair(p2pCrypto.Ed25519, -1)
-	if err != nil {
-		t.Fatalf("GenerateKeyPair: %v", err)
-	}
-	rt.privKey = priv
-	if err := rt.db.SaveMLSIdentity(&store.MLSIdentity{
-		DisplayName:       "Local",
-		PublicKey:         []byte{1, 2, 3},
-		SigningKeyPrivate: []byte{4, 5, 6},
-		Credential:        []byte{7, 8, 9},
-	}); err != nil {
-		t.Fatalf("SaveMLSIdentity: %v", err)
-	}
-
-	nowUnix := time.Now().Unix()
-	if err := rt.db.CreateGroupInviteRequest(store.GroupInviteRequestRecord{
-		RequestID:       "gir-2",
-		GroupID:         "group-invite-2",
-		RequesterPeerID: "peer-requester",
-		TargetPeerID:    "peer-target",
-		Status:          store.InviteRequestStatusProcessing,
-		MaxAttempts:     5,
-		ExpiresAt:       nowUnix + 3600,
-		CreatedAt:       nowUnix,
-		UpdatedAt:       nowUnix,
-	}); err != nil {
-		t.Fatalf("CreateGroupInviteRequest: %v", err)
-	}
-
-	_, err = rt.CancelGroupInviteRequest("gir-2")
-	if err == nil {
-		t.Fatalf("expected conflict error")
-	}
-	if !strings.Contains(err.Error(), "ERR_INVITE_REQUEST_STATE_CONFLICT") {
-		t.Fatalf("err=%v want state conflict", err)
-	}
-}
+// TestCancelGroupInviteRequest_ProcessingReturnsConflict was removed
+// (2026-05-10) together with CancelGroupInviteRequest itself. See
+// service/group_invite_requests.go for the rationale (P2P cancel would
+// require CRDT-style coordination; we keep only Approve/Reject).
 

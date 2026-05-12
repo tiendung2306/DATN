@@ -2,10 +2,15 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// ErrAssignCategoryNoMLSGroupRow means mls_groups has no row for this group_id yet
+// (common race: category snapshot or wire assign arrives before Welcome join finishes).
+var ErrAssignCategoryNoMLSGroupRow = errors.New("no mls_groups row (create/join group first)")
 
 type ChannelCategoryRecord struct {
 	CategoryID string
@@ -141,9 +146,35 @@ func (d *Database) AssignCategoryToGroup(groupID, categoryID string) error {
 		return fmt.Errorf("AssignCategoryToGroup(%q,%q) rows: %w", groupID, categoryID, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("AssignCategoryToGroup(%q,%q): no mls_groups row (create/join group first)", groupID, categoryID)
+		return fmt.Errorf("AssignCategoryToGroup(%q,%q): %w", groupID, categoryID, ErrAssignCategoryNoMLSGroupRow)
 	}
 	return nil
+}
+
+// AssignCategoryToGroupWhenReady retries AssignCategoryToGroup briefly when the
+// channel row is not visible yet (join vs P2P category snapshot / assign frame).
+func (d *Database) AssignCategoryToGroupWhenReady(groupID, categoryID string) error {
+	groupID = strings.TrimSpace(groupID)
+	categoryID = strings.TrimSpace(categoryID)
+	if groupID == "" {
+		return fmt.Errorf("group ID is required")
+	}
+	if categoryID == "" {
+		return fmt.Errorf("category ID is required")
+	}
+	var lastErr error
+	for attempt := 0; attempt < 15; attempt++ {
+		err := d.AssignCategoryToGroup(groupID, categoryID)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !errors.Is(err, ErrAssignCategoryNoMLSGroupRow) {
+			return err
+		}
+		time.Sleep(time.Duration(25+attempt*20) * time.Millisecond)
+	}
+	return fmt.Errorf("AssignCategoryToGroupWhenReady(%q,%q): %w", groupID, categoryID, lastErr)
 }
 
 func (d *Database) ListActiveChannelsWithoutCategory() ([]string, error) {

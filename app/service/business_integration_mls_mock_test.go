@@ -32,9 +32,10 @@ type bizMockCommitData struct {
 }
 
 type businessIntegrationMLSMock struct {
-	mu          sync.Mutex
-	nextErr     error
-	hasMemberFn func(groupState []byte, identity []byte) (bool, error)
+	mu            sync.Mutex
+	nextErr       error
+	hasMemberFn   func(groupState []byte, identity []byte) (bool, error)
+	listMembersFn func(groupState []byte) ([][]byte, error)
 }
 
 func newBusinessIntegrationMLSMock() *businessIntegrationMLSMock {
@@ -59,6 +60,12 @@ func (m *businessIntegrationMLSMock) SetHasMemberFunc(fn func(groupState []byte,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.hasMemberFn = fn
+}
+
+func (m *businessIntegrationMLSMock) SetListMembersFunc(fn func(groupState []byte) ([][]byte, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listMembersFn = fn
 }
 
 func bizMockTreeHash(epoch uint64) []byte {
@@ -196,6 +203,19 @@ func (m *businessIntegrationMLSMock) HasMember(_ context.Context, groupState []b
 		return fn(groupState, identity)
 	}
 	return len(identity) > 0, nil
+}
+
+func (m *businessIntegrationMLSMock) ListMemberIdentities(_ context.Context, groupState []byte) ([][]byte, error) {
+	if err := m.popError(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	fn := m.listMembersFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(groupState)
+	}
+	return nil, nil
 }
 
 func (m *businessIntegrationMLSMock) EncryptMessage(_ context.Context, groupState, plaintext []byte) ([]byte, []byte, error) {

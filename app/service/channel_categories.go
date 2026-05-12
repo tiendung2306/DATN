@@ -170,7 +170,7 @@ func (r *Runtime) AssignChannelCategory(channelID, categoryID string) error {
 		r.mu.Unlock()
 		return fmt.Errorf("ERR_CATEGORY_NOT_FOUND: %w", err)
 	}
-	if err := r.db.AssignCategoryToGroup(channelID, categoryID); err != nil {
+	if err := r.db.AssignCategoryToGroupWhenReady(channelID, categoryID); err != nil {
 		r.mu.Unlock()
 		return err
 	}
@@ -217,7 +217,7 @@ func (r *Runtime) ensureChannelCategoryBaselineLocked() error {
 		return err
 	}
 	for _, groupID := range legacyChannels {
-		if err := r.db.AssignCategoryToGroup(groupID, defaultChannelCategoryID); err != nil {
+		if err := r.db.AssignCategoryToGroupWhenReady(groupID, defaultChannelCategoryID); err != nil {
 			slog.Warn("Failed to assign default category", "group_id", groupID, "error", err)
 		}
 	}
@@ -314,13 +314,29 @@ func (r *Runtime) handleChannelCategorySyncStream(s network.Stream) {
 			if strings.TrimSpace(a.ChannelID) == "" || strings.TrimSpace(a.CategoryID) == "" {
 				continue
 			}
-			_ = db.AssignCategoryToGroup(a.ChannelID, a.CategoryID)
+			if err := db.AssignCategoryToGroupWhenReady(a.ChannelID, a.CategoryID); err != nil {
+				slog.Warn("category snapshot assign failed", "channel_id", a.ChannelID, "category_id", a.CategoryID, "err", err)
+				continue
+			}
 			changed = true
 		}
 		if changed {
 			r.emit("channel_categories:changed", map[string]interface{}{"reason": "snapshot_sync"})
 		}
-	case "upsert_category", "delete_category", "assign_channel":
+	case "assign_channel":
+		if strings.TrimSpace(frame.EventID) == "" {
+			return
+		}
+		if err := db.AssignCategoryToGroupWhenReady(frame.ChannelID, frame.CategoryID); err != nil {
+			slog.Warn("category sync assign_channel failed", "channel_id", frame.ChannelID, "category_id", frame.CategoryID, "err", err)
+			return
+		}
+		already, err := db.MarkCategorySyncEventApplied(frame.EventID)
+		if err != nil || already {
+			return
+		}
+		r.emit("channel_categories:changed", map[string]interface{}{"reason": "peer_sync"})
+	case "upsert_category", "delete_category":
 		if strings.TrimSpace(frame.EventID) == "" {
 			return
 		}
@@ -343,8 +359,6 @@ func (r *Runtime) handleChannelCategorySyncStream(s network.Stream) {
 			})
 		case "delete_category":
 			_ = db.DeleteChannelCategory(frame.CategoryID)
-		case "assign_channel":
-			_ = db.AssignCategoryToGroup(frame.ChannelID, frame.CategoryID)
 		}
 		r.emit("channel_categories:changed", map[string]interface{}{"reason": "peer_sync"})
 	}
@@ -427,7 +441,10 @@ func (r *Runtime) requestChannelCategorySnapshot(ctx context.Context, remote pee
 		if strings.TrimSpace(a.ChannelID) == "" || strings.TrimSpace(a.CategoryID) == "" {
 			continue
 		}
-		_ = db.AssignCategoryToGroup(a.ChannelID, a.CategoryID)
+		if err := db.AssignCategoryToGroupWhenReady(a.ChannelID, a.CategoryID); err != nil {
+			slog.Warn("category snapshot pull assign failed", "channel_id", a.ChannelID, "category_id", a.CategoryID, "err", err)
+			continue
+		}
 		changed = true
 	}
 	if changed {

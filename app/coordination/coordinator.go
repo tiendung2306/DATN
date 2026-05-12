@@ -42,6 +42,30 @@ type CoordinatorOpts struct {
 	// application envelope to the group topic. Intended for offline replication
 	// layers (e.g. blind-store) and not invoked for replayed remote envelopes.
 	OnEnvelopeBroadcast func(MessageType, string, []byte)
+	// OnAddCommitted fires once per AddCommitDelivery whenever an Add commit
+	// has been applied to local MLS state.
+	//
+	//   - When the local node ran CreateCommit (Token Holder path), welcome
+	//     carries the freshly produced MLS Welcome bytes; the runtime MUST
+	//     persist pending_welcomes_out, replicate to store peers, and deliver
+	//     the Welcome to the invitee. Only the node that ran CreateCommit
+	//     owns the ephemeral material required to author the Welcome — no
+	//     other node may attempt to reconstruct it.
+	//   - When the local node observed the commit on the wire (any non-holder
+	//     receiver), welcome is nil; the runtime only transitions its local
+	//     group_add_operations row to "commit_observed".
+	OnAddCommitted func(delivery AddCommitDelivery, commitEpoch uint64, welcome []byte)
+	// OnPeerObserved fires the first time a remote peer enters this group's
+	// ActiveView via a heartbeat (transition absent -> present). It does NOT
+	// fire on subsequent heartbeats from the same peer.
+	//
+	// The runtime uses this to self-heal the group_members roster after a
+	// join: when MLS leaf enumeration cannot resolve a leaf via the
+	// peer_directory (e.g. the peer has not yet handshaked), the first
+	// heartbeat from that peer still gives us a verified, online peer_id we
+	// can upsert into the local roster. Fires from a fresh goroutine so the
+	// service layer may perform DB I/O without blocking the coordinator.
+	OnPeerObserved func(groupID string, peerID peer.ID, observedAt time.Time)
 }
 
 // Coordinator orchestrates the Decentralized Coordination Protocol for a
@@ -65,12 +89,14 @@ type Coordinator struct {
 	hlc     *HLC
 	metrics *Metrics
 
-	onMessage      func(*StoredMessage)
-	onEpochChange  func(uint64)
-	onAccessLost   func(string, uint64, string)
-	onEnvelope     func(MessageType, string, []byte)
-	groupInfoFetch GroupInfoFetchFunc
-	localIdentity  []byte
+	onMessage       func(*StoredMessage)
+	onEpochChange   func(uint64)
+	onAccessLost    func(string, uint64, string)
+	onEnvelope      func(MessageType, string, []byte)
+	onAddCommitted  func(AddCommitDelivery, uint64, []byte)
+	onPeerObserved  func(string, peer.ID, time.Time)
+	groupInfoFetch  GroupInfoFetchFunc
+	localIdentity   []byte
 
 	// Mutable state (protected by mu)
 	mu           sync.Mutex
@@ -128,6 +154,8 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		onEpochChange:  opts.OnEpochChange,
 		onAccessLost:   opts.OnAccessLost,
 		onEnvelope:     opts.OnEnvelopeBroadcast,
+		onAddCommitted: opts.OnAddCommitted,
+		onPeerObserved: opts.OnPeerObserved,
 		groupInfoFetch: opts.GroupInfoFetcher,
 		localIdentity:  deriveIdentityFromSigningKey(opts.SigningKey),
 	}
@@ -282,7 +310,18 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 }
 
 func (c *Coordinator) handleHeartbeatLocked(from peer.ID) {
-	c.activeView.RecordHeartbeat(from)
+	fresh := c.activeView.RecordHeartbeat(from)
+	if !fresh || c.onPeerObserved == nil {
+		return
+	}
+	// Fire OnPeerObserved outside c.mu via goroutine so the service handler can
+	// perform DB writes without blocking heartbeat processing. We capture the
+	// observation timestamp now (under lock) so the handler sees the true
+	// first-seen moment even if scheduling is delayed.
+	cb := c.onPeerObserved
+	groupID := c.groupID
+	observedAt := c.clock.Now()
+	go cb(groupID, from, observedAt)
 }
 
 func (c *Coordinator) handleAnnounceLocked(from peer.ID, env *Envelope) {
@@ -317,7 +356,16 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 		return
 	}
 
-	c.singleWriter.BufferProposal(proposal.Data)
+	c.singleWriter.BufferProposal(BufferedProposal{
+		Type:           proposal.ProposalType,
+		Data:           proposal.Data,
+		OperationID:    proposal.OperationID,
+		TargetPeerID:   proposal.TargetPeerID,
+		RequestID:      proposal.RequestID,
+		GroupType:      proposal.GroupType,
+		CategoryID:     proposal.CategoryID,
+		KeyPackageHash: proposal.KeyPackageHash,
+	})
 	c.metrics.IncrProposalsReceived()
 
 	if c.singleWriter.IsTokenHolder() {
@@ -373,6 +421,21 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
+
+	// Surface AddCommitDeliveries to the runtime so non-holder receivers can
+	// transition their local group_add_operations row to "commit_observed".
+	// Welcome bytes are intentionally NOT propagated here — only the node
+	// that ran CreateCommit owns the ephemeral material to author them.
+	if len(commit.AddDeliveries) > 0 && c.onAddCommitted != nil {
+		deliveries := append([]AddCommitDelivery(nil), commit.AddDeliveries...)
+		epoch := nextEpoch
+		cb := c.onAddCommitted
+		go func() {
+			for _, d := range deliveries {
+				cb(d, epoch, nil)
+			}
+		}()
+	}
 	return true
 }
 
@@ -446,22 +509,39 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
 
+// tryCommitLocked drains a single homogeneous proposal batch and commits it.
+// Mixed-type batching is rejected by the Rust engine; here we let
+// SingleWriter return the next homogeneous run (Add / Remove / Update) so
+// proposals never get silently dropped — remaining proposal types are wiped
+// alongside the epoch advance because their underlying MLS proposal bytes
+// were authored against the pre-commit epoch and can no longer be applied.
 func (c *Coordinator) tryCommitLocked() {
-	proposals := c.singleWriter.DrainProposals()
-	if len(proposals) == 0 {
+	batch := c.singleWriter.DrainNextBatch()
+	if len(batch) == 0 {
 		return
 	}
 
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(c.ctx, c.groupState, proposals)
+	rawProposals := make([][]byte, 0, len(batch))
+	for i := range batch {
+		rawProposals = append(rawProposals, batch[i].Data)
+	}
+
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(c.ctx, c.groupState, rawProposals)
 	if err != nil {
 		return
 	}
 
-	_ = welcomeBytes // MLS Welcome must be delivered out-of-band, not broadcast in CommitMsg.
 	commitMsg := CommitMsg{
 		CommitData:  commitBytes,
 		NewTreeHash: newTreeHash,
 	}
+
+	// Surface routing metadata for ProposalAdd commits so observer nodes can
+	// correlate the commit with their local group_add_operations rows.
+	if batch[0].Type == ProposalAdd {
+		commitMsg.AddDeliveries = buildAddDeliveriesFromBatch(batch, welcomeBytes)
+	}
+
 	ts := c.hlc.Now()
 	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
 	if len(envBytes) == 0 {
@@ -485,6 +565,49 @@ func (c *Coordinator) tryCommitLocked() {
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+
+	// Hand off Welcome dispatch to the runtime. This local node is the Token
+	// Holder that just ran CreateCommit, so it is the only node holding the
+	// ephemeral key material required to deliver Welcome to each invitee.
+	if batch[0].Type == ProposalAdd && c.onAddCommitted != nil && len(commitMsg.AddDeliveries) > 0 {
+		deliveries := append([]AddCommitDelivery(nil), commitMsg.AddDeliveries...)
+		welcome := append([]byte(nil), welcomeBytes...)
+		epoch := nextEpoch
+		cb := c.onAddCommitted
+		go func() {
+			for _, d := range deliveries {
+				cb(d, epoch, welcome)
+			}
+		}()
+	}
+}
+
+// buildAddDeliveriesFromBatch projects routing metadata from a homogeneous
+// ProposalAdd batch into AddCommitDelivery entries. The same Welcome bytes
+// are referenced by WelcomeHash across deliveries because OpenMLS emits a
+// single combined Welcome per commit batch.
+func buildAddDeliveriesFromBatch(batch []BufferedProposal, welcomeBytes []byte) []AddCommitDelivery {
+	if len(batch) == 0 {
+		return nil
+	}
+	var welcomeHash []byte
+	if len(welcomeBytes) > 0 {
+		sum := sha256.Sum256(welcomeBytes)
+		welcomeHash = sum[:]
+	}
+	out := make([]AddCommitDelivery, 0, len(batch))
+	for _, p := range batch {
+		out = append(out, AddCommitDelivery{
+			OperationID:    p.OperationID,
+			TargetPeerID:   p.TargetPeerID,
+			RequestID:      p.RequestID,
+			GroupType:      p.GroupType,
+			CategoryID:     p.CategoryID,
+			KeyPackageHash: append([]byte(nil), p.KeyPackageHash...),
+			WelcomeHash:    welcomeHash,
+		})
+	}
+	return out
 }
 
 func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTreeHash, commitData []byte) {
@@ -529,17 +652,42 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-// AddMember adds a new member from their KeyPackage bytes. Only the current
-// Token Holder may call this. Returns the MLS Welcome bytes for out-of-band
-// delivery to the invitee.
-func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte) ([]byte, error) {
-	_ = newMemberPeerID
+// AddMemberRequest carries everything the runtime needs to (a) build a
+// ProposalAdd envelope on a non-holder node, or (b) emit an AddCommitDelivery
+// on the Token Holder node. The runtime is the source of truth for the
+// operation_id, group_type and category_id; the coordinator only forwards
+// these fields verbatim.
+type AddMemberRequest struct {
+	TargetPeerID    peer.ID
+	KeyPackageBytes []byte
+	OperationID     string
+	RequestID       string
+	GroupType       string
+	CategoryID      string
+	KeyPackageHash  []byte
+}
 
+// AddMember performs an MLS Add for a new member following the Single-Writer
+// Protocol:
+//
+//   - If the local node is the current Token Holder, the MLS commit is
+//     created synchronously via mls.AddMembers and the result includes the
+//     Welcome bytes for out-of-band delivery to the invitee.
+//   - Otherwise the local node creates a ProposalAdd carrying req's routing
+//     metadata, broadcasts it to the group topic, buffers it locally (in
+//     case the local node becomes the holder for the next epoch), and
+//     returns Deferred=true. The returned Welcome is empty in the deferred
+//     case — only the node that ultimately runs CreateCommit may author the
+//     Welcome.
+//
+// AddMember NEVER returns ErrNotTokenHolder: failure of the local node to
+// hold the token is part of the protocol, not an error condition.
+func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.started {
-		return nil, fmt.Errorf("coordinator not started")
+		return AddMemberResult{}, fmt.Errorf("coordinator not started")
 	}
 	if c.accessRevoked {
 		slog.Warn("Mutation rejected: access revoked",
@@ -548,25 +696,80 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 			"op", "AddMember",
 			"reason", "access_revoked",
 			"violation_source", "local_membership_guard")
-		return nil, ErrAccessRevoked
+		return AddMemberResult{}, ErrAccessRevoked
 	}
-	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
-		return nil, ErrNotTokenHolder
+	if len(req.KeyPackageBytes) == 0 {
+		return AddMemberResult{}, fmt.Errorf("AddMember: key package is required")
 	}
 
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(c.ctx, c.groupState, [][]byte{keyPackageBytes})
+	delivery := AddCommitDelivery{
+		OperationID:    req.OperationID,
+		TargetPeerID:   req.TargetPeerID.String(),
+		RequestID:      req.RequestID,
+		GroupType:      req.GroupType,
+		CategoryID:     req.CategoryID,
+		KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
+	}
+
+	// Non-holder path: broadcast ProposalAdd and let whichever node holds
+	// the token at the committing epoch author the Welcome.
+	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
+		proposalBytes, err := c.mls.CreateProposal(c.ctx, c.groupState, ProposalAdd, req.KeyPackageBytes)
+		if err != nil {
+			return AddMemberResult{}, fmt.Errorf("CreateProposal: %w", err)
+		}
+
+		msg := ProposalMsg{
+			ProposalType:   ProposalAdd,
+			Data:           proposalBytes,
+			OperationID:    req.OperationID,
+			TargetPeerID:   req.TargetPeerID.String(),
+			RequestID:      req.RequestID,
+			GroupType:      req.GroupType,
+			CategoryID:     req.CategoryID,
+			KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
+		}
+		c.broadcastLocked(MsgProposal, msg)
+
+		c.singleWriter.BufferProposal(BufferedProposal{
+			Type:           ProposalAdd,
+			Data:           proposalBytes,
+			OperationID:    req.OperationID,
+			TargetPeerID:   req.TargetPeerID.String(),
+			RequestID:      req.RequestID,
+			GroupType:      req.GroupType,
+			CategoryID:     req.CategoryID,
+			KeyPackageHash: msg.KeyPackageHash,
+		})
+		c.metrics.IncrProposalsReceived()
+
+		return AddMemberResult{
+			OperationID: req.OperationID,
+			Deferred:    true,
+			Delivery:    delivery,
+		}, nil
+	}
+
+	// Token Holder path: commit synchronously.
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(c.ctx, c.groupState, [][]byte{req.KeyPackageBytes})
 	if err != nil {
-		return nil, fmt.Errorf("AddMembers: %w", err)
+		return AddMemberResult{}, fmt.Errorf("AddMembers: %w", err)
+	}
+
+	if len(welcomeBytes) > 0 {
+		sum := sha256.Sum256(welcomeBytes)
+		delivery.WelcomeHash = sum[:]
 	}
 
 	commitMsg := CommitMsg{
-		CommitData:  commitBytes,
-		NewTreeHash: newTreeHash,
+		CommitData:    commitBytes,
+		NewTreeHash:   newTreeHash,
+		AddDeliveries: []AddCommitDelivery{delivery},
 	}
 	ts := c.hlc.Now()
 	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
 	if len(envBytes) == 0 {
-		return nil, fmt.Errorf("failed to encode commit envelope")
+		return AddMemberResult{}, fmt.Errorf("failed to encode commit envelope")
 	}
 	nextEpoch := c.epoch + 1
 	now := c.clock.Now()
@@ -578,10 +781,10 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 		UpdatedAt:  now,
 	}, MsgCommit, envBytes, ts)
 	if err != nil {
-		return nil, fmt.Errorf("persist commit: %w", err)
+		return AddMemberResult{}, fmt.Errorf("persist commit: %w", err)
 	}
 	if !applied {
-		return nil, fmt.Errorf("commit envelope already applied")
+		return AddMemberResult{}, fmt.Errorf("commit envelope already applied")
 	}
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
@@ -590,7 +793,23 @@ func (c *Coordinator) AddMember(newMemberPeerID peer.ID, keyPackageBytes []byte)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 
-	return welcomeBytes, nil
+	// Hand off Welcome delivery on the holder side. We dispatch via the
+	// callback so the same outbox-style code path (pending_welcomes_out +
+	// store replication + direct delivery) handles both this synchronous
+	// commit and the asynchronous proposal-commit case in tryCommitLocked.
+	if c.onAddCommitted != nil && len(welcomeBytes) > 0 {
+		welcome := append([]byte(nil), welcomeBytes...)
+		cb := c.onAddCommitted
+		epoch := nextEpoch
+		go cb(delivery, epoch, welcome)
+	}
+
+	return AddMemberResult{
+		OperationID: req.OperationID,
+		Welcome:     welcomeBytes,
+		CommitEpoch: nextEpoch,
+		Delivery:    delivery,
+	}, nil
 }
 
 // RemoveMember removes an existing member from the group.
@@ -779,7 +998,7 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 
 	c.broadcastLocked(MsgProposal, ProposalMsg{ProposalType: pType, Data: proposalBytes})
 
-	c.singleWriter.BufferProposal(proposalBytes)
+	c.singleWriter.BufferProposal(BufferedProposal{Type: pType, Data: proposalBytes})
 	c.metrics.IncrProposalsReceived()
 
 	if c.singleWriter.IsTokenHolder() {

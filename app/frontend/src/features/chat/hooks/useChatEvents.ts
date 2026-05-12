@@ -3,9 +3,17 @@ import { service } from '../../../../wailsjs/go/models'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
 import { messageInfoToChatMessage } from '../../../lib/chatModel'
 import { useChatStore } from '../../../stores/useChatStore'
+import { useContactStore } from '../../../stores/useContactStore'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useToastStore } from '../../../stores/useToastStore'
 import { GroupEpochPayload, GroupLeftPayload, GroupMembersChangedPayload } from './chatTypes'
+
+interface InviteAutoJoinedPayload {
+  id?: string
+  group_id?: string
+  group_type?: string
+  inviter_peer?: string
+}
 
 interface UseChatEventsOptions {
   activeGroupId: string | null
@@ -129,6 +137,25 @@ export function useChatEvents({
     [activeGroupId, refreshGroups, setActiveGroupId],
   )
 
+  const handleInviteAutoJoined = useCallback(
+    async (payload: InviteAutoJoinedPayload) => {
+      if (!payload?.group_id) return
+      await refreshGroups()
+      await refreshGroupMembers(payload.group_id)
+      const inviter = (payload.inviter_peer ?? '').trim()
+      const inviterName = inviter ? useContactStore.getState().getDisplayName(inviter) : ''
+      const groupKind = payload.group_type === 'dm' ? 'cuộc trò chuyện' : 'nhóm'
+      useToastStore.getState().pushToast({
+        title: 'Bạn vừa được thêm vào nhóm',
+        description: inviterName
+          ? `${inviterName} đã thêm bạn vào ${groupKind} ${payload.group_id}.`
+          : `Bạn đã được thêm vào ${groupKind} ${payload.group_id}.`,
+        variant: 'default',
+      })
+    },
+    [refreshGroupMembers, refreshGroups],
+  )
+
   const handleNodeStatusChanged = useCallback(async () => {
     await refreshNodeStatus()
     if (activeGroupId) {
@@ -160,6 +187,7 @@ export function useChatEvents({
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
   useWailsEvent<GroupLeftPayload>('group:left', handleGroupLeft)
   useWailsEvent<GroupMembersChangedPayload>('group:members_changed', handleMembersChanged)
+  useWailsEvent<InviteAutoJoinedPayload>('invite:auto_joined', handleInviteAutoJoined)
   useWailsEvent('node:status', handleNodeStatusChanged)
   useWailsEvent('p2p:status', handleNodeStatusChanged)
   useWailsEvent<{ group_id?: string; file_id?: string; bytes?: number }>('file:prepare', handleFilePrepare)

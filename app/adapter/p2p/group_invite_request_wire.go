@@ -35,12 +35,22 @@ type InviteRequestRecordWire struct {
 }
 
 // GroupInviteWireClientReqV1 is the member→creator frame (submit | sync | cancel).
+//
+// TargetKeyPackage carries the requester's freshly-fetched KeyPackage for the
+// target peer on a "submit" op. The requester is — by topology — the node
+// most likely to have a verified connection with the target (it is the one
+// triggering the invite flow), while the creator may have never met the
+// target. Attaching the KP avoids the creator having to re-run discovery,
+// which is the bug class behind ERR_INVITE_ADD_MEMBER_FAILED when creator
+// has no live link to the target. Optional for backward compatibility:
+// when empty, creator falls back to its own fetchPeerKeyPackage path.
 type GroupInviteWireClientReqV1 struct {
-	V            int    `json:"v"`
-	Op           string `json:"op"`
-	GroupID      string `json:"group_id,omitempty"`
-	TargetPeerID string `json:"target_peer_id,omitempty"`
-	RequestID    string `json:"request_id,omitempty"`
+	V                int    `json:"v"`
+	Op               string `json:"op"`
+	GroupID          string `json:"group_id,omitempty"`
+	TargetPeerID     string `json:"target_peer_id,omitempty"`
+	RequestID        string `json:"request_id,omitempty"`
+	TargetKeyPackage []byte `json:"target_key_package,omitempty"`
 }
 
 // GroupInviteWireRespV1 is creator→member response or ack.

@@ -34,6 +34,13 @@ service MLSCryptoService {
   // of the provided group_state. Used by Go coordinator to detect if local
   // node has been removed after applying a commit.
   rpc HasMember(HasMemberRequest) returns (HasMemberResponse);
+  // Enumerate every BasicCredential identity currently sitting on a leaf of
+  // the MLS tree. Used by the Go runtime after JoinGroupWithWelcome (and on
+  // every GetGroupMembers refresh) to reconstruct the full roster directly
+  // from cryptographic ground truth, independent of which node sent the
+  // Welcome. Order matches the leaf-index iteration order returned by the
+  // OpenMLS group; the response is empty when group_state is uninitialized.
+  rpc ListMemberIdentities(ListMemberIdentitiesRequest) returns (ListMemberIdentitiesResponse);
 
   // Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
   // losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
@@ -229,6 +236,16 @@ message HasMemberRequest {
 
 message HasMemberResponse {
   bool is_member = 1;
+}
+
+message ListMemberIdentitiesRequest {
+  bytes group_state = 1;
+}
+
+message ListMemberIdentitiesResponse {
+  // BasicCredential identity bytes (raw signing public-key bytes in this app)
+  // for every leaf currently present in the MLS tree.
+  repeated bytes identities = 1;
 }
 
 message ExportGroupInfoRequest {

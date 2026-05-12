@@ -228,13 +228,12 @@ export default function RoomPanel({
     }
   }
 
-  const handleInviteAction = async (requestId: string, action: 'approve' | 'reject' | 'cancel') => {
+  const handleInviteAction = async (requestId: string, action: 'approve' | 'reject') => {
     if (!requestId) return
     setChangingInviteId(requestId)
     try {
       if (action === 'approve') await runtimeClient.approveGroupInviteRequest(requestId)
       if (action === 'reject') await runtimeClient.rejectGroupInviteRequest(requestId, '')
-      if (action === 'cancel') await runtimeClient.cancelGroupInviteRequest(requestId)
       await loadPendingInviteRequests()
     } catch (err) {
       pushToast(formatOutboundSendError(err))
@@ -352,6 +351,15 @@ export default function RoomPanel({
                 const targetPeer = String(item.target_peer_id ?? '')
                 const requesterPeer = String(item.requester_peer_id ?? '')
                 const isBusy = changingInviteId === requestId
+                // Role-based actions, mirroring backend permissions:
+                //   - Creator: Approve / Reject only. Reject already covers
+                //     "I do not want this request to go through".
+                //   - Anyone else (requester, target, observer): read-only.
+                //     Requester cannot retract — in a serverless P2P setup
+                //     racing a cancel against a concurrent approve would
+                //     require CRDT-style coordination across the gossip mesh,
+                //     so we drop the feature for now (PROJECT_PLAN §6.2).
+                const isLocalCreator = canRemoveMembers
                 return (
                   <div key={requestId} className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
                     <p className="text-xs font-medium text-slate-200">{getDisplayName(targetPeer)}</p>
@@ -361,7 +369,7 @@ export default function RoomPanel({
                         Người gửi yêu cầu: {getDisplayName(requesterPeer)}
                       </p>
                     ) : null}
-                    {canRemoveMembers ? (
+                    {isLocalCreator ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Button
                           size="sm"
@@ -380,18 +388,9 @@ export default function RoomPanel({
                         >
                           Từ chối
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-[11px]"
-                          disabled={isBusy}
-                          onClick={() => void handleInviteAction(requestId, 'cancel')}
-                        >
-                          Hủy yêu cầu
-                        </Button>
                       </div>
                     ) : (
-                      <p className="mt-2 text-[11px] text-slate-500">Chỉ người tạo nhóm có thể duyệt.</p>
+                      <p className="mt-2 text-[11px] text-slate-500">Đang chờ người tạo nhóm duyệt.</p>
                     )}
                   </div>
                 )

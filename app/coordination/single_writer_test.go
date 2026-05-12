@@ -95,8 +95,8 @@ func TestSingleWriter_BufferAndDrain(t *testing.T) {
 	av := NewActiveView(clk, cfg, peerID("alice"), nil)
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
-	sw.BufferProposal([]byte("proposal-1"))
-	sw.BufferProposal([]byte("proposal-2"))
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("proposal-1")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("proposal-2")})
 
 	if sw.ProposalCount() != 2 {
 		t.Errorf("expected 2 proposals, got %d", sw.ProposalCount())
@@ -121,9 +121,9 @@ func TestSingleWriter_BufferRespectsCap(t *testing.T) {
 	av := NewActiveView(clk, cfg, peerID("alice"), nil)
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
-	sw.BufferProposal([]byte("1"))
-	sw.BufferProposal([]byte("2"))
-	sw.BufferProposal([]byte("3")) // should be dropped
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("1")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("2")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("3")}) // should be dropped
 
 	if sw.ProposalCount() != 2 {
 		t.Errorf("buffer should respect MaxBatchedProposals, got %d", sw.ProposalCount())
@@ -136,7 +136,7 @@ func TestSingleWriter_AdvanceEpoch(t *testing.T) {
 	av := NewActiveView(clk, cfg, peerID("alice"), nil)
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
-	sw.BufferProposal([]byte("proposal-1"))
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("proposal-1")})
 	sw.AdvanceEpoch(2)
 
 	if sw.Epoch() != 2 {
@@ -154,11 +154,11 @@ func TestSingleWriter_BufferProposal_DefensiveCopy(t *testing.T) {
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
 	data := []byte("original")
-	sw.BufferProposal(data)
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: data})
 	data[0] = 'X' // mutate original
 
 	drained := sw.DrainProposals()
-	if drained[0][0] != 'o' {
+	if drained[0].Data[0] != 'o' {
 		t.Error("BufferProposal should make a defensive copy")
 	}
 }

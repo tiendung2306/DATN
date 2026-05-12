@@ -17,8 +17,9 @@ use mls_service::{
     ExportSecretRequest, ExportSecretResponse, ExternalJoinRequest, ExternalJoinResponse,
     GenerateIdentityRequest, GenerateIdentityResponse, GenerateKeyPackageRequest,
     GenerateKeyPackageResponse, HasMemberRequest, HasMemberResponse, ImportIdentityRequest,
-    ImportIdentityResponse, PingRequest, PingResponse, ProcessCommitRequest, ProcessCommitResponse,
-    ProcessWelcomeRequest, ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
+    ImportIdentityResponse, ListMemberIdentitiesRequest, ListMemberIdentitiesResponse, PingRequest,
+    PingResponse, ProcessCommitRequest, ProcessCommitResponse, ProcessWelcomeRequest,
+    ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -311,6 +312,20 @@ impl MlsCryptoService for MyMlsService {
             Ok(is_member) => Ok(Response::new(HasMemberResponse { is_member })),
             Err(e) => {
                 eprintln!("has_member error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn list_member_identities(
+        &self,
+        request: Request<ListMemberIdentitiesRequest>,
+    ) -> Result<Response<ListMemberIdentitiesResponse>, Status> {
+        let req = request.into_inner();
+        match mls::list_member_identities(&req.group_state) {
+            Ok(identities) => Ok(Response::new(ListMemberIdentitiesResponse { identities })),
+            Err(e) => {
+                eprintln!("list_member_identities error: {e}");
                 Err(Status::internal(e))
             }
         }

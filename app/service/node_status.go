@@ -1,6 +1,8 @@
 package service
 
 import (
+	"encoding/hex"
+
 	"app/adapter/p2p"
 )
 
@@ -48,7 +50,16 @@ func (r *Runtime) GetNodeStatus() *NodeStatus {
 				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					peer.DisplayName = tok.DisplayName
 					if r.db != nil {
-						_ = r.db.UpsertPeerProfile(pid.String(), tok.DisplayName)
+						// Stash the verified MLS signing pubkey alongside the
+						// display name so the MLS leaf enumerator can later
+						// resolve BasicCredential identity bytes back to a
+						// peer.ID without TOFU. Empty PublicKey (legacy
+						// tokens) falls back to display-name-only upsert.
+						pubHex := ""
+						if len(tok.PublicKey) > 0 {
+							pubHex = hex.EncodeToString(tok.PublicKey)
+						}
+						_ = r.db.UpsertPeerProfileWithKey(pid.String(), tok.DisplayName, pubHex)
 						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), tok.DisplayName)
 					}
 				}
@@ -89,7 +100,11 @@ func (r *Runtime) GetKnownPeers() []PeerInfo {
 				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					displayName = tok.DisplayName
 					if r.db != nil && displayName != "" {
-						_ = r.db.UpsertPeerProfile(pid.String(), displayName)
+						pubHex := ""
+						if len(tok.PublicKey) > 0 {
+							pubHex = hex.EncodeToString(tok.PublicKey)
+						}
+						_ = r.db.UpsertPeerProfileWithKey(pid.String(), displayName, pubHex)
 						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), displayName)
 					}
 				}

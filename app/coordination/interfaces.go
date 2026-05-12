@@ -103,6 +103,15 @@ type MLSEngine interface {
 	// state as a BasicCredential identity.
 	HasMember(ctx context.Context, groupState []byte, identity []byte) (bool, error)
 
+	// ListMemberIdentities returns the BasicCredential identity bytes for every
+	// leaf currently present in the MLS group's ratchet tree. Used by the
+	// service runtime to reconstruct the local roster directly from MLS
+	// state (independent of which node sent the Welcome): combined with the
+	// peer_directory pubkey→peer_id lookup, this gives every joiner a full
+	// view of the membership immediately after JoinGroupWithWelcome instead
+	// of waiting for each member to send a message.
+	ListMemberIdentities(ctx context.Context, groupState []byte) (identities [][]byte, err error)
+
 	// EncryptMessage encrypts plaintext using the current epoch's application secret.
 	EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error)
 

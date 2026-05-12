@@ -396,13 +396,15 @@
 ### 6.1. Invite & Pending Invite Lifecycle [P0]
 - **Task:** Wrap the existing KeyPackage / Welcome / invite-store primitives into user-facing APIs:
   - `GenerateJoinCode`
-  - `ListPendingInvites`
-  - `AcceptInvite`
-  - `RejectInvite`
+  - `ListPendingInvites` (audit / fallback view)
+  - `AcceptInvite` (kept idempotent for manual recovery; UI no longer surfaces it)
+  - `RejectInvite` (local-only opt-out for fallback flow)
 - **Task:** Persist enough pending invite metadata for the UI: invite id, group id/name if known, inviter if known, received time, status.
-- **Task:** Make invite accept idempotent and return stable errors for expired/stale invites, identity mismatch, and already-joined groups.
-- **Success Criteria:** User can generate a join code, another member can invite them, and the invitee can accept/reject from a pending invite list without manually typing a group id.
-- **Status:** Completed with `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite`, pending invite persistence, Welcome list discovery, and backup/import support.
+- **Task:** Auto-join semantics — every incoming Welcome (direct stream, replication, blind-store) is applied immediately when the sidecar is ready and the local KeyPackage bundle still matches; the pending row stays as audit trail with `status=accepted`. Rows that cannot be applied yet (sidecar unavailable, KP rotated, transient MLS error) remain `pending` and are retried by `processPendingWelcomesOnStartup` on the next P2P launch.
+- **Task:** Emit `invite:auto_joined{id, group_id, group_type, inviter_peer}` so the frontend can show a notification ("X đã thêm bạn vào nhóm Y") without polling. Existing `group:joined` is still emitted for downstream listeners.
+- **Task:** Treat `LeaveGroup` as the canonical opt-out once a Welcome has been auto-applied; `RejectInvite` only matters for rows still in `pending` state.
+- **Success Criteria:** Invitee is dropped into the group immediately when receiving a Welcome (no manual confirmation step). Welcomes that arrived while the runtime was offline auto-join on the next launch. The `pending_invites` table reflects accepted/pending state truthfully and never blocks the user from being in the group.
+- **Status:** Completed (2026-05-10). Auto-join wired into `savePendingInviteFromWelcome` for every group type; `processPendingWelcomesOnStartup` runs in the P2P launch goroutine; new event `invite:auto_joined` routed via `runtime_events.classifyRuntimeEvent`. Frontend `useChatEvents` subscribes to it and shows a toast plus refreshes group list. Tests `TestBusinessP1_AutoJoin_*` cover the happy path, startup recovery, and KP-missing fallback.
 
 ### 6.2. Group Membership Lifecycle [P0]
 - **Task:** Add Runtime-facing APIs for:

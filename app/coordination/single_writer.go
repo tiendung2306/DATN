@@ -59,13 +59,21 @@ func hashLess(a, b [sha256.Size]byte) bool {
 // It tracks the current epoch, buffers incoming MLS Proposals, and determines
 // whether the local node is the Token Holder who should create Commits.
 //
+// Each buffered proposal carries both the opaque MLS proposal bytes and the
+// Go-level routing metadata required by the Token Holder to:
+//   - know which ProposalAdd targets which invitee (so the freshly minted
+//     Welcome can be delivered out-of-band to the correct peer), and
+//   - emit AddCommitDelivery entries inside CommitMsg so non-holder nodes
+//     observing the commit can transition their local group_add_operations
+//     rows without seeing the Welcome.
+//
 // Thread-safe: all methods may be called concurrently.
 type SingleWriter struct {
 	mu         sync.Mutex
 	activeView *ActiveView
 	localID    peer.ID
 	epoch      uint64
-	proposals  [][]byte // buffered proposals for the current epoch
+	proposals  []BufferedProposal // buffered proposals for the current epoch
 	cfg        *CoordinatorConfig
 }
 
@@ -103,11 +111,23 @@ func (sw *SingleWriter) CurrentTokenHolder() (peer.ID, error) {
 	return ComputeTokenHolder(sw.activeView.Members(), epoch)
 }
 
-// BufferProposal adds an MLS Proposal to the internal buffer.
-// These are collected by the Token Holder via DrainProposals.
-func (sw *SingleWriter) BufferProposal(proposal []byte) {
-	cp := make([]byte, len(proposal))
-	copy(cp, proposal)
+// BufferProposal adds an MLS Proposal to the internal buffer. The proposal's
+// raw MLS bytes are defensively copied; routing metadata fields are stored as
+// provided. These are collected by the Token Holder via DrainNextBatch /
+// DrainProposals.
+func (sw *SingleWriter) BufferProposal(p BufferedProposal) {
+	cp := BufferedProposal{
+		Type:         p.Type,
+		Data:         append([]byte(nil), p.Data...),
+		OperationID:  p.OperationID,
+		TargetPeerID: p.TargetPeerID,
+		RequestID:    p.RequestID,
+		GroupType:    p.GroupType,
+		CategoryID:   p.CategoryID,
+	}
+	if len(p.KeyPackageHash) > 0 {
+		cp.KeyPackageHash = append([]byte(nil), p.KeyPackageHash...)
+	}
 
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
@@ -117,9 +137,42 @@ func (sw *SingleWriter) BufferProposal(proposal []byte) {
 	}
 }
 
-// DrainProposals returns all buffered proposals and clears the buffer.
-// Intended to be called only by the Token Holder before creating a Commit.
-func (sw *SingleWriter) DrainProposals() [][]byte {
+// DrainNextBatch returns the next homogeneous batch of buffered proposals
+// (all of the same ProposalType, preserving insertion order) and removes
+// them from the buffer. Any remaining proposals of other types stay buffered
+// for future epochs.
+//
+// Homogeneous batching is a deliberate trade-off: RFC 9420 permits mixed
+// proposal commits, but crypto-engine/src/mls.rs currently funnels Add /
+// Remove / Update through dedicated paths. Splitting the batch in Go avoids
+// silent proposal drops while keeping the Rust commit path simple.
+//
+// Returns nil when no proposals are buffered.
+func (sw *SingleWriter) DrainNextBatch() []BufferedProposal {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	if len(sw.proposals) == 0 {
+		return nil
+	}
+
+	headType := sw.proposals[0].Type
+	cutoff := 0
+	for cutoff < len(sw.proposals) && sw.proposals[cutoff].Type == headType {
+		cutoff++
+	}
+
+	batch := sw.proposals[:cutoff]
+	sw.proposals = append([]BufferedProposal(nil), sw.proposals[cutoff:]...)
+	return batch
+}
+
+// DrainProposals returns every buffered proposal and clears the buffer.
+//
+// Prefer DrainNextBatch when calling into mls.CreateCommit so the Token
+// Holder commits homogeneous batches per epoch. DrainProposals remains
+// available for callers that need to inspect or migrate the full buffer.
+func (sw *SingleWriter) DrainProposals() []BufferedProposal {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 

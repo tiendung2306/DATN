@@ -19,24 +19,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MLSCryptoService_Ping_FullMethodName               = "/mls_service.MLSCryptoService/Ping"
-	MLSCryptoService_GenerateIdentity_FullMethodName   = "/mls_service.MLSCryptoService/GenerateIdentity"
-	MLSCryptoService_ExportIdentity_FullMethodName     = "/mls_service.MLSCryptoService/ExportIdentity"
-	MLSCryptoService_ImportIdentity_FullMethodName     = "/mls_service.MLSCryptoService/ImportIdentity"
-	MLSCryptoService_CreateGroup_FullMethodName        = "/mls_service.MLSCryptoService/CreateGroup"
-	MLSCryptoService_CreateProposal_FullMethodName     = "/mls_service.MLSCryptoService/CreateProposal"
-	MLSCryptoService_CreateCommit_FullMethodName       = "/mls_service.MLSCryptoService/CreateCommit"
-	MLSCryptoService_ProcessCommit_FullMethodName      = "/mls_service.MLSCryptoService/ProcessCommit"
-	MLSCryptoService_ProcessWelcome_FullMethodName     = "/mls_service.MLSCryptoService/ProcessWelcome"
-	MLSCryptoService_EncryptMessage_FullMethodName     = "/mls_service.MLSCryptoService/EncryptMessage"
-	MLSCryptoService_DecryptMessage_FullMethodName     = "/mls_service.MLSCryptoService/DecryptMessage"
-	MLSCryptoService_ExternalJoin_FullMethodName       = "/mls_service.MLSCryptoService/ExternalJoin"
-	MLSCryptoService_ExportSecret_FullMethodName       = "/mls_service.MLSCryptoService/ExportSecret"
-	MLSCryptoService_GenerateKeyPackage_FullMethodName = "/mls_service.MLSCryptoService/GenerateKeyPackage"
-	MLSCryptoService_AddMembers_FullMethodName         = "/mls_service.MLSCryptoService/AddMembers"
-	MLSCryptoService_RemoveMembers_FullMethodName      = "/mls_service.MLSCryptoService/RemoveMembers"
-	MLSCryptoService_HasMember_FullMethodName          = "/mls_service.MLSCryptoService/HasMember"
-	MLSCryptoService_ExportGroupInfo_FullMethodName    = "/mls_service.MLSCryptoService/ExportGroupInfo"
+	MLSCryptoService_Ping_FullMethodName                 = "/mls_service.MLSCryptoService/Ping"
+	MLSCryptoService_GenerateIdentity_FullMethodName     = "/mls_service.MLSCryptoService/GenerateIdentity"
+	MLSCryptoService_ExportIdentity_FullMethodName       = "/mls_service.MLSCryptoService/ExportIdentity"
+	MLSCryptoService_ImportIdentity_FullMethodName       = "/mls_service.MLSCryptoService/ImportIdentity"
+	MLSCryptoService_CreateGroup_FullMethodName          = "/mls_service.MLSCryptoService/CreateGroup"
+	MLSCryptoService_CreateProposal_FullMethodName       = "/mls_service.MLSCryptoService/CreateProposal"
+	MLSCryptoService_CreateCommit_FullMethodName         = "/mls_service.MLSCryptoService/CreateCommit"
+	MLSCryptoService_ProcessCommit_FullMethodName        = "/mls_service.MLSCryptoService/ProcessCommit"
+	MLSCryptoService_ProcessWelcome_FullMethodName       = "/mls_service.MLSCryptoService/ProcessWelcome"
+	MLSCryptoService_EncryptMessage_FullMethodName       = "/mls_service.MLSCryptoService/EncryptMessage"
+	MLSCryptoService_DecryptMessage_FullMethodName       = "/mls_service.MLSCryptoService/DecryptMessage"
+	MLSCryptoService_ExternalJoin_FullMethodName         = "/mls_service.MLSCryptoService/ExternalJoin"
+	MLSCryptoService_ExportSecret_FullMethodName         = "/mls_service.MLSCryptoService/ExportSecret"
+	MLSCryptoService_GenerateKeyPackage_FullMethodName   = "/mls_service.MLSCryptoService/GenerateKeyPackage"
+	MLSCryptoService_AddMembers_FullMethodName           = "/mls_service.MLSCryptoService/AddMembers"
+	MLSCryptoService_RemoveMembers_FullMethodName        = "/mls_service.MLSCryptoService/RemoveMembers"
+	MLSCryptoService_HasMember_FullMethodName            = "/mls_service.MLSCryptoService/HasMember"
+	MLSCryptoService_ListMemberIdentities_FullMethodName = "/mls_service.MLSCryptoService/ListMemberIdentities"
+	MLSCryptoService_ExportGroupInfo_FullMethodName      = "/mls_service.MLSCryptoService/ExportGroupInfo"
 )
 
 // MLSCryptoServiceClient is the client API for MLSCryptoService service.
@@ -69,6 +70,13 @@ type MLSCryptoServiceClient interface {
 	// of the provided group_state. Used by Go coordinator to detect if local
 	// node has been removed after applying a commit.
 	HasMember(ctx context.Context, in *HasMemberRequest, opts ...grpc.CallOption) (*HasMemberResponse, error)
+	// Enumerate every BasicCredential identity currently sitting on a leaf of
+	// the MLS tree. Used by the Go runtime after JoinGroupWithWelcome (and on
+	// every GetGroupMembers refresh) to reconstruct the full roster directly
+	// from cryptographic ground truth, independent of which node sent the
+	// Welcome. Order matches the leaf-index iteration order returned by the
+	// OpenMLS group; the response is empty when group_state is uninitialized.
+	ListMemberIdentities(ctx context.Context, in *ListMemberIdentitiesRequest, opts ...grpc.CallOption) (*ListMemberIdentitiesResponse, error)
 	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
@@ -253,6 +261,16 @@ func (c *mLSCryptoServiceClient) HasMember(ctx context.Context, in *HasMemberReq
 	return out, nil
 }
 
+func (c *mLSCryptoServiceClient) ListMemberIdentities(ctx context.Context, in *ListMemberIdentitiesRequest, opts ...grpc.CallOption) (*ListMemberIdentitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMemberIdentitiesResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ListMemberIdentities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *mLSCryptoServiceClient) ExportGroupInfo(ctx context.Context, in *ExportGroupInfoRequest, opts ...grpc.CallOption) (*ExportGroupInfoResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ExportGroupInfoResponse)
@@ -293,6 +311,13 @@ type MLSCryptoServiceServer interface {
 	// of the provided group_state. Used by Go coordinator to detect if local
 	// node has been removed after applying a commit.
 	HasMember(context.Context, *HasMemberRequest) (*HasMemberResponse, error)
+	// Enumerate every BasicCredential identity currently sitting on a leaf of
+	// the MLS tree. Used by the Go runtime after JoinGroupWithWelcome (and on
+	// every GetGroupMembers refresh) to reconstruct the full roster directly
+	// from cryptographic ground truth, independent of which node sent the
+	// Welcome. Order matches the leaf-index iteration order returned by the
+	// OpenMLS group; the response is empty when group_state is uninitialized.
+	ListMemberIdentities(context.Context, *ListMemberIdentitiesRequest) (*ListMemberIdentitiesResponse, error)
 	// Phase 4.5 — Fork healing: winning branch exports its current GroupInfo so a
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
@@ -357,6 +382,9 @@ func (UnimplementedMLSCryptoServiceServer) RemoveMembers(context.Context, *Remov
 }
 func (UnimplementedMLSCryptoServiceServer) HasMember(context.Context, *HasMemberRequest) (*HasMemberResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method HasMember not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ListMemberIdentities(context.Context, *ListMemberIdentitiesRequest) (*ListMemberIdentitiesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMemberIdentities not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportGroupInfo not implemented")
@@ -688,6 +716,24 @@ func _MLSCryptoService_HasMember_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLSCryptoService_ListMemberIdentities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMemberIdentitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ListMemberIdentities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ListMemberIdentities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ListMemberIdentities(ctx, req.(*ListMemberIdentitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MLSCryptoService_ExportGroupInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExportGroupInfoRequest)
 	if err := dec(in); err != nil {
@@ -780,6 +826,10 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "HasMember",
 			Handler:    _MLSCryptoService_HasMember_Handler,
+		},
+		{
+			MethodName: "ListMemberIdentities",
+			Handler:    _MLSCryptoService_ListMemberIdentities_Handler,
 		},
 		{
 			MethodName: "ExportGroupInfo",

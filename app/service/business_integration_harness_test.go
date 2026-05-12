@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"app/adapter/p2p"
 	"app/adapter/store"
@@ -173,6 +175,22 @@ func businessRuntimeAuthorizedWithMockMLS(t *testing.T) (*Runtime, *businessInte
 	return rt, mock
 }
 
+// businessRuntimeAuthorizedWithMockMLSAndEventReplay enables durable runtime event replay (DB-backed seq).
+func businessRuntimeAuthorizedWithMockMLSAndEventReplay(t *testing.T) (*Runtime, *businessIntegrationMLSMock) {
+	t.Helper()
+	root := businessIntegrationChdirToTemp(t)
+	dbPath := businessDBPath(root)
+	businessSeedAuthorizedUser(t, dbPath)
+	cfg := businessDefaultConfig(dbPath)
+	cfg.RuntimeEventReplay = true
+	rt := businessNewRuntime(cfg)
+	rt.Startup(context.Background())
+	mock := newBusinessIntegrationMLSMock()
+	rt.mlsEngine = mock
+	t.Cleanup(func() { rt.Shutdown(context.Background()) })
+	return rt, mock
+}
+
 func businessEnsureCategory(t *testing.T, rt *Runtime, name string) string {
 	t.Helper()
 	info, err := rt.CreateChannelCategory(name)
@@ -221,4 +239,147 @@ func bizMLSIdentityPubFromRuntimeDB(t *testing.T, rt *Runtime) []byte {
 		t.Fatalf("GetMLSIdentity: %v", err)
 	}
 	return append([]byte(nil), id.PublicKey...)
+}
+
+// businessPersistMockKPBundle persists the mock MLS KeyPackage bundle so ApplyInvite/join paths and
+// GetKPStatus see a stored KP (GenerateKeyPackage alone only returns hex).
+func businessPersistMockKPBundle(t *testing.T, rt *Runtime) {
+	t.Helper()
+	kp, err := rt.GenerateKeyPackage()
+	if err != nil {
+		t.Fatalf("GenerateKeyPackage: %v", err)
+	}
+	pubKP, err := hex.DecodeString(kp.PublicHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privKP, err := hex.DecodeString(kp.BundlePrivateHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := rt.GetOnboardingInfo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.mu.RLock()
+	database := rt.db
+	rt.mu.RUnlock()
+	if database == nil {
+		t.Fatal("nil db")
+	}
+	if err := database.SaveKPBundle(info.PeerID, pubKP, privKP); err != nil {
+		t.Fatalf("SaveKPBundle: %v", err)
+	}
+}
+
+// businessSeedStoredKeyPackageForPeer puts the invitee's public KeyPackage into the inviter's DB so
+// InvitePeerToGroup can load KP via GetStoredKeyPackage without a live P2P fetch.
+func businessSeedStoredKeyPackageForPeer(t *testing.T, inviter *Runtime, targetPeerID string, publicKPHex string) {
+	t.Helper()
+	raw, err := hex.DecodeString(strings.TrimSpace(publicKPHex))
+	if err != nil {
+		t.Fatalf("decode KP hex: %v", err)
+	}
+	targetPeerID = strings.TrimSpace(targetPeerID)
+	if targetPeerID == "" {
+		t.Fatal("empty target peer id")
+	}
+	inviter.mu.RLock()
+	d := inviter.db
+	inviter.mu.RUnlock()
+	if d == nil {
+		t.Fatal("nil db")
+	}
+	if err := d.SaveStoredKeyPackage(targetPeerID, raw, "business_integration_seed"); err != nil {
+		t.Fatalf("SaveStoredKeyPackage: %v", err)
+	}
+}
+
+// businessSeedInviteRequest inserts a group_invite_requests row on rt's DB (same schema as runtime flows).
+func businessSeedInviteRequest(t *testing.T, rt *Runtime, rec store.GroupInviteRequestRecord) {
+	t.Helper()
+	if strings.TrimSpace(rec.RequestID) == "" {
+		t.Fatal("request id required")
+	}
+	if rec.ExpiresAt <= 0 {
+		rec.ExpiresAt = time.Now().Unix() + 3600
+	}
+	rt.mu.RLock()
+	d := rt.db
+	rt.mu.RUnlock()
+	if d == nil {
+		t.Fatal("nil db")
+	}
+	if err := d.CreateGroupInviteRequest(rec); err != nil {
+		t.Fatalf("CreateGroupInviteRequest: %v", err)
+	}
+}
+
+// businessSeedGroupInvitePolicy / sprint4MirrorInvitePolicyAfterCreator /
+// sprint4EnsureAliceOnBobMemberTable were removed (2026-05-10). Members no
+// longer drive invite-request flow from local state — they always forward
+// to the creator over the wire (rpcSubmitInviteRequest), which is the only
+// node holding the MLS Token under the Single-Writer Invariant. The new
+// integration tests exercise the creator-side handler directly, so the old
+// "seed local member-side state" helpers are no longer needed.
+
+// sprint4AliceBobJoinedChannel creates a channel group on Alice and joins Bob
+// through the real wire-path chokepoint (`savePendingInviteFromWelcome`) so
+// every test built on top of this helper exercises auto-join semantics
+// end-to-end. If a regression silently turns auto-join back into manual
+// Accept-only, every dependent test fails immediately at this helper.
+func sprint4AliceBobJoinedChannel(t *testing.T, gid string) (*Runtime, *Runtime) {
+	t.Helper()
+	aliceRoot := t.TempDir()
+	businessSeedAuthorizedWorkDir(t, aliceRoot)
+	alice, _ := businessRuntimeStartMockInWorkDir(t, aliceRoot)
+	cat := businessEnsureCategory(t, alice, "S4")
+	if err := alice.CreateGroupChat(gid, "channel", cat); err != nil {
+		t.Fatalf("CreateGroupChat: %v", err)
+	}
+
+	bobRoot := t.TempDir()
+	businessSeedAuthorizedWorkDir(t, bobRoot)
+	bob, _ := businessRuntimeStartMockInWorkDir(t, bobRoot)
+
+	// Persist Bob's KP bundle so applyWelcome can resolve the private bundle
+	// when the wire-path delivery runs (this is what
+	// app/service/invite.go:advertiseKeyPackage does in production).
+	businessPersistMockKPBundle(t, bob)
+	bInfo, _ := bob.GetOnboardingInfo()
+	bob.mu.RLock()
+	bobDB := bob.db
+	bob.mu.RUnlock()
+	bobPublicKP, _, kpErr := bobDB.GetKPBundle(bInfo.PeerID)
+	if kpErr != nil {
+		t.Fatalf("Bob persisted KP missing: %v", kpErr)
+	}
+
+	welcomeHex, err := alice.AddMemberToGroup(gid, bInfo.PeerID, hex.EncodeToString(bobPublicKP))
+	if err != nil {
+		t.Fatalf("AddMemberToGroup: %v", err)
+	}
+	welcomeBytes, err := hex.DecodeString(welcomeHex)
+	if err != nil {
+		t.Fatalf("decode welcome hex: %v", err)
+	}
+	aInfo, _ := alice.GetOnboardingInfo()
+
+	// Wire-path delivery: this is the SAME entry point used by
+	// handleWelcomeDelivery (direct stream), refreshPendingInvites
+	// (replication), and checkStoredWelcomes (blind store). If auto-join
+	// regresses, this call leaves Bob in pending state and the assertion
+	// below fires loud.
+	if err := bob.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, false); err != nil {
+		t.Fatalf("savePendingInviteFromWelcome (wire path): %v", err)
+	}
+	if has, herr := bobDB.HasGroup(gid); herr != nil || !has {
+		t.Fatalf("regression: Bob did not auto-join through wire path; HasGroup=%v err=%v", has, herr)
+	}
+
+	t.Cleanup(func() {
+		businessShutdownRuntimeInWorkDir(t, bob)
+		businessShutdownRuntimeInWorkDir(t, alice)
+	})
+	return alice, bob
 }

@@ -35,6 +35,7 @@ type blindStoreEnvelopeV1 struct {
 	PublicKP       []byte   `json:"public_kp,omitempty"`
 	InviteePeerID  string   `json:"invitee_peer_id,omitempty"`
 	GroupType      string   `json:"group_type,omitempty"`
+	CategoryID     string   `json:"category_id,omitempty"`
 	Welcome        []byte   `json:"welcome,omitempty"`
 	ReplicaTargets []string `json:"replica_targets"`
 }
@@ -203,9 +204,9 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 		if msg.InviteePeerID == "" || msg.GroupID == "" || len(msg.Welcome) == 0 || msg.PublishedAt <= 0 {
 			return
 		}
-		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.Welcome, from.String(), msg.PublishedAt)
+		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), msg.PublishedAt)
 		if msg.InviteePeerID == node.Host.ID().String() {
-			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.Welcome, from.String(), false)
+			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), false)
 		}
 	}
 }
@@ -256,7 +257,7 @@ func (r *Runtime) publishBlindStoreKeyPackage(peerID string, publicKP []byte) {
 	r.publishBlindStoreFrame(frame)
 }
 
-func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType string, welcome []byte) {
+func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte) {
 	r.mu.RLock()
 	layer := r.blindStore
 	node := r.node
@@ -271,6 +272,7 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType str
 		GroupID:        groupID,
 		InviteePeerID:  inviteePeerID,
 		GroupType:      groupType,
+		CategoryID:     categoryID,
 		Welcome:        welcome,
 		ReplicaTargets: layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
 	}

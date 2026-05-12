@@ -75,6 +75,9 @@ func (m *membershipTestMLSEngine) RemoveMembers(context.Context, []byte, [][]byt
 func (m *membershipTestMLSEngine) HasMember(context.Context, []byte, []byte) (bool, error) {
 	return true, nil
 }
+func (m *membershipTestMLSEngine) ListMemberIdentities(context.Context, []byte) ([][]byte, error) {
+	return nil, nil
+}
 func (m *membershipTestMLSEngine) EncryptMessage(context.Context, []byte, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }

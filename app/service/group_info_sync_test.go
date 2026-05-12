@@ -40,6 +40,9 @@ func (m *groupInfoTestMLSEngine) RemoveMembers(context.Context, []byte, [][]byte
 func (m *groupInfoTestMLSEngine) HasMember(context.Context, []byte, []byte) (bool, error) {
 	return false, errors.New("not implemented")
 }
+func (m *groupInfoTestMLSEngine) ListMemberIdentities(context.Context, []byte) ([][]byte, error) {
+	return nil, nil
+}
 func (m *groupInfoTestMLSEngine) EncryptMessage(context.Context, []byte, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }

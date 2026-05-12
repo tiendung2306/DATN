@@ -297,6 +297,7 @@ func (d *Database) createTables() error {
 			invitee_peer_id TEXT NOT NULL,
 			group_id        TEXT NOT NULL,
 			group_type      TEXT NOT NULL DEFAULT 'channel',
+			category_id     TEXT NOT NULL DEFAULT '',
 			welcome_bytes   BLOB NOT NULL,
 			source_peer_id  TEXT NOT NULL,
 			created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -433,6 +434,55 @@ func (d *Database) createTables() error {
 			updated_at        INTEGER NOT NULL
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_file_transfers_group ON file_transfers(group_id);`,
+
+		// group_add_operations — lifecycle tracker for MLS Add operations.
+		//
+		// The Single-Writer Protocol separates business-level approval (handled
+		// in group_invite_requests) from MLS commit authority (which can rotate
+		// to any active member via argmin H(nodeID||epoch)). Approver and
+		// Token Holder may be different nodes; the proposal-broadcast flow
+		// gives commit authority to whichever node currently holds the token.
+		//
+		// This row tracks the full coordination lifecycle so every node has a
+		// durable, idempotent record that survives restart and lets the
+		// runtime recover Welcome delivery if the Token Holder process exits
+		// after running CreateCommit but before the invitee acked the join.
+		//
+		// Status flow:
+		//   approved -> proposal_broadcast -> commit_observed -> welcome_queued
+		//             -> welcome_delivered (terminal success)
+		//   any -> failed (terminal failure)
+		//
+		// Idempotency: (group_id, target_peer_id, key_package_hash) is unique
+		// for any active operation so duplicate approvals/restarts reuse the
+		// same row instead of forking lifecycle.
+		`CREATE TABLE IF NOT EXISTS group_add_operations (
+			operation_id        TEXT PRIMARY KEY,
+			request_id          TEXT NOT NULL DEFAULT '',
+			group_id            TEXT NOT NULL,
+			target_peer_id      TEXT NOT NULL,
+			requester_peer_id   TEXT NOT NULL DEFAULT '',
+			approver_peer_id    TEXT NOT NULL DEFAULT '',
+			key_package_hash    TEXT NOT NULL,
+			proposal_epoch      INTEGER,
+			commit_epoch        INTEGER,
+			commit_hash         BLOB,
+			welcome_hash        TEXT NOT NULL DEFAULT '',
+			status              TEXT NOT NULL,
+			failure_code        TEXT NOT NULL DEFAULT '',
+			failure_message     TEXT NOT NULL DEFAULT '',
+			created_at          INTEGER NOT NULL,
+			updated_at          INTEGER NOT NULL,
+			last_attempt_at     INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (group_id) REFERENCES mls_groups(group_id) ON DELETE CASCADE
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_group_add_operations_active_unique
+			ON group_add_operations(group_id, target_peer_id, key_package_hash)
+			WHERE (status != 'failed' AND status != 'welcome_delivered');`,
+		`CREATE INDEX IF NOT EXISTS idx_group_add_operations_status
+			ON group_add_operations(group_id, status, updated_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_add_operations_recoverable
+			ON group_add_operations(status, updated_at);`,
 	}
 
 	for _, q := range queries {
@@ -464,10 +514,32 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("stored_welcomes", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("stored_welcomes", "category_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("pending_invites", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("pending_invites", "category_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("group_invite_requests", "is_mirror", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// add_operation_id links an invite request row to its MLS coordination
+	// lifecycle (group_add_operations). Empty string means "not yet linked"
+	// (legacy rows, pending creator approval, or rejected requests).
+	if err := d.ensureColumnExists("group_invite_requests", "add_operation_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	// public_key_hex extends peer_directory with the verified MLS signing
+	// public key (hex-encoded) the peer presented in its InvitationToken.
+	// Used by joinGroupWithWelcome's MLS leaf enumeration to resolve each
+	// leaf's BasicCredential identity back to a peer.ID — without it, only
+	// the welcome-source and message senders would land in group_members.
+	// Empty string ("") means we have not yet observed the peer's verified
+	// pubkey (legacy rows, or directory rebuilt before handshake completes).
+	if err := d.ensureColumnExists("peer_directory", "public_key_hex", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if _, err := d.Conn.Exec(
@@ -665,6 +737,85 @@ func (d *Database) UpsertPeerProfile(peerID, displayName string) error {
 	return d.SavePeerProfile(peerID, displayName)
 }
 
+// UpsertPeerProfileWithKey inserts or refreshes a peer_directory row with both
+// the display name and the verified MLS signing public key (hex-encoded).
+//
+// The pubkey is the canonical hash key the joiner uses to translate every
+// BasicCredential identity returned by ListMemberIdentities back into a
+// peer.ID (see GetPeerIDByPublicKeyHex). Pass `publicKeyHex=""` only when the
+// caller does NOT know the pubkey yet (legacy display-name-only upsert) — in
+// that case any previously stored pubkey is preserved. When a non-empty
+// pubkey is provided it overwrites whatever was there before so re-issued
+// identities propagate cleanly.
+//
+// Returns nil if peerID is empty (defensive no-op matching SavePeerProfile).
+func (d *Database) UpsertPeerProfileWithKey(peerID, displayName, publicKeyHex string) error {
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return nil
+	}
+	displayName = strings.TrimSpace(displayName)
+	publicKeyHex = strings.ToLower(strings.TrimSpace(publicKeyHex))
+
+	if publicKeyHex == "" {
+		_, err := d.Conn.Exec(
+			`INSERT INTO peer_directory (peer_id, display_name, public_key_hex, updated_at)
+			 VALUES (?, ?, '', CURRENT_TIMESTAMP)
+			 ON CONFLICT(peer_id) DO UPDATE SET
+				display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE peer_directory.display_name END,
+				updated_at = CURRENT_TIMESTAMP`,
+			peerID, displayName,
+		)
+		if err != nil {
+			return fmt.Errorf("UpsertPeerProfileWithKey (no key): %w", err)
+		}
+		return nil
+	}
+
+	_, err := d.Conn.Exec(
+		`INSERT INTO peer_directory (peer_id, display_name, public_key_hex, updated_at)
+		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(peer_id) DO UPDATE SET
+			display_name = CASE WHEN excluded.display_name <> '' THEN excluded.display_name ELSE peer_directory.display_name END,
+			public_key_hex = excluded.public_key_hex,
+			updated_at = CURRENT_TIMESTAMP`,
+		peerID, displayName, publicKeyHex,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertPeerProfileWithKey: %w", err)
+	}
+	return nil
+}
+
+// GetPeerIDByPublicKeyHex resolves the verified MLS signing public key
+// (hex-encoded) back to a peer.ID, the canonical key used by joinGroupWithWelcome's
+// MLS leaf enumeration to attribute every leaf to a libp2p identity.
+//
+// Returns ("", nil) when no row matches — the caller is expected to fall
+// back to heartbeat-driven roster sync (Phase A) for that leaf. Empty input
+// is treated as a miss rather than an error so callers can pass straight from
+// hex.EncodeToString output without extra null checks.
+func (d *Database) GetPeerIDByPublicKeyHex(publicKeyHex string) (string, error) {
+	publicKeyHex = strings.ToLower(strings.TrimSpace(publicKeyHex))
+	if publicKeyHex == "" {
+		return "", nil
+	}
+	var peerID string
+	err := d.Conn.QueryRow(
+		`SELECT peer_id FROM peer_directory
+		 WHERE public_key_hex = ? AND public_key_hex <> ''
+		 ORDER BY updated_at DESC LIMIT 1`,
+		publicKeyHex,
+	).Scan(&peerID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("GetPeerIDByPublicKeyHex: %w", err)
+	}
+	return peerID, nil
+}
+
 // GetPeerDisplayName retrieves the display name of a peer, or empty if unknown.
 func (d *Database) GetPeerDisplayName(peerID string) (string, error) {
 	var name string
@@ -766,6 +917,74 @@ func (d *Database) UpsertGroupMember(rec GroupMemberRecord) error {
 	)
 	if err != nil {
 		return fmt.Errorf("UpsertGroupMember: %w", err)
+	}
+	return nil
+}
+
+// UpsertGroupMemberPreservingRole is the roster-sync variant of UpsertGroupMember.
+//
+// It is intended for callers that observe a peer as "still in the group"
+// (heartbeat, MLS leaf enumeration, message-sender attribution, welcome-source
+// attribution, history replay, profile refresh, ...) but DO NOT have authoritative
+// information about the peer's role. These call sites previously had to pass
+// role="member" as a placeholder, which silently overwrote the local creator's
+// own row (set to "creator" by CreateGroupChat) every time the UI refreshed.
+//
+// The SQL UPDATE clause here intentionally OMITS the role column, so the
+// existing role on the row is preserved verbatim. The INSERT path still
+// uses the supplied rec.Role (or the table's DEFAULT 'member' after
+// normalizeGroupMemberRole) for genuinely new rows, so newly-discovered
+// peers land with the correct default.
+//
+// Use UpsertGroupMember (not this one) only at sites that authoritatively
+// know the role — currently only CreateGroupChat ("creator").
+func (d *Database) UpsertGroupMemberPreservingRole(rec GroupMemberRecord) error {
+	rec.GroupID = strings.TrimSpace(rec.GroupID)
+	rec.PeerID = strings.TrimSpace(rec.PeerID)
+	if rec.GroupID == "" || rec.PeerID == "" {
+		return fmt.Errorf("UpsertGroupMemberPreservingRole: group_id and peer_id are required")
+	}
+	rec.Status = normalizeGroupMemberStatus(rec.Status)
+	rec.Role = normalizeGroupMemberRole(rec.Role)
+	rec.Source = strings.TrimSpace(rec.Source)
+	now := time.Now().Unix()
+	if rec.JoinedAt <= 0 {
+		rec.JoinedAt = now
+	}
+	if rec.UpdatedAt <= 0 {
+		rec.UpdatedAt = now
+	}
+
+	_, err := d.Conn.Exec(
+		`INSERT INTO group_members (
+			group_id, peer_id, display_name, role, status, source, joined_at, left_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(group_id, peer_id) DO UPDATE SET
+			display_name = CASE
+				WHEN excluded.display_name != '' THEN excluded.display_name
+				ELSE group_members.display_name
+			END,
+			-- role intentionally omitted: roster sync MUST NOT downgrade
+			-- a row's role (creator -> member) just because the observer
+			-- has no opinion on role.
+			status = excluded.status,
+			source = CASE
+				WHEN excluded.source != '' THEN excluded.source
+				ELSE group_members.source
+			END,
+			left_at = CASE
+				WHEN excluded.left_at > 0 THEN excluded.left_at
+				ELSE group_members.left_at
+			END,
+			joined_at = CASE
+				WHEN group_members.joined_at <= 0 THEN excluded.joined_at
+				ELSE group_members.joined_at
+			END,
+			updated_at = excluded.updated_at`,
+		rec.GroupID, rec.PeerID, rec.DisplayName, rec.Role, rec.Status, rec.Source, rec.JoinedAt, rec.LeftAt, rec.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertGroupMemberPreservingRole: %w", err)
 	}
 	return nil
 }
@@ -1068,17 +1287,32 @@ func (d *Database) GetStoredKeyPackage(peerID string) ([]byte, error) {
 }
 
 // SaveStoredWelcome upserts a replicated Welcome for (invitee, group).
-func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType string, welcome []byte, sourcePeerID string) error {
+// categoryID is the channel-category id at the time of welcome creation; pass
+// "" for non-channel groups or when the value is unknown (older wire frames).
+// On conflict, a non-empty incoming category_id always wins so a later wire
+// carrying the metadata can heal earlier rows that were saved before this
+// field existed.
+func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string) error {
 	groupType = normalizeGroupType(groupType)
+	categoryID = strings.TrimSpace(categoryID)
+	sourcePeerID = strings.TrimSpace(sourcePeerID)
 	_, err := d.Conn.Exec(
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, strftime('%s','now'))
+		// Heal semantics for source_peer_id mirror those for category_id: a
+		// non-empty incoming value always wins (replaces old creator hints
+		// — which is what we want when an updated welcome arrives), but a
+		// blank incoming value MUST NOT clobber an existing good hint.
+		// This protects against a buggy caller (or legacy "" pattern in
+		// checkStoredWelcomes) silently dropping the creator hint and
+		// breaking RequestGroupInvite forwarding for non-creators.
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
 		   group_type = excluded.group_type,
+		   category_id = CASE WHEN excluded.category_id <> '' THEN excluded.category_id ELSE stored_welcomes.category_id END,
 		   welcome_bytes = excluded.welcome_bytes,
-		   source_peer_id = excluded.source_peer_id,
+		   source_peer_id = CASE WHEN trim(excluded.source_peer_id) <> '' THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
 		   created_at = excluded.created_at`,
-		inviteePeerID, groupID, groupType, welcome, sourcePeerID,
+		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcome: %w", err)
@@ -1086,18 +1320,24 @@ func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType string, w
 	return nil
 }
 
-// SaveStoredWelcomeIfNewer upserts only when publishedAt is newer.
-func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType string, welcome []byte, sourcePeerID string, publishedAt int64) error {
+// SaveStoredWelcomeIfNewer upserts only when publishedAt is newer. Same
+// category_id heal semantics as SaveStoredWelcome: a non-empty incoming
+// category_id always wins regardless of timestamp comparison so missing
+// metadata in the older row gets filled in.
+func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string, publishedAt int64) error {
 	groupType = normalizeGroupType(groupType)
+	categoryID = strings.TrimSpace(categoryID)
+	sourcePeerID = strings.TrimSpace(sourcePeerID)
 	_, err := d.Conn.Exec(
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
 		   group_type = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.group_type ELSE stored_welcomes.group_type END,
+		   category_id = CASE WHEN excluded.category_id <> '' THEN excluded.category_id ELSE stored_welcomes.category_id END,
 		   welcome_bytes = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.welcome_bytes ELSE stored_welcomes.welcome_bytes END,
-		   source_peer_id = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
+		   source_peer_id = CASE WHEN trim(excluded.source_peer_id) <> '' AND excluded.created_at >= stored_welcomes.created_at THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
 		   created_at = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.created_at ELSE stored_welcomes.created_at END`,
-		inviteePeerID, groupID, groupType, welcome, sourcePeerID, publishedAt,
+		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID, publishedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcomeIfNewer: %w", err)
@@ -1125,16 +1365,20 @@ func (d *Database) DeleteStoredWelcome(inviteePeerID, groupID string) error {
 }
 
 // GetStoredWelcome fetches a replicated Welcome for (invitee, group).
-func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, error) {
+// The returned sourcePeerID is who replicated/stored the welcome (typically
+// the inviter / group creator) — callers must pass it to invite join paths,
+// not the invitee's own peer ID, or creator resolution for RequestGroupInvite
+// breaks on member nodes.
+func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, string, string, error) {
 	var wb []byte
-	var groupType string
+	var groupType, categoryID, sourcePeerID string
 	if err := d.Conn.QueryRow(
-		`SELECT welcome_bytes, group_type FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
+		`SELECT welcome_bytes, group_type, category_id, source_peer_id FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
 		inviteePeerID, groupID,
-	).Scan(&wb, &groupType); err != nil {
-		return nil, "", err
+	).Scan(&wb, &groupType, &categoryID, &sourcePeerID); err != nil {
+		return nil, "", "", "", err
 	}
-	return wb, normalizeGroupType(groupType), nil
+	return wb, normalizeGroupType(groupType), strings.TrimSpace(categoryID), strings.TrimSpace(sourcePeerID), nil
 }
 
 // StoredWelcome is one replicated Welcome object retained locally.
@@ -1142,6 +1386,7 @@ type StoredWelcome struct {
 	InviteePeerID string
 	GroupID       string
 	GroupType     string
+	CategoryID    string
 	WelcomeBytes  []byte
 	SourcePeerID  string
 	CreatedAt     int64
@@ -1150,7 +1395,7 @@ type StoredWelcome struct {
 // ListStoredWelcomesFor returns all stored Welcome replicas for an invitee.
 func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome, error) {
 	rows, err := d.Conn.Query(
-		`SELECT invitee_peer_id, group_id, group_type, welcome_bytes, source_peer_id, created_at
+		`SELECT invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at
 		 FROM stored_welcomes
 		 WHERE invitee_peer_id = ?
 		 ORDER BY created_at DESC`,
@@ -1164,17 +1409,25 @@ func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome,
 	var out []StoredWelcome
 	for rows.Next() {
 		var rec StoredWelcome
-		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.GroupType, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.GroupType, &rec.CategoryID, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
 			return nil, fmt.Errorf("ListStoredWelcomesFor scan: %w", err)
 		}
 		rec.GroupType = normalizeGroupType(rec.GroupType)
+		rec.CategoryID = strings.TrimSpace(rec.CategoryID)
 		out = append(out, rec)
 	}
 	return out, rows.Err()
 }
 
-// GetGroupInviteCreatorHint returns source_peer_id from replicated Welcome / pending invite metadata.
-// Joined members often lack role=creator in group_members; the welcome sender is the group creator.
+// GetGroupInviteCreatorHint returns a peer ID likely to be the group creator
+// for invite-request forwarding. Order:
+//   1) stored_welcomes.source_peer_id (welcome replicator / inviter)
+//   2) pending_invites.source_peer_id
+//   3) pending_invites.inviter_peer_id (same as source on newer rows; helps
+//      when source_peer_id column was empty in legacy data)
+//
+// Joined members often lack role=creator in group_members; these hints are the
+// reliable path for RequestGroupInvite on a member node.
 func (d *Database) GetGroupInviteCreatorHint(groupID string) (string, error) {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
@@ -1194,6 +1447,15 @@ func (d *Database) GetGroupInviteCreatorHint(groupID string) (string, error) {
 		`SELECT source_peer_id FROM pending_invites
 		 WHERE group_id = ? AND trim(source_peer_id) != ''
 		 ORDER BY received_at DESC LIMIT 1`,
+		groupID,
+	).Scan(&src)
+	if err == nil && strings.TrimSpace(src) != "" {
+		return strings.TrimSpace(src), nil
+	}
+	err = d.Conn.QueryRow(
+		`SELECT inviter_peer_id FROM pending_invites
+		 WHERE group_id = ? AND trim(inviter_peer_id) != ''
+		 ORDER BY updated_at DESC, received_at DESC LIMIT 1`,
 		groupID,
 	).Scan(&src)
 	if err != nil {
@@ -1231,6 +1493,7 @@ type PendingInvite struct {
 	ID            string
 	GroupID       string
 	GroupType     string
+	CategoryID    string
 	GroupName     string
 	InviterPeerID string
 	WelcomeHash   []byte
@@ -1286,12 +1549,16 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 
 	_, err := d.Conn.Exec(
 		`INSERT INTO pending_invites
-		 (id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 (id, group_id, group_type, category_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id, welcome_hash) DO UPDATE SET
 		   group_type = CASE
 		     WHEN excluded.group_type IN ('channel', 'group', 'dm') THEN excluded.group_type
 		     ELSE pending_invites.group_type
+		   END,
+		   category_id = CASE
+		     WHEN excluded.category_id <> '' THEN excluded.category_id
+		     ELSE pending_invites.category_id
 		   END,
 		   group_name = CASE
 		     WHEN pending_invites.group_name = '' THEN excluded.group_name
@@ -1314,6 +1581,7 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 		id,
 		inv.GroupID,
 		normalizeGroupType(inv.GroupType),
+		strings.TrimSpace(inv.CategoryID),
 		inv.GroupName,
 		inv.InviterPeerID,
 		welcomeHash,
@@ -1331,7 +1599,7 @@ func (d *Database) SavePendingInvite(inv *PendingInvite) error {
 
 // ListPendingInvites returns local invite rows ordered newest first.
 func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, error) {
-	query := `SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+	query := `SELECT id, group_id, group_type, category_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
 	          FROM pending_invites`
 	if !includeTerminal {
 		query += ` WHERE status = 'pending'`
@@ -1351,6 +1619,7 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 			&inv.ID,
 			&inv.GroupID,
 			&inv.GroupType,
+			&inv.CategoryID,
 			&inv.GroupName,
 			&inv.InviterPeerID,
 			&inv.WelcomeHash,
@@ -1363,6 +1632,7 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 			return nil, fmt.Errorf("ListPendingInvites scan: %w", err)
 		}
 		inv.GroupType = normalizeGroupType(inv.GroupType)
+		inv.CategoryID = strings.TrimSpace(inv.CategoryID)
 		out = append(out, inv)
 	}
 	return out, rows.Err()
@@ -1371,7 +1641,7 @@ func (d *Database) ListPendingInvites(includeTerminal bool) ([]PendingInvite, er
 func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 	var inv PendingInvite
 	err := d.Conn.QueryRow(
-		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+		`SELECT id, group_id, group_type, category_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
 		 FROM pending_invites
 		 WHERE id = ?`,
 		id,
@@ -1379,6 +1649,7 @@ func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 		&inv.ID,
 		&inv.GroupID,
 		&inv.GroupType,
+		&inv.CategoryID,
 		&inv.GroupName,
 		&inv.InviterPeerID,
 		&inv.WelcomeHash,
@@ -1392,6 +1663,7 @@ func (d *Database) GetPendingInvite(id string) (*PendingInvite, error) {
 		return nil, err
 	}
 	inv.GroupType = normalizeGroupType(inv.GroupType)
+	inv.CategoryID = strings.TrimSpace(inv.CategoryID)
 	return &inv, nil
 }
 
@@ -1402,7 +1674,7 @@ func (d *Database) GetLatestPendingInviteByGroup(groupID string) (*PendingInvite
 	}
 	var inv PendingInvite
 	err := d.Conn.QueryRow(
-		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
+		`SELECT id, group_id, group_type, category_id, group_name, inviter_peer_id, welcome_hash, welcome_bytes, source_peer_id, status, received_at, updated_at
 		 FROM pending_invites
 		 WHERE group_id = ?
 		 ORDER BY updated_at DESC, received_at DESC
@@ -1412,6 +1684,7 @@ func (d *Database) GetLatestPendingInviteByGroup(groupID string) (*PendingInvite
 		&inv.ID,
 		&inv.GroupID,
 		&inv.GroupType,
+		&inv.CategoryID,
 		&inv.GroupName,
 		&inv.InviterPeerID,
 		&inv.WelcomeHash,
@@ -1425,6 +1698,7 @@ func (d *Database) GetLatestPendingInviteByGroup(groupID string) (*PendingInvite
 		return nil, err
 	}
 	inv.GroupType = normalizeGroupType(inv.GroupType)
+	inv.CategoryID = strings.TrimSpace(inv.CategoryID)
 	return &inv, nil
 }
 
@@ -1493,6 +1767,7 @@ func (d *Database) ReopenRejectedInvite(inv *PendingInvite) (string, error) {
 		`UPDATE pending_invites
 		 SET id = ?,
 		     group_type = ?,
+		     category_id = CASE WHEN ? != '' THEN ? ELSE category_id END,
 		     group_name = CASE WHEN ? != '' THEN ? ELSE group_name END,
 		     inviter_peer_id = CASE WHEN ? != '' THEN ? ELSE inviter_peer_id END,
 		     welcome_hash = ?,
@@ -1507,6 +1782,7 @@ func (d *Database) ReopenRejectedInvite(inv *PendingInvite) (string, error) {
 		   )`,
 		newID,
 		normalizeGroupType(inv.GroupType),
+		strings.TrimSpace(inv.CategoryID), strings.TrimSpace(inv.CategoryID),
 		strings.TrimSpace(inv.GroupName), strings.TrimSpace(inv.GroupName),
 		strings.TrimSpace(inv.InviterPeerID), strings.TrimSpace(inv.InviterPeerID),
 		welcomeHash,

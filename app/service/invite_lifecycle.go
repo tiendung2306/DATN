@@ -133,11 +133,13 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 		return nil
 	}
 
-	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes)); err != nil {
+	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes), inv.CategoryID); err != nil {
 		return fmt.Errorf("accept invite: %w", err)
 	}
 	if strings.TrimSpace(inv.SourcePeerID) != "" {
-		_ = r.upsertGroupMember(inv.GroupID, inv.SourcePeerID, "member", "welcome-source")
+		// welcome-source observation. The role of the delivering peer is
+		// unknown to us; preserve any existing annotation.
+		_ = r.upsertGroupMemberFromRosterSync(inv.GroupID, inv.SourcePeerID, "welcome-source")
 		r.emit("group:members_changed", map[string]interface{}{
 			"group_id": inv.GroupID,
 			"reason":   "welcome_source",

@@ -394,6 +394,8 @@ Exit criteria:
 - Request/approve/reject/cancel/list/pagination có coverage.
 - Policy creator-only/any-member có coverage.
 
+**Ghi chú fast suite vs wire:** `BI-066` được cover bằng nhánh non-mirror trong `SyncInviteRequestFromCreator` (không gọi P2P). Luồng đồng bộ mirror đầy đủ cần creator online và wire — defer sang nightly/manual hoặc `business_smoke`. **`BI-068` và `BI-069`** không nằm trong suite `business_integration` mặc định (phụ thuộc P2P/handlers); ghi nhận là smoke/manual hoặc Lớp 3, không dùng `t.Skip` trong code test.
+
 ### Sprint 5: Channel Category, Runtime Events, Diagnostics
 
 Mục tiêu: bảo vệ UI shell và sidebar/workspace behavior.

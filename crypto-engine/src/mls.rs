@@ -331,6 +331,24 @@ pub fn has_member(group_state: &[u8], identity: &[u8]) -> Result<bool, String> {
     Ok(imp.group.member_leaf_index(&credential).is_some())
 }
 
+/// Enumerate the BasicCredential identity bytes for every leaf currently in
+/// the MLS group. Used by the Go runtime to reconstruct the local roster
+/// directly from MLS state (independent of which node sent the Welcome).
+///
+/// In this application, BasicCredential identity bytes are the leaf's MLS
+/// signing public-key bytes. Returns an empty Vec when the group has no
+/// members (should never happen for a valid persisted state but treated
+/// defensively).
+pub fn list_member_identities(group_state: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    let imp = import_state(group_state)?;
+    let identities: Vec<Vec<u8>> = imp
+        .group
+        .members()
+        .map(|m| m.credential.serialized_content().to_vec())
+        .collect();
+    Ok(identities)
+}
+
 /// Add one or more members via their KeyPackages (commit + welcome in one step).
 pub fn add_members(
     group_state: &[u8],
@@ -495,28 +513,36 @@ pub fn create_commit(group_state: &[u8], proposals: &[Vec<u8>]) -> Result<Commit
         return Err("no proposals to commit".into());
     }
 
-    // Classify the batch. Sprint 3A intentionally rejects mixed batches
-    // (update + remove + add in one commit) — the coordination layer always
-    // funnels homogeneous proposal types in practice.
+    // Classify the batch. The Go coordination layer funnels homogeneous batches
+    // per epoch (Add / Remove / Update separately) because the Token Holder
+    // commits one proposal class at a time; mixed batches are rejected here
+    // to surface coordination-layer regressions early.
     let mut update_count = 0u32;
     let mut remove_targets: Vec<Vec<u8>> = Vec::new();
+    let mut add_key_packages: Vec<Vec<u8>> = Vec::new();
     for raw in proposals {
         let desc: ProposalDescriptor =
             serde_json::from_slice(raw).map_err(|e| format!("parse proposal descriptor: {e}"))?;
         match desc.proposal_type {
             2 => update_count += 1,              // ProposalUpdate
             1 => remove_targets.push(desc.data), // ProposalRemove → identity bytes
-            0 => {
-                return Err(
-                    "Add proposals require KeyPackage generation (not yet implemented)".into(),
-                )
-            }
+            0 => add_key_packages.push(desc.data), // ProposalAdd → KeyPackage bytes
             _ => return Err(format!("unknown proposal type: {}", desc.proposal_type)),
         }
     }
 
-    if update_count > 0 && !remove_targets.is_empty() {
-        return Err("create_commit: mixed update+remove batches not supported".into());
+    let kinds = (update_count > 0) as u8
+        + (!remove_targets.is_empty() as u8)
+        + (!add_key_packages.is_empty() as u8);
+    if kinds > 1 {
+        return Err("create_commit: mixed proposal batches not supported".into());
+    }
+
+    if !add_key_packages.is_empty() {
+        // Token Holder applying buffered ProposalAdd descriptors. Reuse the
+        // dedicated add_members path so commit + welcome generation stays
+        // identical to the direct add_members RPC.
+        return add_members(group_state, &add_key_packages);
     }
 
     if !remove_targets.is_empty() {
@@ -871,6 +897,71 @@ mod tests {
         assert_eq!(dec_b.plaintext, b"hello from A");
     }
 
+    /// ProposalAdd routed through `create_commit` (i.e. the Token Holder
+    /// flushing a buffered ProposalAdd) must produce the same Commit+Welcome
+    /// shape as `add_members`, and the invitee must be able to join via the
+    /// resulting Welcome. This pins the Single-Writer flow where any member
+    /// proposes Add but only the Token Holder issues the commit.
+    #[test]
+    fn test_create_commit_from_proposal_add() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let cr = create_group("proposal-add-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
+
+        // Wrap the public KeyPackage in the same ProposalDescriptor envelope
+        // any non-holder would broadcast on GossipSub.
+        let proposal_add =
+            create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("create_proposal");
+
+        let commit = create_commit(&cr.group_state, &[proposal_add]).expect("create_commit");
+
+        assert!(
+            !commit.commit_bytes.is_empty(),
+            "ProposalAdd commit must produce commit bytes"
+        );
+        assert!(
+            !commit.welcome_bytes.is_empty(),
+            "ProposalAdd commit MUST produce a Welcome for the invitee"
+        );
+
+        let welcome_b = process_welcome(
+            &commit.welcome_bytes,
+            &sk_b,
+            &kp_b.key_package_bundle_private,
+        )
+        .expect("process_welcome B");
+
+        let enc_a = encrypt_message(&commit.new_group_state, b"hello via proposal")
+            .expect("encrypt A");
+        let dec_b = decrypt_message(&welcome_b.group_state, &enc_a.ciphertext).expect("decrypt B");
+        assert_eq!(dec_b.plaintext, b"hello via proposal");
+    }
+
+    /// Mixing proposal types in a single batch must be rejected — the Go
+    /// coordination layer is responsible for splitting by type.
+    #[test]
+    fn test_create_commit_rejects_mixed_batch() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let cr = create_group("mixed-batch-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("kp B");
+
+        let add_prop = create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("add");
+        let upd_prop = create_proposal(&cr.group_state, 2, &[]).expect("update");
+
+        let err = match create_commit(&cr.group_state, &[add_prop, upd_prop]) {
+            Ok(_) => panic!("mixed batch must be rejected"),
+            Err(e) => e,
+        };
+        assert!(
+            err.contains("mixed proposal batches"),
+            "unexpected error: {err}"
+        );
+    }
+
     #[test]
     fn test_export_group_info_roundtrip() {
         let sk = test_signing_key();
@@ -1088,6 +1179,64 @@ mod tests {
             remove_members(&commit_add.new_group_state, &[id_b.clone()]).expect("remove_members");
         let after = has_member(&commit_rm.new_group_state, &id_b).expect("has_member after");
         assert!(!after, "invitee should be absent after remove");
+    }
+
+    /// list_member_identities must return one entry per leaf and the entries
+    /// must match the BasicCredential identity bytes computed independently
+    /// via the signing key (the same scheme has_member queries against).
+    #[test]
+    fn test_list_member_identities_after_add_members() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let sk_c = test_signing_key();
+
+        let group_a = create_group("list-leaves-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
+        let commit_ab = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members B");
+        let commit_abc = add_members(&commit_ab.new_group_state, &[kp_c.key_package_bytes.clone()])
+            .expect("add_members C");
+
+        let ids = list_member_identities(&commit_abc.new_group_state)
+            .expect("list_member_identities");
+        assert_eq!(ids.len(), 3, "group must have exactly 3 leaves");
+
+        let id_a = invitee_identity_bytes(&sk_a);
+        let id_b = invitee_identity_bytes(&sk_b);
+        let id_c = invitee_identity_bytes(&sk_c);
+        let mut sorted = ids.clone();
+        sorted.sort();
+        let mut expected = vec![id_a, id_b, id_c];
+        expected.sort();
+        assert_eq!(sorted, expected, "leaf identities must match signing keys");
+
+        // Each enumerated identity must round-trip through has_member.
+        for id in &ids {
+            assert!(
+                has_member(&commit_abc.new_group_state, id).expect("has_member round-trip"),
+                "identity from list must be a member"
+            );
+        }
+    }
+
+    /// list_member_identities reflects removals immediately after the commit.
+    #[test]
+    fn test_list_member_identities_after_remove() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let group_a = create_group("list-leaves-remove-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
+            .expect("add_members");
+        let id_b = invitee_identity_bytes(&sk_b);
+        let commit_rm =
+            remove_members(&commit_add.new_group_state, &[id_b.clone()]).expect("remove_members");
+        let ids = list_member_identities(&commit_rm.new_group_state)
+            .expect("list_member_identities after remove");
+        assert_eq!(ids.len(), 1, "only creator must remain");
+        let id_a = invitee_identity_bytes(&sk_a);
+        assert_eq!(ids[0], id_a, "remaining leaf must be creator");
     }
 
     #[test]

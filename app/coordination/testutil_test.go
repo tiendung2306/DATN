@@ -232,9 +232,10 @@ type mockCommitData struct {
 }
 
 type MockMLSEngine struct {
-	mu          sync.Mutex
-	nextErr     error
-	hasMemberFn func(groupState []byte, identity []byte) (bool, error)
+	mu              sync.Mutex
+	nextErr         error
+	hasMemberFn     func(groupState []byte, identity []byte) (bool, error)
+	listMembersFn   func(groupState []byte) ([][]byte, error)
 }
 
 var _ MLSEngine = (*MockMLSEngine)(nil)
@@ -261,6 +262,15 @@ func (m *MockMLSEngine) SetHasMemberFunc(fn func(groupState []byte, identity []b
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.hasMemberFn = fn
+}
+
+// SetListMembersFunc lets coordination tests inject a deterministic answer
+// for MLSEngine.ListMemberIdentities — used to exercise the join-roster
+// backfill path without standing up the full Rust engine.
+func (m *MockMLSEngine) SetListMembersFunc(fn func(groupState []byte) ([][]byte, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listMembersFn = fn
 }
 
 func mockTreeHash(epoch uint64) []byte {
@@ -302,7 +312,13 @@ func (m *MockMLSEngine) CreateCommit(_ context.Context, groupState []byte, _ [][
 	newStateBytes, _ := json.Marshal(state)
 	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
 	commitBytes, _ := json.Marshal(commitInfo)
-	return commitBytes, nil, newStateBytes, newTH, nil
+	// Return a non-empty Welcome stub so the Token-Holder ProposalAdd path
+	// can be exercised end-to-end in tests. The coordinator only routes
+	// Welcome bytes when the committed batch contains ProposalAdd entries
+	// (see buildAddDeliveriesFromBatch), so returning Welcome here is a
+	// harmless no-op for Remove/Update batches.
+	welcome := []byte(fmt.Sprintf("mock-welcome:%d", state.Epoch))
+	return commitBytes, welcome, newStateBytes, newTH, nil
 }
 
 func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes []byte) ([]byte, []byte, error) {
@@ -387,6 +403,19 @@ func (m *MockMLSEngine) HasMember(_ context.Context, groupState []byte, identity
 	}
 	// Default mock behavior keeps caller as member unless identity is empty.
 	return len(identity) > 0, nil
+}
+
+func (m *MockMLSEngine) ListMemberIdentities(_ context.Context, groupState []byte) ([][]byte, error) {
+	if err := m.popError(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	fn := m.listMembersFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(groupState)
+	}
+	return nil, nil
 }
 
 func (m *MockMLSEngine) EncryptMessage(_ context.Context, groupState, plaintext []byte) ([]byte, []byte, error) {

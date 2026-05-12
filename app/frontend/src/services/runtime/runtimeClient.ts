@@ -51,7 +51,6 @@ import {
   PrepareGroupFile,
   PrepareOutgoingFileTransfer,
   ApproveGroupInviteRequest,
-  CancelGroupInviteRequest,
   ReconnectP2P,
   RejectGroupInviteRequest,
   RemoveMemberFromGroup,
@@ -119,7 +118,6 @@ export const runtimeClient = {
   listGroupInviteRequests: ListGroupInviteRequests,
   approveGroupInviteRequest: ApproveGroupInviteRequest,
   rejectGroupInviteRequest: RejectGroupInviteRequest,
-  cancelGroupInviteRequest: CancelGroupInviteRequest,
   retryGroupInviteRequest: RetryGroupInviteRequest,
   setGroupInvitePolicy: SetGroupInvitePolicy,
   getGroupInvitePolicy: async (groupId: string): Promise<'creator_approval' | 'any_member'> => {

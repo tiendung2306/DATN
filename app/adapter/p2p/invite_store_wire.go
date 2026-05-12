@@ -42,7 +42,12 @@ type WelcomeStoreRequestV1 struct {
 	InviteePeerID string `json:"invitee_peer_id"`
 	GroupID       string `json:"group_id"`
 	GroupType     string `json:"group_type,omitempty"`
-	Welcome       []byte `json:"welcome"`
+	// CategoryID is the inviter-side channel-category assignment captured at
+	// Welcome creation. Carrying it here lets the invitee restore the
+	// category mapping deterministically without depending on a separate
+	// snapshot pull (which races with peer verification on first connect).
+	CategoryID string `json:"category_id,omitempty"`
+	Welcome    []byte `json:"welcome"`
 }
 
 type WelcomeFetchRequestV1 struct {
@@ -52,11 +57,16 @@ type WelcomeFetchRequestV1 struct {
 }
 
 type WelcomeFetchResponseV1 struct {
-	V       int    `json:"v"`
-	Found   bool   `json:"found"`
-	GroupType string `json:"group_type,omitempty"`
-	Welcome []byte `json:"welcome,omitempty"`
-	Error   string `json:"error,omitempty"`
+	V          int    `json:"v"`
+	Found      bool   `json:"found"`
+	GroupType  string `json:"group_type,omitempty"`
+	CategoryID string `json:"category_id,omitempty"`
+	// SourcePeerID is the original inviter / creator who minted this Welcome.
+	// Store peers MUST forward the value they have on disk so the requester
+	// can resolve the real group creator, not the relaying store peer.
+	SourcePeerID string `json:"source_peer_id,omitempty"`
+	Welcome      []byte `json:"welcome,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type WelcomeListRequestV1 struct {
@@ -67,6 +77,7 @@ type WelcomeListRequestV1 struct {
 type WelcomeListItemV1 struct {
 	GroupID      string `json:"group_id"`
 	GroupType    string `json:"group_type,omitempty"`
+	CategoryID   string `json:"category_id,omitempty"`
 	Welcome      []byte `json:"welcome"`
 	SourcePeerID string `json:"source_peer_id,omitempty"`
 	CreatedAt    int64  `json:"created_at,omitempty"`

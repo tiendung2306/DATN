@@ -47,13 +47,18 @@ func NewActiveView(clock Clock, cfg *CoordinatorConfig, localID peer.ID, onChang
 
 // RecordHeartbeat marks a peer as alive and resets its missed-check counter.
 // If the peer was not previously in the view, it is added and onChange fires.
-func (av *ActiveView) RecordHeartbeat(id peer.ID) {
+//
+// Returns true if the peer was newly added (transition absent -> present),
+// false if it was already in the view. The coordinator uses this distinction
+// to fire OnPeerObserved exactly once per fresh peer observation, avoiding
+// per-heartbeat spam on the service layer.
+func (av *ActiveView) RecordHeartbeat(id peer.ID) bool {
 	av.mu.Lock()
 	ms, exists := av.members[id]
 	if exists {
 		ms.missedChecks = 0
 		av.mu.Unlock()
-		return
+		return false
 	}
 	av.members[id] = &memberState{}
 	members := av.sortedMembersLocked()
@@ -62,6 +67,7 @@ func (av *ActiveView) RecordHeartbeat(id peer.ID) {
 	if av.onChange != nil {
 		av.onChange(members)
 	}
+	return true
 }
 
 // CheckLiveness increments the missed-check counter for all remote peers

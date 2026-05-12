@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -614,6 +615,341 @@ func TestCoordinator_LocalRemovedAfterCommit_BlocksMutations(t *testing.T) {
 	}
 	if err := removed.coord.ProposeUpdate([]byte("blocked")); !errors.Is(err, ErrAccessRevoked) {
 		t.Fatalf("ProposeUpdate err=%v, want ErrAccessRevoked", err)
+	}
+}
+
+// addMemberObservation records the per-delivery arguments fed into the
+// OnAddCommitted callback so unit tests can verify token-holder vs observer
+// semantics (welcome present iff this node ran CreateCommit).
+type addMemberObservation struct {
+	delivery    AddCommitDelivery
+	commitEpoch uint64
+	welcomeLen  int
+}
+
+// TestCoordinator_AddMember_NonHolderProposesAndHolderCommits is the direct
+// regression for the user's bug report: when the creator/approver is NOT the
+// current Token Holder, AddMember MUST broadcast a ProposalAdd carrying
+// routing metadata instead of returning ErrNotTokenHolder. The actual Token
+// Holder receives the proposal, commits it, and emits AddCommitDelivery so
+// every node — including the original approver — can update its lifecycle
+// state. Only the Token Holder receives the Welcome bytes in its callback;
+// the approver receives a nil-welcome observer callback for audit purposes.
+func TestCoordinator_AddMember_NonHolderProposesAndHolderCommits(t *testing.T) {
+	aliceID := mustRealPeerID(t)
+	bobID := mustRealPeerID(t)
+	nodes, network, _ := setupClusterWithIDs(t, []peer.ID{aliceID, bobID}, "grp-add-non-holder")
+	createAndShareGroup(t, nodes)
+
+	// Capture observations keyed by the node's stable peer id, NOT by the
+	// runtime IsTokenHolder() check at callback fire time — the epoch
+	// advance from the commit can rotate the holder, which would otherwise
+	// route the callback into the wrong bucket. Callbacks fire from
+	// independent goroutines (holder's tryCommitLocked vs. observer's
+	// handleCommitLocked drain), so the map must be mutex-guarded.
+	var obsMu sync.Mutex
+	obsByNode := make(map[peer.ID][]addMemberObservation)
+	for _, n := range nodes {
+		n := n
+		n.coord.onAddCommitted = func(d AddCommitDelivery, epoch uint64, welcome []byte) {
+			obsMu.Lock()
+			obsByNode[n.id] = append(obsByNode[n.id], addMemberObservation{
+				delivery: d, commitEpoch: epoch, welcomeLen: len(welcome),
+			})
+			obsMu.Unlock()
+		}
+	}
+	snapshot := func(id peer.ID) []addMemberObservation {
+		obsMu.Lock()
+		defer obsMu.Unlock()
+		out := make([]addMemberObservation, len(obsByNode[id]))
+		copy(out, obsByNode[id])
+		return out
+	}
+
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder, other *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+		} else {
+			other = n
+		}
+	}
+	if holder == nil || other == nil {
+		t.Fatal("failed to elect holder/other")
+	}
+
+	const operationID = "ga_test_operation_1"
+	const kpHash = "deadbeef"
+	res, err := other.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("invitee"),
+		KeyPackageBytes: []byte("mock-key-package-bytes"),
+		OperationID:     operationID,
+		KeyPackageHash:  []byte(kpHash),
+		GroupType:       "channel",
+		CategoryID:      "cat-1",
+	})
+	if err != nil {
+		t.Fatalf("AddMember(non-holder): %v", err)
+	}
+	if !res.Deferred {
+		t.Fatalf("non-holder AddMember must return Deferred=true, got %#v", res)
+	}
+	if len(res.Welcome) != 0 {
+		t.Fatalf("non-holder must NOT receive Welcome bytes (only token holder owns ephemeral material), got %d bytes", len(res.Welcome))
+	}
+	if res.OperationID != operationID {
+		t.Fatalf("OperationID round-trip mismatch: got %q want %q", res.OperationID, operationID)
+	}
+
+	network.DrainAll() // proposal -> holder; holder commits -> back to other
+	network.DrainAll()
+
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 1 {
+			t.Fatalf("node %s: epoch=%d want 1 after proposal-commit", n.id, n.coord.CurrentEpoch())
+		}
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && (len(snapshot(holder.id)) == 0 || len(snapshot(other.id)) == 0) {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	holderObs := snapshot(holder.id)
+	if len(holderObs) != 1 {
+		t.Fatalf("token holder OnAddCommitted callback count=%d, want 1", len(holderObs))
+	}
+	if holderObs[0].welcomeLen <= 0 {
+		t.Fatalf("token holder must receive non-empty Welcome bytes, got %d", holderObs[0].welcomeLen)
+	}
+	if holderObs[0].delivery.OperationID != operationID {
+		t.Fatalf("holder delivery operation_id=%q want %q", holderObs[0].delivery.OperationID, operationID)
+	}
+
+	nonHolderObs := snapshot(other.id)
+	if len(nonHolderObs) != 1 {
+		t.Fatalf("non-holder OnAddCommitted callback count=%d, want 1 (observer marks commit_observed)", len(nonHolderObs))
+	}
+	if nonHolderObs[0].welcomeLen != 0 {
+		t.Fatalf("non-holder MUST receive nil Welcome (no ephemeral keys), got %d bytes", nonHolderObs[0].welcomeLen)
+	}
+	if nonHolderObs[0].delivery.OperationID != operationID {
+		t.Fatalf("observer delivery operation_id=%q want %q", nonHolderObs[0].delivery.OperationID, operationID)
+	}
+	if nonHolderObs[0].commitEpoch != 1 {
+		t.Fatalf("observer commit_epoch=%d want 1", nonHolderObs[0].commitEpoch)
+	}
+}
+
+// TestCoordinator_AddMember_TokenHolderCommitsDirectly mirrors the
+// RemoveMember happy-path: when the local node IS the Token Holder, AddMember
+// commits synchronously and yields Welcome bytes in the result struct.
+func TestCoordinator_AddMember_TokenHolderCommitsDirectly(t *testing.T) {
+	aliceID := mustRealPeerID(t)
+	bobID := mustRealPeerID(t)
+	nodes, network, _ := setupClusterWithIDs(t, []peer.ID{aliceID, bobID}, "grp-add-holder")
+	createAndShareGroup(t, nodes)
+
+	// Callback fires from a goroutine after tryCommitLocked succeeds AND
+	// (separately) when the network drain delivers the commit to the
+	// observer node. The map must be mutex-guarded to avoid the
+	// concurrent-map-writes fatal that surfaced when this test ran
+	// inside the full coordination suite.
+	var obsMu sync.Mutex
+	obsByNode := make(map[peer.ID][]addMemberObservation)
+	for _, n := range nodes {
+		n := n
+		n.coord.onAddCommitted = func(d AddCommitDelivery, epoch uint64, welcome []byte) {
+			obsMu.Lock()
+			obsByNode[n.id] = append(obsByNode[n.id], addMemberObservation{
+				delivery: d, commitEpoch: epoch, welcomeLen: len(welcome),
+			})
+			obsMu.Unlock()
+		}
+	}
+	snapshot := func(id peer.ID) []addMemberObservation {
+		obsMu.Lock()
+		defer obsMu.Unlock()
+		out := make([]addMemberObservation, len(obsByNode[id]))
+		copy(out, obsByNode[id])
+		return out
+	}
+
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+			break
+		}
+	}
+	if holder == nil {
+		t.Fatal("failed to elect token holder")
+	}
+
+	res, err := holder.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("invitee"),
+		KeyPackageBytes: []byte("mock-key-package-bytes"),
+		OperationID:     "ga_direct_1",
+		KeyPackageHash:  []byte("kphash"),
+	})
+	if err != nil {
+		t.Fatalf("AddMember(holder): %v", err)
+	}
+	if res.Deferred {
+		t.Fatal("holder AddMember must NOT defer")
+	}
+	if len(res.Welcome) == 0 {
+		t.Fatal("holder AddMember must produce Welcome bytes")
+	}
+	if res.CommitEpoch != 1 {
+		t.Fatalf("CommitEpoch=%d want 1", res.CommitEpoch)
+	}
+
+	network.DrainAll()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && len(snapshot(holder.id)) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	holderObs := snapshot(holder.id)
+	if len(holderObs) != 1 {
+		t.Fatalf("token holder OnAddCommitted count=%d, want 1", len(holderObs))
+	}
+	if holderObs[0].welcomeLen == 0 {
+		t.Fatal("token holder direct AddMember must surface Welcome in callback")
+	}
+}
+
+// peerObservation records a single OnPeerObserved firing so the test can
+// assert exactly-once-per-transition semantics for Phase A roster sync.
+type peerObservation struct {
+	groupID string
+	peer    peer.ID
+	at      time.Time
+}
+
+// TestCoordinator_OnPeerObserved_FiresOnceOnFirstHeartbeat verifies the Phase
+// A invariant: OnPeerObserved fires exactly once on the absent→present
+// transition for a remote peer, and does NOT fire on subsequent heartbeats
+// from the same peer (which would spam DB writes every ~5s). After an
+// eviction via CheckLiveness, a fresh heartbeat is treated as a new
+// observation and fires the callback again — that re-fire is acceptable
+// (and useful) because the roster may need re-confirmation post-restart.
+func TestCoordinator_OnPeerObserved_FiresOnceOnFirstHeartbeat(t *testing.T) {
+	groupID := "grp-peer-observed"
+	nodes, network, _ := setupCluster(t, 2, groupID)
+	createAndShareGroup(t, nodes)
+
+	var (
+		obsMu sync.Mutex
+		obs   []peerObservation
+	)
+	nodes[0].coord.onPeerObserved = func(g string, p peer.ID, at time.Time) {
+		obsMu.Lock()
+		defer obsMu.Unlock()
+		obs = append(obs, peerObservation{groupID: g, peer: p, at: at})
+	}
+
+	startAll(t, nodes)
+
+	waitForObs := func(want int) []peerObservation {
+		t.Helper()
+		deadline := time.Now().Add(500 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			obsMu.Lock()
+			got := len(obs)
+			snap := append([]peerObservation(nil), obs...)
+			obsMu.Unlock()
+			if got >= want {
+				return snap
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		obsMu.Lock()
+		defer obsMu.Unlock()
+		return append([]peerObservation(nil), obs...)
+	}
+
+	// First heartbeat from node[1] → callback fires once with peer=node[1].
+	nodes[1].coord.BroadcastHeartbeat()
+	network.DrainAll()
+	got := waitForObs(1)
+	if len(got) != 1 {
+		t.Fatalf("first heartbeat: observations=%d, want 1; got=%+v", len(got), got)
+	}
+	if got[0].groupID != groupID {
+		t.Fatalf("first heartbeat: groupID=%q want %q", got[0].groupID, groupID)
+	}
+	if got[0].peer != nodes[1].id {
+		t.Fatalf("first heartbeat: peer=%s want %s", got[0].peer, nodes[1].id)
+	}
+
+	// Second heartbeat from the same peer → MUST NOT fire callback again.
+	nodes[1].coord.BroadcastHeartbeat()
+	network.DrainAll()
+	time.Sleep(50 * time.Millisecond)
+	obsMu.Lock()
+	if len(obs) != 1 {
+		obsMu.Unlock()
+		t.Fatalf("second heartbeat must not refire OnPeerObserved; observations=%d", len(obs))
+	}
+	obsMu.Unlock()
+
+	// Evict node[1] via repeated liveness checks, then a fresh heartbeat
+	// should treat it as a new observation (acceptable behavior on rejoin).
+	for i := 0; i < nodes[0].coord.cfg.PeerDeadAfter; i++ {
+		nodes[0].coord.TriggerLivenessCheck()
+	}
+	if nodes[0].coord.activeView.Contains(nodes[1].id) {
+		t.Fatal("expected node[1] to be evicted from active view")
+	}
+	nodes[1].coord.BroadcastHeartbeat()
+	network.DrainAll()
+	got = waitForObs(2)
+	if len(got) != 2 {
+		t.Fatalf("post-eviction rejoin: observations=%d, want 2; got=%+v", len(got), got)
+	}
+	if got[1].peer != nodes[1].id {
+		t.Fatalf("post-eviction rejoin: peer=%s want %s", got[1].peer, nodes[1].id)
+	}
+}
+
+// TestSingleWriter_DrainNextBatch_HomogeneousGrouping verifies that mixed
+// proposal types are split into homogeneous batches (and the second-type
+// run remains buffered for the next epoch).
+func TestSingleWriter_DrainNextBatch_HomogeneousGrouping(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
+
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-1"), OperationID: "op-1"})
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-2"), OperationID: "op-2"})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("identity-3")})
+
+	first := sw.DrainNextBatch()
+	if len(first) != 2 {
+		t.Fatalf("first batch len=%d, want 2 Add proposals", len(first))
+	}
+	for _, p := range first {
+		if p.Type != ProposalAdd {
+			t.Fatalf("first batch must be all Add, got %d", p.Type)
+		}
+	}
+
+	second := sw.DrainNextBatch()
+	if len(second) != 1 || second[0].Type != ProposalRemove {
+		t.Fatalf("second batch must be the single Remove proposal, got %+v", second)
+	}
+
+	if next := sw.DrainNextBatch(); next != nil {
+		t.Fatalf("third drain expected nil, got %+v", next)
 	}
 }
 

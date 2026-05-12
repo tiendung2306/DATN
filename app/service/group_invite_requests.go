@@ -227,8 +227,10 @@ func (r *Runtime) RequestGroupInvite(groupID, targetPeerID string) (GroupInviteR
 	if database == nil {
 		return GroupInviteRequestInfo{}, fmt.Errorf("database not initialized")
 	}
-	policy, err := database.GetGroupInvitePolicy(groupID)
-	if err != nil {
+	// Ensure the group exists in local metadata; non-creator flow does not use
+	// local policy value for routing (creator is the authority), but we still
+	// keep this check so callers get a stable ERR_GROUP_NOT_FOUND contract.
+	if _, err := database.GetGroupInvitePolicy(groupID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return GroupInviteRequestInfo{}, fmt.Errorf("ERR_GROUP_NOT_FOUND: group not found")
 		}
@@ -255,87 +257,88 @@ func (r *Runtime) RequestGroupInvite(groupID, targetPeerID string) (GroupInviteR
 			MaxAttempts:     maxInviteRetryAttempts,
 		}, nil
 	}
-	if policy == store.GroupInvitePolicyCreatorApproval {
-		creatorPID, err := r.resolveGroupCreatorPeerID(groupID)
-		if err != nil {
-			slog.Warn("invite request: cannot resolve creator", "group_id", groupID, "target_peer_id", targetPeerID, "error", err)
-			return GroupInviteRequestInfo{}, err
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		defer cancel()
-		resp, err := r.groupInviteWireCall(ctx, creatorPID, &p2p.GroupInviteWireClientReqV1{
-			V:            1,
-			Op:           "submit",
-			GroupID:      groupID,
-			TargetPeerID: targetPeerID,
-		})
-		if err != nil {
-			slog.Warn("invite request: creator unreachable", "group_id", groupID, "creator_peer_id", creatorPID.String(), "target_peer_id", targetPeerID, "error", err)
-			return GroupInviteRequestInfo{}, fmt.Errorf("%s: could not reach group creator: %w", errCreatorUnreachable, err)
-		}
-		if !resp.OK || resp.Record == nil {
-			msg := "remote invite submit failed"
-			if resp != nil && strings.TrimSpace(resp.Error) != "" {
-				msg = strings.TrimSpace(resp.Error)
-			}
-			slog.Warn("invite request: creator rejected or wire failed", "group_id", groupID, "creator_peer_id", creatorPID.String(), "target_peer_id", targetPeerID, "detail", msg)
-			return GroupInviteRequestInfo{}, errors.New(msg)
-		}
-		wireRec := inviteWireToRecord(resp.Record)
-		wireRec.IsMirror = true
-		if err := database.UpsertGroupInviteRequestMirror(wireRec); err != nil {
-			return GroupInviteRequestInfo{}, err
-		}
-		out, err := database.GetGroupInviteRequest(wireRec.RequestID)
-		if err != nil {
-			return GroupInviteRequestInfo{}, err
-		}
-		r.emit("group:invite_request_changed", map[string]interface{}{
-			"group_id":   groupID,
-			"request_id": wireRec.RequestID,
-			"status":     store.InviteRequestStatusPending,
-			"reason":     "created_mirror",
-		})
-		return toInviteRequestInfo(out), nil
+	// Non-creator path: forward to the creator regardless of local policy.
+	//
+	// Why we always forward instead of branching on local policy:
+	//   - Single-Writer Invariant (PROJECT_PLAN §6.1, coordinator.go:553)
+	//     forbids any node that is not the current Token Holder from issuing
+	//     an MLS Commit. Members other than the creator are not the Token
+	//     Holder by default, so a local AddMember would fail with
+	//     ErrNotTokenHolder anyway.
+	//   - "any_member" semantically means "creator auto-approves any member
+	//     submission", not "member commits independently". The creator is
+	//     the only node that holds the Token at epoch 0+1 in our setup, so
+	//     the actual MLS execution must happen on the creator's runtime.
+	//   - Local policy may be stale (we lack a proactive policy push). The
+	//     wire handler reads the creator's authoritative policy and decides
+	//     the flow there.
+	//
+	creatorPID, err := r.resolveGroupCreatorPeerID(groupID)
+	if err != nil {
+		slog.Warn("invite request: cannot resolve creator", "group_id", groupID, "target_peer_id", targetPeerID, "error", err)
+		return GroupInviteRequestInfo{}, err
 	}
-
-	id, err := newInviteRequestID()
+	// Pre-fetch the target's KeyPackage on the requester side and attach it
+	// to the wire submit. The requester is the node that just clicked
+	// "invite" so it is the most likely peer to have a verified connection
+	// with the target right now; the creator may have never met the target
+	// (different mDNS island, late join, etc.). Without this attachment,
+	// the creator's fetchPeerKeyPackage falls back to discovery / blind
+	// store and frequently fails — that is the production bug behind
+	// ERR_INVITE_ADD_MEMBER_FAILED on the creator side.
+	//
+	// Failure here is non-fatal — we still forward the submit. The creator
+	// will try its own fetch path; if that also fails the wire response
+	// surfaces the canonical error and the row stays in `failed` state for
+	// retry rather than silently disappearing.
+	var targetKP []byte
+	if targetID, decErr := peer.Decode(targetPeerID); decErr == nil {
+		if kp, kpErr := r.fetchPeerKeyPackage(targetID); kpErr == nil && len(kp) > 0 {
+			targetKP = kp
+		} else if kpErr != nil {
+			slog.Debug("invite request: requester KP pre-fetch failed (non-fatal)",
+				"group_id", groupID, "target_peer_id", targetPeerID, "error", kpErr)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+	defer cancel()
+	resp, err := r.groupInviteWireCall(ctx, creatorPID, &p2p.GroupInviteWireClientReqV1{
+		V:                1,
+		Op:               "submit",
+		GroupID:          groupID,
+		TargetPeerID:     targetPeerID,
+		TargetKeyPackage: targetKP,
+	})
+	if err != nil {
+		slog.Warn("invite request: creator unreachable", "group_id", groupID, "creator_peer_id", creatorPID.String(), "target_peer_id", targetPeerID, "error", err)
+		return GroupInviteRequestInfo{}, fmt.Errorf("%s: could not reach group creator: %w", errCreatorUnreachable, err)
+	}
+	if !resp.OK || resp.Record == nil {
+		msg := "remote invite submit failed"
+		if resp != nil && strings.TrimSpace(resp.Error) != "" {
+			msg = strings.TrimSpace(resp.Error)
+		}
+		slog.Warn("invite request: creator rejected or wire failed", "group_id", groupID, "creator_peer_id", creatorPID.String(), "target_peer_id", targetPeerID, "detail", msg)
+		return GroupInviteRequestInfo{}, errors.New(msg)
+	}
+	wireRec := inviteWireToRecord(resp.Record)
+	wireRec.IsMirror = true
+	if err := database.UpsertGroupInviteRequestMirror(wireRec); err != nil {
+		return GroupInviteRequestInfo{}, err
+	}
+	out, err := database.GetGroupInviteRequest(wireRec.RequestID)
 	if err != nil {
 		return GroupInviteRequestInfo{}, err
 	}
-	now := time.Now().Unix()
-	rec := store.GroupInviteRequestRecord{
-		RequestID:       id,
-		GroupID:         groupID,
-		RequesterPeerID: requester,
-		TargetPeerID:    targetPeerID,
-		Status:          store.InviteRequestStatusPending,
-		MaxAttempts:     maxInviteRetryAttempts,
-		ExpiresAt:       now + int64(inviteRequestTTL.Seconds()),
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-	if err := database.CreateGroupInviteRequest(rec); err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "unique") {
-			return GroupInviteRequestInfo{}, fmt.Errorf("%s: active request already exists for this target", errInviteDuplicateActive)
-		}
-		return GroupInviteRequestInfo{}, err
-	}
+	// Use the creator-side status when emitting so the UI can render the
+	// outcome immediately (any_member auto-approves to "approved", while
+	// creator_approval stays "pending").
 	r.emit("group:invite_request_changed", map[string]interface{}{
 		"group_id":   groupID,
-		"request_id": id,
-		"status":     store.InviteRequestStatusPending,
-		"reason":     "created",
+		"request_id": wireRec.RequestID,
+		"status":     out.Status,
+		"reason":     "created_mirror",
 	})
-	if policy == store.GroupInvitePolicyAnyMember {
-		if err := r.processInviteRequest(id, true); err != nil {
-			// keep row terminal state (failed/permanently_failed) for visibility.
-		}
-	}
-	out, err := database.GetGroupInviteRequest(id)
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
 	return toInviteRequestInfo(out), nil
 }
 
@@ -398,106 +401,18 @@ func (r *Runtime) RejectGroupInviteRequest(requestID, reason string) (GroupInvit
 	return toInviteRequestInfo(out), nil
 }
 
-func (r *Runtime) CancelGroupInviteRequest(requestID string) (GroupInviteRequestInfo, error) {
-	requestID = strings.TrimSpace(requestID)
-	if requestID == "" {
-		return GroupInviteRequestInfo{}, fmt.Errorf("%s: request ID is required", errInviteNotFound)
-	}
-	requester, err := r.localPeerID()
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
-	r.mu.RLock()
-	database := r.db
-	r.mu.RUnlock()
-	if database == nil {
-		return GroupInviteRequestInfo{}, fmt.Errorf("database not initialized")
-	}
-	rec, err := database.GetGroupInviteRequest(requestID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return GroupInviteRequestInfo{}, fmt.Errorf("%s: request not found", errInviteNotFound)
-	}
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
-	if rec.IsMirror {
-		if requester != rec.RequesterPeerID {
-			return GroupInviteRequestInfo{}, fmt.Errorf("%s: only creator or requester can cancel", errInviteForbidden)
-		}
-		if rec.Status == store.InviteRequestStatusProcessing {
-			return GroupInviteRequestInfo{}, fmt.Errorf("%s: request is processing", errInviteStateConflict)
-		}
-		creatorPID, err := r.resolveGroupCreatorPeerID(rec.GroupID)
-		if err != nil {
-			return GroupInviteRequestInfo{}, err
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		defer cancel()
-		resp, err := r.groupInviteWireCall(ctx, creatorPID, &p2p.GroupInviteWireClientReqV1{V: 1, Op: "cancel", RequestID: requestID})
-		if err != nil {
-			return GroupInviteRequestInfo{}, fmt.Errorf("%s: could not reach group creator: %w", errCreatorUnreachable, err)
-		}
-		if !resp.OK || resp.Record == nil {
-			msg := "remote cancel failed"
-			if resp != nil && strings.TrimSpace(resp.Error) != "" {
-				msg = strings.TrimSpace(resp.Error)
-			}
-			return GroupInviteRequestInfo{}, errors.New(msg)
-		}
-		wireRec := inviteWireToRecord(resp.Record)
-		wireRec.IsMirror = true
-		if err := database.UpsertGroupInviteRequestMirror(wireRec); err != nil {
-			return GroupInviteRequestInfo{}, err
-		}
-		out, err := database.GetGroupInviteRequest(requestID)
-		if err != nil {
-			return GroupInviteRequestInfo{}, err
-		}
-		r.emit("group:invite_request_decided", map[string]interface{}{
-			"group_id":       rec.GroupID,
-			"request_id":     requestID,
-			"status":         store.InviteRequestStatusCancelled,
-			"requester_id":   rec.RequesterPeerID,
-			"target_peer_id": rec.TargetPeerID,
-		})
-		return toInviteRequestInfo(out), nil
-	}
-
-	isCreator, err := r.isLocalCreator(rec.GroupID)
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
-	if !isCreator && requester != rec.RequesterPeerID {
-		return GroupInviteRequestInfo{}, fmt.Errorf("%s: only creator or requester can cancel", errInviteForbidden)
-	}
-	if rec.Status == store.InviteRequestStatusProcessing {
-		return GroupInviteRequestInfo{}, fmt.Errorf("%s: request is processing", errInviteStateConflict)
-	}
-	ok, err := database.TryTransitionInviteRequest(requestID,
-		[]string{store.InviteRequestStatusPending, store.InviteRequestStatusFailed, store.InviteRequestStatusPermanentlyFailed},
-		store.InviteRequestStatusCancelled,
-		store.InviteRequestTransitionPatch{ClearFailure: true},
-	)
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
-	if !ok {
-		return GroupInviteRequestInfo{}, fmt.Errorf("%s: request cannot be cancelled in current state", errInviteStateConflict)
-	}
-	out, err := database.GetGroupInviteRequest(requestID)
-	if err != nil {
-		return GroupInviteRequestInfo{}, err
-	}
-	r.maybePushInviteUpdate(context.Background(), out)
-	r.emit("group:invite_request_decided", map[string]interface{}{
-		"group_id":       rec.GroupID,
-		"request_id":     requestID,
-		"status":         store.InviteRequestStatusCancelled,
-		"requester_id":   rec.RequesterPeerID,
-		"target_peer_id": rec.TargetPeerID,
-	})
-	return toInviteRequestInfo(out), nil
-}
+// CancelGroupInviteRequest was intentionally removed (2026-05-10): in a
+// serverless P2P mesh, racing a requester-side cancel against a concurrent
+// creator-side approve would require CRDT-style coordination across the
+// gossip network to avoid split-brain (e.g. cancel succeeds locally while
+// the approve already produced a Welcome). For thesis scope we keep only the
+// two well-defined transitions:
+//   - Creator: ApproveGroupInviteRequest (advances to processing/approved)
+//   - Creator: RejectGroupInviteRequest (terminal rejected with reason)
+// A requester who changes their mind simply waits — once auto-join has run
+// they can opt out via LeaveGroup. Status `cancelled` remains in the schema
+// for backward compatibility with rows persisted before this change but is
+// no longer produced by any code path.
 
 func (r *Runtime) SyncInviteRequestFromCreator(requestID string) (GroupInviteRequestInfo, error) {
 	requestID = strings.TrimSpace(requestID)
@@ -717,6 +632,17 @@ func (r *Runtime) processInviteRequest(requestID string, allowAnyMember bool) er
 	})
 	if err != nil {
 		return err
+	}
+
+	// Link the invite request row to its MLS operation so UI / API can show
+	// the joint lifecycle (approved + waiting for commit + waiting for
+	// Welcome). We resolve the operation by (group, target) since
+	// InvitePeerToGroup just upserted a row for that pair.
+	if ops, listErr := database.ListGroupAddOperationsForTarget(rec.GroupID, rec.TargetPeerID); listErr == nil && len(ops) > 0 {
+		if linkErr := database.LinkInviteRequestToAddOperation(requestID, ops[0].OperationID); linkErr != nil {
+			slog.Debug("LinkInviteRequestToAddOperation skipped",
+				"request_id", requestID, "operation_id", ops[0].OperationID, "err", linkErr)
+		}
 	}
 	return nil
 }

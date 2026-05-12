@@ -118,6 +118,16 @@ func (g *GrpcMLSEngine) HasMember(ctx context.Context, groupState []byte, identi
 	return resp.GetIsMember(), nil
 }
 
+func (g *GrpcMLSEngine) ListMemberIdentities(ctx context.Context, groupState []byte) ([][]byte, error) {
+	resp, err := g.client.ListMemberIdentities(ctx, &mls_service.ListMemberIdentitiesRequest{
+		GroupState: groupState,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("grpc ListMemberIdentities: %w", err)
+	}
+	return resp.GetIdentities(), nil
+}
+
 func (g *GrpcMLSEngine) EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) (ciphertext, newGroupState []byte, err error) {
 	resp, err := g.client.EncryptMessage(ctx, &mls_service.EncryptMessageRequest{
 		GroupState: groupState,

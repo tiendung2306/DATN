@@ -320,6 +320,7 @@ func (r *Runtime) launchP2PNode() error {
 
 	go r.advertiseKeyPackage()
 	go r.offlineEnvelopeGCLoop(nodeCtx)
+	go r.processPendingWelcomesOnStartup(nodeCtx)
 
 	return nil
 }

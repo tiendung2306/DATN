@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type BackupGroupRecord struct {
 	GroupID         string
@@ -8,6 +11,8 @@ type BackupGroupRecord struct {
 	Epoch           uint64
 	TreeHash        []byte
 	MyRole          string
+	GroupType       string
+	CategoryID      string
 	LifecycleStatus string
 	LeftAt          int64
 }
@@ -38,6 +43,7 @@ type BackupPendingInvite struct {
 	ID            string
 	GroupID       string
 	GroupType     string
+	CategoryID    string
 	GroupName     string
 	InviterPeerID string
 	WelcomeBytes  []byte
@@ -48,7 +54,7 @@ type BackupPendingInvite struct {
 }
 
 func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
-	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role, lifecycle_status, left_at FROM mls_groups`)
+	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, lifecycle_status, left_at FROM mls_groups`)
 	if err != nil {
 		return nil, fmt.Errorf("GetAllGroupsForBackup: %w", err)
 	}
@@ -57,7 +63,7 @@ func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
 	var out []BackupGroupRecord
 	for rows.Next() {
 		var rec BackupGroupRecord
-		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole, &rec.LifecycleStatus, &rec.LeftAt); err != nil {
+		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole, &rec.GroupType, &rec.CategoryID, &rec.LifecycleStatus, &rec.LeftAt); err != nil {
 			return nil, fmt.Errorf("GetAllGroupsForBackup scan: %w", err)
 		}
 		out = append(out, rec)
@@ -133,7 +139,7 @@ func (d *Database) GetAllPendingWelcomesForBackup() ([]BackupPendingWelcome, err
 
 func (d *Database) GetAllPendingInvitesForBackup() ([]BackupPendingInvite, error) {
 	rows, err := d.Conn.Query(
-		`SELECT id, group_id, group_type, group_name, inviter_peer_id, welcome_bytes, source_peer_id, status, received_at, updated_at
+		`SELECT id, group_id, group_type, category_id, group_name, inviter_peer_id, welcome_bytes, source_peer_id, status, received_at, updated_at
 		 FROM pending_invites
 		 ORDER BY received_at ASC`,
 	)
@@ -149,6 +155,7 @@ func (d *Database) GetAllPendingInvitesForBackup() ([]BackupPendingInvite, error
 			&rec.ID,
 			&rec.GroupID,
 			&rec.GroupType,
+			&rec.CategoryID,
 			&rec.GroupName,
 			&rec.InviterPeerID,
 			&rec.WelcomeBytes,
@@ -189,17 +196,23 @@ func (d *Database) RestoreGroupsFromBackup(groups []BackupGroupRecord) error {
 			status = GroupLifecycleActive
 		}
 		_, err := d.Conn.Exec(
-			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, lifecycle_status, left_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, lifecycle_status, left_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(group_id) DO UPDATE SET
 			     group_state = excluded.group_state,
 			     epoch = excluded.epoch,
 			     tree_hash = excluded.tree_hash,
 			     my_role = excluded.my_role,
+			     group_type = CASE WHEN trim(excluded.group_type) <> '' THEN excluded.group_type ELSE mls_groups.group_type END,
+			     category_id = CASE
+			       WHEN lower(COALESCE(NULLIF(trim(excluded.group_type), ''), mls_groups.group_type)) = 'channel'
+			         THEN CASE WHEN trim(excluded.category_id) <> '' THEN excluded.category_id ELSE mls_groups.category_id END
+			       ELSE ''
+			     END,
 			     lifecycle_status = excluded.lifecycle_status,
 			     left_at = excluded.left_at,
 			     updated_at = CURRENT_TIMESTAMP`,
-			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole, status, g.LeftAt,
+			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole, strings.TrimSpace(g.GroupType), strings.TrimSpace(g.CategoryID), status, g.LeftAt,
 		)
 		if err != nil {
 			return fmt.Errorf("RestoreGroupsFromBackup(%s): %w", g.GroupID, err)
@@ -246,6 +259,7 @@ func (d *Database) RestorePendingInvitesFromBackup(records []BackupPendingInvite
 			ID:            r.ID,
 			GroupID:       r.GroupID,
 			GroupType:     r.GroupType,
+			CategoryID:    r.CategoryID,
 			GroupName:     r.GroupName,
 			InviterPeerID: r.InviterPeerID,
 			WelcomeBytes:  r.WelcomeBytes,

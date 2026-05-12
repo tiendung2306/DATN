@@ -10,14 +10,14 @@ func TestSavePendingInviteFromWelcome_RejectTombstoneStickyOnPassiveRefresh(t *t
 	rt := setupMembershipRuntime(t)
 	groupID := "group-reject-sticky"
 	welcome := []byte("welcome-1")
-	if err := rt.savePendingInviteFromWelcome(groupID, "group", welcome, "peer-a", true); err != nil {
+	if err := rt.savePendingInviteFromWelcome(groupID, "group", "", welcome, "peer-a", true); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome initial: %v", err)
 	}
 	inviteID := store.PendingInviteID(groupID, welcome)
 	if err := rt.RejectInvite(inviteID); err != nil {
 		t.Fatalf("RejectInvite: %v", err)
 	}
-	if err := rt.savePendingInviteFromWelcome(groupID, "group", welcome, "peer-a", false); err != nil {
+	if err := rt.savePendingInviteFromWelcome(groupID, "group", "", welcome, "peer-a", false); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome passive: %v", err)
 	}
 	rows, err := rt.db.ListPendingInvites(false)
@@ -34,14 +34,14 @@ func TestSavePendingInviteFromWelcome_ReinviteReopensRejected(t *testing.T) {
 	groupID := "group-reinvite"
 	first := []byte("welcome-1")
 	second := []byte("welcome-2")
-	if err := rt.savePendingInviteFromWelcome(groupID, "group", first, "peer-a", true); err != nil {
+	if err := rt.savePendingInviteFromWelcome(groupID, "group", "", first, "peer-a", true); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome first: %v", err)
 	}
 	firstID := store.PendingInviteID(groupID, first)
 	if err := rt.RejectInvite(firstID); err != nil {
 		t.Fatalf("RejectInvite: %v", err)
 	}
-	if err := rt.savePendingInviteFromWelcome(groupID, "group", second, "peer-a", true); err != nil {
+	if err := rt.savePendingInviteFromWelcome(groupID, "group", "", second, "peer-a", true); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome reinvite: %v", err)
 	}
 	rows, err := rt.db.ListPendingInvites(false)
