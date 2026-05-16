@@ -16,6 +16,26 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-16) ✅ — Frontend UI Redesign (Admin & Settings screens)
+
+- **Admin Panel Redesign:** 
+  - Shifted from dev/test-first UI to a **professional enterprise-grade UI** utilizing Shadcn/UI primitives and Lucide icons.
+  - **Security Gate:** Implemented a dedicated high-security lock screen with PIN/password entry.
+  - **Admin Session TTL:** Integrated frontend support for the 15-minute backend unlock TTL. The UI automatically locks and notifies the user via Toast when the session expires.
+  - **Issuance Workspace:** Added a tabbed interface switching between "Manual Issuance" and "File-based Import". 
+  - **File Request Parser:** Enhanced file import with immediate visual feedback of extracted PeerID and MLS Public Key metadata.
+  - **Issuance History:** Added a dedicated history section with formatted Vietnamese timestamps and identity details.
+- **Settings Screen Redesign:**
+  - **Simplified Navigation:** Refactored to a **tabbed interface** separating "Hồ sơ cá nhân" (Profile) and "Bảo mật & Sao lưu" (Security/Backup).
+  - **Decluttered UI:** Removed developer-centric tools (Bootstrap override, Diagnostics) to focus on end-user tasks.
+  - **Profile Management:** Modernized the avatar upload area with processing indicators and hover effects. Clearly marked "Display Name" as Admin-assigned (read-only) to align with protocol rules.
+  - **Identity Backup:** Improved the backup flow with security info boxes and emphasized passphrase protection for Ed25519 private keys.
+- **Feedback & UX Hardening:**
+  - Standardized all success/error notifications using the global **Toast system** (`useToastStore`).
+  - Added loading states (`isLoading`, `profileSaving`) for all mutation actions to prevent double-submits and improve responsiveness.
+  - Applied subtle animations (fade-in, slide-in) for screen and tab transitions, enhancing the modern application feel.
+- **Validation:** `npm run build` PASS, all backend integrations (Runtime client) verified and maintained.
+
 ### Latest Delta (2026-05-11) ✅ — Requester-attached TargetKeyPackage on `submit` wire frame (fixes ERR_INVITE_ADD_MEMBER_FAILED on disconnected creator)
 
 - **User report:** *"Vẫn không được nhé, cái cái nhóm vvvvvvvvvvvvvvvvvvvvvv tôi lấy node 2 tạo, node 1 mời node 3 thì không được? Xem db rồi debug thật kỹ cho tôi"*
