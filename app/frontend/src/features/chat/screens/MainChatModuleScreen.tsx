@@ -10,8 +10,10 @@ import { useChatActions } from '../hooks/useChatActions'
 import { useChannelCategories } from '../hooks/useChannelCategories'
 import SettingsScreen from '../../settings/screens/SettingsScreen'
 import AdminPanelScreen from '../../admin/screens/AdminPanelScreen'
+import ActivityScreen from '../../activity/screens/ActivityScreen'
 import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
 import { getConversationKind } from '../../../lib/chatModel'
+import { useNotificationStore } from '../../../stores/useNotificationStore'
 
 interface MainChatModuleScreenProps {
   isAdmin: boolean
@@ -20,6 +22,13 @@ interface MainChatModuleScreenProps {
 export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenProps) {
   const [activeModule, setActiveModule] = useState<WorkspaceModule>('chat')
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const unreadNotificationCount = useNotificationStore((s) => s.unreadCount)
+  const fetchUnreadNotificationCount = useNotificationStore((s) => s.fetchUnreadCount)
+
+  useEffect(() => {
+    fetchUnreadNotificationCount()
+  }, [])
+
   const {
     categories: channelCategories,
     refresh: refreshChannelCategories,
@@ -51,6 +60,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
 
   useChatEvents({
     activeGroupId,
+    activeModule,
     localPeerId,
     refreshGroups,
     refreshNodeStatus,
@@ -124,6 +134,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           activeModule={activeModule}
           onSelectModule={setActiveModule}
           isAdmin={isAdmin}
+          unreadNotificationCount={unreadNotificationCount}
         />
         <MainSidebar
           displayName={displayName}
@@ -182,10 +193,12 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
           />
         ) : null}
         {activeModule === 'activity' ? (
-          <section
-            className="min-h-0 min-w-0 flex-1 bg-slate-900"
-            aria-label="Hoạt động"
-          />
+          <section className="min-h-0 min-w-0 flex-1 bg-slate-900">
+            <ActivityScreen 
+              onSelectGroup={handleSelectGroup}
+              onSwitchToChat={() => setActiveModule('chat')}
+            />
+          </section>
         ) : null}
         {activeModule === 'settings' ? (
           <section className="min-w-0 flex-1 overflow-y-auto bg-slate-900">

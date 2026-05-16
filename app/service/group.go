@@ -1026,6 +1026,9 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 			}
 		}
 
+		// Generate notifications for mentions and replies
+		r.processNotificationsForMessage(msg)
+
 		r.emit("group:message", map[string]interface{}{
 			"message_id": msg.MessageID,
 			"group_id":   msg.GroupID,

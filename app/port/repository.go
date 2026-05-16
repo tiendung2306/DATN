@@ -37,3 +37,13 @@ type InviteRepo interface {
 type CoordinationStore interface {
 	coordination.CoordinationStorage
 }
+
+// NotificationRepo manages user notifications.
+type NotificationRepo interface {
+	InsertNotification(n *domain.Notification) error
+	ListNotifications(limit, offset int) ([]*domain.Notification, error)
+	MarkNotificationRead(id string) error
+	MarkAllNotificationsRead() error
+	GetUnreadNotificationCount() (int, error)
+	DeleteOldNotifications(days int) error
+}

@@ -554,6 +554,20 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_replicated_record_blobs_hash
 			ON replicated_record_blobs(blob_hash);`,
+
+		// Notifications for the Activity Tab.
+		`CREATE TABLE IF NOT EXISTS notifications (
+			id             TEXT PRIMARY KEY,
+			type           TEXT    NOT NULL,
+			group_id       TEXT    NOT NULL,
+			actor_peer_id  TEXT    NOT NULL,
+			target_id      TEXT    NOT NULL,
+			content        TEXT,
+			is_read        BOOLEAN NOT NULL DEFAULT 0,
+			created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);`,
+		`CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);`,
 	}
 
 	for _, q := range queries {

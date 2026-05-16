@@ -1,22 +1,33 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { service } from '../../../../wailsjs/go/models'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
-import { messageInfoToChatMessage } from '../../../lib/chatModel'
+import { messageInfoToChatMessage, shortPeerId } from '../../../lib/chatModel'
 import { useChatStore } from '../../../stores/useChatStore'
 import { useContactStore } from '../../../stores/useContactStore'
 import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useToastStore } from '../../../stores/useToastStore'
+import { useNotificationStore } from '../../../stores/useNotificationStore'
 import { GroupEpochPayload, GroupLeftPayload, GroupMembersChangedPayload } from './chatTypes'
 
 interface InviteAutoJoinedPayload {
-  id?: string
-  group_id?: string
-  group_type?: string
-  inviter_peer?: string
+	id?: string
+	group_id?: string
+	group_type?: string
+	inviter_peer?: string
+}
+
+interface NotificationNewPayload {
+	id: string
+	type: string
+	group_id: string
+	actor_id: string
+	actor_name: string
+	content: string
 }
 
 interface UseChatEventsOptions {
   activeGroupId: string | null
+  activeModule: string
   localPeerId: string
   refreshGroups: () => Promise<void>
   refreshNodeStatus: () => Promise<void>
@@ -26,6 +37,7 @@ interface UseChatEventsOptions {
 
 export function useChatEvents({
   activeGroupId,
+  activeModule,
   localPeerId,
   refreshGroups,
   refreshNodeStatus,
@@ -206,6 +218,33 @@ export function useChatEvents({
     })
   }, [])
 
+  const handleNotificationNew = useCallback(
+    async (payload: NotificationNewPayload) => {
+      await useNotificationStore.getState().fetchUnreadCount()
+      
+      if (activeModule === 'activity') {
+        await useNotificationStore.getState().fetchNotifications()
+      } else {
+        // Show Toast for the new notification
+        const actor = payload.actor_name || shortPeerId(payload.actor_id)
+        let title = 'Thông báo mới'
+        if (payload.type === 'mention') title = `${actor} đã nhắc đến bạn`
+        else if (payload.type === 'reply') title = `${actor} đã trả lời bạn`
+        else if (payload.type === 'group_add') title = `${actor} đã thêm bạn vào nhóm`
+        else if (payload.type === 'invite_request') title = `${actor} muốn tham gia nhóm`
+        else if (payload.type === 'invite_approved') title = `Yêu cầu tham gia đã được duyệt`
+        else if (payload.type === 'invite_rejected') title = `Yêu cầu tham gia bị từ chối`
+
+        useToastStore.getState().pushToast({
+          title,
+          description: payload.content || 'Bấm để xem chi tiết',
+          variant: 'default',
+        })
+      }
+    },
+    [activeModule],
+  )
+
   useWailsEvent<service.MessageInfo>('group:message', handleGroupMessage)
   useWailsEvent<GroupEpochPayload>('group:epoch', handleGroupEpoch)
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
@@ -217,4 +256,5 @@ export function useChatEvents({
   useWailsEvent<{ group_id?: string; file_id?: string; bytes?: number }>('file:prepare', handleFilePrepare)
   useWailsEvent<{ group_id?: string; file_id?: string; peer?: string }>('file:sent', handleFileSent)
   useWailsEvent<{ group_id?: string; file_id?: string; path?: string }>('file:received', handleFileReceived)
+  useWailsEvent<NotificationNewPayload>('notification:new', handleNotificationNew)
 }

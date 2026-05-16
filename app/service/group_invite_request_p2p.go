@@ -12,6 +12,7 @@ import (
 
 	"app/adapter/p2p"
 	"app/adapter/store"
+	"app/domain"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -223,6 +224,10 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		"status":     store.InviteRequestStatusPending,
 		"reason":     "created_remote",
 	})
+
+	// Notification for the Creator about a new member request
+	r.insertNotification(domain.NotificationTypeInviteRequest, groupID, remote.String(), id, "")
+
 	// any_member auto-approve: creator (= Token Holder by default) commits
 	// the AddMember locally so the requester does not need to wait for a
 	// manual approval step. Failures keep the row pending/failed for retry
@@ -308,6 +313,18 @@ func (r *Runtime) applyInviteRequestPushFromCreator(remote peer.ID, push *p2p.Gr
 		"status":     rec.Status,
 		"reason":     "push",
 	})
+
+	if rec.Status == store.InviteRequestStatusApproved {
+		local, _ := r.localPeerID()
+		if local != "" && rec.RequesterPeerID == local {
+			r.insertNotification(domain.NotificationTypeInviteApproved, rec.GroupID, remote.String(), rec.RequestID, "")
+		}
+	} else if rec.Status == store.InviteRequestStatusRejected {
+		local, _ := r.localPeerID()
+		if local != "" && rec.RequesterPeerID == local {
+			r.insertNotification(domain.NotificationTypeInviteRejected, rec.GroupID, remote.String(), rec.RequestID, "")
+		}
+	}
 }
 
 func (r *Runtime) resolveGroupCreatorPeerID(groupID string) (peer.ID, error) {

@@ -6,12 +6,14 @@ interface WorkspaceRailProps {
   activeModule: WorkspaceModule
   onSelectModule: (module: WorkspaceModule) => void
   isAdmin: boolean
+  unreadNotificationCount?: number
 }
 
 export default function WorkspaceRail({
   activeModule,
   onSelectModule,
   isAdmin,
+  unreadNotificationCount = 0,
 }: WorkspaceRailProps) {
   const itemClass = (id: WorkspaceModule) =>
     `relative flex w-full flex-col items-center gap-1 rounded-xl px-1 py-2 text-[10px] font-medium transition ${
@@ -32,6 +34,11 @@ export default function WorkspaceRail({
           title="Hoạt động"
         >
           <Bell className="h-5 w-5" />
+          {unreadNotificationCount > 0 && (
+            <span className="absolute right-3 top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white ring-2 ring-slate-950">
+              {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+            </span>
+          )}
           <span className="leading-tight text-center">Hoạt động</span>
         </button>
 

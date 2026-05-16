@@ -11,6 +11,7 @@ type Repos struct {
 	Config         port.ConfigRepo
 	Invite         port.InviteRepo
 	Coordination   port.CoordinationStore
+	Notifications  port.NotificationRepo
 	DB             *Database
 	CoordinationDB *SQLiteCoordinationStorage
 }
@@ -23,6 +24,7 @@ func NewRepos(d *Database) *Repos {
 		Config:         configRepo{d},
 		Invite:         inviteRepo{d},
 		Coordination:   coord,
+		Notifications:  notificationRepo{d},
 		DB:             d,
 		CoordinationDB: coord,
 	}
@@ -136,9 +138,31 @@ func (r inviteRepo) MarkWelcomeDelivered(id int64) error {
 	return r.d.MarkWelcomeDelivered(id)
 }
 
+type notificationRepo struct{ d *Database }
+
+func (r notificationRepo) InsertNotification(n *domain.Notification) error {
+	return r.d.InsertNotification(n)
+}
+func (r notificationRepo) ListNotifications(limit, offset int) ([]*domain.Notification, error) {
+	return r.d.ListNotifications(limit, offset)
+}
+func (r notificationRepo) MarkNotificationRead(id string) error {
+	return r.d.MarkNotificationRead(id)
+}
+func (r notificationRepo) MarkAllNotificationsRead() error {
+	return r.d.MarkAllNotificationsRead()
+}
+func (r notificationRepo) GetUnreadNotificationCount() (int, error) {
+	return r.d.GetUnreadNotificationCount()
+}
+func (r notificationRepo) DeleteOldNotifications(days int) error {
+	return r.d.DeleteOldNotifications(days)
+}
+
 var (
-	_ port.IdentityRepo       = identityRepo{}
-	_ port.ConfigRepo         = configRepo{}
-	_ port.InviteRepo         = inviteRepo{}
-	_ port.CoordinationStore  = (*SQLiteCoordinationStorage)(nil)
+	_ port.IdentityRepo      = identityRepo{}
+	_ port.ConfigRepo        = configRepo{}
+	_ port.InviteRepo        = inviteRepo{}
+	_ port.CoordinationStore = (*SQLiteCoordinationStorage)(nil)
+	_ port.NotificationRepo  = notificationRepo{}
 )

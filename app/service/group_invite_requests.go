@@ -97,6 +97,11 @@ func (r *Runtime) runInviteMaintenanceSweep() {
 	if _, err := database.CleanupAppliedWelcomes(now - int64(appliedWelcomeRetention.Seconds())); err != nil {
 		slog.Debug("invite maintenance: cleanup applied welcomes", "err", err)
 	}
+
+	// Keep notifications for 30 days
+	if err := database.DeleteOldNotifications(30); err != nil {
+		slog.Debug("notification maintenance: cleanup failed", "err", err)
+	}
 }
 
 func (r *Runtime) GetGroupInvitePolicy(groupID string) (string, error) {

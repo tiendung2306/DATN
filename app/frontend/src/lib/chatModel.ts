@@ -52,6 +52,28 @@ export function formatMessageTime(timestampMs: number): string {
   })
 }
 
+export function formatRelativeTime(timestampMs: number): string {
+  if (!timestampMs) return ''
+  const now = Date.now()
+  const diff = now - timestampMs
+  const seconds = Math.floor(diff / 1000)
+  
+  if (seconds < 30) return 'Vừa xong' // Handle real-time and slight future/skew
+  
+  if (seconds < 60) return `${seconds} giây trước`
+  
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} phút trước`
+  
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} giờ trước`
+  
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} ngày trước`
+  
+  return new Date(timestampMs).toLocaleDateString()
+}
+
 export function shortPeerId(peerId: string): string {
   if (!peerId) return ''
   if (peerId.length <= 14) return peerId

@@ -251,6 +251,9 @@ func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupReco
 	defer func() { _ = tx.Rollback() }()
 
 	hash := sha256.Sum256(envelope)
+	msg.EnvelopeHash = hash[:]
+	msg.MessageID = hex.EncodeToString(hash[:])
+
 	applied, err := hasAppliedEnvelopeTx(tx, rec.GroupID, hash[:])
 	if err != nil {
 		return false, 0, fmt.Errorf("ApplyApplication has-applied: %w", err)

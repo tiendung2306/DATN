@@ -51,6 +51,7 @@ import (
 	"app/adapter/p2p"
 	"app/adapter/store"
 	"app/coordination"
+	"app/domain"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -811,6 +812,10 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 			"group_type":   normalizedGroupType,
 			"inviter_peer": strings.TrimSpace(sourcePeerID),
 		})
+
+		// Generate notification
+		r.insertNotification(domain.NotificationTypeGroupAdd, groupID, sourcePeerID, groupID, "")
+
 		return nil
 	} else {
 		slog.Debug("auto-join via Welcome deferred",
