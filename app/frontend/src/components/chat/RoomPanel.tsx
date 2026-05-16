@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { formatLeaveGroupError, formatRemoveMemberError } from '../../lib/formatRemoveMemberError'
@@ -6,12 +6,21 @@ import { useContactStore } from '../../stores/useContactStore'
 import { useToastStore } from '../../stores/useToastStore'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
-import { LogOut, Settings, Shield, UserMinus, UserPlus, Users, X } from 'lucide-react'
+import { LogOut, Settings, Shield, UserMinus, UserPlus, Users, X, ImageIcon } from 'lucide-react'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import AddMemberModal from '../../features/chat/components/AddMemberModal'
 import { ConversationKind } from '../../lib/chatModel'
 import { formatOutboundSendError } from '../../lib/formatSendError'
 import { cn } from '@/lib/utils'
+import ChatListAvatar from './ChatListAvatar'
+import {
+  AVATAR_INPUT_MAX_BYTES,
+  AVATAR_OUTPUT_MAX_BYTES,
+  AvatarImageError,
+  compressAvatarFile,
+  formatBytesShort,
+  type CompressedAvatarResult,
+} from '../../lib/avatarImage'
 
 interface RoomPanelProps {
   activeGroupId: string | null
@@ -22,6 +31,8 @@ interface RoomPanelProps {
   onClose: () => void
   setActiveGroupId?: (id: string | null) => void
   refreshGroups?: () => Promise<void>
+  /** Current group chat image (data URL) when `activeKind === 'group'`. */
+  groupAvatarDataUrl?: string
 }
 
 type InviteListItem = {
@@ -42,6 +53,7 @@ export default function RoomPanel({
   onClose,
   setActiveGroupId,
   refreshGroups,
+  groupAvatarDataUrl = '',
 }: RoomPanelProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const pushToast = useToastStore((s) => s.pushToast)
@@ -60,6 +72,32 @@ export default function RoomPanel({
   )
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
   const canRemoveMembers = activeKind !== 'dm' && myRole === 'creator'
+
+  const groupAvatarFileRef = useRef<HTMLInputElement>(null)
+  const [pendingGroupCompressedAvatar, setPendingGroupCompressedAvatar] = useState<CompressedAvatarResult | null>(null)
+  const [groupAvatarPreviewUrl, setGroupAvatarPreviewUrl] = useState<string | null>(null)
+  const [removeGroupAvatarOnSave, setRemoveGroupAvatarOnSave] = useState(false)
+  const [groupAvatarProcessing, setGroupAvatarProcessing] = useState(false)
+
+  const revokeGroupAvatarPreview = useCallback(() => {
+    setGroupAvatarPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isGroupSettingsOpen) return
+    setPendingGroupCompressedAvatar(null)
+    setRemoveGroupAvatarOnSave(false)
+    revokeGroupAvatarPreview()
+  }, [isGroupSettingsOpen, activeGroupId, revokeGroupAvatarPreview])
+
+  useEffect(() => {
+    return () => {
+      revokeGroupAvatarPreview()
+    }
+  }, [revokeGroupAvatarPreview])
 
   useEffect(() => {
     if (!activeGroupId || activeKind === 'dm') {
@@ -153,32 +191,141 @@ export default function RoomPanel({
     setSettingsDraftPolicy(invitePolicy)
   }, [isGroupSettingsOpen, invitePolicy])
 
+  const hasStoredAvatar = Boolean(String(groupAvatarDataUrl || '').trim())
+  const avatarDirty =
+    activeKind === 'group' &&
+    canRemoveMembers &&
+    (pendingGroupCompressedAvatar !== null || (removeGroupAvatarOnSave && hasStoredAvatar))
+  const policyDirty = invitePolicy !== null && settingsDraftPolicy !== invitePolicy
+  const settingsDirty = policyDirty || avatarDirty
+
+  const handlePickGroupAvatarClick = () => groupAvatarFileRef.current?.click()
+
+  const handleGroupAvatarFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+
+    void (async () => {
+      setGroupAvatarProcessing(true)
+      try {
+        const out = await compressAvatarFile(f)
+        if (out.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
+          throw new AvatarImageError(`Ảnh sau xử lý vẫn vượt ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`)
+        }
+        setRemoveGroupAvatarOnSave(false)
+        revokeGroupAvatarPreview()
+        setGroupAvatarPreviewUrl(URL.createObjectURL(out.blob))
+        setPendingGroupCompressedAvatar(out)
+        if (out.wasCompressed) {
+          pushToast({
+            title: 'Đã tối ưu ảnh nhóm',
+            description: `${formatBytesShort(out.originalBytes)} → ${formatBytesShort(out.outputBytes)} (${out.width}×${out.height}). Bấm «Lưu» để áp dụng.`,
+            variant: 'default',
+          })
+        }
+      } catch (err) {
+        const msg = err instanceof AvatarImageError ? err.message : err instanceof Error ? err.message : String(err)
+        pushToast({ title: 'Không xử lý được ảnh', description: msg, variant: 'destructive' })
+        setPendingGroupCompressedAvatar(null)
+        revokeGroupAvatarPreview()
+      } finally {
+        setGroupAvatarProcessing(false)
+      }
+    })()
+  }
+
+  const handleDiscardGroupAvatarDraft = () => {
+    setPendingGroupCompressedAvatar(null)
+    revokeGroupAvatarPreview()
+  }
+
+  const handleMarkRemoveGroupAvatar = () => {
+    setPendingGroupCompressedAvatar(null)
+    revokeGroupAvatarPreview()
+    setRemoveGroupAvatarOnSave(true)
+  }
+
+  const displayGroupAvatarSrc =
+    groupAvatarPreviewUrl || (removeGroupAvatarOnSave ? '' : String(groupAvatarDataUrl || '').trim()) || ''
+
   const handleCloseGroupSettings = () => {
     if (invitePolicy !== null) {
       setSettingsDraftPolicy(invitePolicy)
     }
+    setPendingGroupCompressedAvatar(null)
+    setRemoveGroupAvatarOnSave(false)
+    revokeGroupAvatarPreview()
     setIsGroupSettingsOpen(false)
   }
 
   const handleSaveGroupSettings = async () => {
-    if (!activeGroupId || invitePolicy === null) return
-    if (settingsDraftPolicy === invitePolicy) {
+    if (!activeGroupId) return
+    const dirty = policyDirty || avatarDirty
+
+    if (!dirty) {
       setIsGroupSettingsOpen(false)
       return
     }
+
+    const pendingGroupSnap = pendingGroupCompressedAvatar
     setSavingPolicy(true)
     try {
-      await runtimeClient.setGroupInvitePolicy(activeGroupId, settingsDraftPolicy)
-      setInvitePolicy(settingsDraftPolicy)
-      pushToast({
-        title: 'Đã lưu cài đặt',
-        description:
-          settingsDraftPolicy === 'any_member'
-            ? 'Thành viên có thể mời người mới; hệ thống sẽ xử lý lời mời theo quy tắc nhóm.'
-            : 'Chỉ người tạo nhóm duyệt các yêu cầu mời từ thành viên khác.',
-        variant: 'default',
-      })
-      await loadPendingInviteRequests()
+      if (avatarDirty) {
+        let avatarChange = 0
+        let avatarBytes: number[] = []
+        if (removeGroupAvatarOnSave) {
+          avatarChange = 2
+        } else if (pendingGroupSnap) {
+          if (pendingGroupSnap.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
+            pushToast({
+              title: 'Ảnh quá lớn',
+              description: `Sau nén vẫn phải ≤ ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`,
+              variant: 'destructive',
+            })
+            return
+          }
+          avatarBytes = pendingGroupSnap.bytes
+          avatarChange = 1
+        }
+        await runtimeClient.saveGroupChatAvatar(activeGroupId, avatarBytes, avatarChange)
+        setPendingGroupCompressedAvatar(null)
+        setRemoveGroupAvatarOnSave(false)
+        revokeGroupAvatarPreview()
+        const desc =
+          avatarChange === 1 && pendingGroupSnap?.wasCompressed
+            ? `Ảnh nhóm đã lưu (còn ${formatBytesShort(pendingGroupSnap.outputBytes)}). Hiển thị trên thanh bên và tiêu đề (lưu cục bộ trên thiết bị này).`
+            : 'Ảnh hiển thị trên thanh bên và tiêu đề hội thoại (lưu cục bộ trên thiết bị này).'
+        pushToast({
+          title: 'Đã cập nhật ảnh nhóm',
+          description: desc,
+          variant: 'default',
+        })
+        if (refreshGroups) await refreshGroups()
+      }
+
+      if (policyDirty) {
+        if (invitePolicy === null) {
+          pushToast({
+            title: 'Chưa tải xong chính sách mời',
+            description: 'Đợi tải xong hoặc thử mở lại cài đặt.',
+            variant: 'destructive',
+          })
+          return
+        }
+        await runtimeClient.setGroupInvitePolicy(activeGroupId, settingsDraftPolicy)
+        setInvitePolicy(settingsDraftPolicy)
+        pushToast({
+          title: 'Đã lưu cài đặt',
+          description:
+            settingsDraftPolicy === 'any_member'
+              ? 'Thành viên có thể mời người mới; hệ thống sẽ xử lý lời mời theo quy tắc nhóm.'
+              : 'Chỉ người tạo nhóm duyệt các yêu cầu mời từ thành viên khác.',
+          variant: 'default',
+        })
+        await loadPendingInviteRequests()
+      }
+
       setIsGroupSettingsOpen(false)
     } catch (err) {
       pushToast(formatOutboundSendError(err))
@@ -186,9 +333,6 @@ export default function RoomPanel({
       setSavingPolicy(false)
     }
   }
-
-  const settingsDirty =
-    invitePolicy !== null && settingsDraftPolicy !== invitePolicy
 
   const handleLeaveGroup = async () => {
     if (!activeGroupId) return
@@ -305,9 +449,17 @@ export default function RoomPanel({
                 key={peer.peer_id}
                 className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2"
               >
-                <div>
-                  <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
-                  <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <ChatListAvatar
+                    variant="dm"
+                    displayName={getDisplayName(peer.peer_id)}
+                    imageUrl={peer.avatar_data_url}
+                    size="sm"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
+                    <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {canRemoveMembers && peer.peer_id !== localPeerId ? (
@@ -452,8 +604,13 @@ export default function RoomPanel({
         open={isGroupSettingsOpen}
         onOpenChange={(open) => {
           setIsGroupSettingsOpen(open)
-          if (!open && invitePolicy !== null) {
-            setSettingsDraftPolicy(invitePolicy)
+          if (!open) {
+            if (invitePolicy !== null) {
+              setSettingsDraftPolicy(invitePolicy)
+            }
+            setPendingGroupCompressedAvatar(null)
+            setRemoveGroupAvatarOnSave(false)
+            revokeGroupAvatarPreview()
           }
         }}
       >
@@ -481,7 +638,89 @@ export default function RoomPanel({
             </DialogHeader>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+            {activeKind === 'group' && canRemoveMembers ? (
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
+                <input
+                  ref={groupAvatarFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  onChange={handleGroupAvatarFileChange}
+                />
+                <div className="flex gap-3 border-b border-slate-800/80 pb-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80 text-emerald-400/90">
+                    <ImageIcon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-100">Ảnh đại diện nhóm</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      PNG, JPEG hoặc WebP — chọn ảnh gốc tới {AVATAR_INPUT_MAX_BYTES / (1024 * 1024)} MiB; app tự
+                      resize/nén còn tối đa {AVATAR_OUTPUT_MAX_BYTES / 1024} KiB trước khi lưu. Lưu cục bộ trên máy
+                      bạn.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-wrap items-center gap-3">
+                  {displayGroupAvatarSrc ? (
+                    <img
+                      src={displayGroupAvatarSrc}
+                      alt=""
+                      className="h-16 w-16 shrink-0 rounded-2xl border border-slate-700 object-cover shadow-inner shadow-black/30"
+                    />
+                  ) : (
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 text-[11px] text-slate-500">
+                      Chưa có ảnh
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="text-xs"
+                        disabled={savingPolicy || groupAvatarProcessing}
+                        onClick={handlePickGroupAvatarClick}
+                      >
+                        {groupAvatarProcessing ? 'Đang xử lý ảnh…' : 'Chọn ảnh…'}
+                      </Button>
+                      {pendingGroupCompressedAvatar ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs"
+                          disabled={savingPolicy || groupAvatarProcessing}
+                          onClick={handleDiscardGroupAvatarDraft}
+                        >
+                          Bỏ ảnh đang chọn
+                        </Button>
+                      ) : null}
+                      {hasStoredAvatar && !pendingGroupCompressedAvatar ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs text-amber-200/90 hover:text-amber-100"
+                          disabled={savingPolicy || groupAvatarProcessing}
+                          onClick={handleMarkRemoveGroupAvatar}
+                        >
+                          Xóa ảnh khi lưu
+                        </Button>
+                      ) : null}
+                    </div>
+                    {pendingGroupCompressedAvatar ? (
+                      <p className="truncate text-[11px] text-slate-400">
+                        Sẵn sàng lưu: {formatBytesShort(pendingGroupCompressedAvatar.outputBytes)} (
+                        {pendingGroupCompressedAvatar.width}×{pendingGroupCompressedAvatar.height})
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
               <div className="flex gap-3 border-b border-slate-800/80 pb-4">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80 text-emerald-400/90">
@@ -567,7 +806,7 @@ export default function RoomPanel({
             <Button
               type="button"
               size="sm"
-              disabled={savingPolicy || loadingPolicy || invitePolicy === null || !settingsDirty}
+              disabled={savingPolicy || groupAvatarProcessing || !settingsDirty || (loadingPolicy && policyDirty)}
               className="border border-emerald-600/50 bg-emerald-600 text-white shadow-sm shadow-emerald-950/40 hover:bg-emerald-500 disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none"
               onClick={() => void handleSaveGroupSettings()}
             >

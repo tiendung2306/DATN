@@ -6,7 +6,7 @@ import { useContactStore } from '../../stores/useContactStore'
 import { Info, Lock, Loader2 } from 'lucide-react'
 import { service } from '../../../wailsjs/go/models'
 import { useMentions } from '../../features/chat/hooks/useMentions'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
 import ChatListAvatar from './ChatListAvatar'
 import { ConversationKind } from '../../lib/chatModel'
@@ -74,6 +74,15 @@ export default function ChatView({
     localPeerId,
   })
 
+  const peerAvatarByPeerId = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const mem of activeGroupMembers) {
+      const u = String(mem.avatar_data_url ?? '').trim()
+      if (u) m[mem.peer_id] = u
+    }
+    return m
+  }, [activeGroupMembers])
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
@@ -131,6 +140,17 @@ export default function ChatView({
       : backendTitle || `# ${activeGroupId}`
     : 'Chọn hội thoại'
 
+  const dmAvatarUrl =
+    isDM && activeGroup ? String((activeGroup as { counterparty_avatar_data_url?: string }).counterparty_avatar_data_url || '').trim() : ''
+
+  const groupAvatarUrl =
+    activeKind === 'group' && activeGroup
+      ? String((activeGroup as { group_avatar_data_url?: string }).group_avatar_data_url || '').trim()
+      : ''
+
+  const headerAvatarVariant = isDM ? 'dm' : activeKind === 'group' ? 'group' : 'channel'
+  const headerAvatarImage = isDM ? dmAvatarUrl : activeKind === 'group' ? groupAvatarUrl : undefined
+
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-[#0f172a]">
       <div className="border-b border-slate-800 px-5 py-4">
@@ -138,8 +158,9 @@ export default function ChatView({
           <div className="flex min-w-0 items-start gap-3">
             {activeGroupId ? (
               <ChatListAvatar
-                variant={isDM ? 'dm' : 'channel'}
-                displayName={isDM ? titleLabel : activeGroupId}
+                variant={headerAvatarVariant}
+                displayName={titleLabel}
+                imageUrl={headerAvatarImage}
                 size="md"
                 className="mt-0.5"
               />
@@ -185,6 +206,7 @@ export default function ChatView({
               messages={messages}
               loading={loadingMessages}
               activeGroupId={activeGroupId}
+              peerAvatarByPeerId={peerAvatarByPeerId}
               renderMentionedBody={renderMentionedBody}
               onRetry={onRetry}
               onRemoveFailed={onRemoveFailed}

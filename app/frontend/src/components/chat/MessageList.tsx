@@ -1,14 +1,17 @@
 import { ChatMessage } from '../../stores/useChatStore'
 import { useContactStore } from '../../stores/useContactStore'
-import { formatMessageTime, parseMessageContent, shortPeerId } from '../../lib/chatModel'
+import { formatMessageTime, parseMessageContent } from '../../lib/chatModel'
 import { Button } from '../ui/button'
 import { ReactNode } from 'react'
 import FileAttachmentCard from './FileAttachmentCard'
+import ChatListAvatar from './ChatListAvatar'
 
 interface MessageListProps {
   messages: ChatMessage[]
   loading: boolean
   activeGroupId: string | null
+  /** Avatars for message senders keyed by peer id (from group roster / profile sync). */
+  peerAvatarByPeerId?: Record<string, string>
   renderMentionedBody: (body: string) => ReactNode
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
@@ -42,6 +45,7 @@ export default function MessageList({
   fileTransferStateByMessage = {},
   fileLocalPathByMessage = {},
   fileActionDisabled = false,
+  peerAvatarByPeerId = {},
 }: MessageListProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
 
@@ -107,7 +111,15 @@ export default function MessageList({
             >
               {startsGroup ? (
                 <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                  {!message.isMine ? <div className="h-7 w-7 rounded-full bg-slate-700" /> : null}
+                  {!message.isMine ? (
+                    <ChatListAvatar
+                      variant="dm"
+                      displayName={getDisplayName(message.sender)}
+                      imageUrl={peerAvatarByPeerId[message.sender]}
+                      size="sm"
+                      className="shrink-0"
+                    />
+                  ) : null}
                   <span>{message.isMine ? 'Bạn' : getDisplayName(message.sender)}</span>
                   <span>{formatMessageTime(message.timestamp)}</span>
                 </div>

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { service } from '../../../../wailsjs/go/models'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
 import { messageInfoToChatMessage } from '../../../lib/chatModel'
@@ -41,6 +41,26 @@ export function useChatEvents({
   const groups = useGroupsStore((s) => s.groups)
   const setGroups = useGroupsStore((s) => s.setGroups)
   const lastGroupsRefreshAtRef = useRef(0)
+  const groupsVisualRefreshTimerRef = useRef<number | null>(null)
+
+  const scheduleGroupsVisualRefresh = useCallback(() => {
+    if (groupsVisualRefreshTimerRef.current != null) {
+      window.clearTimeout(groupsVisualRefreshTimerRef.current)
+    }
+    groupsVisualRefreshTimerRef.current = window.setTimeout(() => {
+      groupsVisualRefreshTimerRef.current = null
+      void refreshGroups()
+    }, 120)
+  }, [refreshGroups])
+
+  useEffect(
+    () => () => {
+      if (groupsVisualRefreshTimerRef.current != null) {
+        window.clearTimeout(groupsVisualRefreshTimerRef.current)
+      }
+    },
+    [],
+  )
 
   const handleGroupMessage = useCallback(
     (payload: service.MessageInfo) => {
@@ -104,6 +124,10 @@ export function useChatEvents({
   const handleMembersChanged = useCallback(
     async (payload: GroupMembersChangedPayload) => {
       if (!payload?.group_id) return
+      const reason = String(payload.reason ?? '')
+      if (reason === 'profile_push' || reason === 'group_avatar' || reason === 'presence') {
+        scheduleGroupsVisualRefresh()
+      }
       if (payload.group_id === activeGroupId) {
         await refreshGroupMembers(payload.group_id)
       }
@@ -117,7 +141,7 @@ export function useChatEvents({
         })
       }
     },
-    [activeGroupId, localPeerId, refreshGroupMembers, refreshGroups, setActiveGroupId],
+    [activeGroupId, localPeerId, refreshGroupMembers, refreshGroups, scheduleGroupsVisualRefresh, setActiveGroupId],
   )
 
   const handleGroupLeft = useCallback(

@@ -151,6 +151,9 @@ export default function MainSidebar({
         const hasResolvedDmTitle = kind === 'dm' ? backendTitle.length > 0 && backendTitle !== g.group_id : true
         const storeActivity = getLastActivityAt(g.group_id)
         const backendActivity = Number((g as any).last_activity_at || 0)
+        const dmAvatar =
+          kind === 'dm' ? String((g as any).counterparty_avatar_data_url || '').trim() : ''
+        const groupAvatar = kind === 'group' ? String((g as any).group_avatar_data_url || '').trim() : ''
         return {
           id: g.group_id,
           kind,
@@ -162,6 +165,7 @@ export default function MainSidebar({
                 : g.group_id,
           unreadCount: unreadByGroup[g.group_id] ?? 0,
           isOnline: kind === 'dm' ? Boolean((g as any).is_counterparty_online) : undefined,
+          avatarDataUrl: (kind === 'dm' ? dmAvatar : groupAvatar) || undefined,
           lastActivityAt: Math.max(backendActivity, storeActivity),
           isChannel: false,
         } satisfies SidebarConversationItem
@@ -407,7 +411,11 @@ export default function MainSidebar({
                     }`}
                   >
                     <div className="min-w-0 flex flex-1 items-center gap-2">
-                      <ChatListAvatar variant={item.kind === 'dm' ? 'dm' : 'channel'} displayName={item.title} />
+                      <ChatListAvatar
+                        variant={item.kind === 'dm' ? 'dm' : 'group'}
+                        displayName={item.title}
+                        imageUrl={item.avatarDataUrl}
+                      />
                       <p className="truncate">{item.title}</p>
                     </div>
                     {item.kind === 'dm' ? (

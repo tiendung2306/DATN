@@ -92,6 +92,13 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
       if (hasGap || event.topic === 'group:joined' || event.topic === 'group:left') {
         await refreshGroups()
       }
+      if (
+        event.topic === 'group:members_changed' &&
+        !hasGap &&
+        ['profile_push', 'group_avatar', 'presence'].includes(String(payload.reason ?? ''))
+      ) {
+        await refreshGroups()
+      }
       if (event.topic === 'channel_categories:changed' || hasGap) {
         await refreshChannelCategories()
       }
@@ -200,6 +207,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             onClose={() => setDetailsOpen(false)}
             setActiveGroupId={setActiveGroupId}
             refreshGroups={refreshGroups}
+            groupAvatarDataUrl={String((activeGroup as { group_avatar_data_url?: string })?.group_avatar_data_url ?? '')}
           />
         ) : null}
       </div>

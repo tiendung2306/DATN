@@ -174,10 +174,30 @@ func (d *Database) createTables() error {
 			ON stored_messages(json_extract(content, '$.post_id')) WHERE json_valid(content);`,
 
 		// Phase 7: Local directory caching PeerID -> Display Name.
+		`CREATE TABLE IF NOT EXISTS local_profile (
+			id                INTEGER PRIMARY KEY,
+			peer_id           TEXT NOT NULL DEFAULT '',
+			display_name      TEXT NOT NULL DEFAULT '',
+			email             TEXT,
+			phone             TEXT,
+			avatar_hash       TEXT,
+			avatar_mime       TEXT,
+			avatar_updated_at INTEGER NOT NULL DEFAULT 0,
+			profile_revision  INTEGER NOT NULL DEFAULT 0,
+			updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+		);`,
 		`CREATE TABLE IF NOT EXISTS peer_directory (
 			peer_id      TEXT PRIMARY KEY,
 			display_name TEXT NOT NULL,
 			updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`,
+		`CREATE TABLE IF NOT EXISTS avatar_blobs (
+			hash         TEXT PRIMARY KEY,
+			mime         TEXT NOT NULL,
+			size         INTEGER NOT NULL,
+			bytes        BLOB NOT NULL,
+			created_at   INTEGER NOT NULL,
+			last_used_at INTEGER NOT NULL
 		);`,
 		`CREATE TABLE IF NOT EXISTS group_members (
 			group_id      TEXT    NOT NULL,
@@ -483,6 +503,57 @@ func (d *Database) createTables() error {
 			ON group_add_operations(group_id, status, updated_at);`,
 		`CREATE INDEX IF NOT EXISTS idx_group_add_operations_recoverable
 			ON group_add_operations(status, updated_at);`,
+
+		// replicated_records — generic signed replicated object rows (namespace + key).
+		`CREATE TABLE IF NOT EXISTS replicated_records (
+			namespace               TEXT    NOT NULL,
+			record_key              TEXT    NOT NULL,
+			owner_peer_id           TEXT    NOT NULL,
+			revision                INTEGER NOT NULL,
+			schema_version          INTEGER NOT NULL DEFAULT 1,
+			body_json               TEXT    NOT NULL,
+			body_hash               TEXT    NOT NULL,
+			signature               BLOB    NOT NULL,
+			signing_public_key_hex  TEXT    NOT NULL,
+			deleted_at              INTEGER NOT NULL DEFAULT 0,
+			updated_at              INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (namespace, record_key)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_replicated_records_owner
+			ON replicated_records(owner_peer_id, namespace, revision DESC);`,
+
+		// replicated_pull_state — per-remote cursor for incremental replica-store pulls.
+		`CREATE TABLE IF NOT EXISTS replicated_pull_state (
+			remote_peer_id   TEXT    NOT NULL,
+			namespace        TEXT    NOT NULL,
+			record_key       TEXT    NOT NULL,
+			last_revision    INTEGER NOT NULL DEFAULT 0,
+			updated_at       INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (remote_peer_id, namespace, record_key)
+		);`,
+
+		// replicated_blobs — content-addressed blobs for replicated objects (non-avatar types later).
+		`CREATE TABLE IF NOT EXISTS replicated_blobs (
+			hash          TEXT PRIMARY KEY,
+			mime          TEXT    NOT NULL,
+			size          INTEGER NOT NULL,
+			bytes         BLOB    NOT NULL,
+			created_at    INTEGER NOT NULL,
+			last_used_at  INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS replicated_record_blobs (
+			namespace   TEXT    NOT NULL,
+			record_key  TEXT    NOT NULL,
+			blob_hash   TEXT    NOT NULL,
+			required    INTEGER NOT NULL DEFAULT 1,
+			created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (namespace, record_key, blob_hash),
+			FOREIGN KEY (namespace, record_key)
+				REFERENCES replicated_records(namespace, record_key)
+				ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_replicated_record_blobs_hash
+			ON replicated_record_blobs(blob_hash);`,
 	}
 
 	for _, q := range queries {
@@ -509,6 +580,15 @@ func (d *Database) createTables() error {
 		return err
 	}
 	if err := d.ensureColumnExists("mls_groups", "invite_policy", "TEXT NOT NULL DEFAULT 'creator_approval'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "group_avatar_hash", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "group_avatar_mime", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("mls_groups", "group_avatar_updated_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := d.ensureColumnExists("stored_welcomes", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
@@ -541,6 +621,28 @@ func (d *Database) createTables() error {
 	// pubkey (legacy rows, or directory rebuilt before handshake completes).
 	if err := d.ensureColumnExists("peer_directory", "public_key_hex", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	for _, col := range []struct {
+		table string
+		name  string
+		typ   string
+	}{
+		{"local_profile", "email", "TEXT"},
+		{"local_profile", "phone", "TEXT"},
+		{"local_profile", "avatar_hash", "TEXT"},
+		{"local_profile", "avatar_mime", "TEXT"},
+		{"local_profile", "avatar_updated_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"peer_directory", "email", "TEXT"},
+		{"peer_directory", "phone", "TEXT"},
+		{"peer_directory", "avatar_hash", "TEXT"},
+		{"peer_directory", "avatar_mime", "TEXT"},
+		{"peer_directory", "avatar_updated_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"peer_directory", "profile_revision", "INTEGER NOT NULL DEFAULT 0"},
+		{"peer_directory", "profile_signature", "TEXT"},
+	} {
+		if err := d.ensureColumnExists(col.table, col.name, col.typ); err != nil {
+			return err
+		}
 	}
 	if _, err := d.Conn.Exec(
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_stored_messages_group_envelope_hash
@@ -1421,10 +1523,10 @@ func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome,
 
 // GetGroupInviteCreatorHint returns a peer ID likely to be the group creator
 // for invite-request forwarding. Order:
-//   1) stored_welcomes.source_peer_id (welcome replicator / inviter)
-//   2) pending_invites.source_peer_id
-//   3) pending_invites.inviter_peer_id (same as source on newer rows; helps
-//      when source_peer_id column was empty in legacy data)
+//  1. stored_welcomes.source_peer_id (welcome replicator / inviter)
+//  2. pending_invites.source_peer_id
+//  3. pending_invites.inviter_peer_id (same as source on newer rows; helps
+//     when source_peer_id column was empty in legacy data)
 //
 // Joined members often lack role=creator in group_members; these hints are the
 // reliable path for RequestGroupInvite on a member node.
@@ -1809,6 +1911,73 @@ func (d *Database) ReopenRejectedInvite(inv *PendingInvite) (string, error) {
 	return newID, nil
 }
 
+// GetGroupChatAvatarMeta returns stored avatar hash/mime for a group chat row (local UI).
+func (d *Database) GetGroupChatAvatarMeta(groupID string) (hash string, mime string, updatedAt int64, err error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return "", "", 0, fmt.Errorf("group id required")
+	}
+	var h, m sql.NullString
+	var at sql.NullInt64
+	err = d.Conn.QueryRow(
+		`SELECT group_avatar_hash, group_avatar_mime, group_avatar_updated_at FROM mls_groups WHERE group_id = ?`,
+		groupID,
+	).Scan(&h, &m, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", 0, sql.ErrNoRows
+	}
+	if err != nil {
+		return "", "", 0, fmt.Errorf("GetGroupChatAvatarMeta(%q): %w", groupID, err)
+	}
+	if h.Valid {
+		hash = strings.TrimSpace(h.String)
+	}
+	if m.Valid {
+		mime = strings.TrimSpace(m.String)
+	}
+	if at.Valid {
+		updatedAt = at.Int64
+	}
+	return hash, mime, updatedAt, nil
+}
+
+// SetGroupChatAvatar persists avatar blob reference on mls_groups (group-type chats only at call site).
+func (d *Database) SetGroupChatAvatar(groupID, hash, mime string, updatedAtUnix int64) error {
+	groupID = strings.TrimSpace(groupID)
+	hash = strings.TrimSpace(strings.ToLower(hash))
+	mime = strings.TrimSpace(mime)
+	if groupID == "" {
+		return fmt.Errorf("group id required")
+	}
+	if hash == "" || mime == "" {
+		return fmt.Errorf("avatar hash and mime are required")
+	}
+	_, err := d.Conn.Exec(
+		`UPDATE mls_groups SET group_avatar_hash = ?, group_avatar_mime = ?, group_avatar_updated_at = ?, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?`,
+		hash, mime, updatedAtUnix, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("SetGroupChatAvatar(%q): %w", groupID, err)
+	}
+	return nil
+}
+
+// ClearGroupChatAvatar removes the group avatar reference from mls_groups.
+func (d *Database) ClearGroupChatAvatar(groupID string) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("group id required")
+	}
+	_, err := d.Conn.Exec(
+		`UPDATE mls_groups SET group_avatar_hash = '', group_avatar_mime = '', group_avatar_updated_at = 0, updated_at = CURRENT_TIMESTAMP WHERE group_id = ?`,
+		groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("ClearGroupChatAvatar(%q): %w", groupID, err)
+	}
+	return nil
+}
+
 func (d *Database) HasGroup(groupID string) (bool, error) {
 	var one int
 	err := d.Conn.QueryRow(`SELECT 1 FROM mls_groups WHERE group_id = ?`, groupID).Scan(&one)
@@ -1825,6 +1994,38 @@ const (
 	GroupLifecycleActive = "active"
 	GroupLifecycleLeft   = "left"
 )
+
+// ListJoinedGroupChatIDsForReplication returns group_id values for active group-type chats (replica pull keys).
+func (d *Database) ListJoinedGroupChatIDsForReplication(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 256
+	}
+	if limit > 512 {
+		limit = 512
+	}
+	rows, err := d.Conn.Query(
+		`SELECT group_id FROM mls_groups
+		 WHERE group_type = 'group' AND lifecycle_status = ?
+		 ORDER BY updated_at DESC LIMIT ?`,
+		GroupLifecycleActive, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListJoinedGroupChatIDsForReplication: %w", err)
+	}
+	defer rows.Close()
+	out := make([]string, 0)
+	for rows.Next() {
+		var gid string
+		if err := rows.Scan(&gid); err != nil {
+			return nil, fmt.Errorf("ListJoinedGroupChatIDsForReplication scan: %w", err)
+		}
+		gid = strings.TrimSpace(gid)
+		if gid != "" {
+			out = append(out, gid)
+		}
+	}
+	return out, rows.Err()
+}
 
 const (
 	GroupMemberStatusActive = "active"

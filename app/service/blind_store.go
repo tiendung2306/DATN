@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
 	"sort"
+	"strings"
 	"time"
 
+	"app/adapter/p2p"
+	"app/adapter/store"
 	"app/coordination"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -18,9 +22,10 @@ import (
 
 const blindStoreTopic = "/org/offline-store/v1"
 const (
-	blindStoreObjectEnvelope   = "group-envelope"
-	blindStoreObjectKeyPackage = "key-package"
-	blindStoreObjectWelcome    = "welcome"
+	blindStoreObjectEnvelope         = "group-envelope"
+	blindStoreObjectKeyPackage       = "key-package"
+	blindStoreObjectWelcome          = "welcome"
+	blindStoreObjectReplicatedRecord = "replicated-record"
 )
 
 type blindStoreEnvelopeV1 struct {
@@ -38,6 +43,12 @@ type blindStoreEnvelopeV1 struct {
 	CategoryID     string   `json:"category_id,omitempty"`
 	Welcome        []byte   `json:"welcome,omitempty"`
 	ReplicaTargets []string `json:"replica_targets"`
+
+	RecordNamespace string `json:"record_namespace,omitempty"`
+	RecordKey       string `json:"record_key,omitempty"`
+	RecordWireJSON  []byte `json:"record_wire_json,omitempty"`
+	RecordSignature []byte `json:"record_signature,omitempty"`
+	RecordBlob      []byte `json:"record_blob,omitempty"`
 }
 
 type blindStoreLayer struct {
@@ -130,7 +141,7 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 	cs := rt.coordStorage
 	db := rt.db
 	rt.mu.RUnlock()
-	if node == nil || cs == nil || db == nil {
+	if node == nil || db == nil {
 		return
 	}
 	if node.AuthProtocol != nil && !node.AuthProtocol.IsVerified(from) {
@@ -161,6 +172,9 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 
 	switch msg.ObjectType {
 	case blindStoreObjectEnvelope:
+		if cs == nil {
+			return
+		}
 		if msg.GroupID == "" || len(msg.Envelope) == 0 {
 			return
 		}
@@ -207,6 +221,46 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), msg.PublishedAt)
 		if msg.InviteePeerID == node.Host.ID().String() {
 			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), false)
+		}
+	case blindStoreObjectReplicatedRecord:
+		ns := strings.TrimSpace(msg.RecordNamespace)
+		switch ns {
+		case store.NamespaceUserProfileV1:
+			ownerKey := strings.TrimSpace(msg.RecordKey)
+			if ownerKey == "" || len(msg.RecordWireJSON) == 0 || len(msg.RecordSignature) == 0 {
+				return
+			}
+			wire := append([]byte(nil), msg.RecordWireJSON...)
+			sig := append([]byte(nil), msg.RecordSignature...)
+			blob := append([]byte(nil), msg.RecordBlob...)
+			if err := rt.applySignedRemoteProfilePush(ownerKey, wire, sig, blob); err != nil && !errors.Is(err, errReplicationStaleProfile) {
+				slog.Debug("blind-store: replicated record rejected", "owner", ownerKey, "err", err)
+			}
+		case store.NamespaceGroupAvatarV1:
+			gid := strings.TrimSpace(msg.RecordKey)
+			if gid == "" || len(msg.RecordWireJSON) == 0 || len(msg.RecordSignature) == 0 {
+				return
+			}
+			wire := append([]byte(nil), msg.RecordWireJSON...)
+			sig := append([]byte(nil), msg.RecordSignature...)
+			blob := append([]byte(nil), msg.RecordBlob...)
+			var w groupAvatarWireV1
+			if err := json.Unmarshal(wire, &w); err != nil {
+				return
+			}
+			if strings.TrimSpace(w.GroupID) != gid {
+				slog.Debug("blind-store: group avatar record key mismatch", "record_key", gid, "wire_group", w.GroupID)
+				return
+			}
+			creator := strings.TrimSpace(w.CreatorPeerID)
+			if creator == "" {
+				return
+			}
+			if err := rt.applySignedRemoteGroupAvatarPush(creator, wire, sig, blob); err != nil && !errors.Is(err, errReplicationStaleGroupAvatar) {
+				slog.Debug("blind-store: group avatar replicated record rejected", "group", gid, "err", err)
+			}
+		default:
+			return
 		}
 	}
 }
@@ -275,6 +329,73 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, ca
 		CategoryID:     categoryID,
 		Welcome:        welcome,
 		ReplicaTargets: layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
+	}
+	r.publishBlindStoreFrame(frame)
+}
+
+func (r *Runtime) publishBlindStoreReplicatedProfile(wire, sig, blob []byte) {
+	r.mu.RLock()
+	layer := r.blindStore
+	node := r.node
+	db := r.db
+	priv := r.privKey
+	r.mu.RUnlock()
+	if layer == nil || node == nil || db == nil || priv == nil || len(wire) == 0 {
+		return
+	}
+	info, err := p2p.GetOnboardingInfo(db, priv)
+	if err != nil {
+		return
+	}
+	key := info.PeerID
+	sum := sha256.Sum256(wire)
+	routing := "replica:" + store.NamespaceUserProfileV1 + ":" + key + ":" + fmt.Sprintf("%x", sum[:])
+	targets := layer.selectReplicaTargets(node.Host.ID(), routing)
+	frame := blindStoreEnvelopeV1{
+		V:               1,
+		PublishedAt:     time.Now().UnixMilli(),
+		ObjectType:      blindStoreObjectReplicatedRecord,
+		RecordNamespace: store.NamespaceUserProfileV1,
+		RecordKey:       key,
+		RecordWireJSON:  append([]byte(nil), wire...),
+		RecordSignature: append([]byte(nil), sig...),
+		RecordBlob:      append([]byte(nil), blob...),
+		ReplicaTargets:  targets,
+	}
+	r.publishBlindStoreFrame(frame)
+}
+
+func (r *Runtime) publishBlindStoreReplicatedGroupAvatar(wire, sig, blob []byte) {
+	r.mu.RLock()
+	layer := r.blindStore
+	node := r.node
+	db := r.db
+	priv := r.privKey
+	r.mu.RUnlock()
+	if layer == nil || node == nil || db == nil || priv == nil || len(wire) == 0 {
+		return
+	}
+	var w groupAvatarWireV1
+	if err := json.Unmarshal(wire, &w); err != nil {
+		return
+	}
+	gid := strings.TrimSpace(w.GroupID)
+	if gid == "" {
+		return
+	}
+	sum := sha256.Sum256(wire)
+	routing := "replica:" + store.NamespaceGroupAvatarV1 + ":" + gid + ":" + fmt.Sprintf("%x", sum[:])
+	targets := layer.selectReplicaTargets(node.Host.ID(), routing)
+	frame := blindStoreEnvelopeV1{
+		V:               1,
+		PublishedAt:     time.Now().UnixMilli(),
+		ObjectType:      blindStoreObjectReplicatedRecord,
+		RecordNamespace: store.NamespaceGroupAvatarV1,
+		RecordKey:       gid,
+		RecordWireJSON:  append([]byte(nil), wire...),
+		RecordSignature: append([]byte(nil), sig...),
+		RecordBlob:      append([]byte(nil), blob...),
+		ReplicaTargets:  targets,
 	}
 	r.publishBlindStoreFrame(frame)
 }

@@ -1735,6 +1735,7 @@ func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
 	// Keep key package replicas fresh whenever a verified peer connects.
 	go h.rt.advertiseKeyPackage()
 	go h.rt.scheduleOfflineSyncPull(p)
+	go h.rt.scheduleReplicatedProfilePull(p)
 	go h.rt.scheduleChannelCategorySync(p)
 	go h.rt.flushPendingDeliveryAcksTo(p)
 	go h.rt.emitNodeStatusChanged("peer_connected")

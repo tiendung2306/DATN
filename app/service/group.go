@@ -51,15 +51,20 @@ type GroupInfo struct {
 	ConversationSub    string `json:"conversation_subtitle,omitempty"`
 	ConversationAvatar string `json:"conversation_avatar_type"`
 	CounterpartyPeerID string `json:"counterparty_peer_id,omitempty"`
+	// CounterpartyAvatarDataURL is set for DM groups when an avatar exists for the other participant.
+	CounterpartyAvatarDataURL string `json:"counterparty_avatar_data_url,omitempty"`
+	// GroupAvatarDataURL is set for non-channel group chats when a local group image exists.
+	GroupAvatarDataURL string `json:"group_avatar_data_url,omitempty"`
 	IsCounterpartyOn   bool   `json:"is_counterparty_online"`
 	LastActivityAt     int64  `json:"last_activity_at"`
 }
 
 // MemberInfo describes a peer in the coordination active view with liveness.
 type MemberInfo struct {
-	PeerID      string `json:"peer_id"`
-	DisplayName string `json:"display_name"`
-	IsOnline    bool   `json:"is_online"`
+	PeerID        string `json:"peer_id"`
+	DisplayName   string `json:"display_name"`
+	AvatarDataURL string `json:"avatar_data_url,omitempty"`
+	IsOnline      bool   `json:"is_online"`
 }
 
 // KeyPackageResult is returned by GenerateKeyPackage for Wails/TS bindings.
@@ -360,26 +365,122 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 			}
 		}
 
+		counterpartyAvatar := ""
+		if normalizedType == "dm" && counterpartyPeerID != "" {
+			counterpartyAvatar = r.memberAvatarDataURL(counterpartyPeerID)
+		}
+
+		groupAvatarURL := ""
+		if normalizedType == "group" {
+			groupAvatarURL = r.groupChatAvatarDataURL(rec.GroupID)
+		}
+
 		var lastActivityAt int64
 		if msgs, err := r.coordStorage.GetMessagesPaginated(rec.GroupID, 1, 0); err == nil && len(msgs) > 0 {
 			lastActivityAt = msgs[0].Timestamp.WallTimeMs
 		}
 
 		result[i] = GroupInfo{
-			GroupID:            rec.GroupID,
-			Epoch:              rec.Epoch,
-			MyRole:             string(rec.MyRole),
-			GroupType:          normalizedType,
-			CategoryID:         rec.CategoryID,
-			ConversationTitle:  title,
-			ConversationSub:    subtitle,
-			ConversationAvatar: avatarType,
-			CounterpartyPeerID: counterpartyPeerID,
-			IsCounterpartyOn:   isCounterpartyOnline,
-			LastActivityAt:     lastActivityAt,
+			GroupID:                   rec.GroupID,
+			Epoch:                     rec.Epoch,
+			MyRole:                    string(rec.MyRole),
+			GroupType:                 normalizedType,
+			CategoryID:                rec.CategoryID,
+			ConversationTitle:         title,
+			ConversationSub:           subtitle,
+			ConversationAvatar:        avatarType,
+			CounterpartyPeerID:        counterpartyPeerID,
+			CounterpartyAvatarDataURL: counterpartyAvatar,
+			GroupAvatarDataURL:        groupAvatarURL,
+			IsCounterpartyOn:          isCounterpartyOnline,
+			LastActivityAt:            lastActivityAt,
 		}
 	}
 	return result, nil
+}
+
+func (r *Runtime) groupChatAvatarDataURL(groupID string) string {
+	r.mu.RLock()
+	database := r.db
+	r.mu.RUnlock()
+	if database == nil {
+		return ""
+	}
+	hash, mime, _, err := database.GetGroupChatAvatarMeta(groupID)
+	if err != nil || strings.TrimSpace(hash) == "" {
+		return ""
+	}
+	blobMime, data, err := database.GetAvatarBlob(hash)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	outMime := strings.TrimSpace(mime)
+	if outMime == "" {
+		outMime = blobMime
+	}
+	return avatarDataURL(outMime, data)
+}
+
+// SaveGroupChatAvatar updates the local image for a group-type MLS chat (creator only).
+// avatarChange: 0 = no image change, 1 = replace with imageBytes, 2 = remove image.
+func (r *Runtime) SaveGroupChatAvatar(groupID string, imageBytes []byte, avatarChange int) error {
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("group ID is required")
+	}
+	r.mu.RLock()
+	cs := r.coordStorage
+	database := r.db
+	r.mu.RUnlock()
+	if cs == nil || database == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	rec, err := cs.GetGroupRecord(groupID)
+	if err != nil {
+		return fmt.Errorf("group not found: %w", err)
+	}
+	normalizedType, nerr := normalizeGroupTypeRuntime(rec.GroupType)
+	if nerr != nil {
+		return nerr
+	}
+	if normalizedType != "group" {
+		return fmt.Errorf("group avatar is only supported for group chats, not %q", normalizedType)
+	}
+	if rec.MyRole != coordination.RoleCreator {
+		return fmt.Errorf("only the group creator can change the group image")
+	}
+	switch avatarChange {
+	case 0:
+		return nil
+	case 1:
+		if len(imageBytes) == 0 {
+			return fmt.Errorf("avatar image bytes required when replacing group avatar")
+		}
+		mime, err := validateAvatarImageBytes(imageBytes)
+		if err != nil {
+			return err
+		}
+		hash := store.AvatarContentHash(imageBytes)
+		if err := database.UpsertAvatarBlob(hash, mime, imageBytes); err != nil {
+			return err
+		}
+		now := time.Now().Unix()
+		if err := database.SetGroupChatAvatar(groupID, hash, mime, now); err != nil {
+			return err
+		}
+	case 2:
+		if err := database.ClearGroupChatAvatar(groupID); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("invalid avatarChange %d", avatarChange)
+	}
+	go r.replicateGroupChatAvatarAfterLocalSave(groupID)
+	go r.emitAllGroupsMembersChanged("group_avatar")
+	return nil
 }
 
 // GenerateKeyPackage builds an MLS KeyPackage for the local identity.
@@ -720,10 +821,12 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 			}
 		}
 		_, isOn := online[rec.PeerID]
+		avatarURL := r.memberAvatarDataURL(rec.PeerID)
 		out = append(out, MemberInfo{
-			PeerID:      rec.PeerID,
-			DisplayName: displayName,
-			IsOnline:    isOn,
+			PeerID:        rec.PeerID,
+			DisplayName:   displayName,
+			AvatarDataURL: avatarURL,
+			IsOnline:      isOn,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {

@@ -281,14 +281,22 @@ func (r *Runtime) launchP2PNode() error {
 		return fmt.Errorf("build auth handshake: %w", err)
 	}
 	hs.Token = localToken
+	r.fillAuthHandshakeProfileAnnexLocked(hs)
 	node, err := p2p.NewP2PNode(nodeCtx, r.privKey, r.cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("init P2P node: %w", err)
 	}
+	p2p.InstallUserProfilePushHandler(node.Host, r.handleUserProfilePush)
+	p2p.InstallReplicaStorePushHandler(node.Host, r.handleReplicaStorePush)
+	p2p.InstallReplicaStoreSyncHandler(node.Host, r.serveReplicaStoreP2P)
 	if node.AuthProtocol != nil {
 		node.AuthProtocol.SetLocalSessionReplacedHandler(func(claim p2p.SessionClaim) {
 			r.markSessionReplaced("newer_session_claim", claim)
+		})
+		node.AuthProtocol.SetPeerProfileAnnexHandler(r.handleAuthProfileAnnex)
+		node.AuthProtocol.SetOnPeerVerified(func(pid peer.ID) {
+			go r.pushLocalUserProfileToPeer(pid)
 		})
 	}
 	r.node = node
@@ -317,6 +325,7 @@ func (r *Runtime) launchP2PNode() error {
 	r.registerOfflineSyncHandlers()
 	r.node.Host.Network().Notify(&peerConnectedHook{rt: r})
 	go r.kickInitialOfflineSync(nodeCtx)
+	go r.replicatedProfileRepairLoop(nodeCtx)
 
 	go r.advertiseKeyPackage()
 	go r.offlineEnvelopeGCLoop(nodeCtx)
@@ -345,6 +354,7 @@ func (r *Runtime) kickInitialOfflineSync(ctx context.Context) {
 		}
 		for _, p := range tr.ConnectedPeers() {
 			go r.scheduleOfflineSyncPull(p)
+			go r.scheduleReplicatedProfilePull(p)
 		}
 	}
 }

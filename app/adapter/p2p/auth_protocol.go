@@ -30,6 +30,10 @@ type AuthHandshakeMsg struct {
 	Session            SessionClaim           `json:"session"`
 	Error              string                 `json:"error,omitempty"`
 	SupersedingSession SessionClaim           `json:"superseding_session,omitempty"`
+	// Optional MLS-signed user profile (wire JSON + signature). Avatar bytes are not
+	// included here (size); peers receive blobs on /app/user-profile/1.0.0 after auth.
+	ProfileWireJSON  []byte `json:"profile_wire_json,omitempty"`
+	ProfileSignature []byte `json:"profile_signature,omitempty"`
 }
 
 type verifiedPeerState struct {
@@ -71,7 +75,15 @@ type AuthProtocol struct {
 	handshakingPeers sync.Map // peer.ID → struct{} (outbound handshake in progress)
 
 	onLocalSessionReplaced func(SessionClaim)
+	// onPeerProfileAnnex is invoked after a successful auth verify when the peer sent
+	// optional signed profile annex fields (wire + signature only).
+	onPeerProfileAnnex PeerProfileAnnexHandler
+	// onPeerVerified runs after this node marks a remote peer as verified (inbound or outbound).
+	onPeerVerified func(peer.ID)
 }
+
+// PeerProfileAnnexHandler receives optional profile metadata carried in the auth handshake.
+type PeerProfileAnnexHandler func(remote peer.ID, verifiedToken *admin.InvitationToken, wireJSON, signature []byte)
 
 const authErrorSessionReplaced = "session_replaced"
 
@@ -110,10 +122,61 @@ func (ap *AuthProtocol) GetVerifiedToken(id peer.ID) *admin.InvitationToken {
 	return v.(*verifiedPeerState).Token
 }
 
+// SetPeerProfileAnnexHandler registers a callback for optional profile annex in auth JSON.
+func (ap *AuthProtocol) SetPeerProfileAnnexHandler(fn PeerProfileAnnexHandler) {
+	ap.onPeerProfileAnnex = fn
+}
+
+// SetOnPeerVerified registers a callback invoked after a peer is marked verified.
+func (ap *AuthProtocol) SetOnPeerVerified(fn func(peer.ID)) {
+	ap.onPeerVerified = fn
+}
+
+// SetLocalProfileAnnex updates optional profile wire/signature attached to outbound auth handshakes.
+func (ap *AuthProtocol) SetLocalProfileAnnex(wireJSON, signature []byte) {
+	if ap.localHandshake == nil {
+		return
+	}
+	if len(wireJSON) == 0 || len(signature) == 0 {
+		ap.localHandshake.ProfileWireJSON = nil
+		ap.localHandshake.ProfileSignature = nil
+		return
+	}
+	ap.localHandshake.ProfileWireJSON = append([]byte(nil), wireJSON...)
+	ap.localHandshake.ProfileSignature = append([]byte(nil), signature...)
+}
+
+// VerifiedPeerIDs returns libp2p peers that completed auth in this session.
+func (ap *AuthProtocol) VerifiedPeerIDs() []peer.ID {
+	var out []peer.ID
+	ap.verifiedPeers.Range(func(k, _ interface{}) bool {
+		if id, ok := k.(peer.ID); ok {
+			out = append(out, id)
+		}
+		return true
+	})
+	return out
+}
+
 // SetLocalSessionReplacedHandler registers a callback fired when a verified peer
 // proves that this local identity has a newer active session elsewhere.
 func (ap *AuthProtocol) SetLocalSessionReplacedHandler(fn func(SessionClaim)) {
 	ap.onLocalSessionReplaced = fn
+}
+
+func (ap *AuthProtocol) invokePeerVerified(pid peer.ID) {
+	if ap.onPeerVerified != nil {
+		go ap.onPeerVerified(pid)
+	}
+}
+
+func (ap *AuthProtocol) invokePeerProfileAnnex(pid peer.ID, tok *admin.InvitationToken, hs *AuthHandshakeMsg) {
+	if ap.onPeerProfileAnnex == nil || len(hs.ProfileWireJSON) == 0 || len(hs.ProfileSignature) == 0 {
+		return
+	}
+	wire := append([]byte(nil), hs.ProfileWireJSON...)
+	sig := append([]byte(nil), hs.ProfileSignature...)
+	go ap.onPeerProfileAnnex(pid, tok, wire, sig)
 }
 
 // handleIncoming is the server-side handler: reads peer token first, then sends own.
@@ -174,6 +237,8 @@ func (ap *AuthProtocol) handleIncoming(s network.Stream) {
 		SessionStarted: sessionStarted,
 		Session:        peerHandshake.Session,
 	})
+	ap.invokePeerProfileAnnex(peerID, peerToken, peerHandshake)
+	ap.invokePeerVerified(peerID)
 	slog.Info("auth: peer verified (inbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 
@@ -264,6 +329,8 @@ func (ap *AuthProtocol) InitiateHandshake(ctx context.Context, peerID peer.ID) {
 		SessionStarted: sessionStarted,
 		Session:        peerHandshake.Session,
 	})
+	ap.invokePeerProfileAnnex(peerID, peerToken, peerHandshake)
+	ap.invokePeerVerified(peerID)
 	slog.Info("auth: peer verified (outbound)", "peer", peerID, "name", peerToken.DisplayName)
 }
 

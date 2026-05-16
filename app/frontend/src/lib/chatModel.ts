@@ -17,6 +17,8 @@ export interface SidebarConversationItem {
   title: string
   unreadCount: number
   isOnline?: boolean
+  /** DM counterparty avatar (data URL) when available. */
+  avatarDataUrl?: string
   lastActivityAt: number
   isChannel: boolean
 }

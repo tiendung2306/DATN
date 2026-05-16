@@ -842,7 +842,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
   - Pending invites are included in identity backup/import.
 - **Group membership lifecycle:**
   - `LeaveGroup` implements soft leave: stop local participation, keep local history.
-  - `RemoveMemberFromGroup` returns a stable unsupported error until MLS remove/role policy is productized end-to-end.
+  - `RemoveMemberFromGroup` is end-to-end (2026-05-08): creator-only, verified-peer MLS identity, `coord.RemoveMember`, stable `ERR_REMOVE_MEMBER_*` wire codes; see delta §4 same file and `app/service/membership.go`.
 - **Session takeover lifecycle:**
   - APIs: `GetSessionStatus`, `AcknowledgeSessionReplaced`.
   - Old sessions only enter `replaced` state after verifying a newer same-identity `SessionClaim` signed by the local MLS key; normal peer arbitration/disconnects do not trigger lockout.
@@ -958,7 +958,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 | **`GetGroupMessages(groupID) []MessageInfo`** | **Lấy messages sorted by HLC** |
 | **`GetGroups() []GroupInfo`** | **Danh sách groups đã tham gia** |
 | **`GetGroupStatus(groupID) map[string]interface{}`** | **Epoch, token holder, member count, metrics** |
-| `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage`, `LeaveGroup`, `RemoveMemberFromGroup` | MLS / group lifecycle UI; remove member explicitly deferred |
+| `GetGroupMembers`, `AddMemberToGroup`, `JoinGroupWithWelcome`, `GenerateKeyPackage`, `LeaveGroup`, `RemoveMemberFromGroup` | MLS / group lifecycle; remove = creator-only + verified target + coordinator MLS remove (FE: `formatRemoveMemberError`) |
 | `InvitePeerToGroup`, `CheckDHTWelcome`, `GetKPStatus`, `GenerateJoinCode`, `ListPendingInvites`, `AcceptInvite`, `RejectInvite` | Luồng invite offline-friendly (store-peer based; `CheckDHTWelcome` là tên legacy API) |
 | `ExportIdentity`, `ImportIdentityFromFile` | Backup `.backup` (GUI) |
 

@@ -123,3 +123,37 @@ func TestGroupLifecycle_BackupRestorePreservesChannelCategory(t *testing.T) {
 		t.Fatalf("restored group: type=%q category=%q", rec.GroupType, rec.CategoryID)
 	}
 }
+
+func TestListJoinedGroupChatIDsForReplication_GroupTypeOnly(t *testing.T) {
+	d := setupTestDB(t)
+	s := NewSQLiteCoordinationStorage(d)
+	now := time.Now()
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "g-repl-1",
+		GroupState: []byte{1},
+		MyRole:     coordination.RoleMember,
+		GroupType:  "group",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord group: %v", err)
+	}
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "chan-repl-x",
+		GroupState: []byte{2},
+		MyRole:     coordination.RoleMember,
+		GroupType:  "channel",
+		CategoryID: "c1",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord channel: %v", err)
+	}
+	ids, err := d.ListJoinedGroupChatIDsForReplication(256)
+	if err != nil {
+		t.Fatalf("ListJoinedGroupChatIDsForReplication: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "g-repl-1" {
+		t.Fatalf("ids=%v want [g-repl-1]", ids)
+	}
+}

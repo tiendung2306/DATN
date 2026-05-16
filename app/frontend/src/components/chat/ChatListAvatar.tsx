@@ -3,8 +3,10 @@ import defaultGroupAvatar from '../../assets/default-group-avatar.png'
 import { cn } from '@/lib/utils'
 
 interface ChatListAvatarProps {
-  variant: 'channel' | 'dm'
+  variant: 'channel' | 'dm' | 'group'
   displayName: string
+  /** When set (e.g. peer profile data URL), shown instead of initials for DM avatars. */
+  imageUrl?: string
   size?: 'sm' | 'md'
   className?: string
 }
@@ -22,6 +24,7 @@ function initialsFromDisplayName(name: string): string {
 export default function ChatListAvatar({
   variant,
   displayName,
+  imageUrl,
   size = 'sm',
   className,
 }: ChatListAvatarProps) {
@@ -37,7 +40,29 @@ export default function ChatListAvatar({
     )
   }
 
+  if (variant === 'group') {
+    const url = (imageUrl || '').trim()
+    return (
+      <img
+        src={url || defaultGroupAvatar}
+        alt=""
+        className={cn('shrink-0 rounded-full object-cover ring-1 ring-slate-700/80', dim, className)}
+      />
+    )
+  }
+
   const letter = initialsFromDisplayName(displayName)
+  const url = (imageUrl || '').trim()
+
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt=""
+        className={cn('shrink-0 rounded-full object-cover ring-1 ring-slate-700/80', dim, className)}
+      />
+    )
+  }
 
   return (
     <div
