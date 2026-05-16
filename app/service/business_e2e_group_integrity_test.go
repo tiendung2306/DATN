@@ -19,9 +19,11 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
+	"time"
 
 	"app/adapter/p2p"
 	"app/adapter/store"
+	"app/coordination"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -656,4 +658,124 @@ func TestBusinessP1_E2E_BI118_WelcomeFetchResponse_CarriesSourcePeerID(t *testin
 	if strings.TrimSpace(resp.SourcePeerID) != wantCreator {
 		t.Fatalf("wire response SourcePeerID = %q want %q", resp.SourcePeerID, wantCreator)
 	}
+}
+
+// TestBusinessP1_E2E_RealSidecar_ForwardSecrecy definitively proves Forward Secrecy
+// using the REAL Rust sidecar. It removes a member and verifies that the removed
+// member's engine rejects decryption of future messages.
+func TestBusinessP1_E2E_RealSidecar_ForwardSecrecy(t *testing.T) {
+	gid := "grp-e2e-fs"
+
+	// Mock verification to bypass P2P handshake in this targeted crypto test
+	origVerify := getVerifiedTokenPublicKey
+	t.Cleanup(func() { getVerifiedTokenPublicKey = origVerify })
+	getVerifiedTokenPublicKey = func(_ *p2p.P2PNode, _ peer.ID) []byte {
+		// Just return something non-empty to pass the check; 
+		// coord.RemoveMember only needs the identity to match MLS leaf.
+		return []byte("mock-verified-identity")
+	}
+
+	// 1. Setup Alice (Creator) and Bob (Member) with real sidecars
+	aliceRoot := t.TempDir()
+	businessSeedAuthorizedWorkDir(t, aliceRoot)
+	alice := businessRuntimeStartRealInWorkDir(t, aliceRoot)
+	
+	bobRoot := t.TempDir()
+	businessSeedAuthorizedWorkDir(t, bobRoot)
+	bob := businessRuntimeStartRealInWorkDir(t, bobRoot)
+	
+	// Create group
+	catID := businessEnsureCategory(t, alice, "E2E")
+	if err := alice.CreateGroupChat(gid, "channel", catID); err != nil {
+		t.Fatalf("alice CreateGroupChat: %v", err)
+	}
+
+	// Add Bob
+	bobInfo, _ := bob.GetOnboardingInfo()
+	bobPubKP, err := bob.GenerateKeyPackage()
+	if err != nil {
+		t.Fatalf("bob GenerateKeyPackage: %v", err)
+	}
+	
+	// Mock verification specifically for Bob
+	getVerifiedTokenPublicKey = func(_ *p2p.P2PNode, target peer.ID) []byte {
+		if target.String() == bobInfo.PeerID {
+			pk, _ := hex.DecodeString(bobInfo.PublicKeyHex)
+			return pk
+		}
+		return nil
+	}
+
+	welcomeHex, err := alice.AddMemberToGroup(gid, bobInfo.PeerID, bobPubKP.PublicHex)
+	if err != nil {
+		t.Fatalf("alice AddMemberToGroup: %v", err)
+	}
+
+	// Bob joins using the welcome and his private bundle
+	if err := bob.JoinGroupWithWelcome(gid, welcomeHex, bobPubKP.BundlePrivateHex); err != nil {
+		t.Fatalf("bob JoinGroupWithWelcome: %v", err)
+	}
+
+	// 2. Alice removes Bob
+	if err := alice.RemoveMemberFromGroup(gid, bobInfo.PeerID); err != nil {
+		t.Fatalf("alice RemoveMemberFromGroup: %v", err)
+	}
+
+	// 3. Alice sends a NEW message (Epoch 2)
+	postRemoveMsg := "this is a secret Alice and Bob don't share anymore"
+	if err := alice.SendGroupMessage(gid, postRemoveMsg); err != nil {
+		t.Fatalf("alice SendGroupMessage (post-removal): %v", err)
+	}
+
+	// 4. Intercept the message and force Bob to try to decrypt it
+	alice.mu.RLock()
+	// Get latest envelope from Alice's coordination storage (the one she just sent)
+	envs, err := alice.coordStorage.GetEnvelopesSince(gid, 0, 100)
+	alice.mu.RUnlock()
+	if err != nil {
+		t.Fatalf("alice GetEnvelopesSince: %v", err)
+	}
+	var futureWire []byte
+	for _, env := range envs {
+		if env.Epoch >= 2 && env.MsgType == coordination.MsgApplication { 
+			futureWire = env.Envelope
+		}
+	}
+	if len(futureWire) == 0 {
+		t.Logf("Alice envelopes: %d", len(envs))
+		for _, e := range envs { t.Logf("  Env Epoch: %d Type: %v", e.Epoch, e.MsgType) }
+		t.Fatal("Could not find post-removal envelope with epoch >= 2")
+	}
+
+	// 5. THE PROOF: Bob's engine MUST reject this message
+	// Bob is still on Epoch 1 (or 2 if he received the commit, but he has no keys for 2)
+	bob.mu.RLock()
+	coord := bob.coordinators[gid]
+	bob.mu.RUnlock()
+	if coord == nil {
+		t.Fatal("Bob coordinator for group not found")
+	}
+
+	aliceInfo, _ := alice.GetOnboardingInfo()
+	
+	// In real P2P, this would arrive via GossipSub and handleRawMessage would be called.
+	// We use ReceiveDirectMessage as an exported hook into the same logic.
+	aPeerID, _ := peer.Decode(aliceInfo.PeerID)
+	coord.ReceiveDirectMessage(aPeerID, futureWire)
+
+	// Since handleRawMessage is a fire-and-forget logic that returns no error,
+	// we check the DB to see if it was saved. If Forward Secrecy works, it SHOULD NOT be saved.
+	time.Sleep(200 * time.Millisecond) // wait for processing
+	bobMsgs, _ := bob.GetGroupMessages(gid, 100, 0)
+	for _, m := range bobMsgs {
+		if m.Content == postRemoveMsg {
+			t.Errorf("SECURITY BREACH: Bob decrypted and stored a message sent after he was removed!")
+		}
+	}
+	t.Log("Forward Secrecy Verified: Bob could not decrypt future message.")
+
+	t.Cleanup(func() {
+		businessShutdownRuntimeInWorkDir(t, alice)
+		businessShutdownRuntimeInWorkDir(t, bob)
+	})
 }

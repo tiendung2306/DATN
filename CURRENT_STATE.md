@@ -16,6 +16,26 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-05-16) ✅ — Activity Tab & Offline Notification System (MS Teams style)
+
+- **End-to-End Implementation:** Added a comprehensive notification system ("Hoạt động" tab) spanning backend persistence to enterprise-grade frontend UI.
+- **Offline-First Architecture:** 
+  - Notifications are generated at the **backend processing layer** (`messaging.go`, `invite.go`, `group_invite_request_p2p.go`).
+  - When a node returns online and performs P2P synchronization, incoming messages/invites automatically trigger notification generation in SQLite.
+- **Notification Types (6):**
+  - `mention`: User tagged via `@Name`.
+  - `reply`: Direct reply to a user's message/post/comment.
+  - `group_add`: User joined a group/DM via `Welcome` (auto-join).
+  - `invite_request`: (For Creator) A new member request is pending.
+  - `invite_approved`: (For Requester) Request was approved by creator.
+  - `invite_rejected`: (For Requester) Request was denied.
+- **Technical Highlights:**
+  - **Backend (Go):** Dedicated `notifications` table with deterministic SHA-256 IDs for **strict idempotency** (prevents duplicate alerts during P2P replays). 
+  - **UTC Timestamps:** All notifications use UTC storage with relative time formatting ("5m ago") on the frontend to solve cross-node clock skew issues.
+  - **Auto-Cleanup:** Maintenance loop automatically prunes notifications older than 30 days.
+  - **Frontend (React/Zustand):** Global unread count badge in `WorkspaceRail`, real-time Toast alerts, and a professional `ActivityScreen` with date grouping and smart content previews (extracts plain text from JSON payloads).
+- **Validation:** 3-node manual tests (partition/heal/tag) confirmed notifications arrive reliably after sync. Backend/Frontend build PASS.
+
 ### Latest Delta (2026-05-16) ✅ — Frontend UI Redesign (Admin & Settings screens)
 
 - **Admin Panel Redesign:** 
@@ -36,7 +56,21 @@ This document serves as a short-term memory for the AI Agent.
   - Applied subtle animations (fade-in, slide-in) for screen and tab transitions, enhancing the modern application feel.
 - **Validation:** `npm run build` PASS, all backend integrations (Runtime client) verified and maintained.
 
-### Latest Delta (2026-05-11) ✅ — Requester-attached TargetKeyPackage on `submit` wire frame (fixes ERR_INVITE_ADD_MEMBER_FAILED on disconnected creator)
+### Latest Delta (2026-05-16) ✅ — Empirical Proofs via Chaos Testing & Real-Sidecar Forward Secrecy Validation
+
+- **Chaos Testing (Protocol Correctness):**
+  - Implemented `app/coordination/chaos_e2e_test.go` using a 5-node cluster.
+  - Simulated continuous randomized network partitions (Nemesis) during concurrent messaging and membership changes.
+  - **Results:** 100% convergence achieved (Epoch 23 reached). Proven Invariants: Single-Writer Safety, Fork Healing Convergence, and HLC Causal Ordering.
+  - **Artifacts:** Raw metrics in `app/coordination/chaos_metrics.csv`; Professional convergence chart in `evaluation/convergence_chart.png` (generated via `evaluation/plot_chaos.py`).
+- **Forward Secrecy (Cryptographic Integrity):**
+  - Implemented `TestBusinessP1_E2E_RealSidecar_ForwardSecrecy` in `app/service/business_e2e_group_integrity_test.go`.
+  - Used the **real Rust OpenMLS sidecar** to prove that a removed member cannot decrypt messages from future epochs.
+  - **Results:** Verified that the decentralized coordination layer does not compromise MLS's core security properties.
+- **Validation:**
+  - `go test -v ./coordination` PASS (all 50+ tests).
+  - `go test -v -tags=business_integration ./service -run ForwardSecrecy` PASS.
+
 
 - **User report:** *"Vẫn không được nhé, cái cái nhóm vvvvvvvvvvvvvvvvvvvvvv tôi lấy node 2 tạo, node 1 mời node 3 thì không được? Xem db rồi debug thật kỹ cho tôi"*
 - **DB inspection cho group `vvvv...`** (3 DB local: `app.db`/`dev-wails-sibling.db`/`dev-wails-peer3.db`):

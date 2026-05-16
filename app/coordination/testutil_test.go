@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -189,8 +190,31 @@ func (ft *FakeTransport) Unsubscribe(topic string) error {
 	return nil
 }
 
-func (ft *FakeTransport) SendDirect(_ context.Context, _ peer.ID, _ []byte) error {
-	return nil // not used in coordinator tests yet
+func (ft *FakeTransport) SendDirect(ctx context.Context, to peer.ID, data []byte) error {
+	ft.network.mu.Lock()
+	target, ok := ft.network.nodes[to]
+	if !ok || !ft.network.isConnected(ft.localID, to) {
+		ft.network.mu.Unlock()
+		return fmt.Errorf("fake-transport: peer %s unreachable", to)
+	}
+	ft.network.mu.Unlock()
+
+	// In this test transport, we assume the first protocol registered
+	// by the target that looks like a direct protocol is the one to use.
+	// Production uses host.NewStream(to, protocolID).
+	// Since SendDirect doesn't take a protocol ID, we'll try CoordDirectProtocol first.
+	const CoordDirectProtocol = "/coordination/direct/1.0.0"
+	target.deliverDirect(ft.localID, CoordDirectProtocol, data)
+	return nil
+}
+
+func (ft *FakeTransport) deliverDirect(from peer.ID, protocol string, data []byte) {
+	ft.mu.Lock()
+	handler := ft.handlers[protocol]
+	ft.mu.Unlock()
+	if handler != nil {
+		handler(from, data)
+	}
 }
 
 func (ft *FakeTransport) LocalPeerID() peer.ID { return ft.localID }
@@ -221,14 +245,21 @@ func (ft *FakeTransport) deliver(from peer.ID, topic string, data []byte) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type mockGroupState struct {
-	GroupID  string `json:"group_id"`
-	Epoch    uint64 `json:"epoch"`
-	TreeHash string `json:"tree_hash"`
+	GroupID    string          `json:"group_id"`
+	Epoch      uint64          `json:"epoch"`
+	TreeHash   string          `json:"tree_hash"`
+	Members    map[string]bool `json:"members"` // peerID -> isMember
 }
 
 type mockCommitData struct {
-	NewEpoch    uint64 `json:"new_epoch"`
-	NewTreeHash string `json:"new_tree_hash"`
+	NewEpoch    uint64          `json:"new_epoch"`
+	NewTreeHash string          `json:"new_tree_hash"`
+	NewMembers  map[string]bool `json:"new_members"`
+}
+
+type mockCiphertext struct {
+	Epoch     uint64 `json:"epoch"`
+	Plaintext []byte `json:"plaintext"`
 }
 
 type MockMLSEngine struct {
@@ -278,12 +309,17 @@ func mockTreeHash(epoch uint64) []byte {
 	return h[:]
 }
 
-func (m *MockMLSEngine) CreateGroup(_ context.Context, groupID string, _ []byte) ([]byte, []byte, error) {
+func (m *MockMLSEngine) CreateGroup(_ context.Context, groupID string, creatorKey []byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
 	th := mockTreeHash(0)
-	state := mockGroupState{GroupID: groupID, Epoch: 0, TreeHash: hex.EncodeToString(th)}
+	state := mockGroupState{
+		GroupID:  groupID,
+		Epoch:    0,
+		TreeHash: hex.EncodeToString(th),
+		Members:  map[string]bool{string(deriveIdentityFromSigningKey(creatorKey)): true},
+	}
 	stateBytes, _ := json.Marshal(state)
 	return stateBytes, th, nil
 }
@@ -335,6 +371,9 @@ func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes
 	}
 	state.Epoch = commit.NewEpoch
 	state.TreeHash = commit.NewTreeHash
+	if commit.NewMembers != nil {
+		state.Members = commit.NewMembers
+	}
 	newStateBytes, _ := json.Marshal(state)
 	newTH, _ := hex.DecodeString(commit.NewTreeHash)
 	return newStateBytes, newTH, nil
@@ -344,7 +383,14 @@ func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []b
 	if err := m.popError(); err != nil {
 		return nil, nil, 0, err
 	}
-	return welcomeBytes, mockTreeHash(0), 1, nil
+	// Extract state from welcome (mocked as state bytes directly)
+	var state mockGroupState
+	if err := json.Unmarshal(welcomeBytes, &state); err != nil {
+		// fallback
+		return welcomeBytes, mockTreeHash(0), 1, nil
+	}
+	th, _ := hex.DecodeString(state.TreeHash)
+	return welcomeBytes, th, state.Epoch, nil
 }
 
 func (m *MockMLSEngine) GenerateKeyPackage(_ context.Context, _ []byte) ([]byte, []byte, error) {
@@ -354,7 +400,7 @@ func (m *MockMLSEngine) GenerateKeyPackage(_ context.Context, _ []byte) ([]byte,
 	return []byte("mock-key-package"), []byte("mock-kp-bundle-private"), nil
 }
 
-func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
+func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, targetIdentities [][]byte) ([]byte, []byte, []byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -365,8 +411,16 @@ func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, _ [][]b
 	state.Epoch++
 	newTH := mockTreeHash(state.Epoch)
 	state.TreeHash = hex.EncodeToString(newTH)
+
+	if state.Members == nil {
+		state.Members = make(map[string]bool)
+	}
+	for _, id := range targetIdentities {
+		state.Members[string(id)] = true
+	}
+
 	newStateBytes, _ := json.Marshal(state)
-	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
+	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash, NewMembers: state.Members}
 	commitBytes, _ := json.Marshal(commitInfo)
 	return commitBytes, []byte("mock-welcome"), newStateBytes, newTH, nil
 }
@@ -385,8 +439,16 @@ func (m *MockMLSEngine) RemoveMembers(_ context.Context, groupState []byte, targ
 	state.Epoch++
 	newTH := mockTreeHash(state.Epoch)
 	state.TreeHash = hex.EncodeToString(newTH)
+
+	if state.Members == nil {
+		state.Members = make(map[string]bool)
+	}
+	for _, id := range targetIdentities {
+		delete(state.Members, string(id))
+	}
+
 	newStateBytes, _ := json.Marshal(state)
-	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
+	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash, NewMembers: state.Members}
 	commitBytes, _ := json.Marshal(commitInfo)
 	return commitBytes, newStateBytes, newTH, nil
 }
@@ -401,8 +463,14 @@ func (m *MockMLSEngine) HasMember(_ context.Context, groupState []byte, identity
 	if fn != nil {
 		return fn(groupState, identity)
 	}
-	// Default mock behavior keeps caller as member unless identity is empty.
-	return len(identity) > 0, nil
+	var state mockGroupState
+	if err := json.Unmarshal(groupState, &state); err != nil {
+		return false, fmt.Errorf("mock: bad state in HasMember: %w", err)
+	}
+	if state.Members == nil {
+		return len(identity) > 0, nil
+	}
+	return state.Members[string(identity)], nil
 }
 
 func (m *MockMLSEngine) ListMemberIdentities(_ context.Context, groupState []byte) ([][]byte, error) {
@@ -422,24 +490,78 @@ func (m *MockMLSEngine) EncryptMessage(_ context.Context, groupState, plaintext 
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
-	return plaintext, groupState, nil // identity: ciphertext == plaintext
+	var state mockGroupState
+	if err := json.Unmarshal(groupState, &state); err != nil {
+		// Fallback for non-JSON groupState (legacy integration tests)
+		return plaintext, groupState, nil
+	}
+
+	cipher := mockCiphertext{
+		Epoch:     state.Epoch,
+		Plaintext: plaintext,
+	}
+	cipherBytes, _ := json.Marshal(cipher)
+	return cipherBytes, groupState, nil
 }
 
 func (m *MockMLSEngine) DecryptMessage(_ context.Context, groupState, ciphertext []byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
-	return ciphertext, groupState, nil // identity: plaintext == ciphertext
+	var state mockGroupState
+	isNewState := json.Unmarshal(groupState, &state) == nil
+
+	var cipher mockCiphertext
+	if err := json.Unmarshal(ciphertext, &cipher); err != nil {
+		// Fallback for non-JSON ciphertext (legacy messages in tests)
+		return ciphertext, groupState, nil
+	}
+
+	if isNewState && cipher.Epoch > state.Epoch {
+		return nil, nil, fmt.Errorf("mock forward secrecy: message epoch %d > local epoch %d", cipher.Epoch, state.Epoch)
+	}
+
+	return cipher.Plaintext, groupState, nil
 }
 
-func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, _ []byte) ([]byte, []byte, []byte, error) {
+func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, creatorKey []byte) ([]byte, []byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, nil, err
 	}
-	newTH := mockTreeHash(1)
-	commitInfo := mockCommitData{NewEpoch: 1, NewTreeHash: hex.EncodeToString(newTH)}
+	// In our mock, ExportGroupInfo returns "group-info:rt=X:<JSON_STATE>"
+	data := groupInfo
+	if bytes.HasPrefix(data, []byte("group-info:")) {
+		parts := bytes.SplitN(data, []byte(":"), 3)
+		if len(parts) == 3 {
+			data = parts[2]
+		}
+	}
+
+	var state mockGroupState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, nil, nil, fmt.Errorf("mock external join: bad group info: %w", err)
+	}
+
+	// External Join increases epoch by 1
+	state.Epoch++
+	newTH := mockTreeHash(state.Epoch)
+	state.TreeHash = hex.EncodeToString(newTH)
+
+	// Add the joiner (self) to members
+	if state.Members == nil {
+		state.Members = make(map[string]bool)
+	}
+	state.Members[string(deriveIdentityFromSigningKey(creatorKey))] = true
+
+	newStateBytes, _ := json.Marshal(state)
+	commitInfo := mockCommitData{
+		NewEpoch:    state.Epoch,
+		NewTreeHash: state.TreeHash,
+		NewMembers:  state.Members,
+	}
 	commitBytes, _ := json.Marshal(commitInfo)
-	return groupInfo, commitBytes, newTH, nil
+
+	return newStateBytes, commitBytes, newTH, nil
 }
 
 func (m *MockMLSEngine) ExportGroupInfo(_ context.Context, groupState []byte, withRatchetTree bool) ([]byte, error) {
@@ -695,6 +817,10 @@ func (s *MockStorage) GetMessagesSince(groupID string, after HLCTimestamp) ([]*S
 			out = append(out, msg)
 		}
 	}
+	// Sort by HLC ASC to match causal order
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Timestamp.Before(out[j].Timestamp)
+	})
 	return out, nil
 }
 

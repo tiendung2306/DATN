@@ -219,6 +219,15 @@ func businessRuntimeStartMockInWorkDir(t *testing.T, root string) (*Runtime, *bu
 	return rt, mock
 }
 
+func businessRuntimeStartRealInWorkDir(t *testing.T, root string) *Runtime {
+	t.Helper()
+	dbPath := businessDBPath(root)
+	cfg := businessDefaultConfig(dbPath)
+	rt := businessNewRuntime(cfg)
+	rt.Startup(context.Background())
+	return rt
+}
+
 func businessShutdownRuntimeInWorkDir(t *testing.T, rt *Runtime) {
 	t.Helper()
 	if rt != nil {

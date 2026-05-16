@@ -18,10 +18,17 @@ func NewMLSEngine(client mls_service.MLSCryptoServiceClient) coordination.MLSEng
 	return &GrpcMLSEngine{client: client}
 }
 
+func truncateSigningKey(key []byte) []byte {
+	if len(key) == 64 {
+		return key[:32]
+	}
+	return key
+}
+
 func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error) {
 	resp, err := g.client.CreateGroup(ctx, &mls_service.CreateGroupRequest{
 		GroupId:    groupID,
-		SigningKey: signingKey,
+		SigningKey: truncateSigningKey(signingKey),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc CreateGroup: %w", err)
@@ -66,7 +73,7 @@ func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, co
 func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error) {
 	resp, err := g.client.ProcessWelcome(ctx, &mls_service.ProcessWelcomeRequest{
 		WelcomeBytes:            welcomeBytes,
-		SigningKey:              signingKey,
+		SigningKey:              truncateSigningKey(signingKey),
 		KeyPackageBundlePrivate: keyPackageBundlePrivate,
 	})
 	if err != nil {
@@ -77,7 +84,7 @@ func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signin
 
 func (g *GrpcMLSEngine) GenerateKeyPackage(ctx context.Context, signingKey []byte) (keyPackageBytes, keyPackageBundlePrivate []byte, err error) {
 	resp, err := g.client.GenerateKeyPackage(ctx, &mls_service.GenerateKeyPackageRequest{
-		SigningKey: signingKey,
+		SigningKey: truncateSigningKey(signingKey),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc GenerateKeyPackage: %w", err)
@@ -153,7 +160,7 @@ func (g *GrpcMLSEngine) DecryptMessage(ctx context.Context, groupState []byte, c
 func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error) {
 	resp, err := g.client.ExternalJoin(ctx, &mls_service.ExternalJoinRequest{
 		GroupInfo:  groupInfo,
-		SigningKey: signingKey,
+		SigningKey: truncateSigningKey(signingKey),
 	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("grpc ExternalJoin: %w", err)
