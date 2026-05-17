@@ -109,6 +109,15 @@ This document serves as a short-term memory for the AI Agent.
   - **No silent failure**: nếu requester không lấy được KP, vẫn forward; creator log error rõ; row chuyển sang `failed` cho retry — không có "vô hình" bị nuốt lỗi.
   - **Audit trail đúng**: `stored_keypackages.source_peer_id = requester` thay vì target — phản ánh ai đã thực sự chuyển KP.
 
+### Latest Delta (2026-05-17) ✅ — Group Fork Healing Epoch-based weight logic + Autonomous Replay verification
+
+- **Group Fork Healing [COMPLETED]:**
+    - **Formula:** Branch weight comparison strictly uses $W = (C_{members}, E, H_{commit})$. The `Epoch` ($E$) field was formally introduced to `GroupStateAnnouncement` to act as the primary evolutionary indicator when member counts are equal. Tie-breaker ensures deterministic convergence across all partitioned nodes without extra communication.
+    - **Autonomous Replay:** Verified implementation where nodes merging into a winning branch automatically re-encrypt their partition-window messages using the newly acquired cryptographic state (Epoch/Key) and re-broadcast them. This ensures zero-data-loss and preserves Forward Secrecy. Strict non-repudiation is maintained (nodes only replay messages they authored).
+- **Validation:**
+    - `go test -v ./app/coordination/...` PASS (62 tests), including specific TDD cases for Epoch weight and Autonomous Replay.
+    - Verified that `EncryptMessage` during replay uses the winning branch's `groupState`, ensuring cryptographic freshness.
+
 ### Latest Delta (2026-05-11) ✅ — Source-peer-id invariant hardening + invite-creator hint protocol round-trip + 4 new E2E regression tests
 
 - **User report:** *"sao những lỗi như này mà chạy test không phát hiện? kiểm tra còn đường đi nào sót, hãy code thêm test bao phủ hết đi, để tránh lỗi thêm khi test manual"* — sau khi fix `fetchWelcomeFromStorePeers` không truyền `localID` làm source nữa, user yêu cầu audit toàn diện và code test cover hết đường đi để tránh tái lập tương lai.

@@ -179,6 +179,7 @@ type HeartbeatMsg struct {
 type GroupStateAnnouncement struct {
 	TreeHash    []byte `json:"tree_hash"`
 	MemberCount int    `json:"member_count"` // online members in this branch
+	Epoch       uint64 `json:"epoch"`        // current epoch of the branch
 	CommitHash  []byte `json:"commit_hash"`  // hash of last Commit (tiebreaker)
 }
 

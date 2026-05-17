@@ -33,10 +33,15 @@ func CompareBranchWeight(local, remote GroupStateAnnouncement) BranchResult {
 		return BranchRemote
 	}
 
-	// Secondary: epoch embedded in the envelope (we use MemberCount as proxy;
-	// the actual epoch comparison happens through the Envelope's Epoch field).
-	// For direct comparison between two announcements, we compare CommitHash
-	// as the final tiebreaker (lower hash wins, ensuring determinism).
+	// Secondary: epoch (higher wins, indicates more evolved branch)
+	if local.Epoch != remote.Epoch {
+		if local.Epoch > remote.Epoch {
+			return BranchLocal
+		}
+		return BranchRemote
+	}
+
+	// Tertiary: commit hash (lower wins, deterministic tiebreaker)
 	cmp := bytes.Compare(local.CommitHash, remote.CommitHash)
 	if cmp < 0 {
 		return BranchLocal
@@ -117,6 +122,7 @@ func (fd *ForkDetector) UpdateLocal(ann GroupStateAnnouncement) {
 	cp := GroupStateAnnouncement{
 		TreeHash:    copyBytes(ann.TreeHash),
 		MemberCount: ann.MemberCount,
+		Epoch:       ann.Epoch,
 		CommitHash:  copyBytes(ann.CommitHash),
 	}
 	fd.local = &cp
@@ -144,6 +150,7 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 			announcement: GroupStateAnnouncement{
 				TreeHash:    copyBytes(ann.TreeHash),
 				MemberCount: ann.MemberCount,
+				Epoch:       ann.Epoch,
 				CommitHash:  copyBytes(ann.CommitHash),
 			},
 			peers:       make(map[peer.ID]struct{}),
@@ -152,6 +159,7 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 		fd.known[thHex] = bi
 	} else {
 		bi.announcement.MemberCount = ann.MemberCount
+		bi.announcement.Epoch = ann.Epoch
 		bi.announcement.CommitHash = copyBytes(ann.CommitHash)
 	}
 	bi.peers[from] = struct{}{}

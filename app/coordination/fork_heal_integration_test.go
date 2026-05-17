@@ -30,6 +30,7 @@ func TestIntegration_ForkHeal_ConvergesReplayAndPersistsHistory(t *testing.T) {
 	alice.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 1,
+		Epoch:       0,
 	})
 	alice.coord.mu.Unlock()
 
@@ -38,6 +39,7 @@ func TestIntegration_ForkHeal_ConvergesReplayAndPersistsHistory(t *testing.T) {
 	bob.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
+		Epoch:       0,
 	})
 	bob.coord.mu.Unlock()
 
@@ -49,6 +51,7 @@ func TestIntegration_ForkHeal_ConvergesReplayAndPersistsHistory(t *testing.T) {
 	alice.coord.forkDetector.ProcessRemote(partitionStart, bob.id, bob.coord.CurrentEpoch(), GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
+		Epoch:       0,
 	})
 	alice.coord.mu.Unlock()
 
@@ -132,6 +135,7 @@ func TestIntegration_ForkHeal_FailurePersistsFailedStep(t *testing.T) {
 	alice.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 1,
+		Epoch:       0,
 	})
 	alice.coord.mu.Unlock()
 
@@ -140,6 +144,7 @@ func TestIntegration_ForkHeal_FailurePersistsFailedStep(t *testing.T) {
 	bob.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
+		Epoch:       0,
 	})
 	bob.coord.mu.Unlock()
 

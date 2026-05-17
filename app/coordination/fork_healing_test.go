@@ -10,8 +10,8 @@ import (
 var fixedT = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestCompareBranchWeight_SameTreeHash(t *testing.T) {
-	a := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 3, CommitHash: []byte("abc")}
-	b := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 5, CommitHash: []byte("xyz")}
+	a := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 3, Epoch: 0, CommitHash: []byte("abc")}
+	b := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 5, Epoch: 0, CommitHash: []byte("xyz")}
 
 	if CompareBranchWeight(a, b) != BranchEqual {
 		t.Error("same TreeHash should return BranchEqual regardless of other fields")
@@ -19,8 +19,8 @@ func TestCompareBranchWeight_SameTreeHash(t *testing.T) {
 }
 
 func TestCompareBranchWeight_MoreMembers_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 5, CommitHash: []byte("aaa")}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, CommitHash: []byte("aaa")}
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 5, Epoch: 0, CommitHash: []byte("aaa")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte("aaa")}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
 		t.Error("local with more members should win")
@@ -31,17 +31,38 @@ func TestCompareBranchWeight_MoreMembers_Wins(t *testing.T) {
 }
 
 func TestCompareBranchWeight_SameMembers_LowerCommitHash_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, CommitHash: []byte{0x01}}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, CommitHash: []byte{0x02}}
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x02}}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
 		t.Error("local with lower commit hash should win when member count is equal")
 	}
 }
 
+func TestCompareBranchWeight_SameMembers_HigherEpoch_Wins(t *testing.T) {
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte("aaa")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 20, CommitHash: []byte("aaa")}
+
+	if CompareBranchWeight(local, remote) != BranchRemote {
+		t.Error("remote with higher epoch should win when member count is equal")
+	}
+	if CompareBranchWeight(remote, local) != BranchLocal {
+		t.Error("local with higher epoch should win when member count is equal")
+	}
+}
+
+func TestCompareBranchWeight_SameMembersAndEpoch_LowerCommitHash_Wins(t *testing.T) {
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x01}}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x02}}
+
+	if CompareBranchWeight(local, remote) != BranchLocal {
+		t.Error("local with lower commit hash should win when member count and epoch are equal")
+	}
+}
+
 func TestCompareBranchWeight_FinalTiebreaker_TreeHash(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte{0x01}, MemberCount: 3, CommitHash: []byte{0x01}}
-	remote := GroupStateAnnouncement{TreeHash: []byte{0x02}, MemberCount: 3, CommitHash: []byte{0x01}}
+	local := GroupStateAnnouncement{TreeHash: []byte{0x01}, MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}}
+	remote := GroupStateAnnouncement{TreeHash: []byte{0x02}, MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
 		t.Error("when everything else is equal, lower TreeHash should win")
@@ -53,12 +74,14 @@ func TestForkDetector_NoFork(t *testing.T) {
 	fd.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 3,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
 	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 3,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
@@ -72,6 +95,7 @@ func TestForkDetector_DetectsFork(t *testing.T) {
 	fd.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 3,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
@@ -79,6 +103,7 @@ func TestForkDetector_DetectsFork(t *testing.T) {
 	event := fd.ProcessRemote(observed, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 5,
+		Epoch:       0,
 		CommitHash:  []byte("commit-2"),
 	})
 
@@ -102,6 +127,7 @@ func TestForkDetector_PartitionStartedAt_StableAcrossObservations(t *testing.T) 
 	fd.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 3,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
@@ -110,6 +136,7 @@ func TestForkDetector_PartitionStartedAt_StableAcrossObservations(t *testing.T) 
 	remoteAnn := GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 5,
+		Epoch:       0,
 		CommitHash:  []byte("commit-2"),
 	}
 
@@ -130,12 +157,14 @@ func TestForkDetector_LocalWins(t *testing.T) {
 	fd.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("hash-A"),
 		MemberCount: 5,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
 	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 3, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 2,
+		Epoch:       0,
 		CommitHash:  []byte("commit-2"),
 	})
 
@@ -156,6 +185,7 @@ func TestForkDetector_NoLocalSet(t *testing.T) {
 	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 5, GroupStateAnnouncement{
 		TreeHash:    []byte("hash-B"),
 		MemberCount: 3,
+		Epoch:       0,
 		CommitHash:  []byte("commit-1"),
 	})
 
@@ -167,17 +197,17 @@ func TestForkDetector_NoLocalSet(t *testing.T) {
 func TestForkDetector_KnownBranches(t *testing.T) {
 	fd := NewForkDetector()
 	fd.UpdateLocal(GroupStateAnnouncement{
-		TreeHash: []byte("hash-A"), MemberCount: 3, CommitHash: []byte("c1"),
+		TreeHash: []byte("hash-A"), MemberCount: 3, Epoch: 0, CommitHash: []byte("c1"),
 	})
 
 	fd.ProcessRemote(fixedT, peerID("p1"), 5, GroupStateAnnouncement{
-		TreeHash: []byte("hash-B"), MemberCount: 2, CommitHash: []byte("c2"),
+		TreeHash: []byte("hash-B"), MemberCount: 2, Epoch: 0, CommitHash: []byte("c2"),
 	})
 	fd.ProcessRemote(fixedT, peerID("p2"), 5, GroupStateAnnouncement{
-		TreeHash: []byte("hash-C"), MemberCount: 1, CommitHash: []byte("c3"),
+		TreeHash: []byte("hash-C"), MemberCount: 1, Epoch: 0, CommitHash: []byte("c3"),
 	})
 	fd.ProcessRemote(fixedT, peerID("p3"), 5, GroupStateAnnouncement{
-		TreeHash: []byte("hash-B"), MemberCount: 2, CommitHash: []byte("c2"),
+		TreeHash: []byte("hash-B"), MemberCount: 2, Epoch: 0, CommitHash: []byte("c2"),
 	})
 
 	if fd.KnownBranches() != 2 {
@@ -188,10 +218,10 @@ func TestForkDetector_KnownBranches(t *testing.T) {
 func TestForkDetector_Reset(t *testing.T) {
 	fd := NewForkDetector()
 	fd.UpdateLocal(GroupStateAnnouncement{
-		TreeHash: []byte("h-A"), MemberCount: 3, CommitHash: []byte("c1"),
+		TreeHash: []byte("h-A"), MemberCount: 3, Epoch: 0, CommitHash: []byte("c1"),
 	})
 	fd.ProcessRemote(fixedT, peerID("p1"), 5, GroupStateAnnouncement{
-		TreeHash: []byte("h-B"), MemberCount: 2, CommitHash: []byte("c2"),
+		TreeHash: []byte("h-B"), MemberCount: 2, Epoch: 0, CommitHash: []byte("c2"),
 	})
 
 	fd.Reset()

@@ -457,6 +457,7 @@ func TestCoordinator_ForkDetection(t *testing.T) {
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("diverged-hash-alice"),
 		MemberCount: 1,
+		Epoch:       0,
 	})
 	nodes[0].coord.mu.Unlock()
 

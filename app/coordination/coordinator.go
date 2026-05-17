@@ -233,6 +233,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
+		Epoch:       c.epoch,
 	})
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -627,6 +628,7 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
 		MemberCount: c.activeView.Size(),
+		Epoch:       newEpoch,
 		CommitHash:  commitHash,
 	})
 
@@ -1220,6 +1222,7 @@ func (c *Coordinator) broadcastAnnounceLocked() {
 	ann := GroupStateAnnouncement{
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
+		Epoch:       c.epoch,
 	}
 	c.broadcastLocked(MsgAnnounce, ann)
 }
@@ -1680,6 +1683,7 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
 		MemberCount: c.activeView.Size(),
+		Epoch:       newEpoch,
 		CommitHash:  commitHash,
 	})
 	if c.onEpochChange != nil {

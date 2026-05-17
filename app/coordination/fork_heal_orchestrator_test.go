@@ -2,6 +2,7 @@ package coordination
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -175,11 +176,13 @@ func newRemoteForkEvent(groupID string, partitionStartedAt time.Time) *ForkEvent
 		LocalAnnounce: GroupStateAnnouncement{
 			TreeHash:    []byte("loser-hash"),
 			MemberCount: 2,
+			Epoch:       0,
 			CommitHash:  []byte{0x02},
 		},
 		RemoteAnnounce: GroupStateAnnouncement{
 			TreeHash:    []byte("winner-hash"),
 			MemberCount: 5,
+			Epoch:       7,
 			CommitHash:  []byte{0x01},
 		},
 		RemoteEpoch:        7,
@@ -195,7 +198,8 @@ func TestCoordinator_ScheduleHeal_RecordsMetrics(t *testing.T) {
 	startAll(t, nodes)
 
 	c := nodes[0].coord
-	attachStaticGroupInfoFetcher(c, 7, []byte("winner-hash"), []byte("winner-group-info"))
+	mockState, _ := json.Marshal(mockGroupState{GroupID: "grp-heal-metrics", Epoch: 7, TreeHash: "winner-hash"})
+	attachStaticGroupInfoFetcher(c, 7, []byte("winner-hash"), mockState)
 	event := newRemoteForkEvent("grp-heal-metrics", clk.Now().Add(-2*time.Second))
 
 	c.mu.Lock()
@@ -258,6 +262,7 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree-hash"),
 		MemberCount: 1,
+		Epoch:       0,
 	})
 	nodes[0].coord.mu.Unlock()
 	nodes[0].coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
@@ -308,6 +313,7 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree-hash"),
 		MemberCount: 1,
+		Epoch:       0,
 	})
 	nodes[0].coord.mu.Unlock()
 
@@ -316,6 +322,7 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 	nodes[1].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree-hash"),
 		MemberCount: 2,
+		Epoch:       0,
 	})
 	nodes[1].coord.mu.Unlock()
 
@@ -327,6 +334,7 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 	nodes[0].coord.forkDetector.ProcessRemote(partitionStart, nodes[1].id, 0, GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree-hash"),
 		MemberCount: 2,
+		Epoch:       0,
 	})
 	nodes[0].coord.mu.Unlock()
 
