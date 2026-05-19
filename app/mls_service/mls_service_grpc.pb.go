@@ -19,25 +19,34 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MLSCryptoService_Ping_FullMethodName                 = "/mls_service.MLSCryptoService/Ping"
-	MLSCryptoService_GenerateIdentity_FullMethodName     = "/mls_service.MLSCryptoService/GenerateIdentity"
-	MLSCryptoService_ExportIdentity_FullMethodName       = "/mls_service.MLSCryptoService/ExportIdentity"
-	MLSCryptoService_ImportIdentity_FullMethodName       = "/mls_service.MLSCryptoService/ImportIdentity"
-	MLSCryptoService_CreateGroup_FullMethodName          = "/mls_service.MLSCryptoService/CreateGroup"
-	MLSCryptoService_CreateProposal_FullMethodName       = "/mls_service.MLSCryptoService/CreateProposal"
-	MLSCryptoService_CreateCommit_FullMethodName         = "/mls_service.MLSCryptoService/CreateCommit"
-	MLSCryptoService_ProcessCommit_FullMethodName        = "/mls_service.MLSCryptoService/ProcessCommit"
-	MLSCryptoService_ProcessWelcome_FullMethodName       = "/mls_service.MLSCryptoService/ProcessWelcome"
-	MLSCryptoService_EncryptMessage_FullMethodName       = "/mls_service.MLSCryptoService/EncryptMessage"
-	MLSCryptoService_DecryptMessage_FullMethodName       = "/mls_service.MLSCryptoService/DecryptMessage"
-	MLSCryptoService_ExternalJoin_FullMethodName         = "/mls_service.MLSCryptoService/ExternalJoin"
-	MLSCryptoService_ExportSecret_FullMethodName         = "/mls_service.MLSCryptoService/ExportSecret"
-	MLSCryptoService_GenerateKeyPackage_FullMethodName   = "/mls_service.MLSCryptoService/GenerateKeyPackage"
-	MLSCryptoService_AddMembers_FullMethodName           = "/mls_service.MLSCryptoService/AddMembers"
-	MLSCryptoService_RemoveMembers_FullMethodName        = "/mls_service.MLSCryptoService/RemoveMembers"
-	MLSCryptoService_HasMember_FullMethodName            = "/mls_service.MLSCryptoService/HasMember"
-	MLSCryptoService_ListMemberIdentities_FullMethodName = "/mls_service.MLSCryptoService/ListMemberIdentities"
-	MLSCryptoService_ExportGroupInfo_FullMethodName      = "/mls_service.MLSCryptoService/ExportGroupInfo"
+	MLSCryptoService_Ping_FullMethodName                       = "/mls_service.MLSCryptoService/Ping"
+	MLSCryptoService_GenerateIdentity_FullMethodName           = "/mls_service.MLSCryptoService/GenerateIdentity"
+	MLSCryptoService_ExportIdentity_FullMethodName             = "/mls_service.MLSCryptoService/ExportIdentity"
+	MLSCryptoService_ImportIdentity_FullMethodName             = "/mls_service.MLSCryptoService/ImportIdentity"
+	MLSCryptoService_CreateGroup_FullMethodName                = "/mls_service.MLSCryptoService/CreateGroup"
+	MLSCryptoService_CreateProposal_FullMethodName             = "/mls_service.MLSCryptoService/CreateProposal"
+	MLSCryptoService_CreateCommit_FullMethodName               = "/mls_service.MLSCryptoService/CreateCommit"
+	MLSCryptoService_ProcessCommit_FullMethodName              = "/mls_service.MLSCryptoService/ProcessCommit"
+	MLSCryptoService_ProcessWelcome_FullMethodName             = "/mls_service.MLSCryptoService/ProcessWelcome"
+	MLSCryptoService_EncryptMessage_FullMethodName             = "/mls_service.MLSCryptoService/EncryptMessage"
+	MLSCryptoService_DecryptMessage_FullMethodName             = "/mls_service.MLSCryptoService/DecryptMessage"
+	MLSCryptoService_ExternalJoin_FullMethodName               = "/mls_service.MLSCryptoService/ExternalJoin"
+	MLSCryptoService_ExportSecret_FullMethodName               = "/mls_service.MLSCryptoService/ExportSecret"
+	MLSCryptoService_GenerateKeyPackage_FullMethodName         = "/mls_service.MLSCryptoService/GenerateKeyPackage"
+	MLSCryptoService_AddMembers_FullMethodName                 = "/mls_service.MLSCryptoService/AddMembers"
+	MLSCryptoService_RemoveMembers_FullMethodName              = "/mls_service.MLSCryptoService/RemoveMembers"
+	MLSCryptoService_HasMember_FullMethodName                  = "/mls_service.MLSCryptoService/HasMember"
+	MLSCryptoService_ListMemberIdentities_FullMethodName       = "/mls_service.MLSCryptoService/ListMemberIdentities"
+	MLSCryptoService_ExportGroupInfo_FullMethodName            = "/mls_service.MLSCryptoService/ExportGroupInfo"
+	MLSCryptoService_LoadGroup_FullMethodName                  = "/mls_service.MLSCryptoService/LoadGroup"
+	MLSCryptoService_GetGroupMetadata_FullMethodName           = "/mls_service.MLSCryptoService/GetGroupMetadata"
+	MLSCryptoService_EncryptMessageCached_FullMethodName       = "/mls_service.MLSCryptoService/EncryptMessageCached"
+	MLSCryptoService_DecryptMessageCached_FullMethodName       = "/mls_service.MLSCryptoService/DecryptMessageCached"
+	MLSCryptoService_CreateUpdateCommitCached_FullMethodName   = "/mls_service.MLSCryptoService/CreateUpdateCommitCached"
+	MLSCryptoService_ProcessCommitCached_FullMethodName        = "/mls_service.MLSCryptoService/ProcessCommitCached"
+	MLSCryptoService_ExportSecretCached_FullMethodName         = "/mls_service.MLSCryptoService/ExportSecretCached"
+	MLSCryptoService_ExportGroupStateCheckpoint_FullMethodName = "/mls_service.MLSCryptoService/ExportGroupStateCheckpoint"
+	MLSCryptoService_UnloadGroup_FullMethodName                = "/mls_service.MLSCryptoService/UnloadGroup"
 )
 
 // MLSCryptoServiceClient is the client API for MLSCryptoService service.
@@ -81,6 +90,17 @@ type MLSCryptoServiceClient interface {
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
 	ExportGroupInfo(ctx context.Context, in *ExportGroupInfoRequest, opts ...grpc.CallOption) (*ExportGroupInfoResponse, error)
+	// Phase A optimization research — hot-cache sidecar benchmark path.
+	// These RPCs are additive and do not replace the production stateless RPCs.
+	LoadGroup(ctx context.Context, in *LoadGroupRequest, opts ...grpc.CallOption) (*LoadGroupResponse, error)
+	GetGroupMetadata(ctx context.Context, in *GetGroupMetadataRequest, opts ...grpc.CallOption) (*GetGroupMetadataResponse, error)
+	EncryptMessageCached(ctx context.Context, in *EncryptMessageCachedRequest, opts ...grpc.CallOption) (*EncryptMessageCachedResponse, error)
+	DecryptMessageCached(ctx context.Context, in *DecryptMessageCachedRequest, opts ...grpc.CallOption) (*DecryptMessageCachedResponse, error)
+	CreateUpdateCommitCached(ctx context.Context, in *CreateUpdateCommitCachedRequest, opts ...grpc.CallOption) (*CreateUpdateCommitCachedResponse, error)
+	ProcessCommitCached(ctx context.Context, in *ProcessCommitCachedRequest, opts ...grpc.CallOption) (*ProcessCommitCachedResponse, error)
+	ExportSecretCached(ctx context.Context, in *ExportSecretCachedRequest, opts ...grpc.CallOption) (*ExportSecretCachedResponse, error)
+	ExportGroupStateCheckpoint(ctx context.Context, in *ExportGroupStateCheckpointRequest, opts ...grpc.CallOption) (*ExportGroupStateCheckpointResponse, error)
+	UnloadGroup(ctx context.Context, in *UnloadGroupRequest, opts ...grpc.CallOption) (*UnloadGroupResponse, error)
 }
 
 type mLSCryptoServiceClient struct {
@@ -281,6 +301,96 @@ func (c *mLSCryptoServiceClient) ExportGroupInfo(ctx context.Context, in *Export
 	return out, nil
 }
 
+func (c *mLSCryptoServiceClient) LoadGroup(ctx context.Context, in *LoadGroupRequest, opts ...grpc.CallOption) (*LoadGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LoadGroupResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_LoadGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) GetGroupMetadata(ctx context.Context, in *GetGroupMetadataRequest, opts ...grpc.CallOption) (*GetGroupMetadataResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetGroupMetadataResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_GetGroupMetadata_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) EncryptMessageCached(ctx context.Context, in *EncryptMessageCachedRequest, opts ...grpc.CallOption) (*EncryptMessageCachedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EncryptMessageCachedResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_EncryptMessageCached_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) DecryptMessageCached(ctx context.Context, in *DecryptMessageCachedRequest, opts ...grpc.CallOption) (*DecryptMessageCachedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DecryptMessageCachedResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_DecryptMessageCached_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) CreateUpdateCommitCached(ctx context.Context, in *CreateUpdateCommitCachedRequest, opts ...grpc.CallOption) (*CreateUpdateCommitCachedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateUpdateCommitCachedResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_CreateUpdateCommitCached_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ProcessCommitCached(ctx context.Context, in *ProcessCommitCachedRequest, opts ...grpc.CallOption) (*ProcessCommitCachedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProcessCommitCachedResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ProcessCommitCached_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ExportSecretCached(ctx context.Context, in *ExportSecretCachedRequest, opts ...grpc.CallOption) (*ExportSecretCachedResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportSecretCachedResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ExportSecretCached_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) ExportGroupStateCheckpoint(ctx context.Context, in *ExportGroupStateCheckpointRequest, opts ...grpc.CallOption) (*ExportGroupStateCheckpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportGroupStateCheckpointResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_ExportGroupStateCheckpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mLSCryptoServiceClient) UnloadGroup(ctx context.Context, in *UnloadGroupRequest, opts ...grpc.CallOption) (*UnloadGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UnloadGroupResponse)
+	err := c.cc.Invoke(ctx, MLSCryptoService_UnloadGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MLSCryptoServiceServer is the server API for MLSCryptoService service.
 // All implementations must embed UnimplementedMLSCryptoServiceServer
 // for forward compatibility.
@@ -322,6 +432,17 @@ type MLSCryptoServiceServer interface {
 	// losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
 	// TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
 	ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error)
+	// Phase A optimization research — hot-cache sidecar benchmark path.
+	// These RPCs are additive and do not replace the production stateless RPCs.
+	LoadGroup(context.Context, *LoadGroupRequest) (*LoadGroupResponse, error)
+	GetGroupMetadata(context.Context, *GetGroupMetadataRequest) (*GetGroupMetadataResponse, error)
+	EncryptMessageCached(context.Context, *EncryptMessageCachedRequest) (*EncryptMessageCachedResponse, error)
+	DecryptMessageCached(context.Context, *DecryptMessageCachedRequest) (*DecryptMessageCachedResponse, error)
+	CreateUpdateCommitCached(context.Context, *CreateUpdateCommitCachedRequest) (*CreateUpdateCommitCachedResponse, error)
+	ProcessCommitCached(context.Context, *ProcessCommitCachedRequest) (*ProcessCommitCachedResponse, error)
+	ExportSecretCached(context.Context, *ExportSecretCachedRequest) (*ExportSecretCachedResponse, error)
+	ExportGroupStateCheckpoint(context.Context, *ExportGroupStateCheckpointRequest) (*ExportGroupStateCheckpointResponse, error)
+	UnloadGroup(context.Context, *UnloadGroupRequest) (*UnloadGroupResponse, error)
 	mustEmbedUnimplementedMLSCryptoServiceServer()
 }
 
@@ -388,6 +509,33 @@ func (UnimplementedMLSCryptoServiceServer) ListMemberIdentities(context.Context,
 }
 func (UnimplementedMLSCryptoServiceServer) ExportGroupInfo(context.Context, *ExportGroupInfoRequest) (*ExportGroupInfoResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportGroupInfo not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) LoadGroup(context.Context, *LoadGroupRequest) (*LoadGroupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LoadGroup not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) GetGroupMetadata(context.Context, *GetGroupMetadataRequest) (*GetGroupMetadataResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetGroupMetadata not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) EncryptMessageCached(context.Context, *EncryptMessageCachedRequest) (*EncryptMessageCachedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EncryptMessageCached not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) DecryptMessageCached(context.Context, *DecryptMessageCachedRequest) (*DecryptMessageCachedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DecryptMessageCached not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) CreateUpdateCommitCached(context.Context, *CreateUpdateCommitCachedRequest) (*CreateUpdateCommitCachedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateUpdateCommitCached not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ProcessCommitCached(context.Context, *ProcessCommitCachedRequest) (*ProcessCommitCachedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProcessCommitCached not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ExportSecretCached(context.Context, *ExportSecretCachedRequest) (*ExportSecretCachedResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportSecretCached not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) ExportGroupStateCheckpoint(context.Context, *ExportGroupStateCheckpointRequest) (*ExportGroupStateCheckpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExportGroupStateCheckpoint not implemented")
+}
+func (UnimplementedMLSCryptoServiceServer) UnloadGroup(context.Context, *UnloadGroupRequest) (*UnloadGroupResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UnloadGroup not implemented")
 }
 func (UnimplementedMLSCryptoServiceServer) mustEmbedUnimplementedMLSCryptoServiceServer() {}
 func (UnimplementedMLSCryptoServiceServer) testEmbeddedByValue()                          {}
@@ -752,6 +900,168 @@ func _MLSCryptoService_ExportGroupInfo_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MLSCryptoService_LoadGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoadGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).LoadGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_LoadGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).LoadGroup(ctx, req.(*LoadGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_GetGroupMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGroupMetadataRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).GetGroupMetadata(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_GetGroupMetadata_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).GetGroupMetadata(ctx, req.(*GetGroupMetadataRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_EncryptMessageCached_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptMessageCachedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).EncryptMessageCached(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_EncryptMessageCached_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).EncryptMessageCached(ctx, req.(*EncryptMessageCachedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_DecryptMessageCached_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DecryptMessageCachedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).DecryptMessageCached(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_DecryptMessageCached_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).DecryptMessageCached(ctx, req.(*DecryptMessageCachedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_CreateUpdateCommitCached_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateUpdateCommitCachedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).CreateUpdateCommitCached(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_CreateUpdateCommitCached_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).CreateUpdateCommitCached(ctx, req.(*CreateUpdateCommitCachedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ProcessCommitCached_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProcessCommitCachedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ProcessCommitCached(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ProcessCommitCached_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ProcessCommitCached(ctx, req.(*ProcessCommitCachedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ExportSecretCached_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportSecretCachedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ExportSecretCached(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ExportSecretCached_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ExportSecretCached(ctx, req.(*ExportSecretCachedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_ExportGroupStateCheckpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportGroupStateCheckpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).ExportGroupStateCheckpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_ExportGroupStateCheckpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).ExportGroupStateCheckpoint(ctx, req.(*ExportGroupStateCheckpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MLSCryptoService_UnloadGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnloadGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MLSCryptoServiceServer).UnloadGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MLSCryptoService_UnloadGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MLSCryptoServiceServer).UnloadGroup(ctx, req.(*UnloadGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MLSCryptoService_ServiceDesc is the grpc.ServiceDesc for MLSCryptoService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -834,6 +1144,42 @@ var MLSCryptoService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExportGroupInfo",
 			Handler:    _MLSCryptoService_ExportGroupInfo_Handler,
+		},
+		{
+			MethodName: "LoadGroup",
+			Handler:    _MLSCryptoService_LoadGroup_Handler,
+		},
+		{
+			MethodName: "GetGroupMetadata",
+			Handler:    _MLSCryptoService_GetGroupMetadata_Handler,
+		},
+		{
+			MethodName: "EncryptMessageCached",
+			Handler:    _MLSCryptoService_EncryptMessageCached_Handler,
+		},
+		{
+			MethodName: "DecryptMessageCached",
+			Handler:    _MLSCryptoService_DecryptMessageCached_Handler,
+		},
+		{
+			MethodName: "CreateUpdateCommitCached",
+			Handler:    _MLSCryptoService_CreateUpdateCommitCached_Handler,
+		},
+		{
+			MethodName: "ProcessCommitCached",
+			Handler:    _MLSCryptoService_ProcessCommitCached_Handler,
+		},
+		{
+			MethodName: "ExportSecretCached",
+			Handler:    _MLSCryptoService_ExportSecretCached_Handler,
+		},
+		{
+			MethodName: "ExportGroupStateCheckpoint",
+			Handler:    _MLSCryptoService_ExportGroupStateCheckpoint_Handler,
+		},
+		{
+			MethodName: "UnloadGroup",
+			Handler:    _MLSCryptoService_UnloadGroup_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

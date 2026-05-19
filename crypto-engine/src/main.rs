@@ -1,5 +1,6 @@
 use chrono::Utc;
 use clap::Parser;
+use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
 
 mod mls;
@@ -12,14 +13,21 @@ use mls_service::mls_crypto_service_server::{MlsCryptoService, MlsCryptoServiceS
 use mls_service::{
     AddMembersRequest, AddMembersResponse, CreateCommitRequest, CreateCommitResponse,
     CreateGroupRequest, CreateGroupResponse, CreateProposalRequest, CreateProposalResponse,
-    DecryptMessageRequest, DecryptMessageResponse, EncryptMessageRequest, EncryptMessageResponse,
-    ExportGroupInfoRequest, ExportGroupInfoResponse, ExportIdentityRequest, ExportIdentityResponse,
+    CreateUpdateCommitCachedRequest, CreateUpdateCommitCachedResponse, DecryptMessageCachedRequest,
+    DecryptMessageCachedResponse, DecryptMessageRequest, DecryptMessageResponse,
+    EncryptMessageCachedRequest, EncryptMessageCachedResponse, EncryptMessageRequest,
+    EncryptMessageResponse, ExportGroupInfoRequest, ExportGroupInfoResponse,
+    ExportGroupStateCheckpointRequest, ExportGroupStateCheckpointResponse, ExportIdentityRequest,
+    ExportIdentityResponse, ExportSecretCachedRequest, ExportSecretCachedResponse,
     ExportSecretRequest, ExportSecretResponse, ExternalJoinRequest, ExternalJoinResponse,
     GenerateIdentityRequest, GenerateIdentityResponse, GenerateKeyPackageRequest,
-    GenerateKeyPackageResponse, HasMemberRequest, HasMemberResponse, ImportIdentityRequest,
-    ImportIdentityResponse, ListMemberIdentitiesRequest, ListMemberIdentitiesResponse, PingRequest,
-    PingResponse, ProcessCommitRequest, ProcessCommitResponse, ProcessWelcomeRequest,
-    ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
+    GenerateKeyPackageResponse, GetGroupMetadataRequest, GetGroupMetadataResponse,
+    HasMemberRequest, HasMemberResponse, ImportIdentityRequest, ImportIdentityResponse,
+    ListMemberIdentitiesRequest, ListMemberIdentitiesResponse, LoadGroupRequest, LoadGroupResponse,
+    OperationContext, PingRequest, PingResponse, ProcessCommitCachedRequest,
+    ProcessCommitCachedResponse, ProcessCommitRequest, ProcessCommitResponse,
+    ProcessWelcomeRequest, ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
+    UnloadGroupRequest, UnloadGroupResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -29,7 +37,20 @@ struct Args {
     port: u16,
 }
 
-pub struct MyMlsService;
+#[derive(Clone)]
+pub struct MyMlsService {
+    cache: Arc<mls::RuntimeCache>,
+}
+
+fn cached_context(ctx: Option<OperationContext>) -> Result<mls::CachedOperationContext, Status> {
+    let ctx = ctx.ok_or_else(|| Status::invalid_argument("operation context is required"))?;
+    Ok(mls::CachedOperationContext {
+        group_id: ctx.group_id,
+        expected_epoch: ctx.expected_epoch,
+        expected_state_version: ctx.expected_state_version,
+        operation_id: ctx.operation_id,
+    })
+}
 
 #[tonic::async_trait]
 impl MlsCryptoService for MyMlsService {
@@ -330,6 +351,179 @@ impl MlsCryptoService for MyMlsService {
             }
         }
     }
+
+    async fn load_group(
+        &self,
+        request: Request<LoadGroupRequest>,
+    ) -> Result<Response<LoadGroupResponse>, Status> {
+        let req = request.into_inner();
+        match self
+            .cache
+            .load_group(&req.group_id, &req.group_state, req.state_version)
+        {
+            Ok(meta) => Ok(Response::new(LoadGroupResponse {
+                group_id: meta.group_id,
+                epoch: meta.epoch,
+                state_version: meta.state_version,
+                tree_hash: meta.tree_hash,
+                state_size_bytes: meta.state_size_bytes,
+            })),
+            Err(e) => {
+                eprintln!("load_group error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn get_group_metadata(
+        &self,
+        request: Request<GetGroupMetadataRequest>,
+    ) -> Result<Response<GetGroupMetadataResponse>, Status> {
+        let req = request.into_inner();
+        match self.cache.metadata(&req.group_id) {
+            Ok(meta) => Ok(Response::new(GetGroupMetadataResponse {
+                group_id: meta.group_id,
+                epoch: meta.epoch,
+                state_version: meta.state_version,
+                tree_hash: meta.tree_hash,
+                dirty: meta.dirty,
+                state_size_bytes: meta.state_size_bytes,
+            })),
+            Err(e) => {
+                eprintln!("get_group_metadata error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn encrypt_message_cached(
+        &self,
+        request: Request<EncryptMessageCachedRequest>,
+    ) -> Result<Response<EncryptMessageCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.encrypt_message_cached(&ctx, &req.plaintext) {
+            Ok(result) => Ok(Response::new(EncryptMessageCachedResponse {
+                ciphertext: result.ciphertext,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("encrypt_message_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn decrypt_message_cached(
+        &self,
+        request: Request<DecryptMessageCachedRequest>,
+    ) -> Result<Response<DecryptMessageCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.decrypt_message_cached(&ctx, &req.ciphertext) {
+            Ok(result) => Ok(Response::new(DecryptMessageCachedResponse {
+                plaintext: result.plaintext,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("decrypt_message_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn create_update_commit_cached(
+        &self,
+        request: Request<CreateUpdateCommitCachedRequest>,
+    ) -> Result<Response<CreateUpdateCommitCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.create_update_commit_cached(&ctx) {
+            Ok(result) => Ok(Response::new(CreateUpdateCommitCachedResponse {
+                commit_bytes: result.commit_bytes,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("create_update_commit_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn process_commit_cached(
+        &self,
+        request: Request<ProcessCommitCachedRequest>,
+    ) -> Result<Response<ProcessCommitCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.process_commit_cached(&ctx, &req.commit_bytes) {
+            Ok(result) => Ok(Response::new(ProcessCommitCachedResponse {
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("process_commit_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn export_secret_cached(
+        &self,
+        request: Request<ExportSecretCachedRequest>,
+    ) -> Result<Response<ExportSecretCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .export_secret_cached(&ctx, &req.label, &req.exporter_context, req.length)
+        {
+            Ok(result) => Ok(Response::new(ExportSecretCachedResponse {
+                secret: result.secret,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("export_secret_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn export_group_state_checkpoint(
+        &self,
+        request: Request<ExportGroupStateCheckpointRequest>,
+    ) -> Result<Response<ExportGroupStateCheckpointResponse>, Status> {
+        let req = request.into_inner();
+        match self.cache.export_checkpoint(&req.group_id) {
+            Ok(result) => Ok(Response::new(ExportGroupStateCheckpointResponse {
+                group_state: result.group_state,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                state_size_bytes: result.state_size_bytes,
+            })),
+            Err(e) => {
+                eprintln!("export_group_state_checkpoint error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn unload_group(
+        &self,
+        request: Request<UnloadGroupRequest>,
+    ) -> Result<Response<UnloadGroupResponse>, Status> {
+        let req = request.into_inner();
+        Ok(Response::new(UnloadGroupResponse {
+            unloaded: self.cache.unload_group(&req.group_id),
+        }))
+    }
 }
 
 #[tokio::main]
@@ -337,7 +531,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let addr = format!("127.0.0.1:{}", args.port).parse()?;
 
-    let service = MyMlsService;
+    let service = MyMlsService {
+        cache: Arc::new(mls::RuntimeCache::default()),
+    };
 
     println!("Crypto Engine listening on {addr}");
 

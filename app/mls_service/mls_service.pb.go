@@ -2059,6 +2059,1122 @@ func (x *ExportGroupInfoResponse) GetGroupInfo() []byte {
 	return nil
 }
 
+type OperationContext struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	GroupId              string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	ExpectedEpoch        uint64                 `protobuf:"varint,2,opt,name=expected_epoch,json=expectedEpoch,proto3" json:"expected_epoch,omitempty"`
+	ExpectedStateVersion uint64                 `protobuf:"varint,3,opt,name=expected_state_version,json=expectedStateVersion,proto3" json:"expected_state_version,omitempty"`
+	OperationId          string                 `protobuf:"bytes,4,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *OperationContext) Reset() {
+	*x = OperationContext{}
+	mi := &file_mls_service_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OperationContext) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OperationContext) ProtoMessage() {}
+
+func (x *OperationContext) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OperationContext.ProtoReflect.Descriptor instead.
+func (*OperationContext) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *OperationContext) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *OperationContext) GetExpectedEpoch() uint64 {
+	if x != nil {
+		return x.ExpectedEpoch
+	}
+	return 0
+}
+
+func (x *OperationContext) GetExpectedStateVersion() uint64 {
+	if x != nil {
+		return x.ExpectedStateVersion
+	}
+	return 0
+}
+
+func (x *OperationContext) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+type LoadGroupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	GroupState    []byte                 `protobuf:"bytes,2,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LoadGroupRequest) Reset() {
+	*x = LoadGroupRequest{}
+	mi := &file_mls_service_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoadGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoadGroupRequest) ProtoMessage() {}
+
+func (x *LoadGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoadGroupRequest.ProtoReflect.Descriptor instead.
+func (*LoadGroupRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *LoadGroupRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *LoadGroupRequest) GetGroupState() []byte {
+	if x != nil {
+		return x.GroupState
+	}
+	return nil
+}
+
+func (x *LoadGroupRequest) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type LoadGroupResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	Epoch          uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion   uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	TreeHash       []byte                 `protobuf:"bytes,4,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	StateSizeBytes uint64                 `protobuf:"varint,5,opt,name=state_size_bytes,json=stateSizeBytes,proto3" json:"state_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LoadGroupResponse) Reset() {
+	*x = LoadGroupResponse{}
+	mi := &file_mls_service_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LoadGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LoadGroupResponse) ProtoMessage() {}
+
+func (x *LoadGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LoadGroupResponse.ProtoReflect.Descriptor instead.
+func (*LoadGroupResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *LoadGroupResponse) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *LoadGroupResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *LoadGroupResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+func (x *LoadGroupResponse) GetTreeHash() []byte {
+	if x != nil {
+		return x.TreeHash
+	}
+	return nil
+}
+
+func (x *LoadGroupResponse) GetStateSizeBytes() uint64 {
+	if x != nil {
+		return x.StateSizeBytes
+	}
+	return 0
+}
+
+type GetGroupMetadataRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetGroupMetadataRequest) Reset() {
+	*x = GetGroupMetadataRequest{}
+	mi := &file_mls_service_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGroupMetadataRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGroupMetadataRequest) ProtoMessage() {}
+
+func (x *GetGroupMetadataRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGroupMetadataRequest.ProtoReflect.Descriptor instead.
+func (*GetGroupMetadataRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *GetGroupMetadataRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+type GetGroupMetadataResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GroupId        string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	Epoch          uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion   uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	TreeHash       []byte                 `protobuf:"bytes,4,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	Dirty          bool                   `protobuf:"varint,5,opt,name=dirty,proto3" json:"dirty,omitempty"`
+	StateSizeBytes uint64                 `protobuf:"varint,6,opt,name=state_size_bytes,json=stateSizeBytes,proto3" json:"state_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *GetGroupMetadataResponse) Reset() {
+	*x = GetGroupMetadataResponse{}
+	mi := &file_mls_service_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetGroupMetadataResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetGroupMetadataResponse) ProtoMessage() {}
+
+func (x *GetGroupMetadataResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetGroupMetadataResponse.ProtoReflect.Descriptor instead.
+func (*GetGroupMetadataResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *GetGroupMetadataResponse) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *GetGroupMetadataResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *GetGroupMetadataResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+func (x *GetGroupMetadataResponse) GetTreeHash() []byte {
+	if x != nil {
+		return x.TreeHash
+	}
+	return nil
+}
+
+func (x *GetGroupMetadataResponse) GetDirty() bool {
+	if x != nil {
+		return x.Dirty
+	}
+	return false
+}
+
+func (x *GetGroupMetadataResponse) GetStateSizeBytes() uint64 {
+	if x != nil {
+		return x.StateSizeBytes
+	}
+	return 0
+}
+
+type EncryptMessageCachedRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *OperationContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	Plaintext     []byte                 `protobuf:"bytes,2,opt,name=plaintext,proto3" json:"plaintext,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EncryptMessageCachedRequest) Reset() {
+	*x = EncryptMessageCachedRequest{}
+	mi := &file_mls_service_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EncryptMessageCachedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EncryptMessageCachedRequest) ProtoMessage() {}
+
+func (x *EncryptMessageCachedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EncryptMessageCachedRequest.ProtoReflect.Descriptor instead.
+func (*EncryptMessageCachedRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *EncryptMessageCachedRequest) GetContext() *OperationContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *EncryptMessageCachedRequest) GetPlaintext() []byte {
+	if x != nil {
+		return x.Plaintext
+	}
+	return nil
+}
+
+type EncryptMessageCachedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ciphertext    []byte                 `protobuf:"bytes,1,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EncryptMessageCachedResponse) Reset() {
+	*x = EncryptMessageCachedResponse{}
+	mi := &file_mls_service_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EncryptMessageCachedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EncryptMessageCachedResponse) ProtoMessage() {}
+
+func (x *EncryptMessageCachedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EncryptMessageCachedResponse.ProtoReflect.Descriptor instead.
+func (*EncryptMessageCachedResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *EncryptMessageCachedResponse) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+func (x *EncryptMessageCachedResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *EncryptMessageCachedResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type DecryptMessageCachedRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *OperationContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	Ciphertext    []byte                 `protobuf:"bytes,2,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecryptMessageCachedRequest) Reset() {
+	*x = DecryptMessageCachedRequest{}
+	mi := &file_mls_service_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecryptMessageCachedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecryptMessageCachedRequest) ProtoMessage() {}
+
+func (x *DecryptMessageCachedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecryptMessageCachedRequest.ProtoReflect.Descriptor instead.
+func (*DecryptMessageCachedRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *DecryptMessageCachedRequest) GetContext() *OperationContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *DecryptMessageCachedRequest) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+type DecryptMessageCachedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Plaintext     []byte                 `protobuf:"bytes,1,opt,name=plaintext,proto3" json:"plaintext,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DecryptMessageCachedResponse) Reset() {
+	*x = DecryptMessageCachedResponse{}
+	mi := &file_mls_service_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DecryptMessageCachedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DecryptMessageCachedResponse) ProtoMessage() {}
+
+func (x *DecryptMessageCachedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DecryptMessageCachedResponse.ProtoReflect.Descriptor instead.
+func (*DecryptMessageCachedResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *DecryptMessageCachedResponse) GetPlaintext() []byte {
+	if x != nil {
+		return x.Plaintext
+	}
+	return nil
+}
+
+func (x *DecryptMessageCachedResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *DecryptMessageCachedResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type CreateUpdateCommitCachedRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *OperationContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateUpdateCommitCachedRequest) Reset() {
+	*x = CreateUpdateCommitCachedRequest{}
+	mi := &file_mls_service_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateUpdateCommitCachedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateUpdateCommitCachedRequest) ProtoMessage() {}
+
+func (x *CreateUpdateCommitCachedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateUpdateCommitCachedRequest.ProtoReflect.Descriptor instead.
+func (*CreateUpdateCommitCachedRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *CreateUpdateCommitCachedRequest) GetContext() *OperationContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+type CreateUpdateCommitCachedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CommitBytes   []byte                 `protobuf:"bytes,1,opt,name=commit_bytes,json=commitBytes,proto3" json:"commit_bytes,omitempty"`
+	TreeHash      []byte                 `protobuf:"bytes,2,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,4,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateUpdateCommitCachedResponse) Reset() {
+	*x = CreateUpdateCommitCachedResponse{}
+	mi := &file_mls_service_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateUpdateCommitCachedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateUpdateCommitCachedResponse) ProtoMessage() {}
+
+func (x *CreateUpdateCommitCachedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateUpdateCommitCachedResponse.ProtoReflect.Descriptor instead.
+func (*CreateUpdateCommitCachedResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *CreateUpdateCommitCachedResponse) GetCommitBytes() []byte {
+	if x != nil {
+		return x.CommitBytes
+	}
+	return nil
+}
+
+func (x *CreateUpdateCommitCachedResponse) GetTreeHash() []byte {
+	if x != nil {
+		return x.TreeHash
+	}
+	return nil
+}
+
+func (x *CreateUpdateCommitCachedResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *CreateUpdateCommitCachedResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type ProcessCommitCachedRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Context       *OperationContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	CommitBytes   []byte                 `protobuf:"bytes,2,opt,name=commit_bytes,json=commitBytes,proto3" json:"commit_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessCommitCachedRequest) Reset() {
+	*x = ProcessCommitCachedRequest{}
+	mi := &file_mls_service_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessCommitCachedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessCommitCachedRequest) ProtoMessage() {}
+
+func (x *ProcessCommitCachedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessCommitCachedRequest.ProtoReflect.Descriptor instead.
+func (*ProcessCommitCachedRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *ProcessCommitCachedRequest) GetContext() *OperationContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *ProcessCommitCachedRequest) GetCommitBytes() []byte {
+	if x != nil {
+		return x.CommitBytes
+	}
+	return nil
+}
+
+type ProcessCommitCachedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TreeHash      []byte                 `protobuf:"bytes,1,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProcessCommitCachedResponse) Reset() {
+	*x = ProcessCommitCachedResponse{}
+	mi := &file_mls_service_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessCommitCachedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessCommitCachedResponse) ProtoMessage() {}
+
+func (x *ProcessCommitCachedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessCommitCachedResponse.ProtoReflect.Descriptor instead.
+func (*ProcessCommitCachedResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *ProcessCommitCachedResponse) GetTreeHash() []byte {
+	if x != nil {
+		return x.TreeHash
+	}
+	return nil
+}
+
+func (x *ProcessCommitCachedResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *ProcessCommitCachedResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type ExportSecretCachedRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Context         *OperationContext      `protobuf:"bytes,1,opt,name=context,proto3" json:"context,omitempty"`
+	Label           string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	Length          uint32                 `protobuf:"varint,3,opt,name=length,proto3" json:"length,omitempty"`
+	ExporterContext []byte                 `protobuf:"bytes,4,opt,name=exporter_context,json=exporterContext,proto3" json:"exporter_context,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ExportSecretCachedRequest) Reset() {
+	*x = ExportSecretCachedRequest{}
+	mi := &file_mls_service_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportSecretCachedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportSecretCachedRequest) ProtoMessage() {}
+
+func (x *ExportSecretCachedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportSecretCachedRequest.ProtoReflect.Descriptor instead.
+func (*ExportSecretCachedRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *ExportSecretCachedRequest) GetContext() *OperationContext {
+	if x != nil {
+		return x.Context
+	}
+	return nil
+}
+
+func (x *ExportSecretCachedRequest) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *ExportSecretCachedRequest) GetLength() uint32 {
+	if x != nil {
+		return x.Length
+	}
+	return 0
+}
+
+func (x *ExportSecretCachedRequest) GetExporterContext() []byte {
+	if x != nil {
+		return x.ExporterContext
+	}
+	return nil
+}
+
+type ExportSecretCachedResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Secret        []byte                 `protobuf:"bytes,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	Epoch         uint64                 `protobuf:"varint,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion  uint64                 `protobuf:"varint,3,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportSecretCachedResponse) Reset() {
+	*x = ExportSecretCachedResponse{}
+	mi := &file_mls_service_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportSecretCachedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportSecretCachedResponse) ProtoMessage() {}
+
+func (x *ExportSecretCachedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportSecretCachedResponse.ProtoReflect.Descriptor instead.
+func (*ExportSecretCachedResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *ExportSecretCachedResponse) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *ExportSecretCachedResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *ExportSecretCachedResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+type ExportGroupStateCheckpointRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExportGroupStateCheckpointRequest) Reset() {
+	*x = ExportGroupStateCheckpointRequest{}
+	mi := &file_mls_service_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportGroupStateCheckpointRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportGroupStateCheckpointRequest) ProtoMessage() {}
+
+func (x *ExportGroupStateCheckpointRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportGroupStateCheckpointRequest.ProtoReflect.Descriptor instead.
+func (*ExportGroupStateCheckpointRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ExportGroupStateCheckpointRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+type ExportGroupStateCheckpointResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	GroupState     []byte                 `protobuf:"bytes,1,opt,name=group_state,json=groupState,proto3" json:"group_state,omitempty"`
+	TreeHash       []byte                 `protobuf:"bytes,2,opt,name=tree_hash,json=treeHash,proto3" json:"tree_hash,omitempty"`
+	Epoch          uint64                 `protobuf:"varint,3,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	StateVersion   uint64                 `protobuf:"varint,4,opt,name=state_version,json=stateVersion,proto3" json:"state_version,omitempty"`
+	StateSizeBytes uint64                 `protobuf:"varint,5,opt,name=state_size_bytes,json=stateSizeBytes,proto3" json:"state_size_bytes,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ExportGroupStateCheckpointResponse) Reset() {
+	*x = ExportGroupStateCheckpointResponse{}
+	mi := &file_mls_service_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExportGroupStateCheckpointResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExportGroupStateCheckpointResponse) ProtoMessage() {}
+
+func (x *ExportGroupStateCheckpointResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExportGroupStateCheckpointResponse.ProtoReflect.Descriptor instead.
+func (*ExportGroupStateCheckpointResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *ExportGroupStateCheckpointResponse) GetGroupState() []byte {
+	if x != nil {
+		return x.GroupState
+	}
+	return nil
+}
+
+func (x *ExportGroupStateCheckpointResponse) GetTreeHash() []byte {
+	if x != nil {
+		return x.TreeHash
+	}
+	return nil
+}
+
+func (x *ExportGroupStateCheckpointResponse) GetEpoch() uint64 {
+	if x != nil {
+		return x.Epoch
+	}
+	return 0
+}
+
+func (x *ExportGroupStateCheckpointResponse) GetStateVersion() uint64 {
+	if x != nil {
+		return x.StateVersion
+	}
+	return 0
+}
+
+func (x *ExportGroupStateCheckpointResponse) GetStateSizeBytes() uint64 {
+	if x != nil {
+		return x.StateSizeBytes
+	}
+	return 0
+}
+
+type UnloadGroupRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GroupId       string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnloadGroupRequest) Reset() {
+	*x = UnloadGroupRequest{}
+	mi := &file_mls_service_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnloadGroupRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnloadGroupRequest) ProtoMessage() {}
+
+func (x *UnloadGroupRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnloadGroupRequest.ProtoReflect.Descriptor instead.
+func (*UnloadGroupRequest) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *UnloadGroupRequest) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+type UnloadGroupResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Unloaded      bool                   `protobuf:"varint,1,opt,name=unloaded,proto3" json:"unloaded,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnloadGroupResponse) Reset() {
+	*x = UnloadGroupResponse{}
+	mi := &file_mls_service_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnloadGroupResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnloadGroupResponse) ProtoMessage() {}
+
+func (x *UnloadGroupResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_mls_service_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnloadGroupResponse.ProtoReflect.Descriptor instead.
+func (*UnloadGroupResponse) Descriptor() ([]byte, []int) {
+	return file_mls_service_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *UnloadGroupResponse) GetUnloaded() bool {
+	if x != nil {
+		return x.Unloaded
+	}
+	return false
+}
+
 var File_mls_service_proto protoreflect.FileDescriptor
 
 const file_mls_service_proto_rawDesc = "" +
@@ -2212,11 +3328,90 @@ const file_mls_service_proto_rawDesc = "" +
 	"\x11with_ratchet_tree\x18\x02 \x01(\bR\x0fwithRatchetTree\"8\n" +
 	"\x17ExportGroupInfoResponse\x12\x1d\n" +
 	"\n" +
-	"group_info\x18\x01 \x01(\fR\tgroupInfo*M\n" +
+	"group_info\x18\x01 \x01(\fR\tgroupInfo\"\xad\x01\n" +
+	"\x10OperationContext\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12%\n" +
+	"\x0eexpected_epoch\x18\x02 \x01(\x04R\rexpectedEpoch\x124\n" +
+	"\x16expected_state_version\x18\x03 \x01(\x04R\x14expectedStateVersion\x12!\n" +
+	"\foperation_id\x18\x04 \x01(\tR\voperationId\"s\n" +
+	"\x10LoadGroupRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x1f\n" +
+	"\vgroup_state\x18\x02 \x01(\fR\n" +
+	"groupState\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\"\xb0\x01\n" +
+	"\x11LoadGroupResponse\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\x12\x1b\n" +
+	"\ttree_hash\x18\x04 \x01(\fR\btreeHash\x12(\n" +
+	"\x10state_size_bytes\x18\x05 \x01(\x04R\x0estateSizeBytes\"4\n" +
+	"\x17GetGroupMetadataRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\"\xcd\x01\n" +
+	"\x18GetGroupMetadataResponse\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\x12\x1b\n" +
+	"\ttree_hash\x18\x04 \x01(\fR\btreeHash\x12\x14\n" +
+	"\x05dirty\x18\x05 \x01(\bR\x05dirty\x12(\n" +
+	"\x10state_size_bytes\x18\x06 \x01(\x04R\x0estateSizeBytes\"t\n" +
+	"\x1bEncryptMessageCachedRequest\x127\n" +
+	"\acontext\x18\x01 \x01(\v2\x1d.mls_service.OperationContextR\acontext\x12\x1c\n" +
+	"\tplaintext\x18\x02 \x01(\fR\tplaintext\"y\n" +
+	"\x1cEncryptMessageCachedResponse\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x01 \x01(\fR\n" +
+	"ciphertext\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\"v\n" +
+	"\x1bDecryptMessageCachedRequest\x127\n" +
+	"\acontext\x18\x01 \x01(\v2\x1d.mls_service.OperationContextR\acontext\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x02 \x01(\fR\n" +
+	"ciphertext\"w\n" +
+	"\x1cDecryptMessageCachedResponse\x12\x1c\n" +
+	"\tplaintext\x18\x01 \x01(\fR\tplaintext\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\"Z\n" +
+	"\x1fCreateUpdateCommitCachedRequest\x127\n" +
+	"\acontext\x18\x01 \x01(\v2\x1d.mls_service.OperationContextR\acontext\"\x9d\x01\n" +
+	" CreateUpdateCommitCachedResponse\x12!\n" +
+	"\fcommit_bytes\x18\x01 \x01(\fR\vcommitBytes\x12\x1b\n" +
+	"\ttree_hash\x18\x02 \x01(\fR\btreeHash\x12\x14\n" +
+	"\x05epoch\x18\x03 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x04 \x01(\x04R\fstateVersion\"x\n" +
+	"\x1aProcessCommitCachedRequest\x127\n" +
+	"\acontext\x18\x01 \x01(\v2\x1d.mls_service.OperationContextR\acontext\x12!\n" +
+	"\fcommit_bytes\x18\x02 \x01(\fR\vcommitBytes\"u\n" +
+	"\x1bProcessCommitCachedResponse\x12\x1b\n" +
+	"\ttree_hash\x18\x01 \x01(\fR\btreeHash\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\"\xad\x01\n" +
+	"\x19ExportSecretCachedRequest\x127\n" +
+	"\acontext\x18\x01 \x01(\v2\x1d.mls_service.OperationContextR\acontext\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\x12\x16\n" +
+	"\x06length\x18\x03 \x01(\rR\x06length\x12)\n" +
+	"\x10exporter_context\x18\x04 \x01(\fR\x0fexporterContext\"o\n" +
+	"\x1aExportSecretCachedResponse\x12\x16\n" +
+	"\x06secret\x18\x01 \x01(\fR\x06secret\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x03 \x01(\x04R\fstateVersion\">\n" +
+	"!ExportGroupStateCheckpointRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\"\xc7\x01\n" +
+	"\"ExportGroupStateCheckpointResponse\x12\x1f\n" +
+	"\vgroup_state\x18\x01 \x01(\fR\n" +
+	"groupState\x12\x1b\n" +
+	"\ttree_hash\x18\x02 \x01(\fR\btreeHash\x12\x14\n" +
+	"\x05epoch\x18\x03 \x01(\x04R\x05epoch\x12#\n" +
+	"\rstate_version\x18\x04 \x01(\x04R\fstateVersion\x12(\n" +
+	"\x10state_size_bytes\x18\x05 \x01(\x04R\x0estateSizeBytes\"/\n" +
+	"\x12UnloadGroupRequest\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\"1\n" +
+	"\x13UnloadGroupResponse\x12\x1a\n" +
+	"\bunloaded\x18\x01 \x01(\bR\bunloaded*M\n" +
 	"\x0fMlsProposalType\x12\x10\n" +
 	"\fPROPOSAL_ADD\x10\x00\x12\x13\n" +
 	"\x0fPROPOSAL_REMOVE\x10\x01\x12\x13\n" +
-	"\x0fPROPOSAL_UPDATE\x10\x022\xa0\r\n" +
+	"\x0fPROPOSAL_UPDATE\x10\x022\xc2\x14\n" +
 	"\x10MLSCryptoService\x12;\n" +
 	"\x04Ping\x12\x18.mls_service.PingRequest\x1a\x19.mls_service.PingResponse\x12_\n" +
 	"\x10GenerateIdentity\x12$.mls_service.GenerateIdentityRequest\x1a%.mls_service.GenerateIdentityResponse\x12Y\n" +
@@ -2237,7 +3432,16 @@ const file_mls_service_proto_rawDesc = "" +
 	"\rRemoveMembers\x12!.mls_service.RemoveMembersRequest\x1a\".mls_service.RemoveMembersResponse\x12J\n" +
 	"\tHasMember\x12\x1d.mls_service.HasMemberRequest\x1a\x1e.mls_service.HasMemberResponse\x12k\n" +
 	"\x14ListMemberIdentities\x12(.mls_service.ListMemberIdentitiesRequest\x1a).mls_service.ListMemberIdentitiesResponse\x12\\\n" +
-	"\x0fExportGroupInfo\x12#.mls_service.ExportGroupInfoRequest\x1a$.mls_service.ExportGroupInfoResponseB\x11Z\x0fapp/mls_serviceb\x06proto3"
+	"\x0fExportGroupInfo\x12#.mls_service.ExportGroupInfoRequest\x1a$.mls_service.ExportGroupInfoResponse\x12J\n" +
+	"\tLoadGroup\x12\x1d.mls_service.LoadGroupRequest\x1a\x1e.mls_service.LoadGroupResponse\x12_\n" +
+	"\x10GetGroupMetadata\x12$.mls_service.GetGroupMetadataRequest\x1a%.mls_service.GetGroupMetadataResponse\x12k\n" +
+	"\x14EncryptMessageCached\x12(.mls_service.EncryptMessageCachedRequest\x1a).mls_service.EncryptMessageCachedResponse\x12k\n" +
+	"\x14DecryptMessageCached\x12(.mls_service.DecryptMessageCachedRequest\x1a).mls_service.DecryptMessageCachedResponse\x12w\n" +
+	"\x18CreateUpdateCommitCached\x12,.mls_service.CreateUpdateCommitCachedRequest\x1a-.mls_service.CreateUpdateCommitCachedResponse\x12h\n" +
+	"\x13ProcessCommitCached\x12'.mls_service.ProcessCommitCachedRequest\x1a(.mls_service.ProcessCommitCachedResponse\x12e\n" +
+	"\x12ExportSecretCached\x12&.mls_service.ExportSecretCachedRequest\x1a'.mls_service.ExportSecretCachedResponse\x12}\n" +
+	"\x1aExportGroupStateCheckpoint\x12..mls_service.ExportGroupStateCheckpointRequest\x1a/.mls_service.ExportGroupStateCheckpointResponse\x12P\n" +
+	"\vUnloadGroup\x12\x1f.mls_service.UnloadGroupRequest\x1a .mls_service.UnloadGroupResponseB\x11Z\x0fapp/mls_serviceb\x06proto3"
 
 var (
 	file_mls_service_proto_rawDescOnce sync.Once
@@ -2252,93 +3456,135 @@ func file_mls_service_proto_rawDescGZIP() []byte {
 }
 
 var file_mls_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_mls_service_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_mls_service_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_mls_service_proto_goTypes = []any{
-	(MlsProposalType)(0),                 // 0: mls_service.MlsProposalType
-	(*PingRequest)(nil),                  // 1: mls_service.PingRequest
-	(*PingResponse)(nil),                 // 2: mls_service.PingResponse
-	(*GenerateIdentityRequest)(nil),      // 3: mls_service.GenerateIdentityRequest
-	(*GenerateIdentityResponse)(nil),     // 4: mls_service.GenerateIdentityResponse
-	(*ExportIdentityRequest)(nil),        // 5: mls_service.ExportIdentityRequest
-	(*ExportIdentityResponse)(nil),       // 6: mls_service.ExportIdentityResponse
-	(*ImportIdentityRequest)(nil),        // 7: mls_service.ImportIdentityRequest
-	(*ImportIdentityResponse)(nil),       // 8: mls_service.ImportIdentityResponse
-	(*CreateGroupRequest)(nil),           // 9: mls_service.CreateGroupRequest
-	(*CreateGroupResponse)(nil),          // 10: mls_service.CreateGroupResponse
-	(*CreateProposalRequest)(nil),        // 11: mls_service.CreateProposalRequest
-	(*CreateProposalResponse)(nil),       // 12: mls_service.CreateProposalResponse
-	(*CreateCommitRequest)(nil),          // 13: mls_service.CreateCommitRequest
-	(*CreateCommitResponse)(nil),         // 14: mls_service.CreateCommitResponse
-	(*ProcessCommitRequest)(nil),         // 15: mls_service.ProcessCommitRequest
-	(*ProcessCommitResponse)(nil),        // 16: mls_service.ProcessCommitResponse
-	(*ProcessWelcomeRequest)(nil),        // 17: mls_service.ProcessWelcomeRequest
-	(*ProcessWelcomeResponse)(nil),       // 18: mls_service.ProcessWelcomeResponse
-	(*EncryptMessageRequest)(nil),        // 19: mls_service.EncryptMessageRequest
-	(*EncryptMessageResponse)(nil),       // 20: mls_service.EncryptMessageResponse
-	(*DecryptMessageRequest)(nil),        // 21: mls_service.DecryptMessageRequest
-	(*DecryptMessageResponse)(nil),       // 22: mls_service.DecryptMessageResponse
-	(*ExternalJoinRequest)(nil),          // 23: mls_service.ExternalJoinRequest
-	(*ExternalJoinResponse)(nil),         // 24: mls_service.ExternalJoinResponse
-	(*ExportSecretRequest)(nil),          // 25: mls_service.ExportSecretRequest
-	(*ExportSecretResponse)(nil),         // 26: mls_service.ExportSecretResponse
-	(*GenerateKeyPackageRequest)(nil),    // 27: mls_service.GenerateKeyPackageRequest
-	(*GenerateKeyPackageResponse)(nil),   // 28: mls_service.GenerateKeyPackageResponse
-	(*AddMembersRequest)(nil),            // 29: mls_service.AddMembersRequest
-	(*AddMembersResponse)(nil),           // 30: mls_service.AddMembersResponse
-	(*RemoveMembersRequest)(nil),         // 31: mls_service.RemoveMembersRequest
-	(*RemoveMembersResponse)(nil),        // 32: mls_service.RemoveMembersResponse
-	(*HasMemberRequest)(nil),             // 33: mls_service.HasMemberRequest
-	(*HasMemberResponse)(nil),            // 34: mls_service.HasMemberResponse
-	(*ListMemberIdentitiesRequest)(nil),  // 35: mls_service.ListMemberIdentitiesRequest
-	(*ListMemberIdentitiesResponse)(nil), // 36: mls_service.ListMemberIdentitiesResponse
-	(*ExportGroupInfoRequest)(nil),       // 37: mls_service.ExportGroupInfoRequest
-	(*ExportGroupInfoResponse)(nil),      // 38: mls_service.ExportGroupInfoResponse
+	(MlsProposalType)(0),                       // 0: mls_service.MlsProposalType
+	(*PingRequest)(nil),                        // 1: mls_service.PingRequest
+	(*PingResponse)(nil),                       // 2: mls_service.PingResponse
+	(*GenerateIdentityRequest)(nil),            // 3: mls_service.GenerateIdentityRequest
+	(*GenerateIdentityResponse)(nil),           // 4: mls_service.GenerateIdentityResponse
+	(*ExportIdentityRequest)(nil),              // 5: mls_service.ExportIdentityRequest
+	(*ExportIdentityResponse)(nil),             // 6: mls_service.ExportIdentityResponse
+	(*ImportIdentityRequest)(nil),              // 7: mls_service.ImportIdentityRequest
+	(*ImportIdentityResponse)(nil),             // 8: mls_service.ImportIdentityResponse
+	(*CreateGroupRequest)(nil),                 // 9: mls_service.CreateGroupRequest
+	(*CreateGroupResponse)(nil),                // 10: mls_service.CreateGroupResponse
+	(*CreateProposalRequest)(nil),              // 11: mls_service.CreateProposalRequest
+	(*CreateProposalResponse)(nil),             // 12: mls_service.CreateProposalResponse
+	(*CreateCommitRequest)(nil),                // 13: mls_service.CreateCommitRequest
+	(*CreateCommitResponse)(nil),               // 14: mls_service.CreateCommitResponse
+	(*ProcessCommitRequest)(nil),               // 15: mls_service.ProcessCommitRequest
+	(*ProcessCommitResponse)(nil),              // 16: mls_service.ProcessCommitResponse
+	(*ProcessWelcomeRequest)(nil),              // 17: mls_service.ProcessWelcomeRequest
+	(*ProcessWelcomeResponse)(nil),             // 18: mls_service.ProcessWelcomeResponse
+	(*EncryptMessageRequest)(nil),              // 19: mls_service.EncryptMessageRequest
+	(*EncryptMessageResponse)(nil),             // 20: mls_service.EncryptMessageResponse
+	(*DecryptMessageRequest)(nil),              // 21: mls_service.DecryptMessageRequest
+	(*DecryptMessageResponse)(nil),             // 22: mls_service.DecryptMessageResponse
+	(*ExternalJoinRequest)(nil),                // 23: mls_service.ExternalJoinRequest
+	(*ExternalJoinResponse)(nil),               // 24: mls_service.ExternalJoinResponse
+	(*ExportSecretRequest)(nil),                // 25: mls_service.ExportSecretRequest
+	(*ExportSecretResponse)(nil),               // 26: mls_service.ExportSecretResponse
+	(*GenerateKeyPackageRequest)(nil),          // 27: mls_service.GenerateKeyPackageRequest
+	(*GenerateKeyPackageResponse)(nil),         // 28: mls_service.GenerateKeyPackageResponse
+	(*AddMembersRequest)(nil),                  // 29: mls_service.AddMembersRequest
+	(*AddMembersResponse)(nil),                 // 30: mls_service.AddMembersResponse
+	(*RemoveMembersRequest)(nil),               // 31: mls_service.RemoveMembersRequest
+	(*RemoveMembersResponse)(nil),              // 32: mls_service.RemoveMembersResponse
+	(*HasMemberRequest)(nil),                   // 33: mls_service.HasMemberRequest
+	(*HasMemberResponse)(nil),                  // 34: mls_service.HasMemberResponse
+	(*ListMemberIdentitiesRequest)(nil),        // 35: mls_service.ListMemberIdentitiesRequest
+	(*ListMemberIdentitiesResponse)(nil),       // 36: mls_service.ListMemberIdentitiesResponse
+	(*ExportGroupInfoRequest)(nil),             // 37: mls_service.ExportGroupInfoRequest
+	(*ExportGroupInfoResponse)(nil),            // 38: mls_service.ExportGroupInfoResponse
+	(*OperationContext)(nil),                   // 39: mls_service.OperationContext
+	(*LoadGroupRequest)(nil),                   // 40: mls_service.LoadGroupRequest
+	(*LoadGroupResponse)(nil),                  // 41: mls_service.LoadGroupResponse
+	(*GetGroupMetadataRequest)(nil),            // 42: mls_service.GetGroupMetadataRequest
+	(*GetGroupMetadataResponse)(nil),           // 43: mls_service.GetGroupMetadataResponse
+	(*EncryptMessageCachedRequest)(nil),        // 44: mls_service.EncryptMessageCachedRequest
+	(*EncryptMessageCachedResponse)(nil),       // 45: mls_service.EncryptMessageCachedResponse
+	(*DecryptMessageCachedRequest)(nil),        // 46: mls_service.DecryptMessageCachedRequest
+	(*DecryptMessageCachedResponse)(nil),       // 47: mls_service.DecryptMessageCachedResponse
+	(*CreateUpdateCommitCachedRequest)(nil),    // 48: mls_service.CreateUpdateCommitCachedRequest
+	(*CreateUpdateCommitCachedResponse)(nil),   // 49: mls_service.CreateUpdateCommitCachedResponse
+	(*ProcessCommitCachedRequest)(nil),         // 50: mls_service.ProcessCommitCachedRequest
+	(*ProcessCommitCachedResponse)(nil),        // 51: mls_service.ProcessCommitCachedResponse
+	(*ExportSecretCachedRequest)(nil),          // 52: mls_service.ExportSecretCachedRequest
+	(*ExportSecretCachedResponse)(nil),         // 53: mls_service.ExportSecretCachedResponse
+	(*ExportGroupStateCheckpointRequest)(nil),  // 54: mls_service.ExportGroupStateCheckpointRequest
+	(*ExportGroupStateCheckpointResponse)(nil), // 55: mls_service.ExportGroupStateCheckpointResponse
+	(*UnloadGroupRequest)(nil),                 // 56: mls_service.UnloadGroupRequest
+	(*UnloadGroupResponse)(nil),                // 57: mls_service.UnloadGroupResponse
 }
 var file_mls_service_proto_depIdxs = []int32{
 	0,  // 0: mls_service.CreateProposalRequest.proposal_type:type_name -> mls_service.MlsProposalType
-	1,  // 1: mls_service.MLSCryptoService.Ping:input_type -> mls_service.PingRequest
-	3,  // 2: mls_service.MLSCryptoService.GenerateIdentity:input_type -> mls_service.GenerateIdentityRequest
-	5,  // 3: mls_service.MLSCryptoService.ExportIdentity:input_type -> mls_service.ExportIdentityRequest
-	7,  // 4: mls_service.MLSCryptoService.ImportIdentity:input_type -> mls_service.ImportIdentityRequest
-	9,  // 5: mls_service.MLSCryptoService.CreateGroup:input_type -> mls_service.CreateGroupRequest
-	11, // 6: mls_service.MLSCryptoService.CreateProposal:input_type -> mls_service.CreateProposalRequest
-	13, // 7: mls_service.MLSCryptoService.CreateCommit:input_type -> mls_service.CreateCommitRequest
-	15, // 8: mls_service.MLSCryptoService.ProcessCommit:input_type -> mls_service.ProcessCommitRequest
-	17, // 9: mls_service.MLSCryptoService.ProcessWelcome:input_type -> mls_service.ProcessWelcomeRequest
-	19, // 10: mls_service.MLSCryptoService.EncryptMessage:input_type -> mls_service.EncryptMessageRequest
-	21, // 11: mls_service.MLSCryptoService.DecryptMessage:input_type -> mls_service.DecryptMessageRequest
-	23, // 12: mls_service.MLSCryptoService.ExternalJoin:input_type -> mls_service.ExternalJoinRequest
-	25, // 13: mls_service.MLSCryptoService.ExportSecret:input_type -> mls_service.ExportSecretRequest
-	27, // 14: mls_service.MLSCryptoService.GenerateKeyPackage:input_type -> mls_service.GenerateKeyPackageRequest
-	29, // 15: mls_service.MLSCryptoService.AddMembers:input_type -> mls_service.AddMembersRequest
-	31, // 16: mls_service.MLSCryptoService.RemoveMembers:input_type -> mls_service.RemoveMembersRequest
-	33, // 17: mls_service.MLSCryptoService.HasMember:input_type -> mls_service.HasMemberRequest
-	35, // 18: mls_service.MLSCryptoService.ListMemberIdentities:input_type -> mls_service.ListMemberIdentitiesRequest
-	37, // 19: mls_service.MLSCryptoService.ExportGroupInfo:input_type -> mls_service.ExportGroupInfoRequest
-	2,  // 20: mls_service.MLSCryptoService.Ping:output_type -> mls_service.PingResponse
-	4,  // 21: mls_service.MLSCryptoService.GenerateIdentity:output_type -> mls_service.GenerateIdentityResponse
-	6,  // 22: mls_service.MLSCryptoService.ExportIdentity:output_type -> mls_service.ExportIdentityResponse
-	8,  // 23: mls_service.MLSCryptoService.ImportIdentity:output_type -> mls_service.ImportIdentityResponse
-	10, // 24: mls_service.MLSCryptoService.CreateGroup:output_type -> mls_service.CreateGroupResponse
-	12, // 25: mls_service.MLSCryptoService.CreateProposal:output_type -> mls_service.CreateProposalResponse
-	14, // 26: mls_service.MLSCryptoService.CreateCommit:output_type -> mls_service.CreateCommitResponse
-	16, // 27: mls_service.MLSCryptoService.ProcessCommit:output_type -> mls_service.ProcessCommitResponse
-	18, // 28: mls_service.MLSCryptoService.ProcessWelcome:output_type -> mls_service.ProcessWelcomeResponse
-	20, // 29: mls_service.MLSCryptoService.EncryptMessage:output_type -> mls_service.EncryptMessageResponse
-	22, // 30: mls_service.MLSCryptoService.DecryptMessage:output_type -> mls_service.DecryptMessageResponse
-	24, // 31: mls_service.MLSCryptoService.ExternalJoin:output_type -> mls_service.ExternalJoinResponse
-	26, // 32: mls_service.MLSCryptoService.ExportSecret:output_type -> mls_service.ExportSecretResponse
-	28, // 33: mls_service.MLSCryptoService.GenerateKeyPackage:output_type -> mls_service.GenerateKeyPackageResponse
-	30, // 34: mls_service.MLSCryptoService.AddMembers:output_type -> mls_service.AddMembersResponse
-	32, // 35: mls_service.MLSCryptoService.RemoveMembers:output_type -> mls_service.RemoveMembersResponse
-	34, // 36: mls_service.MLSCryptoService.HasMember:output_type -> mls_service.HasMemberResponse
-	36, // 37: mls_service.MLSCryptoService.ListMemberIdentities:output_type -> mls_service.ListMemberIdentitiesResponse
-	38, // 38: mls_service.MLSCryptoService.ExportGroupInfo:output_type -> mls_service.ExportGroupInfoResponse
-	20, // [20:39] is the sub-list for method output_type
-	1,  // [1:20] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	39, // 1: mls_service.EncryptMessageCachedRequest.context:type_name -> mls_service.OperationContext
+	39, // 2: mls_service.DecryptMessageCachedRequest.context:type_name -> mls_service.OperationContext
+	39, // 3: mls_service.CreateUpdateCommitCachedRequest.context:type_name -> mls_service.OperationContext
+	39, // 4: mls_service.ProcessCommitCachedRequest.context:type_name -> mls_service.OperationContext
+	39, // 5: mls_service.ExportSecretCachedRequest.context:type_name -> mls_service.OperationContext
+	1,  // 6: mls_service.MLSCryptoService.Ping:input_type -> mls_service.PingRequest
+	3,  // 7: mls_service.MLSCryptoService.GenerateIdentity:input_type -> mls_service.GenerateIdentityRequest
+	5,  // 8: mls_service.MLSCryptoService.ExportIdentity:input_type -> mls_service.ExportIdentityRequest
+	7,  // 9: mls_service.MLSCryptoService.ImportIdentity:input_type -> mls_service.ImportIdentityRequest
+	9,  // 10: mls_service.MLSCryptoService.CreateGroup:input_type -> mls_service.CreateGroupRequest
+	11, // 11: mls_service.MLSCryptoService.CreateProposal:input_type -> mls_service.CreateProposalRequest
+	13, // 12: mls_service.MLSCryptoService.CreateCommit:input_type -> mls_service.CreateCommitRequest
+	15, // 13: mls_service.MLSCryptoService.ProcessCommit:input_type -> mls_service.ProcessCommitRequest
+	17, // 14: mls_service.MLSCryptoService.ProcessWelcome:input_type -> mls_service.ProcessWelcomeRequest
+	19, // 15: mls_service.MLSCryptoService.EncryptMessage:input_type -> mls_service.EncryptMessageRequest
+	21, // 16: mls_service.MLSCryptoService.DecryptMessage:input_type -> mls_service.DecryptMessageRequest
+	23, // 17: mls_service.MLSCryptoService.ExternalJoin:input_type -> mls_service.ExternalJoinRequest
+	25, // 18: mls_service.MLSCryptoService.ExportSecret:input_type -> mls_service.ExportSecretRequest
+	27, // 19: mls_service.MLSCryptoService.GenerateKeyPackage:input_type -> mls_service.GenerateKeyPackageRequest
+	29, // 20: mls_service.MLSCryptoService.AddMembers:input_type -> mls_service.AddMembersRequest
+	31, // 21: mls_service.MLSCryptoService.RemoveMembers:input_type -> mls_service.RemoveMembersRequest
+	33, // 22: mls_service.MLSCryptoService.HasMember:input_type -> mls_service.HasMemberRequest
+	35, // 23: mls_service.MLSCryptoService.ListMemberIdentities:input_type -> mls_service.ListMemberIdentitiesRequest
+	37, // 24: mls_service.MLSCryptoService.ExportGroupInfo:input_type -> mls_service.ExportGroupInfoRequest
+	40, // 25: mls_service.MLSCryptoService.LoadGroup:input_type -> mls_service.LoadGroupRequest
+	42, // 26: mls_service.MLSCryptoService.GetGroupMetadata:input_type -> mls_service.GetGroupMetadataRequest
+	44, // 27: mls_service.MLSCryptoService.EncryptMessageCached:input_type -> mls_service.EncryptMessageCachedRequest
+	46, // 28: mls_service.MLSCryptoService.DecryptMessageCached:input_type -> mls_service.DecryptMessageCachedRequest
+	48, // 29: mls_service.MLSCryptoService.CreateUpdateCommitCached:input_type -> mls_service.CreateUpdateCommitCachedRequest
+	50, // 30: mls_service.MLSCryptoService.ProcessCommitCached:input_type -> mls_service.ProcessCommitCachedRequest
+	52, // 31: mls_service.MLSCryptoService.ExportSecretCached:input_type -> mls_service.ExportSecretCachedRequest
+	54, // 32: mls_service.MLSCryptoService.ExportGroupStateCheckpoint:input_type -> mls_service.ExportGroupStateCheckpointRequest
+	56, // 33: mls_service.MLSCryptoService.UnloadGroup:input_type -> mls_service.UnloadGroupRequest
+	2,  // 34: mls_service.MLSCryptoService.Ping:output_type -> mls_service.PingResponse
+	4,  // 35: mls_service.MLSCryptoService.GenerateIdentity:output_type -> mls_service.GenerateIdentityResponse
+	6,  // 36: mls_service.MLSCryptoService.ExportIdentity:output_type -> mls_service.ExportIdentityResponse
+	8,  // 37: mls_service.MLSCryptoService.ImportIdentity:output_type -> mls_service.ImportIdentityResponse
+	10, // 38: mls_service.MLSCryptoService.CreateGroup:output_type -> mls_service.CreateGroupResponse
+	12, // 39: mls_service.MLSCryptoService.CreateProposal:output_type -> mls_service.CreateProposalResponse
+	14, // 40: mls_service.MLSCryptoService.CreateCommit:output_type -> mls_service.CreateCommitResponse
+	16, // 41: mls_service.MLSCryptoService.ProcessCommit:output_type -> mls_service.ProcessCommitResponse
+	18, // 42: mls_service.MLSCryptoService.ProcessWelcome:output_type -> mls_service.ProcessWelcomeResponse
+	20, // 43: mls_service.MLSCryptoService.EncryptMessage:output_type -> mls_service.EncryptMessageResponse
+	22, // 44: mls_service.MLSCryptoService.DecryptMessage:output_type -> mls_service.DecryptMessageResponse
+	24, // 45: mls_service.MLSCryptoService.ExternalJoin:output_type -> mls_service.ExternalJoinResponse
+	26, // 46: mls_service.MLSCryptoService.ExportSecret:output_type -> mls_service.ExportSecretResponse
+	28, // 47: mls_service.MLSCryptoService.GenerateKeyPackage:output_type -> mls_service.GenerateKeyPackageResponse
+	30, // 48: mls_service.MLSCryptoService.AddMembers:output_type -> mls_service.AddMembersResponse
+	32, // 49: mls_service.MLSCryptoService.RemoveMembers:output_type -> mls_service.RemoveMembersResponse
+	34, // 50: mls_service.MLSCryptoService.HasMember:output_type -> mls_service.HasMemberResponse
+	36, // 51: mls_service.MLSCryptoService.ListMemberIdentities:output_type -> mls_service.ListMemberIdentitiesResponse
+	38, // 52: mls_service.MLSCryptoService.ExportGroupInfo:output_type -> mls_service.ExportGroupInfoResponse
+	41, // 53: mls_service.MLSCryptoService.LoadGroup:output_type -> mls_service.LoadGroupResponse
+	43, // 54: mls_service.MLSCryptoService.GetGroupMetadata:output_type -> mls_service.GetGroupMetadataResponse
+	45, // 55: mls_service.MLSCryptoService.EncryptMessageCached:output_type -> mls_service.EncryptMessageCachedResponse
+	47, // 56: mls_service.MLSCryptoService.DecryptMessageCached:output_type -> mls_service.DecryptMessageCachedResponse
+	49, // 57: mls_service.MLSCryptoService.CreateUpdateCommitCached:output_type -> mls_service.CreateUpdateCommitCachedResponse
+	51, // 58: mls_service.MLSCryptoService.ProcessCommitCached:output_type -> mls_service.ProcessCommitCachedResponse
+	53, // 59: mls_service.MLSCryptoService.ExportSecretCached:output_type -> mls_service.ExportSecretCachedResponse
+	55, // 60: mls_service.MLSCryptoService.ExportGroupStateCheckpoint:output_type -> mls_service.ExportGroupStateCheckpointResponse
+	57, // 61: mls_service.MLSCryptoService.UnloadGroup:output_type -> mls_service.UnloadGroupResponse
+	34, // [34:62] is the sub-list for method output_type
+	6,  // [6:34] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_mls_service_proto_init() }
@@ -2352,7 +3598,7 @@ func file_mls_service_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_mls_service_proto_rawDesc), len(file_mls_service_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   38,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

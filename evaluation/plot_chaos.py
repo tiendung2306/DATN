@@ -55,12 +55,12 @@ def plot_convergence():
                  va='center', fontsize=10, fontweight='bold', color=colors[i % len(colors)])
 
     # Cấu hình trục và tiêu đề
-    plt.title("Empirical Proof: MLS Epoch Convergence under Network Chaos", fontsize=18, fontweight='bold', pad=20)
-    plt.xlabel("Time (seconds)", fontsize=14, labelpad=10)
-    plt.ylabel("MLS Epoch (with visual offset)", fontsize=14, labelpad=10)
+    plt.title("Biểu đồ 3: Sự Hội Tụ Đồng Thuận - Khả Năng Khôi Phục (Fork Healing) P2P", fontsize=18, fontweight='bold', pad=20)
+    plt.xlabel("Lưu lượng Thời gian (giây)", fontsize=14, labelpad=10)
+    plt.ylabel("Trạng thái Phiên bản (Epoch)", fontsize=14, labelpad=10)
     
     # Hiển thị chú thích
-    plt.legend(title="Network Nodes", loc='upper left', fontsize=12, frameon=True, shadow=True)
+    plt.legend(title="Các Node trong mạng", loc='upper left', fontsize=12, frameon=True, shadow=True)
     
     # Tăng độ phân giải cho trục Y
     max_epoch = int(df['Epoch'].max())

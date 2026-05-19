@@ -1,0 +1,62 @@
+{
+  "current_full_blob_mls_encrypt": {
+    "better_fit": "linear",
+    "linear_model": {
+      "intercept": 0.5438694552529189,
+      "r2": 0.9999104651761856,
+      "slope": 0.016207543407867384
+    },
+    "log2_model": {
+      "intercept": -38.309891111111114,
+      "r2": 0.6855671784739056,
+      "slope": 6.6971766666666666
+    },
+    "metric": "median_ms",
+    "samples": 9
+  },
+  "hot_cache_sidecar_encrypt_core": {
+    "better_fit": "linear",
+    "linear_model": {
+      "intercept": 0.0418693579766537,
+      "r2": 0.903214615559143,
+      "slope": 5.4031039885172115e-06
+    },
+    "log2_model": {
+      "intercept": 0.031351111111111114,
+      "r2": 0.46196417889844943,
+      "slope": 0.0019283333333333333
+    },
+    "metric": "median_ms",
+    "samples": 9
+  },
+  "hot_cache_sidecar_update_commit_core": {
+    "better_fit": "linear",
+    "linear_model": {
+      "intercept": 0.8099921206225709,
+      "r2": 0.9998092040968278,
+      "slope": 0.015044015522798052
+    },
+    "log2_model": {
+      "intercept": -35.23602222222222,
+      "r2": 0.6849888630093772,
+      "slope": 6.214083333333333
+    },
+    "metric": "median_ms",
+    "samples": 9
+  },
+  "pairwise_baseline": {
+    "better_fit": "linear",
+    "linear_model": {
+      "intercept": 0.019852918287937782,
+      "r2": 0.9987052922814729,
+      "slope": 0.0005018742337828474
+    },
+    "log2_model": {
+      "intercept": -1.208048888888889,
+      "r2": 0.7053458640595542,
+      "slope": 0.21047833333333335
+    },
+    "metric": "median_ms",
+    "samples": 9
+  }
+}

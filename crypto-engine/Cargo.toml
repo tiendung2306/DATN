@@ -21,6 +21,9 @@ futures-util = "0.3"
 clap = { version = "4.4", features = ["derive"] }
 chrono = "0.4"
 tonic-prost = "0.14.3"
+dashmap = "6"
+hpke-rs-crypto = "0.6.0"
+hpke-rs-rust-crypto = "0.6.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.3"

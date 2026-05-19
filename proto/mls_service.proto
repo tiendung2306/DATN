@@ -46,6 +46,18 @@ service MLSCryptoService {
   // losing-branch peer can re-join via ExternalJoin. The exported MlsMessage is
   // TLS-serialized and contains the RatchetTree extension when with_ratchet_tree=true.
   rpc ExportGroupInfo(ExportGroupInfoRequest) returns (ExportGroupInfoResponse);
+
+  // Phase A optimization research — hot-cache sidecar benchmark path.
+  // These RPCs are additive and do not replace the production stateless RPCs.
+  rpc LoadGroup(LoadGroupRequest) returns (LoadGroupResponse);
+  rpc GetGroupMetadata(GetGroupMetadataRequest) returns (GetGroupMetadataResponse);
+  rpc EncryptMessageCached(EncryptMessageCachedRequest) returns (EncryptMessageCachedResponse);
+  rpc DecryptMessageCached(DecryptMessageCachedRequest) returns (DecryptMessageCachedResponse);
+  rpc CreateUpdateCommitCached(CreateUpdateCommitCachedRequest) returns (CreateUpdateCommitCachedResponse);
+  rpc ProcessCommitCached(ProcessCommitCachedRequest) returns (ProcessCommitCachedResponse);
+  rpc ExportSecretCached(ExportSecretCachedRequest) returns (ExportSecretCachedResponse);
+  rpc ExportGroupStateCheckpoint(ExportGroupStateCheckpointRequest) returns (ExportGroupStateCheckpointResponse);
+  rpc UnloadGroup(UnloadGroupRequest) returns (UnloadGroupResponse);
 }
 
 // ── Phase 2 Messages ──
@@ -259,4 +271,117 @@ message ExportGroupInfoRequest {
 message ExportGroupInfoResponse {
   // TLS-serialized MlsMessageOut containing GroupInfo (signed by exporter).
   bytes group_info = 1;
+}
+
+// ── Phase A Optimization Research Messages ──
+
+message OperationContext {
+  string group_id = 1;
+  uint64 expected_epoch = 2;
+  uint64 expected_state_version = 3;
+  string operation_id = 4;
+}
+
+message LoadGroupRequest {
+  string group_id = 1;
+  bytes group_state = 2;
+  uint64 state_version = 3;
+}
+
+message LoadGroupResponse {
+  string group_id = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+  bytes tree_hash = 4;
+  uint64 state_size_bytes = 5;
+}
+
+message GetGroupMetadataRequest {
+  string group_id = 1;
+}
+
+message GetGroupMetadataResponse {
+  string group_id = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+  bytes tree_hash = 4;
+  bool dirty = 5;
+  uint64 state_size_bytes = 6;
+}
+
+message EncryptMessageCachedRequest {
+  OperationContext context = 1;
+  bytes plaintext = 2;
+}
+
+message EncryptMessageCachedResponse {
+  bytes ciphertext = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+}
+
+message DecryptMessageCachedRequest {
+  OperationContext context = 1;
+  bytes ciphertext = 2;
+}
+
+message DecryptMessageCachedResponse {
+  bytes plaintext = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+}
+
+message CreateUpdateCommitCachedRequest {
+  OperationContext context = 1;
+}
+
+message CreateUpdateCommitCachedResponse {
+  bytes commit_bytes = 1;
+  bytes tree_hash = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+}
+
+message ProcessCommitCachedRequest {
+  OperationContext context = 1;
+  bytes commit_bytes = 2;
+}
+
+message ProcessCommitCachedResponse {
+  bytes tree_hash = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+}
+
+message ExportSecretCachedRequest {
+  OperationContext context = 1;
+  string label = 2;
+  uint32 length = 3;
+  bytes exporter_context = 4;
+}
+
+message ExportSecretCachedResponse {
+  bytes secret = 1;
+  uint64 epoch = 2;
+  uint64 state_version = 3;
+}
+
+message ExportGroupStateCheckpointRequest {
+  string group_id = 1;
+}
+
+message ExportGroupStateCheckpointResponse {
+  bytes group_state = 1;
+  bytes tree_hash = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+  uint64 state_size_bytes = 5;
+}
+
+message UnloadGroupRequest {
+  string group_id = 1;
+}
+
+message UnloadGroupResponse {
+  bool unloaded = 1;
 }
