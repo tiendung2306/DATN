@@ -5,7 +5,108 @@ import (
 	"time"
 
 	"app/coordination"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+func TestGroupLifecycle_PurgeGroupMetadata(t *testing.T) {
+	d := setupTestDB(t)
+	s := NewSQLiteCoordinationStorage(d)
+
+	groupID := "purge-test-group"
+
+	// 1. Seed some group records
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    groupID,
+		GroupState: []byte("state-data"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+
+	// Seed group members
+	if err := d.UpsertGroupMember(GroupMemberRecord{
+		GroupID:     groupID,
+		PeerID:      "peer-1",
+		DisplayName: "Peer One",
+		Role:        "member",
+		Status:      GroupMemberStatusActive,
+		JoinedAt:    time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember: %v", err)
+	}
+
+	// Seed coordination state
+	if err := s.SaveCoordState(&coordination.CoordState{
+		GroupID:     groupID,
+		TokenHolder: "peer-1",
+		ActiveView:  []peer.ID{"peer-1"},
+	}); err != nil {
+		t.Fatalf("SaveCoordState: %v", err)
+	}
+
+	// Seed stored messages (THIS MUST NOT BE PURGED)
+	if err := s.SaveMessage(&coordination.StoredMessage{
+		GroupID:      groupID,
+		Epoch:        1,
+		SenderID:     "peer-1",
+		Content:      []byte("historic chat message"),
+		Timestamp:    coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "peer-1"},
+		EnvelopeHash: []byte("env-hash-1"),
+	}); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	// Verify they all exist
+	hasGroup, err := d.HasGroup(groupID)
+	if err != nil || !hasGroup {
+		t.Fatalf("HasGroup initially = %v, err = %v", hasGroup, err)
+	}
+
+	members, err := d.ListGroupMembers(groupID, GroupMemberStatusActive)
+	if err != nil || len(members) != 1 {
+		t.Fatalf("members len = %v, err = %v", len(members), err)
+	}
+
+	cState, err := s.GetCoordState(groupID)
+	if err != nil || cState == nil {
+		t.Fatalf("GetCoordState: %v", err)
+	}
+
+	msgs, err := s.GetMessagesSince(groupID, coordination.HLCTimestamp{})
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("messages count = %v, err = %v", len(msgs), err)
+	}
+
+	// 2. Perform the purge
+	if err := d.PurgeGroupMetadata(groupID); err != nil {
+		t.Fatalf("PurgeGroupMetadata: %v", err)
+	}
+
+	// 3. Verify cryptographic and coordination metadata are completely gone
+	hasGroup, err = d.HasGroup(groupID)
+	if err != nil || hasGroup {
+		t.Fatalf("expected HasGroup to be false after purge, got %v", hasGroup)
+	}
+
+	members, err = d.ListGroupMembers(groupID, GroupMemberStatusActive)
+	if err != nil || len(members) != 0 {
+		t.Fatalf("expected members to be empty, got %d", len(members))
+	}
+
+	_, err = s.GetCoordState(groupID)
+	if err != coordination.ErrGroupNotFound {
+		t.Fatalf("expected GetCoordState to return ErrGroupNotFound, got %v", err)
+	}
+
+	// 4. Verify message history remains perfectly preserved
+	msgs, err = s.GetMessagesSince(groupID, coordination.HLCTimestamp{})
+	if err != nil || len(msgs) != 1 || string(msgs[0].Content) != "historic chat message" {
+		t.Fatalf("expected messages to remain preserved, got %d messages: %v", len(msgs), err)
+	}
+}
 
 func TestGroupLifecycle_MarkLeftAndListActive(t *testing.T) {
 	d := setupTestDB(t)

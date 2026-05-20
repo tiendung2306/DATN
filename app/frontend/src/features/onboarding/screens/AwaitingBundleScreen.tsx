@@ -48,29 +48,30 @@ export default function AwaitingBundleScreen({ onImported }: AwaitingBundleScree
     if (!info) return
     try {
       const savedPath = await runtimeClient.exportDeviceRequestJson()
-      if (!savedPath) return
-      setSuccessMessage(`Da luu request bundle tai: ${savedPath}`)
-      setTimeout(() => setSuccessMessage(null), 2200)
+      if (!savedPath) return // User cancelled
+      setSuccessMessage(`Request file saved to: ${savedPath}`)
+      setTimeout(() => setSuccessMessage(null), 2500)
     } catch (e) {
       setError(String(e))
     }
   }
 
   const handleImportBundle = async () => {
-    setImporting(true)
     setError(null)
     try {
-      await runtimeClient.openAndImportBundle()
-      setSuccessMessage('Import thanh cong. Dang khoi dong node...')
+      const imported = await runtimeClient.openAndImportBundle()
+      if (!imported) return // User cancelled
+      
+      setSuccessMessage('Import successful. Launching node...')
       await onImported()
     } catch (e) {
       const message = String(e)
       if (message.includes('expired')) {
-        setError('Chung thu da het han. Vui long yeu cau quan tri vien cap lai.')
+        setError('The invitation bundle has expired. Please request a new one from Admin.')
       } else if (message.includes('signature')) {
-        setError('Chu ky khong hop le. Vui long kiem tra lai file cap phep.')
+        setError('Invalid Admin signature. The file may have been tampered with.')
       } else if (message.includes('mismatch')) {
-        setError('Bundle khong khop voi dinh danh thiet bi hien tai.')
+        setError('Identity mismatch. This bundle was issued for a different device.')
       } else {
         setError(message)
       }

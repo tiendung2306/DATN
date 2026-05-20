@@ -32,7 +32,6 @@ export function useChatRuntime() {
   const setMessages = useChatStore((s) => s.setMessages)
   const markGroupRead = useChatStore((s) => s.markGroupRead)
 
-
   const [displayName, setDisplayName] = useState('')
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [activeGroupMembers, setActiveGroupMembers] = useState<service.MemberInfo[]>([])
@@ -69,8 +68,8 @@ export function useChatRuntime() {
     }
   }, [setConnectedPeers, setLocalPeerId, setNetworkStatus])
 
-  const refreshGroups = useCallback(async () => {
-    setGroupsLoading(true)
+  const refreshGroups = useCallback(async (isSilent = false) => {
+    if (!isSilent) setGroupsLoading(true)
     setGroupsError(null)
     try {
       const list = await runtimeClient.getGroups()
@@ -82,21 +81,27 @@ export function useChatRuntime() {
     } catch (error) {
       setGroupsError(String(error))
     } finally {
-      setGroupsLoading(false)
+      if (!isSilent) setGroupsLoading(false)
     }
   }, [setActiveGroupId, setGroups, setGroupsError, setGroupsLoading])
 
+  const activeGroup = useMemo(() => groups.find((g) => g.group_id === activeGroupId), [activeGroupId, groups])
+  const activeKind = useMemo(() => getConversationKind(activeGroup), [activeGroup])
+
   const loadMessages = useCallback(
-    async (groupId: string) => {
-      setLoadingMessages(true)
+    async (groupId: string, isRefresh = false) => {
+      if (!isRefresh) setLoadingMessages(true)
       try {
         const list = await runtimeClient.getGroupMessages(groupId, 50, 0)
+        // Check if we are still on the same group
+        if (useGroupsStore.getState().activeGroupId !== groupId) return
+
         const mapped = (list ?? []).map(messageInfoToChatMessage)
         const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
         setMessages(groupId, sorted)
         markGroupRead(groupId)
       } finally {
-        setLoadingMessages(false)
+        if (!isRefresh) setLoadingMessages(false)
       }
     },
     [markGroupRead, setMessages],
@@ -119,16 +124,18 @@ export function useChatRuntime() {
   )
 
   const loadPosts = useCallback(
-    async (groupId: string) => {
-      setLoadingMessages(true)
+    async (groupId: string, isRefresh = false) => {
+      if (!isRefresh) setLoadingMessages(true)
       try {
         const list = await runtimeClient.getGroupPosts(groupId, 20, 0)
+        if (useGroupsStore.getState().activeGroupId !== groupId) return
+
         const mapped = (list ?? []).map(messageInfoToChatMessage)
         const sorted = mapped.sort((a, b) => a.timestamp - b.timestamp)
         useChatStore.getState().setPosts(groupId, sorted)
         markGroupRead(groupId)
       } finally {
-        setLoadingMessages(false)
+        if (!isRefresh) setLoadingMessages(false)
       }
     },
     [markGroupRead],
@@ -184,6 +191,8 @@ export function useChatRuntime() {
   const loadGroupMembers = useCallback(async (groupId: string) => {
     try {
       const members = await runtimeClient.getGroupMembers(groupId)
+      if (useGroupsStore.getState().activeGroupId !== groupId) return
+      
       setActiveGroupMembers(members ?? [])
       if (members && members.length > 0) {
         const contactMap: Record<string, { displayName: string; isOnline: boolean }> = {}
@@ -213,22 +222,25 @@ export function useChatRuntime() {
     // a short one-shot retry prevents empty sidebar until next manual action.
     const retry = setTimeout(() => {
       void refreshNodeStatus()
-      void refreshGroups()
+      void refreshGroups(true) // Silent refresh
     }, 1500)
     return () => clearTimeout(retry)
   }, [refreshGroups, refreshNodeStatus])
 
   useEffect(() => {
     if (!activeGroupId) return
-    const group = groups.find((g) => g.group_id === activeGroupId)
-    const kind = getConversationKind(group)
-    if (kind === 'channel') {
-      void loadPosts(activeGroupId)
+
+    const existingMessages = useChatStore.getState().messagesByGroup[activeGroupId] ?? []
+    const existingPosts = useChatStore.getState().postsByGroup[activeGroupId] ?? []
+    const hasData = activeKind === 'channel' ? existingPosts.length > 0 : existingMessages.length > 0
+
+    if (activeKind === 'channel') {
+      void loadPosts(activeGroupId, hasData)
     } else {
-      void loadMessages(activeGroupId)
+      void loadMessages(activeGroupId, hasData)
     }
     void loadGroupMembers(activeGroupId)
-  }, [activeGroupId, loadMessages, loadPosts, loadGroupMembers, groups])
+  }, [activeGroupId, activeKind, loadMessages, loadPosts, loadGroupMembers])
 
   useEffect(() => {
     if (!activeGroupId) {

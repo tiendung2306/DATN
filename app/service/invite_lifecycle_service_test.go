@@ -1,9 +1,14 @@
 package service
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"app/adapter/store"
+	"app/coordination"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func TestSavePendingInviteFromWelcome_RejectTombstoneStickyOnPassiveRefresh(t *testing.T) {
@@ -59,3 +64,108 @@ func TestSavePendingInviteFromWelcome_ReinviteReopensRejected(t *testing.T) {
 	}
 }
 
+// TestAcceptInvite_RejoinLeftGroup verifies that when a group exists in the DB
+// but was previously left (lifecycle_status = 'left', active = false), calling
+// AcceptInvite on a new Welcome does NOT short-circuit with "already_joined" but
+// instead purges stale metadata and attempts to re-join. Stored messages MUST be
+// preserved after the purge.
+//
+// Because this test runs without a live P2P node or MLS engine, applyWelcome
+// will fail with "P2P node not running" — that is the expected error. The key
+// invariant being tested is that the code path reaches applyWelcome at all
+// (i.e. does not silently return nil claiming "already joined"), AND that
+// stored_messages rows survive the purge.
+func TestAcceptInvite_RejoinLeftGroup(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+
+	groupID := "group-rejoin-lifecycle"
+	senderID := peer.ID("peer-sender")
+
+	// 1. Seed an active group record (so LeaveGroup can mark it left).
+	now := time.Now()
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    groupID,
+		GroupState: []byte("state-epoch-0"),
+		MyRole:     coordination.RoleMember,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+
+	// 2. Persist a message so we can verify it survives the purge.
+	if err := rt.coordStorage.SaveMessage(&coordination.StoredMessage{
+		GroupID:      groupID,
+		Epoch:        1,
+		SenderID:     senderID,
+		Content:      []byte("hello from before leave"),
+		Timestamp:    coordination.HLCTimestamp{WallTimeMs: 1000, NodeID: senderID.String()},
+		EnvelopeHash: []byte("env-hash-1"),
+	}); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	// 3. Leave the group — marks lifecycle_status = 'left', active = false.
+	if err := rt.LeaveGroup(groupID); err != nil {
+		t.Fatalf("LeaveGroup: %v", err)
+	}
+
+	// Confirm the group is now inactive.
+	active, err := rt.db.IsGroupActive(groupID)
+	if err != nil {
+		t.Fatalf("IsGroupActive: %v", err)
+	}
+	if active {
+		t.Fatalf("expected group to be inactive after LeaveGroup")
+	}
+
+	// 4. Save a new pending invite (new Welcome bytes) for the same group.
+	newWelcomeBytes := []byte("welcome-bytes-new-epoch-for-rejoin")
+	if err := rt.db.SavePendingInvite(&store.PendingInvite{
+		GroupID:      groupID,
+		GroupType:    "group",
+		WelcomeBytes: newWelcomeBytes,
+		SourcePeerID: "peer-inviter",
+	}); err != nil {
+		t.Fatalf("SavePendingInvite: %v", err)
+	}
+
+	newInviteID := store.PendingInviteID(groupID, newWelcomeBytes)
+
+	// 5. Call AcceptInvite.
+	//
+	// Expected behaviour with our fix applied:
+	//   a) AcceptInvite sees joined=true, active=false → calls PurgeGroupMetadata
+	//      and resets joined=false.
+	//   b) Falls through to applyWelcome, which fails with "P2P node not running"
+	//      because rt.node == nil in this unit test.
+	//
+	// WITHOUT the fix, the old code would have returned nil immediately after
+	// marking the invite "accepted" with reason "already_joined", never calling
+	// applyWelcome at all.
+	acceptErr := rt.AcceptInvite(newInviteID)
+
+	if acceptErr == nil {
+		t.Fatal("expected AcceptInvite to fail (no P2P node), but it returned nil — " +
+			"possible regression: 'already_joined' short-circuit is incorrectly reached")
+	}
+	if !strings.Contains(acceptErr.Error(), "P2P node not running") &&
+		!strings.Contains(acceptErr.Error(), "node or database not ready") &&
+		!strings.Contains(acceptErr.Error(), "crypto engine") {
+		// applyWelcome itself checks node/engine. Any of these errors confirms we
+		// correctly reached the re-join path instead of the "already_joined" early return.
+		t.Fatalf("unexpected error kind (should be P2P/engine error from applyWelcome): %v", acceptErr)
+	}
+
+	// 6. Verify stored_messages were NOT deleted by PurgeGroupMetadata.
+	msgs, err := rt.GetGroupMessages(groupID, 50, 0)
+	if err != nil {
+		t.Fatalf("GetGroupMessages: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("stored_messages count = %d, want 1 (history must survive purge)", len(msgs))
+	}
+	if msgs[0].Content != "hello from before leave" {
+		t.Fatalf("unexpected message content: %q", msgs[0].Content)
+	}
+}

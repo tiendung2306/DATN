@@ -1,5 +1,5 @@
 /**
- * Maps backend / Wails errors to user-facing toast copy (Vietnamese).
+ * Maps backend / Wails errors to user-facing toast copy (English).
  */
 export function formatOutboundSendError(err: unknown): { title: string; description: string; variant: 'default' | 'destructive' } {
   const raw = err instanceof Error ? err.message : String(err)
@@ -7,17 +7,17 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
 
   if (raw.includes('TEXT_TOO_LONG')) {
     return {
-      title: 'Nội dung quá dài',
+      title: 'Message too long',
       description:
-        'Tin nhắn vượt quá giới hạn cho phép. Trong bản cập nhật sau, bạn sẽ có thể gửi nội dung dài dưới dạng file đã mã hóa (giống Discord).',
+        'The message exceeds the allowed character limit. In a future update, you will be able to send long content as encrypted files (similar to Discord).',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_MESSAGE_EMPTY')) {
     return {
-      title: 'Không thể gửi',
-      description: 'Nội dung không được để trống hoặc chỉ gồm khoảng trắng.',
+      title: 'Cannot send',
+      description: 'The message body cannot be empty or only contain whitespace.',
       variant: 'destructive',
     }
   }
@@ -25,38 +25,38 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
   if (raw.includes('ERR_CHANNEL_PAYLOAD_INVALID')) {
     if (raw.includes('title exceeds')) {
       return {
-        title: 'Tiêu đề quá dài',
-        description: 'Vui lòng rút ngắn tiêu đề bài viết.',
+        title: 'Title too long',
+        description: 'Please shorten the post title.',
         variant: 'destructive',
       }
     }
     if (raw.includes('body exceeds')) {
       return {
-        title: 'Nội dung quá dài',
+        title: 'Content too long',
         description:
-          'Nội dung bài viết hoặc bình luận vượt quá giới hạn. Nội dung rất dài sẽ được gửi dưới dạng file đã mã hóa trong bản cập nhật sau.',
+          'The post or comment content exceeds the limit. Long content will be sent as encrypted files in a future update.',
         variant: 'destructive',
       }
     }
     return {
-      title: 'Nội dung không hợp lệ',
-      description: 'Định dạng bài viết hoặc bình luận không đúng. Vui lòng kiểm tra lại.',
+      title: 'Invalid content',
+      description: 'The post or comment format is incorrect. Please check and try again.',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_FILE_TOO_LARGE')) {
     return {
-      title: 'File quá lớn',
-      description: 'File vượt giới hạn cho phiên bản hiện tại (tối đa 100MB).',
+      title: 'File too large',
+      description: 'File exceeds the current version limit (max 100MB).',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_USER_CANCELLED')) {
     return {
-      title: 'Đã hủy thao tác',
-      description: 'Bạn đã hủy chọn file.',
+      title: 'Action cancelled',
+      description: 'File selection was cancelled.',
       variant: 'default',
     }
   }
@@ -69,81 +69,81 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
     rawLower.includes('failed to dial')
   ) {
     return {
-      title: 'Không thể kết nối tới thiết bị gửi',
+      title: 'Cannot connect to sender',
       description:
-        'Thiết bị gửi hiện đang ngoại tuyến hoặc chưa sẵn sàng kết nối. Vui lòng thử lại khi thiết bị gửi online.',
+        'The sender device is currently offline or unavailable. Please try again when the sender is online.',
       variant: 'destructive',
     }
   }
 
   if (rawLower.includes('err_file_not_downloaded')) {
     return {
-      title: 'Chưa có bản tải cục bộ',
-      description: 'Tệp này chưa được tải trên thiết bị này. Vui lòng bấm Tải xuống trước.',
+      title: 'Not downloaded',
+      description: 'This file has not been downloaded to this device. Please download it first.',
       variant: 'destructive',
     }
   }
 
   if (rawLower.includes('err_file_missing_local')) {
     return {
-      title: 'Không tìm thấy tệp trên máy',
-      description: 'Tệp đã bị di chuyển hoặc xóa khỏi vị trí đã lưu. Vui lòng tải lại.',
+      title: 'File not found',
+      description: 'The file has been moved or deleted from its saved location. Please download it again.',
       variant: 'destructive',
     }
   }
 
   if (rawLower.includes('err_file_open_failed')) {
     return {
-      title: 'Không mở được tệp',
-      description: 'Hệ điều hành không thể mở tệp này. Hãy kiểm tra quyền truy cập hoặc phần mềm mặc định.',
+      title: 'Cannot open file',
+      description: 'The operating system could not open this file. Check permissions or default software.',
       variant: 'destructive',
     }
   }
 
   if (rawLower.includes('err_too_many_attachments')) {
     return {
-      title: 'Vuot gioi han tep dinh kem',
-      description: 'Moi bai viet chi ho tro toi da 10 tep. Hay xoa bot tep truoc khi them moi.',
+      title: 'Too many attachments',
+      description: 'Each post supports a maximum of 10 files. Please remove some before adding more.',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_INVITE_REQUEST_STATE_CONFLICT')) {
     return {
-      title: 'Yêu cầu đã thay đổi',
-      description: 'Yêu cầu này đã được xử lý hoặc đang được xử lý. Vui lòng tải lại danh sách.',
+      title: 'Request changed',
+      description: 'This request has already been processed or is being handled. Please refresh the list.',
       variant: 'default',
     }
   }
 
   if (raw.includes('ERR_INVITE_PROCESSING_TIMEOUT')) {
     return {
-      title: 'Xử lý lời mời bị quá hạn',
-      description: 'Yêu cầu đã bị timeout khi xử lý. Người tạo có thể thử lại.',
+      title: 'Invite timeout',
+      description: 'The request timed out during processing. The creator can try again.',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_INVITE_MAX_ATTEMPTS_EXCEEDED')) {
     return {
-      title: 'Đã vượt quá số lần thử',
-      description: 'Yêu cầu này đã thử quá nhiều lần và không thể tự xử lý tiếp.',
+      title: 'Max attempts exceeded',
+      description: 'This request has been attempted too many times and cannot proceed automatically.',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_CREATOR_UNREACHABLE')) {
     return {
-      title: 'Không liên hệ được người tạo nhóm',
-      description: 'Không thể liên hệ người tạo nhóm, thử lại sau.',
+      title: 'Creator unreachable',
+      description: 'Cannot contact the group creator. Please try again later.',
       variant: 'destructive',
     }
   }
 
   if (raw.includes('ERR_GROUP_CREATOR_UNKNOWN')) {
     return {
-      title: 'Chưa đồng bộ nhóm',
-      description: 'Chưa đồng bộ đủ thông tin nhóm.',
+      title: 'Group not synchronized',
+      description: 'Insufficient group information synced yet.',
       variant: 'destructive',
     }
   }
@@ -151,8 +151,8 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
   // File transfer: sender reached but metadata/chunks not ready.
   if (rawLower.includes('read manifest') || rawLower.includes('file-transfer: not available')) {
     return {
-      title: 'Tệp chưa sẵn sàng để tải',
-      description: 'Tệp có thể đã bị gỡ khỏi máy gửi hoặc chưa được chuẩn bị xong. Vui lòng thử lại sau.',
+      title: 'File not ready',
+      description: 'The file might have been removed or is not yet prepared by the sender. Please try again later.',
       variant: 'destructive',
     }
   }
@@ -160,8 +160,8 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
   // File transfer: MLS state mismatch.
   if (rawLower.includes('epoch mismatch')) {
     return {
-      title: 'Nhóm chưa đồng bộ',
-      description: 'Thiết bị của bạn chưa đồng bộ epoch mới nhất của nhóm. Hãy đợi đồng bộ rồi tải lại.',
+      title: 'Group out of sync',
+      description: 'Your device has not synced the latest group epoch. Wait for sync then try again.',
       variant: 'destructive',
     }
   }
@@ -173,16 +173,16 @@ export function formatOutboundSendError(err: unknown): { title: string; descript
     rawLower.includes('size mismatch')
   ) {
     return {
-      title: 'Không thể xác minh tệp',
+      title: 'File verification failed',
       description:
-        'Dữ liệu tệp không toàn vẹn hoặc không giải mã được. Vui lòng tải lại; nếu vẫn lỗi, yêu cầu người gửi gửi lại tệp.',
+        'Data integrity check failed or decryption was unsuccessful. Please redownload; if the error persists, ask the sender to resend.',
       variant: 'destructive',
     }
   }
 
   return {
-    title: 'Không gửi được',
-    description: raw || 'Đã xảy ra lỗi không xác định.',
+    title: 'Send failed',
+    description: raw || 'An unknown error occurred.',
     variant: 'destructive',
   }
 }

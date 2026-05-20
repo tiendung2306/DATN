@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Hash, MessageSquare, Plus, Search, Check, Users } from 'lucide-react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../../lib/formatSendError'
+import { useNetworkStore } from '../../../stores/useNetworkStore'
 
 interface CreateGroupModalProps {
   isOpen: boolean
@@ -43,6 +44,7 @@ export default function CreateGroupModal({
   const [knownPeers, setKnownPeers] = useState<PeerInfo[]>([])
   const [members, setMembers] = useState<string[]>([])
   const [error, setError] = useState('')
+  const localPeerId = useNetworkStore((state) => state.localPeerId)
 
   useEffect(() => {
     if (isOpen) {
@@ -58,11 +60,15 @@ export default function CreateGroupModal({
       const loadPeers = async () => {
         try {
           const peers = await runtimeClient.getKnownPeers()
-          setKnownPeers(peers.map((p: any) => ({
-            id: p.id,
-            display_name: p.display_name || p.id.slice(0, 10),
-            verified: p.verified
-          })))
+          setKnownPeers(
+            peers
+              .filter((p: any) => p.id !== localPeerId)
+              .map((p: any) => ({
+                id: p.id,
+                display_name: p.display_name || p.id.slice(0, 10),
+                verified: p.verified
+              }))
+          )
         } catch (e) {
           console.error("Failed to load known peers", e)
         }
@@ -94,16 +100,16 @@ export default function CreateGroupModal({
     setError('')
     const trimmedName = groupName.trim()
     if (groupType !== 'dm' && !trimmedName) {
-      setError('Tên nhóm không được để trống.')
+      setError('Name cannot be empty.')
       return
     }
     if (groupType === 'dm' && members.length !== 1) {
-      setError('Hãy chọn đúng 1 người để bắt đầu nhắn tin trực tiếp.')
+      setError('Please select exactly 1 person to start a direct message.')
       return
     }
     const selectedCategory = forcedCategoryId || categoryId
     if (groupType === 'channel' && !selectedCategory) {
-      setError('Kênh phải thuộc một danh mục.')
+      setError('Channel must belong to a category.')
       return
     }
 
@@ -140,7 +146,7 @@ export default function CreateGroupModal({
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <Plus className="h-5 w-5 text-emerald-400" />
-            {title || 'Tạo hội thoại mới'}
+            {title || 'Create New Conversation'}
           </DialogTitle>
         </DialogHeader>
 
@@ -149,21 +155,9 @@ export default function CreateGroupModal({
           {!forcedType ? (
             <div className="space-y-2">
               <Label className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                Loại hội thoại
+                Conversation Type
               </Label>
-              <div className="grid grid-cols-3 gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setGroupType('channel')}
-                  className={`flex items-center justify-center gap-2 py-2 px-3 text-xs font-medium rounded-md transition duration-150 ${
-                    groupType === 'channel'
-                      ? 'bg-slate-800 text-emerald-400 border border-slate-700 shadow-sm'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Hash className="h-4 w-4" />
-                  Kênh
-                </button>
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-lg border border-slate-800">
                 <button
                   type="button"
                   onClick={() => setGroupType('group')}
@@ -174,7 +168,7 @@ export default function CreateGroupModal({
                   }`}
                 >
                   <Users className="h-4 w-4" />
-                  Nhóm chat
+                  Group Chat
                 </button>
                 <button
                   type="button"
@@ -186,7 +180,7 @@ export default function CreateGroupModal({
                   }`}
                 >
                   <MessageSquare className="h-4 w-4" />
-                  DM 1-1
+                  Direct Message
                 </button>
               </div>
             </div>
@@ -196,13 +190,13 @@ export default function CreateGroupModal({
           {groupType !== 'dm' ? (
             <div className="space-y-2">
               <Label htmlFor="group-name" className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                Tên {groupType === 'channel' ? 'Kênh' : 'Nhóm'}
+                {groupType === 'channel' ? 'Channel' : 'Group'} Name
               </Label>
               <Input
                 id="group-name"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
-                placeholder={groupType === 'channel' ? 'e.g. thong-bao' : 'e.g. Nhom Du an'}
+                placeholder={groupType === 'channel' ? 'e.g. announcements' : 'e.g. Project Team'}
                 className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-emerald-500"
               />
             </div>
@@ -211,7 +205,7 @@ export default function CreateGroupModal({
           {groupType === 'channel' ? (
             <div className="space-y-2">
               <Label htmlFor="channel-category" className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-                Danh mục
+                Category
               </Label>
               {forcedCategoryId ? (
                 <div className="rounded border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300">
@@ -224,7 +218,7 @@ export default function CreateGroupModal({
                   onChange={(event) => setCategoryId(event.target.value)}
                   className="h-9 w-full rounded-md border border-slate-800 bg-slate-950 px-3 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 >
-                  <option value="">Chọn danh mục</option>
+                  <option value="">Select Category</option>
                   {channelCategories.map((item) => (
                     <option key={item.category_id} value={item.category_id}>
                       {item.name}
@@ -238,7 +232,7 @@ export default function CreateGroupModal({
           {/* Members section with search and list */}
           <div className="space-y-2">
             <Label className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex justify-between items-center">
-              <span>{groupType === 'dm' ? 'Chọn 1 người' : `Mời thành viên (${members.length})`}</span>
+              <span>{groupType === 'dm' ? 'Select person' : `Invite members (${members.length})`}</span>
             </Label>
             
             <div className="relative">
@@ -246,14 +240,14 @@ export default function CreateGroupModal({
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tim theo ten hoac Peer ID..."
+                placeholder="Search by name or Peer ID..."
                 className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-emerald-500 text-xs"
               />
             </div>
 
             <div className="mt-2 border border-slate-800 bg-slate-950 rounded-lg max-h-48 overflow-y-auto divide-y divide-slate-800/50">
               {filteredPeers.length === 0 ? (
-                <p className="text-xs text-slate-600 italic text-center py-4">Khong tim thay nguoi dung nao</p>
+                <p className="text-xs text-slate-600 italic text-center py-4">No users found</p>
               ) : (
                 filteredPeers.map((peer) => {
                   const isSelected = members.includes(peer.id)
@@ -298,7 +292,7 @@ export default function CreateGroupModal({
               onClick={onClose}
               className="text-slate-400 hover:text-slate-200 hover:bg-slate-800"
             >
-              Hủy
+              Cancel
             </Button>
             <Button
               type="submit"
@@ -310,7 +304,7 @@ export default function CreateGroupModal({
               }
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
             >
-              {creating ? 'Đang tạo...' : 'Khởi tạo'}
+              {creating ? 'Creating...' : 'Create'}
             </Button>
           </DialogFooter>
         </form>

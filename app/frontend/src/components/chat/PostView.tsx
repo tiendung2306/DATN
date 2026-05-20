@@ -355,7 +355,7 @@ export default function PostView({
               <div className="flex justify-center py-6">
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Đang tải thêm bài viết...</span>
+                  <span>Loading more posts...</span>
                 </div>
               </div>
             )}

@@ -57,6 +57,8 @@ func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecor
 		     tree_hash   = excluded.tree_hash,
 		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
 		     group_type  = COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type),
+		     lifecycle_status = 'active',
+		     left_at     = 0,
 		     category_id = CASE
 		     	WHEN COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type) = 'channel'
 		     		THEN CASE
@@ -529,6 +531,8 @@ func saveGroupRecordTx(tx *sql.Tx, rec *coordination.GroupRecord) error {
 		     tree_hash   = excluded.tree_hash,
 		     my_role     = COALESCE(NULLIF(excluded.my_role, ''), mls_groups.my_role),
 		     group_type  = COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type),
+		     lifecycle_status = 'active',
+		     left_at     = 0,
 		     category_id = CASE
 		     	WHEN COALESCE(NULLIF(excluded.group_type, ''), mls_groups.group_type) = 'channel'
 		     		THEN CASE

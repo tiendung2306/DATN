@@ -109,14 +109,14 @@ export default function AddMemberModal({
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-slate-100 flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-emerald-400" />
-            Thêm thành viên vào nhóm
+            Add Members to Group
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
           <div className="space-y-2">
             <Label className="text-xs text-slate-400 font-semibold uppercase tracking-wider flex justify-between items-center">
-              <span>Người dùng hợp lệ ({selectedPeers.length})</span>
+              <span>Available Users ({selectedPeers.length})</span>
             </Label>
             
             <div className="relative">
@@ -124,14 +124,14 @@ export default function AddMemberModal({
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm theo tên hoặc Peer ID..."
+                placeholder="Search by name or Peer ID..."
                 className="pl-9 bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-emerald-500 text-xs"
               />
             </div>
 
             <div className="mt-2 border border-slate-800 bg-slate-950 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-800/50">
               {filteredPeers.length === 0 ? (
-                <p className="text-xs text-slate-600 italic text-center py-4">Không có thành viên mới khả dụng</p>
+                <p className="text-xs text-slate-600 italic text-center py-4">No new members available</p>
               ) : (
                 filteredPeers.map((peer) => {
                   const isSelected = selectedPeers.includes(peer.id)
@@ -176,14 +176,14 @@ export default function AddMemberModal({
               onClick={onClose}
               className="text-slate-400 hover:text-slate-200 hover:bg-slate-800"
             >
-              Hủy
+              Cancel
             </Button>
             <Button
               type="submit"
               disabled={inviting || selectedPeers.length === 0}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
             >
-              {inviting ? 'Đang thêm...' : 'Mời vào nhóm'}
+              {inviting ? 'Adding...' : 'Invite to Group'}
             </Button>
           </DialogFooter>
         </form>

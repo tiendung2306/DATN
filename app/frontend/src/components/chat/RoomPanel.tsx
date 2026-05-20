@@ -33,6 +33,7 @@ interface RoomPanelProps {
   refreshGroups?: () => Promise<void>
   /** Current group chat image (data URL) when `activeKind === 'group'`. */
   groupAvatarDataUrl?: string
+  conversationTitle?: string
 }
 
 type InviteListItem = {
@@ -54,6 +55,7 @@ export default function RoomPanel({
   setActiveGroupId,
   refreshGroups,
   groupAvatarDataUrl = '',
+  conversationTitle = '',
 }: RoomPanelProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const pushToast = useToastStore((s) => s.pushToast)
@@ -211,7 +213,7 @@ export default function RoomPanel({
       try {
         const out = await compressAvatarFile(f)
         if (out.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
-          throw new AvatarImageError(`Ảnh sau xử lý vẫn vượt ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`)
+          throw new AvatarImageError(`Processed image still exceeds ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`)
         }
         setRemoveGroupAvatarOnSave(false)
         revokeGroupAvatarPreview()
@@ -219,14 +221,14 @@ export default function RoomPanel({
         setPendingGroupCompressedAvatar(out)
         if (out.wasCompressed) {
           pushToast({
-            title: 'Đã tối ưu ảnh nhóm',
-            description: `${formatBytesShort(out.originalBytes)} → ${formatBytesShort(out.outputBytes)} (${out.width}×${out.height}). Bấm «Lưu» để áp dụng.`,
+            title: 'Avatar optimized',
+            description: `${formatBytesShort(out.originalBytes)} → ${formatBytesShort(out.outputBytes)} (${out.width}×${out.height}). Click Save to apply.`,
             variant: 'default',
           })
         }
       } catch (err) {
         const msg = err instanceof AvatarImageError ? err.message : err instanceof Error ? err.message : String(err)
-        pushToast({ title: 'Không xử lý được ảnh', description: msg, variant: 'destructive' })
+        pushToast({ title: 'Failed to process image', description: msg, variant: 'destructive' })
         setPendingGroupCompressedAvatar(null)
         revokeGroupAvatarPreview()
       } finally {
@@ -279,8 +281,8 @@ export default function RoomPanel({
         } else if (pendingGroupSnap) {
           if (pendingGroupSnap.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
             pushToast({
-              title: 'Ảnh quá lớn',
-              description: `Sau nén vẫn phải ≤ ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`,
+              title: 'Image too large',
+              description: `Must be ≤ ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)} after compression.`,
               variant: 'destructive',
             })
             return
@@ -294,10 +296,10 @@ export default function RoomPanel({
         revokeGroupAvatarPreview()
         const desc =
           avatarChange === 1 && pendingGroupSnap?.wasCompressed
-            ? `Ảnh nhóm đã lưu (còn ${formatBytesShort(pendingGroupSnap.outputBytes)}). Hiển thị trên thanh bên và tiêu đề (lưu cục bộ trên thiết bị này).`
-            : 'Ảnh hiển thị trên thanh bên và tiêu đề hội thoại (lưu cục bộ trên thiết bị này).'
+            ? `Group avatar saved (${formatBytesShort(pendingGroupSnap.outputBytes)}). Shown on sidebar and header (stored locally on this device).`
+            : 'Avatar updated and stored locally on this device.'
         pushToast({
-          title: 'Đã cập nhật ảnh nhóm',
+          title: 'Avatar updated',
           description: desc,
           variant: 'default',
         })
@@ -307,8 +309,8 @@ export default function RoomPanel({
       if (policyDirty) {
         if (invitePolicy === null) {
           pushToast({
-            title: 'Chưa tải xong chính sách mời',
-            description: 'Đợi tải xong hoặc thử mở lại cài đặt.',
+            title: 'Policy not loaded',
+            description: 'Wait for loading to complete or try reopening settings.',
             variant: 'destructive',
           })
           return
@@ -316,11 +318,11 @@ export default function RoomPanel({
         await runtimeClient.setGroupInvitePolicy(activeGroupId, settingsDraftPolicy)
         setInvitePolicy(settingsDraftPolicy)
         pushToast({
-          title: 'Đã lưu cài đặt',
+          title: 'Settings saved',
           description:
             settingsDraftPolicy === 'any_member'
-              ? 'Thành viên có thể mời người mới; hệ thống sẽ xử lý lời mời theo quy tắc nhóm.'
-              : 'Chỉ người tạo nhóm duyệt các yêu cầu mời từ thành viên khác.',
+              ? 'Members can now invite new people directly.'
+              : 'Only the creator can approve new member requests.',
           variant: 'default',
         })
         await loadPendingInviteRequests()
@@ -336,13 +338,13 @@ export default function RoomPanel({
 
   const handleLeaveGroup = async () => {
     if (!activeGroupId) return
-    if (!confirm('Bạn có chắc chắn muốn rời nhóm này?')) return
+    if (!confirm('Are you sure you want to leave this group?')) return
     setIsLeaving(true)
     try {
       await runtimeClient.leaveGroup(activeGroupId)
       if (setActiveGroupId) setActiveGroupId(null)
       if (refreshGroups) await refreshGroups()
-      pushToast({ title: 'Đã rời nhóm', description: 'Bạn đã rời nhóm thành công.', variant: 'default' })
+      pushToast({ title: 'Left group', description: 'You have left the group successfully.', variant: 'default' })
     } catch (e) {
       console.error('Failed to leave group', e)
       pushToast(formatLeaveGroupError(e))
@@ -354,14 +356,14 @@ export default function RoomPanel({
   const handleRemoveMember = async (peerId: string) => {
     if (!activeGroupId || !canRemoveMembers || !peerId || peerId === localPeerId) return
     const displayName = getDisplayName(peerId)
-    if (!confirm(`Bạn có chắc chắn muốn loại thành viên ${displayName} khỏi nhóm?`)) return
+    if (!confirm(`Are you sure you want to remove member ${displayName} from group?`)) return
     setRemovingPeerId(peerId)
     try {
       await runtimeClient.removeMemberFromGroup(activeGroupId, peerId)
       if (refreshGroups) await refreshGroups()
       pushToast({
-        title: 'Đã loại thành viên',
-        description: `${displayName} đã được loại khỏi nhóm.`,
+        title: 'Member removed',
+        description: `${displayName} has been removed from the group.`,
         variant: 'default',
       })
     } catch (e) {
@@ -392,16 +394,18 @@ export default function RoomPanel({
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-950">
       <div className="mb-4 flex items-center justify-between border-b border-slate-800 px-4 py-4">
-        <div>
-          <p className="text-sm font-semibold text-slate-100">
+        <div className="min-w-0 flex-1 pr-2">
+          <p className="text-sm font-semibold text-slate-100 truncate">
             {activeKind === 'dm' ? 'Direct message details' : 'Group details'}
           </p>
-          <p className="text-xs text-slate-400">{activeGroupId || 'No group selected'}</p>
+          <p className="text-xs text-slate-400 truncate">
+            {conversationTitle || activeGroupId || 'No group selected'}
+          </p>
         </div>
         <button
           type="button"
-          aria-label="Đóng chi tiết nhóm"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+          aria-label="Close details"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-slate-100"
           onClick={onClose}
         >
           <X className="h-4 w-4" />
@@ -417,7 +421,7 @@ export default function RoomPanel({
               className="h-8 min-h-0 gap-0 px-1.5 text-xs"
               onClick={() => setActiveTab('members')}
             >
-              Thành viên
+              Members
             </Button>
             <Button
               type="button"
@@ -425,7 +429,7 @@ export default function RoomPanel({
               className="h-8 min-h-0 gap-1.5 px-1.5 text-xs"
               onClick={() => setActiveTab('invites')}
             >
-              <span className="truncate">Yêu cầu tham gia</span>
+              <span className="truncate">Join Requests</span>
               {pendingInviteBadgeCount > 0 ? (
                 <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-600 px-1 text-[10px] font-semibold tabular-nums text-white">
                   {pendingInviteBadgeCount > 99 ? '99+' : pendingInviteBadgeCount}
@@ -438,7 +442,7 @@ export default function RoomPanel({
           <>
         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <Users className="h-3.5 w-3.5" />
-          <span>Thành viên</span>
+          <span>Members</span>
         </div>
         <div className="space-y-2 pb-4">
           {peers.length === 0 ? (
@@ -465,7 +469,7 @@ export default function RoomPanel({
                   {canRemoveMembers && peer.peer_id !== localPeerId ? (
                     <button
                       type="button"
-                      aria-label={`Xóa ${getDisplayName(peer.peer_id)} khỏi nhóm`}
+                      aria-label={`Remove ${getDisplayName(peer.peer_id)} from group`}
                       disabled={removingPeerId === peer.peer_id}
                       className="rounded p-1 text-slate-400 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
                       onClick={() => void handleRemoveMember(peer.peer_id)}
@@ -489,28 +493,20 @@ export default function RoomPanel({
           <>
             <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <Users className="h-3.5 w-3.5" />
-              <span>Yêu cầu tham gia</span>
+              <span>Join Requests</span>
             </div>
             <div className="space-y-2 pb-4">
               {loadingInvites ? (
-                <p className="text-xs text-slate-500">Đang tải...</p>
+                <p className="text-xs text-slate-500">Loading...</p>
               ) : null}
               {!loadingInvites && inviteItems.length === 0 ? (
-                <p className="text-xs text-slate-500">Không có yêu cầu nào đang chờ duyệt.</p>
+                <p className="text-xs text-slate-500">No pending requests.</p>
               ) : null}
               {inviteItems.map((item) => {
                 const requestId = String(item.request_id ?? '')
                 const targetPeer = String(item.target_peer_id ?? '')
                 const requesterPeer = String(item.requester_peer_id ?? '')
                 const isBusy = changingInviteId === requestId
-                // Role-based actions, mirroring backend permissions:
-                //   - Creator: Approve / Reject only. Reject already covers
-                //     "I do not want this request to go through".
-                //   - Anyone else (requester, target, observer): read-only.
-                //     Requester cannot retract — in a serverless P2P setup
-                //     racing a cancel against a concurrent approve would
-                //     require CRDT-style coordination across the gossip mesh,
-                //     so we drop the feature for now (PROJECT_PLAN §6.2).
                 const isLocalCreator = canRemoveMembers
                 return (
                   <div key={requestId} className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
@@ -518,7 +514,7 @@ export default function RoomPanel({
                     <p className="text-[11px] text-slate-500">{shortPeerId(targetPeer)}</p>
                     {requesterPeer ? (
                       <p className="mt-1 text-[11px] text-slate-400">
-                        Người gửi yêu cầu: {getDisplayName(requesterPeer)}
+                        Requested by: {getDisplayName(requesterPeer)}
                       </p>
                     ) : null}
                     {isLocalCreator ? (
@@ -529,7 +525,7 @@ export default function RoomPanel({
                           disabled={isBusy}
                           onClick={() => void handleInviteAction(requestId, 'approve')}
                         >
-                          Duyệt
+                          Approve
                         </Button>
                         <Button
                           size="sm"
@@ -538,11 +534,11 @@ export default function RoomPanel({
                           disabled={isBusy}
                           onClick={() => void handleInviteAction(requestId, 'reject')}
                         >
-                          Từ chối
+                          Reject
                         </Button>
                       </div>
                     ) : (
-                      <p className="mt-2 text-[11px] text-slate-500">Đang chờ người tạo nhóm duyệt.</p>
+                      <p className="mt-2 text-[11px] text-slate-500">Awaiting creator approval.</p>
                     )}
                   </div>
                 )
@@ -565,7 +561,7 @@ export default function RoomPanel({
             onClick={() => setIsGroupSettingsOpen(true)}
           >
             <Settings className="h-4 w-4" />
-            Cài đặt nhóm
+            Group Settings
           </Button>
         ) : null}
         {activeKind !== 'dm' ? (
@@ -628,10 +624,10 @@ export default function RoomPanel({
                 </span>
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <DialogTitle className="text-lg font-semibold tracking-tight text-slate-50">
-                    Cài đặt nhóm
+                    Group Settings
                   </DialogTitle>
                   <DialogDescription className="text-sm leading-relaxed text-slate-400">
-                    Chỉnh sửa rồi bấm <span className="text-slate-300">Lưu</span> để áp dụng.
+                    Edit and click <span className="text-slate-300">Save</span> to apply.
                   </DialogDescription>
                 </div>
               </div>
@@ -653,11 +649,10 @@ export default function RoomPanel({
                     <ImageIcon className="h-4 w-4" aria-hidden />
                   </span>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-100">Ảnh đại diện nhóm</h3>
+                    <h3 className="text-sm font-semibold text-slate-100">Group Avatar</h3>
                     <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                      PNG, JPEG hoặc WebP — chọn ảnh gốc tới {AVATAR_INPUT_MAX_BYTES / (1024 * 1024)} MiB; app tự
-                      resize/nén còn tối đa {AVATAR_OUTPUT_MAX_BYTES / 1024} KiB trước khi lưu. Lưu cục bộ trên máy
-                      bạn.
+                      PNG, JPEG or WebP — select up to {AVATAR_INPUT_MAX_BYTES / (1024 * 1024)} MiB; app will
+                      resize and compress to {AVATAR_OUTPUT_MAX_BYTES / 1024} KiB. Stored locally on your device.
                     </p>
                   </div>
                 </div>
@@ -670,7 +665,7 @@ export default function RoomPanel({
                     />
                   ) : (
                     <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 text-[11px] text-slate-500">
-                      Chưa có ảnh
+                      No image
                     </div>
                   )}
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -683,7 +678,7 @@ export default function RoomPanel({
                         disabled={savingPolicy || groupAvatarProcessing}
                         onClick={handlePickGroupAvatarClick}
                       >
-                        {groupAvatarProcessing ? 'Đang xử lý ảnh…' : 'Chọn ảnh…'}
+                        {groupAvatarProcessing ? 'Processing image...' : 'Pick image...'}
                       </Button>
                       {pendingGroupCompressedAvatar ? (
                         <Button
@@ -694,7 +689,7 @@ export default function RoomPanel({
                           disabled={savingPolicy || groupAvatarProcessing}
                           onClick={handleDiscardGroupAvatarDraft}
                         >
-                          Bỏ ảnh đang chọn
+                          Discard
                         </Button>
                       ) : null}
                       {hasStoredAvatar && !pendingGroupCompressedAvatar ? (
@@ -706,13 +701,13 @@ export default function RoomPanel({
                           disabled={savingPolicy || groupAvatarProcessing}
                           onClick={handleMarkRemoveGroupAvatar}
                         >
-                          Xóa ảnh khi lưu
+                          Remove image on save
                         </Button>
                       ) : null}
                     </div>
                     {pendingGroupCompressedAvatar ? (
                       <p className="truncate text-[11px] text-slate-400">
-                        Sẵn sàng lưu: {formatBytesShort(pendingGroupCompressedAvatar.outputBytes)} (
+                        Ready to save: {formatBytesShort(pendingGroupCompressedAvatar.outputBytes)} (
                         {pendingGroupCompressedAvatar.width}×{pendingGroupCompressedAvatar.height})
                       </p>
                     ) : null}
@@ -727,15 +722,15 @@ export default function RoomPanel({
                   <UserPlus className="h-4 w-4" aria-hidden />
                 </span>
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-100">Mời thành viên</h3>
+                  <h3 className="text-sm font-semibold text-slate-100">Invite Policy</h3>
                   <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                    Ai được phép mời người mới và có cần người tạo nhóm duyệt hay không.
+                    Who is allowed to invite new members and if creator approval is required.
                   </p>
                 </div>
               </div>
-              <div className="mt-5 space-y-3" role="radiogroup" aria-label="Chính sách mời">
+              <div className="mt-5 space-y-3" role="radiogroup" aria-label="Invite policy">
                 {loadingPolicy || invitePolicy === null ? (
-                  <p className="text-sm text-slate-500">Đang tải...</p>
+                  <p className="text-sm text-slate-500">Loading...</p>
                 ) : (
                   <>
                     <label
@@ -756,9 +751,9 @@ export default function RoomPanel({
                         onChange={() => setSettingsDraftPolicy('creator_approval')}
                       />
                       <span className="min-w-0 text-sm leading-snug">
-                        <span className="font-medium text-slate-100">Chỉ người tạo nhóm duyệt</span>
+                        <span className="font-medium text-slate-100">Creator approval only</span>
                         <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-                          Thành viên gửi yêu cầu mời → chỉ người tạo nhóm duyệt. Phù hợp nhóm kín.
+                          Members send invite requests → only creator can approve. Best for private groups.
                         </span>
                       </span>
                     </label>
@@ -780,9 +775,9 @@ export default function RoomPanel({
                         onChange={() => setSettingsDraftPolicy('any_member')}
                       />
                       <span className="min-w-0 text-sm leading-snug">
-                        <span className="font-medium text-slate-100">Mọi thành viên đều có thể mời</span>
+                        <span className="font-medium text-slate-100">Anyone can invite</span>
                         <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-                          Hệ thống xử lý lời mời theo quy tắc nhóm, không cần chờ duyệt từng yêu cầu.
+                          Invites are processed automatically by the network. No manual approval needed.
                         </span>
                       </span>
                     </label>
@@ -801,7 +796,7 @@ export default function RoomPanel({
               className="border-slate-600 bg-slate-950/50 text-slate-200 hover:bg-slate-800 hover:text-white"
               onClick={() => handleCloseGroupSettings()}
             >
-              Hủy bỏ
+              Cancel
             </Button>
             <Button
               type="button"
@@ -810,7 +805,7 @@ export default function RoomPanel({
               className="border border-emerald-600/50 bg-emerald-600 text-white shadow-sm shadow-emerald-950/40 hover:bg-emerald-500 disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-500 disabled:shadow-none"
               onClick={() => void handleSaveGroupSettings()}
             >
-              {savingPolicy ? 'Đang lưu...' : 'Lưu'}
+              {savingPolicy ? 'Saving...' : 'Save'}
             </Button>
           </DialogFooter>
         </DialogContent>

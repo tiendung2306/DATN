@@ -207,6 +207,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 	if err := r.coordStorage.SaveGroupRecord(rec); err != nil {
 		return fmt.Errorf("save group metadata: %w", err)
 	}
+	_ = r.db.SetGroupCreatorPeerID(groupID, r.node.Host.ID().String())
 	if normalizedGroupType == "channel" && categoryID != "" {
 		if err := r.db.AssignCategoryToGroup(groupID, categoryID); err != nil {
 			return err
@@ -263,11 +264,25 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if joined {
+		active, err := database.IsGroupActive(groupID)
+		if err != nil {
+			return "", err
+		}
+		if !active {
+			slog.Info("DM group was previously left. Purging stale metadata to recreate DM conversation", "group_id", groupID)
+			if err := database.PurgeGroupMetadata(groupID); err != nil {
+				return "", fmt.Errorf("purge stale DM metadata: %w", err)
+			}
+			joined = false
+		}
+	}
 	if !joined {
 		if err := r.CreateGroupChat(groupID, "dm", ""); err != nil && !strings.Contains(err.Error(), "already in group") {
 			return "", err
 		}
 	}
+
 
 	r.mu.RLock()
 	coord := r.coordinators[groupID]
@@ -632,6 +647,12 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	if err := r.ensureSessionActive(); err != nil {
 		return err
 	}
+	if r.db != nil {
+		if active, err := r.db.IsGroupActive(groupID); err == nil && !active {
+			slog.Info("joinGroupWithWelcome: group was previously left. Purging stale metadata.", "group_id", groupID)
+			_ = r.db.PurgeGroupMetadata(groupID)
+		}
+	}
 	welcomeRaw, err := hex.DecodeString(strings.TrimSpace(welcomeHex))
 	if err != nil {
 		return fmt.Errorf("decode welcome hex: %w", err)
@@ -740,7 +761,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		return fmt.Errorf("start coordinator: %w", err)
 	}
 	r.coordinators[groupID] = coord
-	_ = r.db.UpsertGroupMember(store.GroupMemberRecord{
+	if err := r.db.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID:     groupID,
 		PeerID:      r.node.Host.ID().String(),
 		DisplayName: strings.TrimSpace(identity.DisplayName),
@@ -748,7 +769,9 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		Status:      store.GroupMemberStatusActive,
 		Source:      "welcome",
 		UpdatedAt:   time.Now().Unix(),
-	})
+	}); err != nil {
+		// Log but don't fail join
+	}
 	emitMembersChanged = true
 	runLeafBackfill = true
 	if resolvedCat != "" && strings.EqualFold(normalizedGroupType, "channel") && hint == "" {
@@ -1173,25 +1196,28 @@ func (r *Runtime) makeAccessLostHandler(groupID string) func(string, uint64, str
 				delete(r.coordinators, groupID)
 			}
 		}
-		database := r.db
-		node := r.node
 		r.mu.Unlock()
 
 		if coordToStop != nil {
 			coordToStop.Stop()
 		}
-		if database != nil {
-			_ = database.MarkGroupLeft(groupID)
+
+		// Perform DB updates AFTER Stop() to ensure GossipSub topic is released
+		// before we allow any re-join (which typically waits for IsGroupActive=false).
+		r.mu.Lock()
+		if r.db != nil {
+			_ = r.db.MarkGroupLeft(groupID)
 			localPeerID := ""
-			if node != nil {
-				localPeerID = node.Host.ID().String()
+			if r.node != nil {
+				localPeerID = r.node.Host.ID().String()
 			} else if info, err := r.GetOnboardingInfo(); err == nil && info != nil {
 				localPeerID = strings.TrimSpace(info.PeerID)
 			}
 			if localPeerID != "" {
-				_ = database.MarkGroupMemberLeft(groupID, localPeerID, 0)
+				_ = r.db.MarkGroupMemberLeft(groupID, localPeerID, 0)
 			}
 		}
+		r.mu.Unlock()
 
 		r.emit("group:left", map[string]interface{}{
 			"group_id": groupID,

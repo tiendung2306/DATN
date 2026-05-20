@@ -187,7 +187,7 @@ export default function MainSidebar({
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
       pushToast({
-        title: 'Tạo danh mục thất bại',
+        title: 'Failed to create category',
         description: raw,
         variant: 'destructive',
       })
@@ -200,9 +200,9 @@ export default function MainSidebar({
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
       pushToast({
-        title: 'Không thể xóa danh mục',
+        title: 'Cannot delete category',
         description: raw.includes('ERR_CATEGORY_NOT_EMPTY')
-          ? 'Danh mục vẫn còn ít nhất một kênh bên trong.'
+          ? 'Category is not empty. Please move or delete channels first.'
           : raw,
         variant: 'destructive',
       })
@@ -226,17 +226,6 @@ export default function MainSidebar({
         </Button>
       </div>
 
-      <div className="px-4 py-3 border-b border-slate-800 space-y-2">
-        <Button
-          onClick={() => setIsCreateModalOpen(true)}
-          disabled={!showWorkspaceLists || creatingGroup}
-          className="w-full h-9 bg-violet-600 hover:bg-violet-500 text-slate-50 text-xs font-semibold gap-2 flex items-center justify-center rounded-md transition duration-200"
-        >
-          <Plus className="h-4 w-4" />
-          Tạo hội thoại mới
-        </Button>
-      </div>
-
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 space-y-4">
         <div>
           <button
@@ -255,7 +244,7 @@ export default function MainSidebar({
                   event.stopPropagation()
                   setIsCreateCategoryOpen(true)
                 }}
-                title="Tạo danh mục"
+                title="Create category"
               >
                 <FolderPlus className="h-3.5 w-3.5" />
               </button>
@@ -265,10 +254,10 @@ export default function MainSidebar({
           <div id="channels-list" className={`mt-2 space-y-1 ${isChannelsExpanded ? '' : 'hidden'}`}>
             {!showWorkspaceLists ? (
               <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
-                Chuyển sang Trò chuyện
+                Switch to Chat
               </div>
             ) : channelItems.length === 0 && channelCategories.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có kênh</div>
+              <div className="px-3 py-2 text-xs text-slate-600 italic">No channels</div>
             ) : (
               <>
                 {categorizedChannels.map((category) => {
@@ -290,7 +279,7 @@ export default function MainSidebar({
                           <button
                             type="button"
                             className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
-                            title="Tạo kênh trong danh mục"
+                            title="Create channel in category"
                             onClick={() => {
                               setCategoryIdForQuickCreate(category.category_id)
                               setIsCreateModalOpen(true)
@@ -301,7 +290,7 @@ export default function MainSidebar({
                           <button
                             type="button"
                             className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-rose-300"
-                            title="Xóa danh mục"
+                            title="Delete category"
                             onClick={() => handleDeleteCategory(category.category_id)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -342,7 +331,7 @@ export default function MainSidebar({
                 {uncategorizedChannels.length > 0 && (
                   <div className="space-y-1">
                     <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600">
-                      Chưa gán danh mục
+                      Uncategorized
                     </div>
                     {uncategorizedChannels.map((item) => {
                       const active = item.id === activeGroupId
@@ -387,15 +376,29 @@ export default function MainSidebar({
             onClick={() => setIsConversationsExpanded((v) => !v)}
           >
             <span>CONVERSATIONS</span>
-            <ChevronDown className={`h-3.5 w-3.5 transition ${isConversationsExpanded ? '' : '-rotate-90'}`} />
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={!showWorkspaceLists || creatingGroup}
+                className="rounded p-0.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setIsCreateModalOpen(true)
+                }}
+                title="New conversation"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+              <ChevronDown className={`h-3.5 w-3.5 transition ${isConversationsExpanded ? '' : '-rotate-90'}`} />
+            </div>
           </button>
           <div id="conversations-list" className={`mt-2 space-y-1 ${isConversationsExpanded ? '' : 'hidden'}`}>
             {!showWorkspaceLists ? (
               <div className="rounded-lg border border-dashed border-slate-700 px-3 py-3 text-xs text-slate-500">
-                Chuyển sang Trò chuyện
+                Switch to Chat
               </div>
             ) : conversationItems.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-600 italic">Chưa có hội thoại</div>
+              <div className="px-3 py-2 text-xs text-slate-600 italic">No conversations</div>
             ) : (
               conversationItems.map((item) => {
                 const active = item.id === activeGroupId
@@ -421,8 +424,8 @@ export default function MainSidebar({
                     {item.kind === 'dm' ? (
                       <span
                         className={`h-2 w-2 shrink-0 rounded-full ${item.isOnline ? 'bg-emerald-400' : 'bg-slate-500'}`}
-                        title={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
-                        aria-label={item.isOnline ? 'Trực tuyến' : 'Ngoại tuyến'}
+                        title={item.isOnline ? 'Online' : 'Offline'}
+                        aria-label={item.isOnline ? 'Online' : 'Offline'}
                       />
                     ) : null}
                     {item.unreadCount > 0 && (
@@ -456,7 +459,7 @@ export default function MainSidebar({
         channelCategories={channelCategories}
         title={
           categoryIdForQuickCreate
-            ? `Tạo kênh trong ${channelCategories.find((c) => c.category_id === categoryIdForQuickCreate)?.name ?? 'danh mục'}`
+            ? `Create channel in ${channelCategories.find((c) => c.category_id === categoryIdForQuickCreate)?.name ?? 'category'}`
             : undefined
         }
       />
@@ -464,17 +467,17 @@ export default function MainSidebar({
       <Dialog open={isCreateCategoryOpen} onOpenChange={(open) => !open && setIsCreateCategoryOpen(false)}>
         <DialogContent className="sm:max-w-md bg-slate-900 border-slate-800 text-slate-100 ring-1 ring-slate-800 shadow-2xl">
           <DialogHeader>
-            <DialogTitle className="text-lg font-semibold text-slate-100">Tạo danh mục mới</DialogTitle>
+            <DialogTitle className="text-lg font-semibold text-slate-100">Create New Category</DialogTitle>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="category-name" className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
-              Tên danh mục
+              Category Name
             </Label>
             <Input
               id="category-name"
               value={categoryDraft}
               onChange={(event) => setCategoryDraft(event.target.value)}
-              placeholder="Ví dụ: Phòng ban kỹ thuật"
+              placeholder="e.g. Engineering Department"
               className="bg-slate-950 border-slate-800 text-slate-100 placeholder:text-slate-600 focus-visible:ring-emerald-500"
             />
           </div>
@@ -484,14 +487,14 @@ export default function MainSidebar({
               className="text-slate-400 hover:text-slate-200 hover:bg-slate-800"
               onClick={() => setIsCreateCategoryOpen(false)}
             >
-              Hủy
+              Cancel
             </Button>
             <Button
               onClick={handleCreateCategory}
               className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold"
               disabled={!categoryDraft.trim()}
             >
-              Tạo danh mục
+              Create Category
             </Button>
           </DialogFooter>
         </DialogContent>

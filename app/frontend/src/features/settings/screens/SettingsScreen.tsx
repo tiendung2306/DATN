@@ -68,7 +68,7 @@ export default function SettingsScreen() {
       revokeAvatarPreview()
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
-      pushToast({ title: 'Không tải được hồ sơ', description: raw, variant: 'destructive' })
+      pushToast({ title: 'Failed to load profile', description: raw, variant: 'destructive' })
     } finally {
       setProfileLoading(false)
     }
@@ -89,14 +89,14 @@ export default function SettingsScreen() {
     try {
       await runtimeClient.exportIdentity(passphrase)
       pushToast({
-        title: 'Đã xuất bản sao lưu',
-        description: 'Vui lòng cất giữ tệp .backup và mật khẩu an toàn.',
+        title: 'Backup Exported',
+        description: 'Please store your .backup file and passphrase in a safe place.',
         variant: 'default',
       })
       setPassphrase('')
     } catch (err) {
       pushToast({
-        title: 'Lỗi sao lưu',
+        title: 'Backup Failed',
         description: String(err),
         variant: 'destructive',
       })
@@ -117,7 +117,7 @@ export default function SettingsScreen() {
       try {
         const out = await compressAvatarFile(f)
         if (out.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
-          throw new AvatarImageError(`Ảnh sau xử lý vẫn vượt ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`)
+          throw new AvatarImageError(`Processed image still exceeds ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`)
         }
         setRemoveAvatarOnSave(false)
         revokeAvatarPreview()
@@ -125,13 +125,13 @@ export default function SettingsScreen() {
         setPendingCompressedAvatar(out)
         
         pushToast({
-          title: 'Đã nạp ảnh mới',
-          description: out.wasCompressed ? `Ảnh đã được tối ưu (${formatBytesShort(out.outputBytes)}).` : 'Ảnh đã sẵn sàng để lưu.',
+          title: 'New avatar loaded',
+          description: out.wasCompressed ? `Avatar optimized (${formatBytesShort(out.outputBytes)}).` : 'Avatar ready to save.',
           variant: 'default',
         })
       } catch (err) {
         const msg = err instanceof AvatarImageError ? err.message : err instanceof Error ? err.message : String(err)
-        pushToast({ title: 'Lỗi xử lý ảnh', description: msg, variant: 'destructive' })
+        pushToast({ title: 'Failed to process image', description: msg, variant: 'destructive' })
         setPendingCompressedAvatar(null)
         revokeAvatarPreview()
       } finally {
@@ -162,8 +162,8 @@ export default function SettingsScreen() {
       } else if (pendingSnap) {
         if (pendingSnap.outputBytes > AVATAR_OUTPUT_MAX_BYTES) {
           pushToast({
-            title: 'Ảnh quá lớn',
-            description: `Dung lượng phải ≤ ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`,
+            title: 'Image too large',
+            description: `Size must be ≤ ${formatBytesShort(AVATAR_OUTPUT_MAX_BYTES)}.`,
             variant: 'destructive',
           })
           return
@@ -186,14 +186,14 @@ export default function SettingsScreen() {
       revokeAvatarPreview()
       
       pushToast({
-        title: 'Cập nhật thành công',
-        description: 'Hồ sơ của bạn đã được lưu và đồng bộ P2P.',
+        title: 'Profile Updated',
+        description: 'Your profile has been saved and synced over P2P.',
         variant: 'default',
       })
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err)
       pushToast({
-        title: 'Lỗi lưu hồ sơ',
+        title: 'Save Failed',
         description: raw,
         variant: 'destructive',
       })
@@ -214,9 +214,9 @@ export default function SettingsScreen() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
               <Settings2 className="h-4.5 w-4.5 text-emerald-500" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-100">Cài đặt</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-100">Settings</h1>
           </div>
-          <p className="text-slate-400 text-xs">Quản lý định danh và cấu hình cá nhân của bạn.</p>
+          <p className="text-slate-400 text-xs">Manage your identity and personal configuration.</p>
         </div>
 
         {/* Tab Switcher */}
@@ -231,7 +231,7 @@ export default function SettingsScreen() {
             )}
           >
             <User className="h-3.5 w-3.5" />
-            Hồ sơ
+            Profile
           </button>
           <button
             onClick={() => setActiveTab('security')}
@@ -243,7 +243,7 @@ export default function SettingsScreen() {
             )}
           >
             <ShieldCheck className="h-3.5 w-3.5" />
-            Bảo mật
+            Security
           </button>
         </div>
       </div>
@@ -263,10 +263,10 @@ export default function SettingsScreen() {
               <CardHeader className="pb-8 border-b border-slate-800/40 bg-slate-900/20">
                 <div className="flex items-center gap-2.5 text-emerald-500">
                   <User className="h-5 w-5" />
-                  <CardTitle className="text-xl">Hồ sơ cá nhân</CardTitle>
+                  <CardTitle className="text-xl">Personal Profile</CardTitle>
                 </div>
                 <CardDescription className="text-slate-400 text-xs mt-1">
-                  Thông tin này giúp đồng nghiệp nhận diện bạn trong các cuộc hội thoại.
+                  This information helps colleagues identify you in conversations.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-10 space-y-10">
@@ -302,19 +302,19 @@ export default function SettingsScreen() {
                     </Button>
                   </div>
                   <div className="flex-1 space-y-3 text-center sm:text-left">
-                    <h4 className="text-sm font-bold text-slate-200 uppercase tracking-tight">Ảnh đại diện</h4>
+                    <h4 className="text-sm font-bold text-slate-200 uppercase tracking-tight">Profile Avatar</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed max-w-sm">
-                      Định dạng PNG, JPEG hoặc WebP. Hệ thống tự động tối ưu dung lượng xuống dưới {AVATAR_OUTPUT_MAX_BYTES / 1024} KiB để tiết kiệm băng thông P2P.
+                      PNG, JPEG or WebP. The system automatically optimizes size below {AVATAR_OUTPUT_MAX_BYTES / 1024} KiB to save P2P bandwidth.
                     </p>
                     <div className="flex items-center justify-center sm:justify-start gap-3 pt-1">
                       {pendingCompressedAvatar && (
                         <Button variant="ghost" size="sm" className="h-8 text-[10px] text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 font-semibold" onClick={handleDiscardAvatarDraft}>
-                          <X className="mr-1.5 h-3.5 w-3.5" /> Hủy thay đổi
+                          <X className="mr-1.5 h-3.5 w-3.5" /> Discard changes
                         </Button>
                       )}
                       {profile?.avatar_hash && !pendingCompressedAvatar && !removeAvatarOnSave && (
                         <Button variant="ghost" size="sm" className="h-8 text-[10px] text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 font-semibold" onClick={handleMarkRemoveSavedAvatar}>
-                          <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Gỡ bỏ ảnh hiện tại
+                          <Trash2 className="mr-1.5 h-3.5 w-3.5" /> Remove current image
                         </Button>
                       )}
                     </div>
@@ -327,10 +327,10 @@ export default function SettingsScreen() {
                 <div className="grid gap-8">
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Tên hiển thị (MLS Identity)</Label>
+                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Display Name (MLS Identity)</Label>
                       <div className="flex items-center gap-1 rounded bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold text-blue-400 ring-1 ring-inset ring-blue-500/20 shadow-sm shadow-blue-900/10">
                         <BadgeCheck className="h-2.5 w-2.5" />
-                        XÁC THỰC BỞI ADMIN
+                        VERIFIED BY ADMIN
                       </div>
                     </div>
                     <div className="relative group">
@@ -341,30 +341,30 @@ export default function SettingsScreen() {
                         className="bg-slate-950/40 border-slate-800/60 pl-10 text-xs h-11 text-slate-400 cursor-not-allowed border-dashed"
                       />
                     </div>
-                    <p className="text-[10px] text-slate-600 italic px-1">Đây là định danh gốc được ký bởi Quản trị viên, không thể thay đổi.</p>
+                    <p className="text-[10px] text-slate-600 italic px-1">This is the root identity signed by the Administrator and cannot be changed.</p>
                   </div>
 
                   <div className="grid gap-8 sm:grid-cols-2">
                     <div className="space-y-3">
-                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Email liên hệ</Label>
+                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Contact Email</Label>
                       <div className="relative group">
                         <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-emerald-500" />
                         <Input
                           value={emailDraft}
                           onChange={(e) => setEmailDraft(e.target.value)}
-                          placeholder="ten@congty.com"
+                          placeholder="name@company.com"
                           className="bg-slate-950/40 border-slate-700/60 pl-10 text-xs h-11 focus:ring-emerald-500/10 transition-all"
                         />
                       </div>
                     </div>
                     <div className="space-y-3">
-                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Số điện thoại</Label>
+                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Phone Number</Label>
                       <div className="relative group">
                         <Phone className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-emerald-500" />
                         <Input
                           value={phoneDraft}
                           onChange={(e) => setPhoneDraft(e.target.value)}
-                          placeholder="09xx xxx xxx"
+                          placeholder="+1 234 567 890"
                           className="bg-slate-950/40 border-slate-700/60 pl-10 text-xs h-11 focus:ring-emerald-500/10 transition-all"
                         />
                       </div>
@@ -381,12 +381,12 @@ export default function SettingsScreen() {
                   {profileSaving ? (
                     <div className="flex items-center gap-2">
                       <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                      Đang lưu hồ sơ...
+                      Saving Profile...
                     </div>
                   ) : (
                     <>
                       <Save className="mr-2 h-4.5 w-4.5" />
-                      Cập nhật Hồ sơ
+                      Update Profile
                     </>
                   )}
                 </Button>
@@ -397,10 +397,10 @@ export default function SettingsScreen() {
               <CardHeader className="pb-8 border-b border-slate-800/40 bg-slate-900/20">
                 <div className="flex items-center gap-2.5 text-blue-400">
                   <ShieldCheck className="h-5 w-5" />
-                  <CardTitle className="text-xl">Bảo mật & Khôi phục</CardTitle>
+                  <CardTitle className="text-xl">Security & Recovery</CardTitle>
                 </div>
                 <CardDescription className="text-slate-400 text-xs mt-1">
-                  Quản lý mã hóa và các phương thức khôi phục danh tính.
+                  Manage encryption and identity recovery methods.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-10 space-y-8">
@@ -410,18 +410,18 @@ export default function SettingsScreen() {
                       <Info className="h-5 w-5 text-blue-400" />
                     </div>
                     <div className="space-y-2">
-                      <p className="text-xs font-bold text-blue-100 uppercase tracking-widest">Tầm quan trọng của sao lưu</p>
+                      <p className="text-xs font-bold text-blue-100 uppercase tracking-widest">Importance of Backup</p>
                       <p className="text-[11px] leading-relaxed text-slate-400 max-w-2xl">
-                        Vì hệ thống hoạt động phi tập trung (P2P), định danh và dữ liệu của bạn chỉ tồn tại trên thiết bị này. 
-                        Tệp sao lưu chứa <span className="text-blue-300 font-semibold">Khóa bí mật (Private Key)</span> đã được mã hóa. 
-                        Bạn <span className="text-rose-400 font-bold underline">phải cất giữ</span> tệp này cùng mật khẩu để có thể đăng nhập trên thiết bị khác.
+                        Because the system operates decentrally (P2P), your identity and data only exist on this device. 
+                        The backup file contains your <span className="text-blue-300 font-semibold">Private Key</span> encrypted. 
+                        You <span className="text-rose-400 font-bold underline">must keep</span> this file and password safe to be able to log in on other devices.
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-4 max-w-lg">
-                  <Label htmlFor="backup-pass" className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Mật khẩu bảo vệ tệp sao lưu</Label>
+                  <Label htmlFor="backup-pass" className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Backup Protection Password</Label>
                   <div className="relative group">
                     <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-blue-500" />
                     <Input
@@ -429,14 +429,14 @@ export default function SettingsScreen() {
                       type="password"
                       value={passphrase}
                       onChange={(e) => setPassphrase(e.target.value)}
-                      placeholder="Nhập mật khẩu mới để mã hóa tệp..."
+                      placeholder="Enter new password to encrypt file..."
                       className="bg-slate-950/40 border-slate-700/60 pl-10 text-xs h-11 focus:ring-blue-500/10 transition-all font-mono"
                     />
                   </div>
                   <div className="flex items-start gap-2 px-1">
                     <ShieldCheck className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />
                     <p className="text-[10px] text-slate-500 leading-tight">
-                      Mật khẩu này không được lưu ở bất kỳ đâu. Hãy ghi nhớ hoặc sử dụng trình quản lý mật khẩu.
+                      This password is not stored anywhere. Please remember it or use a password manager.
                     </p>
                   </div>
                 </div>
@@ -449,7 +449,7 @@ export default function SettingsScreen() {
                   disabled={!passphrase.trim()}
                 >
                   <Download className="mr-2.5 h-4.5 w-4.5" />
-                  Xuất bản sao lưu định danh (.backup)
+                  Export Identity Backup (.backup)
                 </Button>
               </CardFooter>
             </Card>

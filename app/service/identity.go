@@ -59,10 +59,10 @@ func (r *Runtime) ExportDeviceRequestJSON() (string, error) {
 		return "", fmt.Errorf("marshal request payload: %w", err)
 	}
 	outPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
-		Title:           "Save Device Request Bundle",
-		DefaultFilename: "device-request.bundle",
+		Title:           "Save Device Request",
+		DefaultFilename: "device-request.request",
 		Filters: []wailsRuntime.FileFilter{
-			{DisplayName: "Bundle Files (*.bundle)", Pattern: "*.bundle"},
+			{DisplayName: "Identity Request (*.request)", Pattern: "*.request"},
 			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
 		},
 	})
@@ -105,9 +105,10 @@ func (r *Runtime) GenerateKeys() (*OnboardingInfo, error) {
 }
 
 // OpenAndImportBundle opens a system file dialog for the user to select a .bundle file.
-func (r *Runtime) OpenAndImportBundle() error {
+// Returns true if a bundle was imported, false if the user cancelled.
+func (r *Runtime) OpenAndImportBundle() (bool, error) {
 	if r.db == nil || r.privKey == nil {
-		return fmt.Errorf("app not initialized")
+		return false, fmt.Errorf("app not initialized")
 	}
 	path, err := wailsRuntime.OpenFileDialog(r.appCtx(), wailsRuntime.OpenDialogOptions{
 		Title: "Select Invitation Bundle",
@@ -117,25 +118,25 @@ func (r *Runtime) OpenAndImportBundle() error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("open dialog: %w", err)
+		return false, fmt.Errorf("open dialog: %w", err)
 	}
 	if path == "" {
-		return nil
+		return false, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read bundle file: %w", err)
+		return false, fmt.Errorf("read bundle file: %w", err)
 	}
 	if err := p2p.ImportInvitationBundle(r.db, r.privKey, data); err != nil {
-		return err
+		return false, err
 	}
 	if err := r.launchP2PNode(); err != nil {
 		r.setP2PStatus(false, "P2P startup failed")
-		return err
+		return false, err
 	}
 	r.setP2PStatus(true, "P2P node running")
 	r.emitAppStateChanged()
-	return nil
+	return true, nil
 }
 
 // ExportIdentity exports local identity data to an encrypted .backup file.

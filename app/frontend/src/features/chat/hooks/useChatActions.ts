@@ -81,9 +81,9 @@ export function useChatActions({
         id: `system:create:${groupId}`,
         groupId,
         sender: 'system',
-        content: `Bạn đã tạo ${
-          groupType === 'dm' ? 'cuộc trò chuyện trực tiếp' : groupType === 'group' ? 'nhóm chat' : 'kênh'
-        } này.`,
+        content: `You created this ${
+          groupType === 'dm' ? 'direct message' : groupType === 'group' ? 'group chat' : 'channel'
+        }.`,
         timestamp: createdAt,
         isMine: false,
         status: 'published',
@@ -97,7 +97,7 @@ export function useChatActions({
 
       if (inviteFailures.length > 0) {
         useToastStore.getState().pushToast({
-          title: 'Không gửi được một số lời mời',
+          title: 'Failed to send some invites',
           description: inviteFailures.slice(0, 4).join(' · '),
           variant: 'destructive',
         })

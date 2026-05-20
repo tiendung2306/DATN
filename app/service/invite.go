@@ -390,6 +390,17 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	// key material; persist + replicate + deliver Welcome.
 	r.dispatchTokenHolderWelcome(database, groupID, result.Delivery, result.Welcome)
 
+	// Authoritatively upsert the invited peer as a member so that local database queries (e.g. GetGroups)
+	// can immediately resolve DM titles and rosters without waiting for a heartbeat or reconnect.
+	if err := r.upsertGroupMember(groupID, targetID.String(), "member", "invite"); err != nil {
+		slog.Warn("InvitePeerToGroup: upsertGroupMember failed", "group", groupID, "target", targetID, "err", err)
+	}
+
+	r.emit("group:members_changed", map[string]interface{}{
+		"group_id": groupID,
+		"reason":   "invited",
+	})
+
 	slog.Info("Group invite sent", "group", groupID, "target", targetID, "operation", opID)
 	return nil
 }
@@ -760,11 +771,11 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 		sourcePeerID = ""
 	}
 
-	joined, err := database.HasGroup(groupID)
-	if err != nil {
+	active, err := database.IsGroupActive(groupID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if joined {
+	if active {
 		return nil
 	}
 
@@ -774,6 +785,9 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 	// (sidecar not ready, KP rotated, MLS rejection); processPendingWelcomes
 	// retries those rows on the next startup or refresh tick.
 	if applyErr := r.applyWelcome(groupID, normalizedGroupType, hex.EncodeToString(welcome), categoryID); applyErr == nil {
+		if strings.TrimSpace(sourcePeerID) != "" {
+			_ = database.SetGroupCreatorPeerID(groupID, strings.TrimSpace(sourcePeerID))
+		}
 		if strings.TrimSpace(sourcePeerID) != "" {
 			// welcome-source is observation-only: we know this peer
 			// delivered the Welcome (could be Token Holder, creator, or
@@ -920,6 +934,9 @@ func (r *Runtime) processPendingWelcomesOnStartup(ctx context.Context) {
 			slog.Debug("auto-join pending welcome deferred to next retry",
 				"group", inv.GroupID, "type", inv.GroupType, "err", applyErr)
 			continue
+		}
+		if strings.TrimSpace(inv.SourcePeerID) != "" {
+			_ = database.SetGroupCreatorPeerID(inv.GroupID, strings.TrimSpace(inv.SourcePeerID))
 		}
 		if strings.TrimSpace(inv.SourcePeerID) != "" {
 			// Observation-only — same reasoning as the wire-path

@@ -14,6 +14,7 @@ import ActivityScreen from '../../activity/screens/ActivityScreen'
 import { useRuntimeEventStream } from '../../../hooks/useRuntimeEventStream'
 import { getConversationKind } from '../../../lib/chatModel'
 import { useNotificationStore } from '../../../stores/useNotificationStore'
+import { useContactStore } from '../../../stores/useContactStore'
 
 interface MainChatModuleScreenProps {
   isAdmin: boolean
@@ -24,6 +25,7 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
   const [detailsOpen, setDetailsOpen] = useState(false)
   const unreadNotificationCount = useNotificationStore((s) => s.unreadCount)
   const fetchUnreadNotificationCount = useNotificationStore((s) => s.fetchUnreadCount)
+  const getDisplayName = useContactStore((s) => s.getDisplayName)
 
   useEffect(() => {
     fetchUnreadNotificationCount()
@@ -221,6 +223,21 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             setActiveGroupId={setActiveGroupId}
             refreshGroups={refreshGroups}
             groupAvatarDataUrl={String((activeGroup as { group_avatar_data_url?: string })?.group_avatar_data_url ?? '')}
+            conversationTitle={
+              activeGroupId
+                ? activeKind === 'dm'
+                  ? (() => {
+                      const dmPeerId = String((activeGroup as any)?.counterparty_peer_id || '')
+                      const backendTitle = String((activeGroup as any)?.conversation_title || '')
+                      const isPlaceholderDmTitle =
+                        backendTitle === activeGroupId || /^dm-[0-9a-f]{8,}$/i.test(backendTitle)
+                      return !isPlaceholderDmTitle && backendTitle
+                        ? backendTitle
+                        : getDisplayName(dmPeerId || activeGroupId)
+                    })()
+                  : String((activeGroup as any)?.conversation_title || '') || `# ${activeGroupId}`
+                : undefined
+            }
           />
         ) : null}
       </div>

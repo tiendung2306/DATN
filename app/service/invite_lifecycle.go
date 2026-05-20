@@ -121,6 +121,14 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 		return err
 	}
 	if joined {
+		active, err := database.IsGroupActive(inv.GroupID)
+		if err == nil && !active {
+			slog.Info("AcceptInvite: group was previously left. Purging stale metadata.", "group_id", inv.GroupID)
+			_ = database.PurgeGroupMetadata(inv.GroupID)
+			joined = false
+		}
+	}
+	if joined {
 		if err := database.MarkPendingInviteAccepted(inv.ID); err != nil {
 			return err
 		}

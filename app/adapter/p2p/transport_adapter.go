@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -30,6 +32,8 @@ type LibP2PTransport struct {
 	topics   map[string]*pubsub.Topic
 	cancels  map[string]context.CancelFunc
 	handlers map[string]func(peer.ID, []byte)
+	// waitGroups tracks the readLoop for each topic to ensure clean shutdown.
+	waitGroups map[string]*sync.WaitGroup
 	// directHandler receives payloads from /coordination/direct/1.0.0 streams
 	// (same bytes as published on the group GossipSub topic).
 	directHandler func(peer.ID, []byte)
@@ -40,11 +44,12 @@ type LibP2PTransport struct {
 // The caller must have already set up the host and PubSub.
 func NewLibP2PTransport(h host.Host, ps *pubsub.PubSub) *LibP2PTransport {
 	t := &LibP2PTransport{
-		host:     h,
-		ps:       ps,
-		topics:   make(map[string]*pubsub.Topic),
-		cancels:  make(map[string]context.CancelFunc),
-		handlers: make(map[string]func(peer.ID, []byte)),
+		host:       h,
+		ps:         ps,
+		topics:     make(map[string]*pubsub.Topic),
+		cancels:    make(map[string]context.CancelFunc),
+		handlers:   make(map[string]func(peer.ID, []byte)),
+		waitGroups: make(map[string]*sync.WaitGroup),
 	}
 	h.SetStreamHandler(CoordDirectProtocol, t.handleDirectStream)
 	return t
@@ -81,9 +86,24 @@ func (t *LibP2PTransport) Subscribe(topic string, handler func(peer.ID, []byte))
 		return nil
 	}
 
-	tp, err := t.ps.Join(topic)
-	if err != nil {
-		return fmt.Errorf("join topic %q: %w", topic, err)
+	var tp *pubsub.Topic
+	var joinErr error
+	for i := 0; i < 10; i++ {
+		tp, joinErr = t.ps.Join(topic)
+		if joinErr == nil {
+			break
+		}
+		slog.Warn("ps.Join failed", "topic", topic, "err", joinErr, "attempt", i)
+		// "topic already exists" is a known race during rapid rejoin because
+		// libp2p-pubsub's Topic.Close() is async.
+		errMsg := strings.ToLower(joinErr.Error())
+		if i < 9 && (strings.Contains(errMsg, "topic already exists") || strings.Contains(errMsg, "already exists")) {
+			t.mu.Unlock()
+			time.Sleep(200 * time.Millisecond)
+			t.mu.Lock()
+			continue
+		}
+		return fmt.Errorf("join topic %q: %w", topic, joinErr)
 	}
 
 	sub, err := tp.Subscribe()
@@ -93,11 +113,14 @@ func (t *LibP2PTransport) Subscribe(topic string, handler func(peer.ID, []byte))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
 	t.topics[topic] = tp
 	t.cancels[topic] = cancel
 	t.handlers[topic] = handler
+	t.waitGroups[topic] = wg
 
-	go t.readLoop(ctx, topic, sub)
+	wg.Add(1)
+	go t.readLoop(ctx, topic, sub, wg)
 	return nil
 }
 
@@ -110,12 +133,19 @@ func (t *LibP2PTransport) Unsubscribe(topic string) error {
 		return nil
 	}
 	cancel()
+	wg := t.waitGroups[topic]
 	delete(t.cancels, topic)
 	delete(t.handlers, topic)
+	delete(t.waitGroups, topic)
 
 	if tp, ok := t.topics[topic]; ok {
-		tp.Close()
 		delete(t.topics, topic)
+		t.mu.Unlock()
+		if wg != nil {
+			wg.Wait()
+		}
+		tp.Close()
+		t.mu.Lock()
 	}
 	return nil
 }
@@ -148,20 +178,28 @@ func (t *LibP2PTransport) Close() {
 
 	for topic, cancel := range t.cancels {
 		cancel()
+		wg := t.waitGroups[topic]
 		if tp, ok := t.topics[topic]; ok {
+			t.mu.Unlock()
+			if wg != nil {
+				wg.Wait()
+			}
 			tp.Close()
+			t.mu.Lock()
 		}
 	}
 	t.topics = make(map[string]*pubsub.Topic)
 	t.cancels = make(map[string]context.CancelFunc)
 	t.handlers = make(map[string]func(peer.ID, []byte))
+	t.waitGroups = make(map[string]*sync.WaitGroup)
 
 	t.host.RemoveStreamHandler(CoordDirectProtocol)
 }
 
 // ── Internal ─────────────────────────────────────────────────────────────────
 
-func (t *LibP2PTransport) readLoop(ctx context.Context, topic string, sub *pubsub.Subscription) {
+func (t *LibP2PTransport) readLoop(ctx context.Context, topic string, sub *pubsub.Subscription, wg *sync.WaitGroup) {
+	defer wg.Done()
 	defer sub.Cancel()
 	for {
 		msg, err := sub.Next(ctx)

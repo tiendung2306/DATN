@@ -132,6 +132,7 @@ func (d *Database) createTables() error {
 			epoch            INTEGER NOT NULL DEFAULT 0,
 			tree_hash        BLOB,
 			my_role          TEXT    NOT NULL DEFAULT 'member',
+			group_creator_peer_id TEXT NOT NULL DEFAULT '',
 			lifecycle_status TEXT    NOT NULL DEFAULT 'active',
 			left_at          INTEGER NOT NULL DEFAULT 0,
 			group_type       TEXT    NOT NULL DEFAULT 'channel',
@@ -590,6 +591,9 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("mls_groups", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("mls_groups", "group_creator_peer_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("mls_groups", "category_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -1021,6 +1025,7 @@ func (d *Database) UpsertGroupMember(rec GroupMemberRecord) error {
 				ELSE group_members.source
 			END,
 			left_at = CASE
+				WHEN excluded.status = 'active' THEN 0
 				WHEN excluded.left_at > 0 THEN excluded.left_at
 				ELSE group_members.left_at
 			END,
@@ -1089,6 +1094,7 @@ func (d *Database) UpsertGroupMemberPreservingRole(rec GroupMemberRecord) error 
 				ELSE group_members.source
 			END,
 			left_at = CASE
+				WHEN excluded.status = 'active' THEN 0
 				WHEN excluded.left_at > 0 THEN excluded.left_at
 				ELSE group_members.left_at
 			END,
@@ -1976,6 +1982,58 @@ func (d *Database) SetGroupChatAvatar(groupID, hash, mime string, updatedAtUnix 
 	return nil
 }
 
+// SetGroupCreatorPeerID stores the authoritative creator peer id for a group.
+// The value is write-once per row (first non-empty value wins) to avoid local
+// cache churn overriding the invariant.
+func (d *Database) SetGroupCreatorPeerID(groupID, creatorPeerID string) error {
+	groupID = strings.TrimSpace(groupID)
+	creatorPeerID = strings.TrimSpace(creatorPeerID)
+	if groupID == "" {
+		return fmt.Errorf("group id required")
+	}
+	if creatorPeerID == "" {
+		return fmt.Errorf("creator peer id required")
+	}
+	_, err := d.Conn.Exec(
+		`UPDATE mls_groups
+		 SET group_creator_peer_id = CASE
+		   WHEN trim(group_creator_peer_id) = '' THEN ?
+		   ELSE group_creator_peer_id
+		 END,
+		     updated_at = CURRENT_TIMESTAMP
+		 WHERE group_id = ?`,
+		creatorPeerID, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("SetGroupCreatorPeerID(%q): %w", groupID, err)
+	}
+	return nil
+}
+
+// GetGroupCreatorPeerID returns the authoritative creator peer id for a group
+// if known. Empty string means unknown/unset.
+func (d *Database) GetGroupCreatorPeerID(groupID string) (string, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return "", fmt.Errorf("group id required")
+	}
+	var creator sql.NullString
+	err := d.Conn.QueryRow(
+		`SELECT group_creator_peer_id FROM mls_groups WHERE group_id = ?`,
+		groupID,
+	).Scan(&creator)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", sql.ErrNoRows
+		}
+		return "", fmt.Errorf("GetGroupCreatorPeerID(%q): %w", groupID, err)
+	}
+	if !creator.Valid {
+		return "", nil
+	}
+	return strings.TrimSpace(creator.String), nil
+}
+
 // ClearGroupChatAvatar removes the group avatar reference from mls_groups.
 func (d *Database) ClearGroupChatAvatar(groupID string) error {
 	groupID = strings.TrimSpace(groupID)
@@ -2092,6 +2150,51 @@ func (d *Database) IsGroupActive(groupID string) (bool, error) {
 	}
 	return status == "" || status == GroupLifecycleActive, nil
 }
+
+// PurgeGroupMetadata completely purges cryptographic/coordination metadata of a group to prepare for recreation/restart.
+// It MUST NOT delete any entries from stored_messages to preserve chat history.
+func (d *Database) PurgeGroupMetadata(groupID string) error {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return fmt.Errorf("PurgeGroupMetadata: group ID is required")
+	}
+
+	tx, err := d.Conn.Begin()
+	if err != nil {
+		return fmt.Errorf("PurgeGroupMetadata begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	tables := []string{
+		"mls_groups",
+		"group_members",
+		"coordination_state",
+		"group_add_operations",
+		"pending_welcomes_out",
+		"stored_welcomes",
+		"pending_invites",
+		"applied_welcomes",
+		"applied_envelopes",
+		"envelope_log",
+		"envelope_dedup",
+		"fork_heal_events",
+		"fork_audit",
+		"group_invite_requests",
+	}
+
+	for _, table := range tables {
+		_, err := tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE group_id = ?", table), groupID)
+		if err != nil {
+			return fmt.Errorf("PurgeGroupMetadata delete from %s: %w", table, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("PurgeGroupMetadata commit: %w", err)
+	}
+	return nil
+}
+
 
 type StoredMessageRow struct {
 	ID      string

@@ -1,22 +1,19 @@
-import { ChangeEventHandler, useEffect, useState, useMemo } from 'react'
+import { ChangeEventHandler, useEffect, useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { useWailsEvent } from '../../../hooks/useWailsEvent'
 import { useToastStore } from '../../../stores/useToastStore'
 import {
   ShieldCheck,
   Lock,
-  Unlock,
   UserPlus,
   FileUp,
   History,
   Fingerprint,
   Key,
   User,
-  AlertCircle,
   CheckCircle2,
   Clock,
   LogOut,
-  ChevronRight,
   FileBadge,
   ShieldAlert,
 } from 'lucide-react'
@@ -53,10 +50,10 @@ export default function AdminPanelScreen() {
 
   const loadAdminStatus = async () => {
     try {
-      const admin = await runtimeClient.getAdminStatus()
-      setAdminReady(admin.has_admin_key)
-      setBackendUnlocked(admin.unlocked)
-      if (!admin.unlocked) {
+      const adminStatus = await runtimeClient.getAdminStatus()
+      setAdminReady(adminStatus.has_admin_key)
+      setBackendUnlocked(adminStatus.unlocked)
+      if (!adminStatus.unlocked) {
         setIsAdminUnlocked(false)
       }
     } catch (err) {
@@ -101,8 +98,8 @@ export default function AdminPanelScreen() {
       setAdminPassphrase('')
       setAdminPasswordInput('')
       pushToast({
-        title: 'Phiên quản trị hết hạn',
-        description: 'Vui lòng đăng nhập lại để tiếp tục.',
+        title: 'Admin Session Expired',
+        description: 'Please unlock the admin panel again to continue.',
         variant: 'destructive',
       })
     }
@@ -117,14 +114,14 @@ export default function AdminPanelScreen() {
       setBackendUnlocked(true)
       setIsAdminUnlocked(true)
       pushToast({
-        title: 'Thành công',
-        description: 'Đã khởi tạo mã quản trị gốc.',
+        title: 'Success',
+        description: 'Root admin key initialized successfully.',
         variant: 'default',
       })
       await loadAdminStatus()
     } catch (e) {
       pushToast({
-        title: 'Lỗi khởi tạo',
+        title: 'Initialization Failed',
         description: String(e),
         variant: 'destructive',
       })
@@ -142,15 +139,15 @@ export default function AdminPanelScreen() {
       setBackendUnlocked(true)
       setIsAdminUnlocked(true)
       pushToast({
-        title: 'Đã mở khóa',
-        description: 'Phiên quản trị có hiệu lực trong 15 phút.',
+        title: 'Panel Unlocked',
+        description: 'Admin session is active for 15 minutes.',
         variant: 'default',
       })
       await loadAdminStatus()
     } catch (e) {
       pushToast({
-        title: 'Mật khẩu sai',
-        description: 'Vui lòng kiểm tra lại mã quản trị của bạn.',
+        title: 'Incorrect Passphrase',
+        description: 'Please check your admin passphrase and try again.',
         variant: 'destructive',
       })
     } finally {
@@ -167,8 +164,8 @@ export default function AdminPanelScreen() {
   const handleIssue = async () => {
     if (!adminPassphrase || !displayName.trim() || !peerId.trim() || !mlsPublicKey.trim()) {
       pushToast({
-        title: 'Thiếu thông tin',
-        description: 'Vui lòng điền đầy đủ các trường yêu cầu.',
+        title: 'Missing Information',
+        description: 'Please fill in all required fields.',
         variant: 'destructive',
       })
       return
@@ -185,8 +182,8 @@ export default function AdminPanelScreen() {
 
       if (savedPath) {
         pushToast({
-          title: 'Đã cấp phát thành công',
-          description: `Bundle được lưu tại: ${savedPath}`,
+          title: 'Issuance Successful',
+          description: `Bundle saved to: ${savedPath}`,
           variant: 'default',
         })
         setDisplayName('')
@@ -196,7 +193,7 @@ export default function AdminPanelScreen() {
       }
     } catch (e) {
       pushToast({
-        title: 'Lỗi cấp phát',
+        title: 'Issuance Failed',
         description: String(e),
         variant: 'destructive',
       })
@@ -215,14 +212,14 @@ export default function AdminPanelScreen() {
       setPeerId(req.peer_id)
       setMlsPublicKey(req.mls_public_key)
       pushToast({
-        title: 'Đã nạp file yêu cầu',
-        description: `Thông tin từ ${file.name} đã được điền tự động.`,
+        title: 'Request Loaded',
+        description: `Identity information from ${file.name} loaded successfully.`,
         variant: 'default',
       })
     } catch (e) {
       pushToast({
-        title: 'File không hợp lệ',
-        description: 'Đảm bảo file JSON đúng định dạng yêu cầu.',
+        title: 'Invalid Request File',
+        description: 'Ensure the .request file is valid and correctly formatted.',
         variant: 'destructive',
       })
     } finally {
@@ -231,7 +228,7 @@ export default function AdminPanelScreen() {
   }
 
   const formatDate = (seconds: number) => {
-    return new Date(seconds * 1000).toLocaleString('vi-VN', {
+    return new Date(seconds * 1000).toLocaleString('en-US', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -248,14 +245,14 @@ export default function AdminPanelScreen() {
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-emerald-500/20">
               <ShieldCheck className="h-7 w-7 text-emerald-500" />
             </div>
-            <CardTitle className="text-2xl font-bold tracking-tight text-slate-100">Xác thực Quản trị</CardTitle>
+            <CardTitle className="text-2xl font-bold tracking-tight text-slate-100">Admin Authentication</CardTitle>
             <CardDescription className="text-balance text-slate-400">
-              Nhập mã quản trị để truy cập các tính năng bảo mật nội bộ.
+              Enter your admin passphrase to access secure internal features.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="passphrase" className="text-slate-300">Mã quản trị (PIN/Password)</Label>
+              <Label htmlFor="passphrase" className="text-slate-300">Admin Passphrase (PIN/Password)</Label>
               <div className="relative group">
                 <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-emerald-500" />
                 <Input
@@ -279,7 +276,7 @@ export default function AdminPanelScreen() {
                   onClick={handleInit}
                   disabled={!adminPasswordInput.trim() || isLoading}
                 >
-                  Khởi tạo
+                  Initialize
                 </Button>
               ) : null}
               <Button 
@@ -287,7 +284,7 @@ export default function AdminPanelScreen() {
                 onClick={handleUnlock}
                 disabled={!adminPasswordInput.trim() || isLoading}
               >
-                {isLoading ? 'Đang mở...' : 'Mở khóa'}
+                {isLoading ? 'Unlocking...' : 'Unlock'}
               </Button>
             </div>
           </CardFooter>
@@ -305,7 +302,7 @@ export default function AdminPanelScreen() {
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
               <ShieldCheck className="h-4.5 w-4.5 text-emerald-500" />
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-100">Bảng điều khiển Quản trị</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-100">Admin Control Panel</h1>
           </div>
           <div className="flex items-center gap-3 text-xs">
             <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 border border-emerald-500/20">
@@ -313,11 +310,11 @@ export default function AdminPanelScreen() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
               </span>
-              PHIÊN HOẠT ĐỘNG
+              ACTIVE SESSION
             </div>
             <div className="flex items-center gap-1.5 text-slate-400">
               <Clock className="h-3.5 w-3.5" />
-              <span>Thời hạn: <span className="font-mono text-slate-200">15 phút</span></span>
+              <span>Expires in: <span className="font-mono text-slate-200">15 minutes</span></span>
             </div>
           </div>
         </div>
@@ -328,7 +325,7 @@ export default function AdminPanelScreen() {
           onClick={handleRelock}
         >
           <LogOut className="mr-2 h-4 w-4" />
-          Khóa phiên làm việc
+          Lock Session
         </Button>
       </div>
 
@@ -339,10 +336,10 @@ export default function AdminPanelScreen() {
             <CardHeader className="pb-6 border-b border-slate-800/40 bg-slate-900/20">
               <div className="flex items-center gap-2.5 text-emerald-500">
                 <UserPlus className="h-5 w-5" />
-                <CardTitle className="text-lg">Cấp phát danh tính mới (PKI)</CardTitle>
+                <CardTitle className="text-lg">Issue New Identity (PKI)</CardTitle>
               </div>
               <CardDescription className="text-slate-400 text-xs mt-1">
-                Tạo và ký bundle xác thực để cho phép người dùng tham gia mạng lưới.
+                Create and sign authentication bundles to authorize users into the network.
               </CardDescription>
             </CardHeader>
             <CardContent className="pt-8 space-y-8">
@@ -358,7 +355,7 @@ export default function AdminPanelScreen() {
                   )}
                 >
                   <Key className="h-3.5 w-3.5" />
-                  Nhập thủ công
+                  Manual Entry
                 </button>
                 <button
                   onClick={() => setActiveTab('file')}
@@ -370,7 +367,7 @@ export default function AdminPanelScreen() {
                   )}
                 >
                   <FileBadge className="h-3.5 w-3.5" />
-                  Nhập từ file
+                  Import from File
                 </button>
               </div>
 
@@ -378,13 +375,13 @@ export default function AdminPanelScreen() {
               <div className="grid gap-6 animate-in fade-in duration-300">
                 <div className="grid gap-6 sm:grid-cols-2">
                   <div className="space-y-2.5">
-                    <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Tên người dùng</Label>
+                    <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Display Name</Label>
                     <div className="relative group">
                       <User className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500 transition-colors group-focus-within:text-emerald-500" />
                       <Input
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        placeholder="VD: Nguyễn Văn A"
+                        placeholder="e.g. John Doe"
                         className="bg-slate-950/40 border-slate-700/60 pl-10 text-xs h-10 focus:ring-emerald-500/10"
                       />
                     </div>
@@ -407,12 +404,12 @@ export default function AdminPanelScreen() {
                   
                   {activeTab === 'file' && (
                     <div className="space-y-2.5">
-                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Tệp yêu cầu (.json)</Label>
+                      <Label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 ml-1">Request File (.request)</Label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <Input 
                             type="file" 
-                            accept=".json,application/json" 
+                            accept=".request" 
                             onChange={(e) => void handleImportRequestFile(e)} 
                             className="bg-slate-950/40 border-slate-700/60 text-[10px] h-10 file:bg-emerald-500/10 file:text-emerald-400 file:border-0 file:rounded-md file:mr-4 file:px-3 file:py-1 file:font-semibold hover:file:bg-emerald-500/20"
                           />
@@ -441,7 +438,7 @@ export default function AdminPanelScreen() {
                   <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-4 space-y-3 animate-in zoom-in-95 duration-200">
                     <div className="flex items-center gap-2 text-emerald-400">
                       <CheckCircle2 className="h-4 w-4" />
-                      <span className="text-[11px] font-bold uppercase tracking-widest">Dữ liệu đã trích xuất</span>
+                      <span className="text-[11px] font-bold uppercase tracking-widest">Extracted Information</span>
                     </div>
                     <div className="grid gap-3 text-[11px]">
                       <div className="flex justify-between">
@@ -467,12 +464,12 @@ export default function AdminPanelScreen() {
                 {isLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                    Đang xử lý...
+                    Processing...
                   </div>
                 ) : (
                   <>
                     <Lock className="mr-2 h-4 w-4" />
-                    Ký và Cấp phát Bundle
+                    Sign and Issue Bundle
                   </>
                 )}
               </Button>
@@ -486,10 +483,10 @@ export default function AdminPanelScreen() {
             <CardHeader className="pb-4 border-b border-slate-800/40">
               <div className="flex items-center gap-2.5 text-slate-300">
                 <History className="h-5 w-5" />
-                <CardTitle className="text-lg">Lịch sử cấp phát</CardTitle>
+                <CardTitle className="text-lg">Issuance History</CardTitle>
               </div>
               <CardDescription className="text-slate-400 text-xs mt-1">
-                Các bản ghi cấp phát danh tính gần đây.
+                Recent identity issuance records.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex-1 p-0 overflow-hidden">
@@ -497,7 +494,7 @@ export default function AdminPanelScreen() {
                 {history.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full py-24 text-slate-600 opacity-40">
                     <History className="h-12 w-12 mb-4" />
-                    <p className="text-sm font-medium italic">Chưa có bản ghi nào</p>
+                    <p className="text-sm font-medium italic">No records found</p>
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-800/50">
@@ -521,7 +518,7 @@ export default function AdminPanelScreen() {
                             {entry.bundle_path && (
                               <div className="flex items-center gap-1 text-[10px] text-emerald-500/70 group-hover:text-emerald-400 transition-colors">
                                 <FileUp className="h-3 w-3" />
-                                <span>Đã lưu file</span>
+                                <span>File saved</span>
                               </div>
                             )}
                           </div>

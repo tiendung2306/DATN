@@ -206,6 +206,16 @@ func (r *Runtime) isActiveGroupCreatorPeer(groupID, peerID string) (bool, error)
 	if db == nil {
 		return false, fmt.Errorf("app not initialized")
 	}
+	creatorPeerID, err := db.GetGroupCreatorPeerID(groupID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	creatorPeerID = strings.TrimSpace(creatorPeerID)
+	if creatorPeerID != "" {
+		return creatorPeerID == peerID, nil
+	}
+
+	// Legacy fallback for groups created/joined before creator_peer_id existed.
 	members, err := db.ListGroupMembers(groupID, store.GroupMemberStatusActive)
 	if err != nil {
 		return false, err
@@ -214,6 +224,11 @@ func (r *Runtime) isActiveGroupCreatorPeer(groupID, peerID string) (bool, error)
 		if strings.TrimSpace(m.PeerID) == peerID && strings.TrimSpace(m.Role) == "creator" {
 			return true, nil
 		}
+	}
+	// Transitional fallback for old data where neither mls_groups creator
+	// column nor roster creator role are available yet.
+	if hinted, err := db.GetGroupInviteCreatorHint(groupID); err == nil && strings.TrimSpace(hinted) == peerID {
+		return true, nil
 	}
 	return false, nil
 }

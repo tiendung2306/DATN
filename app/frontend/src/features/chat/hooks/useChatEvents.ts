@@ -143,14 +143,10 @@ export function useChatEvents({
       if (payload.group_id === activeGroupId) {
         await refreshGroupMembers(payload.group_id)
       }
+      // Local removal is handled by handleGroupLeft to avoid duplicate toasts
       if (payload.reason === 'removed' && payload.target_peer_id === localPeerId) {
         await refreshGroups()
         setActiveGroupId(null)
-        useToastStore.getState().pushToast({
-          title: 'Bạn đã bị xóa khỏi nhóm',
-          description: `Không còn quyền truy cập nhóm ${payload.group_id}.`,
-          variant: 'destructive',
-        })
       }
     },
     [activeGroupId, localPeerId, refreshGroupMembers, refreshGroups, scheduleGroupsVisualRefresh, setActiveGroupId],
@@ -164,8 +160,8 @@ export function useChatEvents({
       }
       if (payload?.reason === 'removed') {
         useToastStore.getState().pushToast({
-          title: 'Quyền truy cập nhóm đã bị thu hồi',
-          description: `Bạn đã bị xóa khỏi nhóm ${payload.group_id}.`,
+          title: 'Group access revoked',
+          description: `You have been removed from group ${payload.group_id}.`,
           variant: 'destructive',
         })
       }
@@ -178,16 +174,9 @@ export function useChatEvents({
       if (!payload?.group_id) return
       await refreshGroups()
       await refreshGroupMembers(payload.group_id)
-      const inviter = (payload.inviter_peer ?? '').trim()
-      const inviterName = inviter ? useContactStore.getState().getDisplayName(inviter) : ''
-      const groupKind = payload.group_type === 'dm' ? 'cuộc trò chuyện' : 'nhóm'
-      useToastStore.getState().pushToast({
-        title: 'Bạn vừa được thêm vào nhóm',
-        description: inviterName
-          ? `${inviterName} đã thêm bạn vào ${groupKind} ${payload.group_id}.`
-          : `Bạn đã được thêm vào ${groupKind} ${payload.group_id}.`,
-        variant: 'default',
-      })
+      
+      // Toast notification is now handled exclusively by handleNotificationNew 
+      // to avoid duplicate popups (event-driven vs notification-driven).
     },
     [refreshGroupMembers, refreshGroups],
   )
@@ -212,8 +201,8 @@ export function useChatEvents({
   const handleFileReceived = useCallback((payload: { group_id?: string; file_id?: string; path?: string }) => {
     if (!payload?.file_id) return
     useToastStore.getState().pushToast({
-      title: 'Tải tệp thành công',
-      description: payload.path ? `Đã lưu vào ${payload.path}` : `Đã tải xong tệp ${payload.file_id}.`,
+      title: 'File download successful',
+      description: payload.path ? `Saved to ${payload.path}` : `Download finished for ${payload.file_id}.`,
       variant: 'default',
     })
   }, [])
@@ -227,17 +216,17 @@ export function useChatEvents({
       } else {
         // Show Toast for the new notification
         const actor = payload.actor_name || shortPeerId(payload.actor_id)
-        let title = 'Thông báo mới'
-        if (payload.type === 'mention') title = `${actor} đã nhắc đến bạn`
-        else if (payload.type === 'reply') title = `${actor} đã trả lời bạn`
-        else if (payload.type === 'group_add') title = `${actor} đã thêm bạn vào nhóm`
-        else if (payload.type === 'invite_request') title = `${actor} muốn tham gia nhóm`
-        else if (payload.type === 'invite_approved') title = `Yêu cầu tham gia đã được duyệt`
-        else if (payload.type === 'invite_rejected') title = `Yêu cầu tham gia bị từ chối`
+        let title = 'New notification'
+        if (payload.type === 'mention') title = `${actor} mentioned you`
+        else if (payload.type === 'reply') title = `${actor} replied to you`
+        else if (payload.type === 'group_add') title = `${actor} added you to a group`
+        else if (payload.type === 'invite_request') title = `${actor} requested to join group`
+        else if (payload.type === 'invite_approved') title = `Join request approved`
+        else if (payload.type === 'invite_rejected') title = `Join request rejected`
 
         useToastStore.getState().pushToast({
           title,
-          description: payload.content || 'Bấm để xem chi tiết',
+          description: payload.content || 'Click to view details',
           variant: 'default',
         })
       }
