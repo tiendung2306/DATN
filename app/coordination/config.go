@@ -59,6 +59,10 @@ type CoordinatorConfig struct {
 
 	// EnvelopeLogMaxPerGroup caps rows per group_id after TTL prune.
 	EnvelopeLogMaxPerGroup int
+
+	// BatchingDelay is how long the Token Holder waits after receiving the first
+	// proposal before executing a commit, allowing concurrent proposals to collect.
+	BatchingDelay time.Duration
 }
 
 // DefaultConfig returns production-ready defaults optimized for LAN/intranet
@@ -76,6 +80,7 @@ func DefaultConfig() *CoordinatorConfig {
 		OfflineSyncEnabled:     true,
 		EnvelopeLogTTL:         7 * 24 * time.Hour,
 		EnvelopeLogMaxPerGroup: 10000,
+		BatchingDelay:          1 * time.Second,
 	}
 }
 
@@ -95,6 +100,7 @@ func TestConfig() *CoordinatorConfig {
 		OfflineSyncEnabled:     true,
 		EnvelopeLogTTL:         7 * 24 * time.Hour,
 		EnvelopeLogMaxPerGroup: 10000,
+		BatchingDelay:          0,
 	}
 }
 
@@ -136,6 +142,10 @@ func (c *CoordinatorConfig) Validate() error {
 	if c.EnvelopeLogMaxPerGroup < 1 {
 		return fmt.Errorf("%w: EnvelopeLogMaxPerGroup must be >= 1, got %d",
 			ErrInvalidConfig, c.EnvelopeLogMaxPerGroup)
+	}
+	if c.BatchingDelay < 0 {
+		return fmt.Errorf("%w: BatchingDelay must be >= 0, got %v",
+			ErrInvalidConfig, c.BatchingDelay)
 	}
 	return nil
 }

@@ -1010,3 +1010,249 @@ func TestCoordinator_LocalRemoved_CallbackFiresOnceOnDuplicateReplay(t *testing.
 		t.Fatalf("access-lost callback count=%d, want 1", callbackCount)
 	}
 }
+
+func TestCoordinator_TokenHolderFailover_AutoCommitsOutstanding(t *testing.T) {
+	// Setup a 3-node cluster
+	nodes, network, clk := setupCluster(t, 3, "grp-failover-autocommit")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Determine the initial Token Holder (Alice)
+	var holderA, nodeB, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderA = n
+			break
+		}
+	}
+	if holderA == nil {
+		t.Fatal("no token holder found")
+	}
+
+	// Identify B and C (Bob and Charlie)
+	var siblings []*testNode
+	for _, n := range nodes {
+		if n.id != holderA.id {
+			siblings = append(siblings, n)
+		}
+	}
+	nodeB = siblings[0]
+	nodeC = siblings[1]
+
+	// Alice (Token Holder) goes offline. We partition Alice from Bob and Charlie.
+	network.Partition([]peer.ID{holderA.id}, []peer.ID{nodeB.id, nodeC.id})
+
+	// Bob proposes an update. This proposal is broadcast to Charlie but NOT to Alice.
+	if err := nodeB.coord.ProposeUpdate([]byte("failover-rotate")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drain network to deliver proposal between Bob and Charlie.
+	network.DrainAll()
+
+	// Assert that Bob is NOT yet the Token Holder, so he hasn't committed yet
+	if nodeB.coord.CurrentEpoch() != 0 {
+		t.Fatalf("Bob should still be at epoch 0, got %d", nodeB.coord.CurrentEpoch())
+	}
+
+	// Alice is now partitioned. We trigger liveness checks on Bob and Charlie.
+	// PeerDeadAfter is 3. We advance the clock and trigger liveness 3 times.
+	for i := 0; i < nodeB.coord.cfg.PeerDeadAfter; i++ {
+		clk.Advance(nodeB.coord.cfg.HeartbeatInterval)
+		nodeB.coord.TriggerLivenessCheck()
+		nodeC.coord.TriggerLivenessCheck()
+	}
+
+	// Bob and Charlie should have evicted Alice
+	if nodeB.coord.activeView.Contains(holderA.id) {
+		t.Fatal("Bob should have evicted Alice from active view")
+	}
+
+	// The eviction callbackhandleActiveViewChange has fired asynchronously on Bob and Charlie.
+	// Bob should have automatically detected that he is the new Token Holder, drained the buffer,
+	// and committed the outstanding "failover-rotate" proposal.
+	// Wait up to a short deadline for epoch transition.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && nodeB.coord.CurrentEpoch() != 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Drain network to deliver Bob's commit to Charlie
+	network.DrainAll()
+
+	// Assert that Bob and Charlie advanced to Epoch 1 automatically!
+	if nodeB.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Bob epoch=%d want 1 (failover auto-commit failed)", nodeB.coord.CurrentEpoch())
+	}
+	if nodeC.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Charlie epoch=%d want 1 (failover auto-commit failed)", nodeC.coord.CurrentEpoch())
+	}
+
+	// Verify that Bob's commit metrics reflect that he issued the commit
+	snap := nodeB.coord.GetMetrics()
+	if snap.CommitsIssued != 1 {
+		t.Fatalf("Bob should have issued 1 commit, got %d", snap.CommitsIssued)
+	}
+}
+
+func TestCoordinator_BatchCommit_SuccessfulAccumulation(t *testing.T) {
+	// Setup a 3-node cluster
+	nodes, network, clk := setupCluster(t, 3, "grp-batch-accumulate")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Determine the initial Token Holder (Bob)
+	var holderB, nodeA, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderB = n
+			break
+		}
+	}
+	if holderB == nil {
+		t.Fatal("no token holder found")
+	}
+
+	// Identify A and C
+	var siblings []*testNode
+	for _, n := range nodes {
+		if n.id != holderB.id {
+			siblings = append(siblings, n)
+		}
+	}
+	nodeA = siblings[0]
+	nodeC = siblings[1]
+
+	// Configure the production-fidelity delay of 1 * time.Second on Bob (Token Holder)
+	holderB.coord.cfg.BatchingDelay = 1 * time.Second
+
+	// Alice and Charlie concurrently broadcast ProposeUpdate
+	if err := nodeA.coord.ProposeUpdate([]byte("proposal-alice")); err != nil {
+		t.Fatal(err)
+	}
+	if err := nodeC.coord.ProposeUpdate([]byte("proposal-charlie")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drain network so both proposals reach Bob's node before the timer fires
+	network.DrainAll()
+
+	// Verify that Bob has buffered both proposals, but has NOT committed yet
+	// because the 1-second delay is still active.
+	if holderB.coord.CurrentEpoch() != 0 {
+		t.Fatalf("Holder should still be at epoch 0, got %d", holderB.coord.CurrentEpoch())
+	}
+	if holderB.coord.singleWriter.ProposalCount() != 2 {
+		t.Fatalf("Holder should have 2 buffered proposals, got %d", holderB.coord.singleWriter.ProposalCount())
+	}
+
+	// Now advance virtual clock by exactly 1 * time.Second
+	clk.Advance(1 * time.Second)
+
+	// Since handleActiveViewChange / timer executes in a goroutine, sleep briefly to let it commit
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) && holderB.coord.CurrentEpoch() != 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Drain network to deliver Commit to everyone
+	network.DrainAll()
+
+	// Verify that Bob successfully advanced to Epoch 1
+	if holderB.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Holder should have advanced to epoch 1, got %d", holderB.coord.CurrentEpoch())
+	}
+
+	// Verify that Bob's commit metrics reflect that exactly 1 commit was issued (proving batching!)
+	snap := holderB.coord.GetMetrics()
+	if snap.CommitsIssued != 1 {
+		t.Fatalf("Expected exactly 1 commit issued, got %d (batching failed!)", snap.CommitsIssued)
+	}
+
+	// Verify that all 3 nodes have converged to Epoch 1
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 1 {
+			t.Errorf("Node %s: expected epoch 1, got %d", n.id, n.coord.CurrentEpoch())
+		}
+	}
+}
+
+func TestCoordinator_StaleProposal_ResendAndCommit(t *testing.T) {
+	// Setup a 3-node cluster
+	nodes, network, _ := setupCluster(t, 3, "grp-stale-resend")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Determine the initial Token Holder (Bob)
+	var holderB, nodeA, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderB = n
+			break
+		}
+	}
+	if holderB == nil {
+		t.Fatal("no token holder found")
+	}
+
+	// Identify A and C
+	var siblings []*testNode
+	for _, n := range nodes {
+		if n.id != holderB.id {
+			siblings = append(siblings, n)
+		}
+	}
+	nodeA = siblings[0]
+	nodeC = siblings[1]
+
+	// Configure immediate commit on Bob (BatchingDelay: 0) to trigger race condition
+	holderB.coord.cfg.BatchingDelay = 0
+
+	// Alice and Charlie concurrently broadcast proposals at Epoch 0 BEFORE network draining.
+	// Since both call ProposeUpdate at Epoch 0, both proposals will carry epoch = 0.
+	if err := nodeA.coord.ProposeUpdate([]byte("proposal-alice")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := nodeC.coord.ProposeUpdate([]byte("proposal-charlie")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob processes Alice's proposal (epoch 0) first (or Charlie's, either way one wins).
+	// Let's drain the network. The winning proposal is committed immediately, advancing everyone to Epoch 1.
+	// The losing proposal is then received by Bob at Epoch 1. Since Bob is at Epoch 1 and the losing proposal
+	// carries epoch 0, Bob rejects it as stale. Charlie receives the winner's commit, advances to Epoch 1,
+	// and clears his own proposal buffer.
+	network.DrainAll()
+
+	// Verify that the entire group has successfully converged to Epoch 1
+	if holderB.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Bob epoch=%d, want 1", holderB.coord.CurrentEpoch())
+	}
+	if nodeA.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Alice epoch=%d, want 1", nodeA.coord.CurrentEpoch())
+	}
+	if nodeC.coord.CurrentEpoch() != 1 {
+		t.Fatalf("Charlie epoch=%d, want 1", nodeC.coord.CurrentEpoch())
+	}
+
+	// Since Charlie's proposal was rejected and his buffer is empty,
+	// Charlie realizes his update was left behind and re-proposes it at Epoch 1.
+	if err := nodeC.coord.ProposeUpdate([]byte("proposal-charlie-retry")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob receives Charlie's retried proposal (epoch 1), buffers it, and commits it.
+	network.DrainAll()
+
+	// Verify that the entire group has successfully converged to Epoch 2,
+	// proving that the stale proposal retry was committed successfully!
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 2 {
+			t.Errorf("Node %s: expected final epoch 2, got %d", n.id, n.coord.CurrentEpoch())
+		}
+	}
+}

@@ -103,11 +103,13 @@ type Coordinator struct {
 	groupState   []byte
 	treeHash     []byte
 	epoch        uint64
-	activeView   *ActiveView
-	singleWriter *SingleWriter
-	epochTracker *EpochTracker
-	forkDetector *ForkDetector
-	started      bool
+	activeView        *ActiveView
+	singleWriter      *SingleWriter
+	epochTracker      *EpochTracker
+	forkDetector      *ForkDetector
+	proposalTimerChan <-chan time.Time
+	lastTokenHolder   peer.ID
+	started           bool
 	ctx          context.Context
 	cancel       context.CancelFunc
 	wg           sync.WaitGroup
@@ -160,9 +162,42 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		localIdentity:  deriveIdentityFromSigningKey(opts.SigningKey),
 	}
 
-	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, nil)
+	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, func(members []peer.ID) {
+		go c.handleActiveViewChange(members)
+	})
 	c.forkDetector = NewForkDetector()
 	return c, nil
+}
+
+// handleActiveViewChange is triggered asynchronously whenever the ActiveView
+// member list changes (e.g., due to peer eviction or observation).
+func (c *Coordinator) handleActiveViewChange(members []peer.ID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.started {
+		return
+	}
+
+	newHolder, err := ComputeTokenHolder(members, c.epoch)
+	if err != nil {
+		return
+	}
+
+	wasTokenHolder := c.lastTokenHolder == c.localID
+	isTokenHolder := newHolder == c.localID
+	c.lastTokenHolder = newHolder
+
+	// Only flash-commit if the local node has just been PROMOTED (was NOT Token Holder, now IS)
+	// and there are pending proposals in the buffer.
+	if isTokenHolder && !wasTokenHolder && c.singleWriter != nil && c.singleWriter.ProposalCount() > 0 {
+		slog.Info("ActiveView changed: local node promoted to Token Holder with outstanding proposals. Flashing commit.",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"buffered_proposals", c.singleWriter.ProposalCount(),
+		)
+		c.tryCommitLocked()
+	}
 }
 
 // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -230,6 +265,9 @@ func (c *Coordinator) Start(ctx context.Context) error {
 
 	c.epochTracker = NewEpochTracker(c.epoch, c.treeHash)
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, c.epoch, c.cfg)
+	if holder, err := c.singleWriter.CurrentTokenHolder(); err == nil {
+		c.lastTokenHolder = holder
+	}
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
@@ -370,7 +408,7 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 	c.metrics.IncrProposalsReceived()
 
 	if c.singleWriter.IsTokenHolder() {
-		c.tryCommitLocked()
+		c.scheduleBatchCommitLocked()
 	}
 }
 
@@ -510,6 +548,46 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
 
+// scheduleBatchCommitLocked schedules a commit execution after a short batching delay
+// to allow multiple concurrent proposals to be gathered into a single commit.
+// If a commit is already scheduled, this is a no-op (letting the current window collect proposals).
+func (c *Coordinator) scheduleBatchCommitLocked() {
+	if c.proposalTimerChan != nil {
+		return // already scheduled, let it accumulate proposals
+	}
+
+	delay := c.cfg.BatchingDelay
+	if delay <= 0 {
+		// Fallback to immediate commit if batching is disabled
+		c.tryCommitLocked()
+		return
+	}
+
+	slog.Info("Scheduling batch commit after delay", "group", c.groupID, "delay", delay)
+	ch := c.clock.After(delay)
+	c.proposalTimerChan = ch
+
+	go func(timerChan <-chan time.Time) {
+		<-timerChan // Wait for the delay to expire (fully testable with FakeClock!)
+		
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		// Ensure that the timer was not canceled or overwritten
+		if c.proposalTimerChan == timerChan {
+			c.proposalTimerChan = nil
+			if c.singleWriter != nil && c.singleWriter.IsTokenHolder() && c.singleWriter.ProposalCount() > 0 {
+				slog.Info("Batching delay expired: flashing committed proposals",
+					"group", c.groupID,
+					"epoch", c.epoch,
+					"buffered_proposals", c.singleWriter.ProposalCount(),
+				)
+				c.tryCommitLocked()
+			}
+		}
+	}(ch)
+}
+
 // tryCommitLocked drains a single homogeneous proposal batch and commits it.
 // Mixed-type batching is rejected by the Rust engine; here we let
 // SingleWriter return the next homogeneous run (Add / Remove / Update) so
@@ -619,6 +697,10 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 
 	buffered := c.epochTracker.Advance(newEpoch, newTreeHash)
 	c.singleWriter.AdvanceEpoch(newEpoch)
+	if holder, err := c.singleWriter.CurrentTokenHolder(); err == nil {
+		c.lastTokenHolder = holder
+	}
+	c.proposalTimerChan = nil // Reset active timer on epoch transition
 
 	var commitHash []byte
 	if len(commitData) > 0 {
@@ -1004,7 +1086,7 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 	c.metrics.IncrProposalsReceived()
 
 	if c.singleWriter.IsTokenHolder() {
-		c.tryCommitLocked()
+		c.scheduleBatchCommitLocked()
 	}
 	return nil
 }

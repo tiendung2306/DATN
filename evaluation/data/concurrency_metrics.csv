@@ -1,0 +1,11 @@
+Strategy,Concurrency,Proposals,Commits,ForkCount,EpochDivergence,SuccessRate
+Baseline,1,1,1,0,0,1.0000
+Optimized,1,1,1,0,0,1.0000
+Baseline,2,3,2,0,0,0.6667
+Optimized,2,2,1,0,0,1.0000
+Baseline,3,6,3,0,0,0.5000
+Optimized,3,3,1,0,0,1.0000
+Baseline,4,10,4,0,0,0.4000
+Optimized,4,4,1,0,0,1.0000
+Baseline,5,15,5,0,0,0.3333
+Optimized,5,5,1,0,0,1.0000
