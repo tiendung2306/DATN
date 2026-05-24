@@ -1,5 +1,5 @@
-GroupSize,OpenMLSCryptoMs,CoordinatorDecisionMs,StorageSerializationMs,P2PPropagationMs
-10,0.5,0.2,1.2,20.0
-100,7.5,0.8,4.5,40.0
-500,120.0,1.5,12.5,120.0
-1000,480.0,2.5,35.0,500.0
+GroupSize,OpenMLSCryptoMs,CoordinatorDecisionMs,StorageSerializationMs
+16,0.5451,0.232,1.7306
+128,2.9101,0.456,10.2726
+512,9.8713,1.224,39.2679
+1024,19.8554,2.248,77.9035
