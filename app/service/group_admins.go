@@ -262,13 +262,12 @@ func (r *Runtime) applySignedRemoteGroupRolePush(actorPeerID string, wireJSON, s
 		return fmt.Errorf("group role push: actor is not creator")
 	}
 	target, err := db.GetGroupMember(w.GroupID, w.TargetPeerID)
-	if err != nil {
-		return err
-	}
-	if target == nil || target.Status != store.GroupMemberStatusActive {
-		return sql.ErrNoRows
-	}
-	if isCreatorRole(target.Role) {
+	// We still merge the replicated record authoritatively even if the target member
+	// is not yet backfilled/created in group_members. Roster backfill and dynamic
+	// GetGroupMembers resolution will pick it up correctly when they are processed.
+	memberExists := err == nil && target != nil && target.Status == store.GroupMemberStatusActive
+
+	if memberExists && isCreatorRole(target.Role) {
 		return fmt.Errorf("group role push: creator role immutable")
 	}
 	newRole := store.GroupMemberRoleMember
@@ -286,8 +285,10 @@ func (r *Runtime) applySignedRemoteGroupRolePush(actorPeerID string, wireJSON, s
 		}
 		return err
 	}
-	if err := db.SetGroupMemberRole(w.GroupID, w.TargetPeerID, newRole); err != nil {
-		return err
+	if memberExists {
+		if err := db.SetGroupMemberRole(w.GroupID, w.TargetPeerID, newRole); err != nil {
+			return err
+		}
 	}
 	r.emit("group:members_changed", map[string]interface{}{"group_id": w.GroupID, "reason": "admin_role_changed"})
 	r.emit("group:admins_changed", map[string]interface{}{"group_id": w.GroupID, "target_peer_id": w.TargetPeerID, "role": newRole})

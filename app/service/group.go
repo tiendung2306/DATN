@@ -844,10 +844,6 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	creatorPeerID := ""
-	if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil {
-		creatorPeerID = creator
-	}
 	hasGroup, err := database.HasGroup(groupID)
 	if err != nil {
 		return nil, err
@@ -912,8 +908,12 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 		}
 		_, isOn := online[rec.PeerID]
 		avatarURL := r.memberAvatarDataURL(rec.PeerID)
-		isCreator := isCreatorRole(rec.Role) || (creatorPeerID != "" && rec.PeerID == creatorPeerID)
-		isAdmin := isAdminRole(rec.Role) || isCreator
+		role := r.resolveGroupMemberRole(groupID, rec.PeerID)
+		if role != rec.Role {
+			rec.Role = role
+		}
+		isCreator := isCreatorRole(rec.Role)
+		isAdmin := isAdminRole(rec.Role)
 		out = append(out, MemberInfo{
 			PeerID:         rec.PeerID,
 			DisplayName:    displayName,

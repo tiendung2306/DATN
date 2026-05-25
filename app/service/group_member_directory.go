@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -149,10 +150,7 @@ func (r *Runtime) upsertGroupMemberFromRosterEvidence(groupID, peerID, source st
 		}
 	}
 
-	role := "member"
-	if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil && creator != "" && peerID == creator {
-		role = "creator"
-	}
+	role := r.resolveGroupMemberRole(groupID, peerID)
 
 	displayName := r.resolveDisplayNameForPeer(peerID)
 	return database.UpsertGroupMemberPreservingRole(store.GroupMemberRecord{
@@ -164,6 +162,41 @@ func (r *Runtime) upsertGroupMemberFromRosterEvidence(groupID, peerID, source st
 		Source:      source,
 		UpdatedAt:   time.Now().Unix(),
 	})
+}
+
+func (r *Runtime) resolveGroupMemberRole(groupID, peerID string) string {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	if groupID == "" || peerID == "" {
+		return store.GroupMemberRoleMember
+	}
+
+	r.mu.RLock()
+	database := r.db
+	r.mu.RUnlock()
+
+	if database == nil {
+		return store.GroupMemberRoleMember
+	}
+
+	// 1. Authoritative Creator Check
+	if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil && creator != "" && peerID == creator {
+		return store.GroupMemberRoleCreator
+	}
+
+	// 2. Authoritative Replicated Admin Role Check
+	row, err := database.GetReplicatedRecord(store.NamespaceGroupRoleV1, groupRoleRecordKey(groupID, peerID))
+	if err == nil && row != nil && row.BodyJSON != "" {
+		var w groupRoleWireV1
+		if err := json.Unmarshal([]byte(row.BodyJSON), &w); err == nil {
+			role := strings.TrimSpace(strings.ToLower(w.NewRole))
+			if role == store.GroupMemberRoleCreator || role == store.GroupMemberRoleAdmin || role == store.GroupMemberRoleMember {
+				return role
+			}
+		}
+	}
+
+	return store.GroupMemberRoleMember
 }
 
 func (r *Runtime) ensureGroupRosterBackfilled(groupID string) {
