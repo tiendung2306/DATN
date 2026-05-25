@@ -32,10 +32,19 @@ import { Label } from '../../../components/ui/label'
 import { Separator } from '../../../components/ui/separator'
 import { cn } from '@/lib/utils'
 
+import { useAppRuntimeStore } from '../../../stores/useAppRuntimeStore'
+
 export default function SettingsScreen() {
   const { pushToast } = useToastStore()
-  const [activeTab, setActiveTab] = useState<'profile' | 'security'>('profile')
+  const isDevMode = useAppRuntimeStore((s) => s.isDevMode)
+  const setIsDevMode = useAppRuntimeStore((s) => s.setIsDevMode)
+  
+  const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'diagnostics'>('profile')
   const [passphrase, setPassphrase] = useState('')
+  
+  const [diagnostics, setDiagnostics] = useState<any | null>(null)
+  const [networkSettings, setNetworkSettings] = useState<any | null>(null)
+  const [loadingDiag, setLoadingDiag] = useState(false)
 
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
@@ -55,6 +64,61 @@ export default function SettingsScreen() {
       return null
     })
   }, [])
+
+  const loadDiagnostics = useCallback(async () => {
+    if (!isDevMode) return
+    setLoadingDiag(true)
+    try {
+      const diag = await runtimeClient.getDiagnosticsSnapshot()
+      setDiagnostics(diag)
+      const net = await runtimeClient.getNetworkSettings()
+      setNetworkSettings(net)
+    } catch (err) {
+      console.error('Failed to load diagnostics', err)
+    } finally {
+      setLoadingDiag(false)
+    }
+  }, [isDevMode])
+
+  useEffect(() => {
+    if (activeTab === 'diagnostics') {
+      void loadDiagnostics()
+    }
+  }, [activeTab, loadDiagnostics])
+
+  const handleExportDiag = async () => {
+    try {
+      const path = await runtimeClient.exportDiagnostics()
+      pushToast({
+        title: 'Báo cáo đã xuất',
+        description: `Báo cáo chẩn đoán hệ thống được lưu tại: ${path}`,
+        variant: 'default',
+      })
+    } catch (err) {
+      pushToast({
+        title: 'Lỗi xuất báo cáo',
+        description: String(err),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleOpenLogs = async () => {
+    try {
+      await runtimeClient.openLogFolder()
+      pushToast({
+        title: 'Đã mở thư mục log',
+        description: 'Thư mục chứa logs .local đã được mở trong Explorer.',
+        variant: 'default',
+      })
+    } catch (err) {
+      pushToast({
+        title: 'Lỗi',
+        description: String(err),
+        variant: 'destructive',
+      })
+    }
+  }
 
   const loadProfile = useCallback(async () => {
     setProfileLoading(true)
@@ -245,6 +309,20 @@ export default function SettingsScreen() {
             <ShieldCheck className="h-3.5 w-3.5" />
             Security
           </button>
+          {isDevMode && (
+            <button
+              onClick={() => setActiveTab('diagnostics')}
+              className={cn(
+                "flex items-center gap-2 px-6 py-2 text-xs font-semibold rounded-lg transition-all",
+                activeTab === 'diagnostics' 
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-900/20" 
+                  : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              )}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              Diagnostics
+            </button>
+          )}
         </div>
       </div>
 
@@ -258,7 +336,7 @@ export default function SettingsScreen() {
 
       <div className="flex justify-center h-full">
         <div className="w-full max-w-4xl animate-in fade-in slide-in-from-bottom-2 duration-300">
-          {activeTab === 'profile' ? (
+          {activeTab === 'profile' && (
             <Card className="border-slate-800 bg-slate-900/40 shadow-xl backdrop-blur-sm overflow-hidden">
               <CardHeader className="pb-8 border-b border-slate-800/40 bg-slate-900/20">
                 <div className="flex items-center gap-2.5 text-emerald-500">
@@ -392,7 +470,9 @@ export default function SettingsScreen() {
                 </Button>
               </CardFooter>
             </Card>
-          ) : (
+          )}
+
+          {activeTab === 'security' && (
             <Card className="border-slate-800 bg-slate-900/40 shadow-xl backdrop-blur-sm overflow-hidden h-full">
               <CardHeader className="pb-8 border-b border-slate-800/40 bg-slate-900/20">
                 <div className="flex items-center gap-2.5 text-blue-400">
@@ -440,6 +520,33 @@ export default function SettingsScreen() {
                     </p>
                   </div>
                 </div>
+
+                <Separator className="bg-slate-800/60 my-6" />
+
+                <div className="space-y-4 max-w-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-xs font-bold text-slate-200 uppercase tracking-tight">Chế độ Nhà phát triển (Developer Mode)</Label>
+                      <p className="text-[11px] text-slate-500 leading-relaxed mt-1">
+                        Kích hoạt các công cụ chẩn đoán mật mã, chấn chỉnh epoch, xem consensus view và lịch sử fork-healing.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setIsDevMode(!isDevMode)}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                        isDevMode ? "bg-emerald-600" : "bg-slate-800"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                          isDevMode ? "translate-x-5" : "translate-x-0"
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
               </CardContent>
               <CardFooter className="bg-slate-900/20 border-t border-slate-800/40 p-8">
                 <Button
@@ -450,6 +557,131 @@ export default function SettingsScreen() {
                 >
                   <Download className="mr-2.5 h-4.5 w-4.5" />
                   Export Identity Backup (.backup)
+                </Button>
+              </CardFooter>
+            </Card>
+          )}
+
+          {activeTab === 'diagnostics' && isDevMode && (
+            <Card className="border-slate-800 bg-slate-900/40 shadow-xl backdrop-blur-sm overflow-hidden h-full">
+              <CardHeader className="pb-8 border-b border-slate-800/40 bg-slate-900/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5 text-emerald-500">
+                    <Settings2 className="h-5 w-5" />
+                    <CardTitle className="text-xl">Hệ thống & Chẩn đoán</CardTitle>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => void loadDiagnostics()} disabled={loadingDiag}>
+                    {loadingDiag ? 'Đang quét...' : 'Làm mới'}
+                  </Button>
+                </div>
+                <CardDescription className="text-slate-400 text-xs mt-1">
+                  Trực quan hóa cấu trúc mạng ngang hàng P2P và các phiên điều phối nhóm mật mã MLS.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-8 space-y-8">
+                {/* Peer ID & Multiaddr */}
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="space-y-2.5">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Local PeerID (Libp2p)</Label>
+                    <Input
+                      readOnly
+                      value={networkSettings?.local_peer_id || 'Đang tải...'}
+                      className="bg-slate-950/40 border-slate-800 text-xs h-10 font-mono text-emerald-400"
+                    />
+                  </div>
+                  <div className="space-y-2.5">
+                    <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Địa chỉ Local Multiaddress</Label>
+                    <Input
+                      readOnly
+                      value={networkSettings?.local_multiaddr || 'Đang tải...'}
+                      className="bg-slate-950/40 border-slate-800 text-xs h-10 font-mono text-emerald-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Connection Status & Counts */}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-1">
+                    <span className="text-[10px] font-semibold uppercase text-slate-500">Trạng thái P2P</span>
+                    <p className="text-sm font-bold text-slate-200 capitalize">
+                      {diagnostics?.app_state || 'AUTHORIZED'}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-1">
+                    <span className="text-[10px] font-semibold uppercase text-slate-500">Peers Đang Kết nối</span>
+                    <p className="text-sm font-bold text-slate-200 tabular-nums">
+                      {networkSettings?.connected_peers ?? 0} peers
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 space-y-1">
+                    <span className="text-[10px] font-semibold uppercase text-slate-500">Peers Đã Xác thực (PKI)</span>
+                    <p className="text-sm font-bold text-emerald-400 tabular-nums">
+                      {networkSettings?.verified_peers ?? 0} verified
+                    </p>
+                  </div>
+                </div>
+
+                {/* Active Groups Table */}
+                <div className="space-y-3">
+                  <Label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 ml-1">Danh sách nhóm điều phối mật mã (MLS)</Label>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/30 overflow-hidden">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 bg-slate-900/40 text-slate-400 font-semibold uppercase tracking-wider text-[9px]">
+                          <th className="p-3">Mã Nhóm (GroupID)</th>
+                          <th className="p-3 text-center">Epoch Cục bộ</th>
+                          <th className="p-3 text-center">Token Holder</th>
+                          <th className="p-3 text-center">Consensus Peers</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/40">
+                        {!diagnostics?.groups || diagnostics.groups.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="p-4 text-center text-slate-500 italic">
+                              Chưa có phiên điều phối nhóm mật mã nào đang chạy.
+                            </td>
+                          </tr>
+                        ) : (
+                          diagnostics.groups.map((g: any) => (
+                            <tr key={g.group_id} className="hover:bg-slate-900/20 text-slate-300">
+                              <td className="p-3 font-mono text-[11px] truncate max-w-[12rem]">{g.group_id}</td>
+                              <td className="p-3 text-center font-bold text-slate-200 tabular-nums">{g.epoch}</td>
+                              <td className="p-3 text-center font-semibold">
+                                {g.token_holder === 'self' ? (
+                                  <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 ring-1 ring-emerald-500/20">
+                                    BẠN ĐANG GIỮ
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-400 ring-1 ring-slate-700/50">
+                                    PEER KHÁC GIỮ
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-3 text-center font-medium tabular-nums text-slate-400">{g.active_members} online</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="bg-slate-900/20 border-t border-slate-800/40 p-8 flex flex-wrap gap-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-800 bg-slate-900/50 hover:bg-slate-800 text-slate-200 font-bold"
+                  onClick={() => void handleOpenLogs()}
+                >
+                  Mở Thư mục Logs (.local)
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-800 bg-slate-900/50 hover:bg-slate-800 text-slate-200 font-bold"
+                  onClick={() => void handleExportDiag()}
+                >
+                  Xuất Báo cáo Chẩn đoán (.json)
                 </Button>
               </CardFooter>
             </Card>

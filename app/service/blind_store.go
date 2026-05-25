@@ -278,7 +278,14 @@ func (r *Runtime) publishBlindStoreEnvelope(msgType coordination.MessageType, gr
 	}
 
 	sum := sha256.Sum256(wire)
-	targets := layer.selectReplicaTargets(node.Host.ID(), "env:"+groupID+":"+fmt.Sprintf("%x", sum[:]))
+	r.publishBlindStoreEnvelopeToTargets(msgType, groupID, wire, layer.selectReplicaTargets(node.Host.ID(), "env:"+groupID+":"+fmt.Sprintf("%x", sum[:])))
+}
+
+func (r *Runtime) publishBlindStoreEnvelopeToTargets(msgType coordination.MessageType, groupID string, wire []byte, targets []string) {
+	if len(targets) == 0 || len(wire) == 0 {
+		return
+	}
+	sum := sha256.Sum256(wire)
 	frame := blindStoreEnvelopeV1{
 		V:              1,
 		PublishedAt:    time.Now().UnixMilli(),
@@ -331,6 +338,37 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, ca
 		ReplicaTargets: layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
 	}
 	r.publishBlindStoreFrame(frame)
+}
+
+func (r *Runtime) replicateRecentEnvelopesToStorePeer(storePeer peer.ID) {
+	r.mu.RLock()
+	node := r.node
+	cs := r.coordStorage
+	groupIDs := make([]string, 0, len(r.coordinators))
+	for gid := range r.coordinators {
+		groupIDs = append(groupIDs, gid)
+	}
+	r.mu.RUnlock()
+	if node == nil || cs == nil || storePeer == "" {
+		return
+	}
+	if node.AuthProtocol != nil && !node.AuthProtocol.IsVerified(storePeer) {
+		return
+	}
+	sort.Strings(groupIDs)
+	targets := []string{storePeer.String()}
+	for _, gid := range groupIDs {
+		recs, err := cs.GetEnvelopesSince(gid, 0, 500)
+		if err != nil {
+			continue
+		}
+		for _, rec := range recs {
+			if rec.MsgType != coordination.MsgApplication && rec.MsgType != coordination.MsgCommit {
+				continue
+			}
+			r.publishBlindStoreEnvelopeToTargets(rec.MsgType, rec.GroupID, rec.Envelope, targets)
+		}
+	}
 }
 
 func (r *Runtime) publishBlindStoreReplicatedProfile(wire, sig, blob []byte) {

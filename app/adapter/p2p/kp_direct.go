@@ -35,6 +35,7 @@ func FetchKeyPackageDirect(ctx context.Context, h host.Host, target peer.ID) ([]
 		return nil, fmt.Errorf("kp-offer stream: %w", err)
 	}
 	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
 
 	if _, err := s.Write([]byte{0x01}); err != nil {
 		return nil, err

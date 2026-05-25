@@ -117,6 +117,14 @@ func (r *Runtime) upsertGroupMember(groupID, peerID, role, source string) error 
 // observation alone doesn't promote anyone to "creator"; only an
 // explicit CreateGroupChat does).
 func (r *Runtime) upsertGroupMemberFromRosterSync(groupID, peerID, source string) error {
+	return r.upsertGroupMemberFromRosterEvidence(groupID, peerID, source, false)
+}
+
+func (r *Runtime) upsertGroupMemberFromMLSReconcile(groupID, peerID, source string) error {
+	return r.upsertGroupMemberFromRosterEvidence(groupID, peerID, source, true)
+}
+
+func (r *Runtime) upsertGroupMemberFromRosterEvidence(groupID, peerID, source string, reactivateLeft bool) error {
 	groupID = strings.TrimSpace(groupID)
 	peerID = strings.TrimSpace(peerID)
 	if groupID == "" || peerID == "" {
@@ -130,6 +138,15 @@ func (r *Runtime) upsertGroupMemberFromRosterSync(groupID, peerID, source string
 	r.mu.RUnlock()
 	if database == nil {
 		return fmt.Errorf("database not initialized")
+	}
+	if !reactivateLeft {
+		rec, err := database.GetGroupMember(groupID, peerID)
+		if err != nil {
+			return err
+		}
+		if rec != nil && rec.Status == store.GroupMemberStatusLeft {
+			return nil
+		}
 	}
 
 	displayName := r.resolveDisplayNameForPeer(peerID)
@@ -171,7 +188,7 @@ func (r *Runtime) ensureGroupRosterBackfilled(groupID string) {
 	// MLS leaf enumeration: every refresh asks the crypto sidecar for the
 	// authoritative roster directly so we recover from any local drift
 	// (stale stored_messages cache, fork heal, missed welcome-source).
-	r.backfillMLSLeafRoster(groupID)
+	r.reconcileGroupRosterWithMLS(groupID)
 }
 
 // backfillMLSLeafRoster reconstructs the local group_members roster from
@@ -190,9 +207,13 @@ func (r *Runtime) ensureGroupRosterBackfilled(groupID string) {
 // requires no extra MLS state mutation, and missing leaves (directory
 // miss) are demoted to a debug-level log instead of failing the refresh.
 func (r *Runtime) backfillMLSLeafRoster(groupID string) {
+	_, _ = r.reconcileGroupRosterWithMLS(groupID)
+}
+
+func (r *Runtime) reconcileGroupRosterWithMLS(groupID string) (bool, error) {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
-		return
+		return false, nil
 	}
 	r.mu.RLock()
 	engine := r.mlsEngine
@@ -202,7 +223,7 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 	node := r.node
 	r.mu.RUnlock()
 	if engine == nil || storage == nil || database == nil {
-		return
+		return false, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -210,16 +231,16 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 
 	rec, err := storage.GetGroupRecord(groupID)
 	if err != nil || rec == nil || len(rec.GroupState) == 0 {
-		return
+		return false, err
 	}
 	identities, err := engine.ListMemberIdentities(ctx, rec.GroupState)
 	if err != nil {
 		slog.Debug("backfillMLSLeafRoster ListMemberIdentities failed",
 			"group_id", groupID, "err", err)
-		return
+		return false, err
 	}
 	if len(identities) == 0 {
-		return
+		return false, nil
 	}
 
 	localPubHex := ""
@@ -235,6 +256,8 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 
 	resolved := 0
 	missed := 0
+	changed := false
+	currentPeers := make(map[string]struct{}, len(identities))
 	for _, id := range identities {
 		if len(id) == 0 {
 			continue
@@ -242,7 +265,11 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 		pubHex := strings.ToLower(hex.EncodeToString(id))
 		if pubHex == localPubHex {
 			if localPeerID != "" {
-				_ = r.upsertGroupMemberFromRosterSync(groupID, localPeerID, "self")
+				currentPeers[localPeerID] = struct{}{}
+				if existing, gerr := database.GetGroupMember(groupID, localPeerID); gerr == nil && (existing == nil || existing.Status != store.GroupMemberStatusActive) {
+					changed = true
+				}
+				_ = r.upsertGroupMemberFromMLSReconcile(groupID, localPeerID, "self")
 			}
 			continue
 		}
@@ -257,7 +284,11 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 			missed++
 			continue
 		}
-		if err := r.upsertGroupMemberFromRosterSync(groupID, peerID, "mls_leaf"); err != nil {
+		currentPeers[peerID] = struct{}{}
+		if existing, gerr := database.GetGroupMember(groupID, peerID); gerr == nil && (existing == nil || existing.Status != store.GroupMemberStatusActive) {
+			changed = true
+		}
+		if err := r.upsertGroupMemberFromMLSReconcile(groupID, peerID, "mls_leaf"); err != nil {
 			slog.Debug("backfillMLSLeafRoster upsert failed",
 				"group_id", groupID, "peer", peerID, "err", err)
 			continue
@@ -268,6 +299,19 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 		slog.Debug("backfillMLSLeafRoster directory misses",
 			"group_id", groupID, "resolved", resolved, "missed", missed,
 			"hint", "Phase A heartbeat path will recover once peer handshakes")
+	}
+	if missed == 0 {
+		rows, listErr := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+		if listErr == nil {
+			for _, row := range rows {
+				if _, ok := currentPeers[row.PeerID]; ok {
+					continue
+				}
+				if err := database.MarkGroupMemberLeft(groupID, row.PeerID, 0); err == nil {
+					changed = true
+				}
+			}
+		}
 	}
 	// NOTE: do NOT emit group:members_changed from here. backfillMLSLeafRoster
 	// is intentionally called from inside GetGroupMembers (via
@@ -282,4 +326,5 @@ func (r *Runtime) backfillMLSLeafRoster(groupID string) {
 	// makePeerObservedHandler) is responsible for emitting members_changed
 	// exactly once per state transition; backfill remains pure read-through
 	// reconciliation.
+	return changed, nil
 }

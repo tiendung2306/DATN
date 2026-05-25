@@ -540,14 +540,18 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 	}
 	blindPeers := r.blindStoreFetchCandidates(localID, "kp:"+targetID.String())
 
-	if kp, err := p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID); err == nil && len(kp) > 0 {
-		_ = database.SaveStoredKeyPackage(targetID.String(), kp, targetID.String())
-		return kp, nil
-	}
-
 	localCopy, err := database.GetStoredKeyPackage(targetID.String())
 	if err == nil && len(localCopy) > 0 {
+		slog.Info("fetchPeerKeyPackage: using local cached KP", "target", targetID, "bytes", len(localCopy))
 		return localCopy, nil
+	}
+
+	if kp, err := p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID); err == nil && len(kp) > 0 {
+		_ = database.SaveStoredKeyPackage(targetID.String(), kp, targetID.String())
+		slog.Info("fetchPeerKeyPackage: direct fetch succeeded", "target", targetID, "bytes", len(kp))
+		return kp, nil
+	} else if err != nil {
+		slog.Warn("fetchPeerKeyPackage: direct fetch failed", "target", targetID, "err", err)
 	}
 
 	peerSet := make(map[peer.ID]struct{})
@@ -593,6 +597,7 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 		if err := p2p.ReadInviteStoreJSONFrame(s, &resp); err == nil && resp.V == 1 && resp.Found && len(resp.PublicKP) > 0 {
 			_ = s.Close()
 			_ = database.SaveStoredKeyPackage(targetID.String(), resp.PublicKP, pid.String())
+			slog.Info("fetchPeerKeyPackage: store-peer fetch succeeded", "target", targetID, "store_peer", pid, "bytes", len(resp.PublicKP))
 			return resp.PublicKP, nil
 		}
 		_ = s.Close()
@@ -617,27 +622,73 @@ func (r *Runtime) replicateWelcomeToStorePeers(inviteeID peer.ID, groupID, group
 	_ = database.SaveStoredWelcome(inviteeID.String(), groupID, groupType, categoryID, welcome, localID.String())
 	go r.publishBlindStoreWelcome(inviteeID.String(), groupID, groupType, categoryID, welcome)
 
+	for _, pid := range peers {
+		if pid == inviteeID {
+			continue
+		}
+		_ = r.pushWelcomeStoreRecord(node, pid, inviteeID.String(), groupID, groupType, categoryID, welcome)
+	}
+}
+
+func (r *Runtime) pushWelcomeStoreRecord(node *p2p.P2PNode, to peer.ID, inviteePeerID, groupID, groupType, categoryID string, welcome []byte) error {
+	if node == nil || to == "" || inviteePeerID == "" || groupID == "" || len(welcome) == 0 {
+		return nil
+	}
 	req := p2p.WelcomeStoreRequestV1{
 		V:             1,
-		InviteePeerID: inviteeID.String(),
+		InviteePeerID: inviteePeerID,
 		GroupID:       groupID,
 		GroupType:     groupType,
 		CategoryID:    categoryID,
 		Welcome:       welcome,
 	}
-	for _, pid := range peers {
-		if pid == inviteeID {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	s, err := node.Host.NewStream(ctx, to, p2p.WelcomeStoreProtocol)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+	return p2p.WriteInviteStoreJSONFrame(s, &req)
+}
+
+func (r *Runtime) replicatePendingWelcomesToStorePeer(storePeer peer.ID) {
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	coordStorage := r.coordStorage
+	r.mu.RUnlock()
+	if node == nil || database == nil || storePeer == "" {
+		return
+	}
+	if node.AuthProtocol != nil && !node.AuthProtocol.IsVerified(storePeer) {
+		return
+	}
+	if reopened, err := database.ReopenUnacknowledgedPendingWelcomes(); err == nil && reopened > 0 {
+		slog.Info("Reopened unacknowledged pending Welcomes", "count", reopened)
+	}
+	rows, err := database.ListPendingWelcomes()
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	for _, pw := range rows {
+		if pw.TargetPeerID == "" || pw.TargetPeerID == storePeer.String() || len(pw.WelcomeBytes) == 0 {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		s, err := node.Host.NewStream(ctx, pid, p2p.WelcomeStoreProtocol)
-		cancel()
-		if err != nil {
-			continue
+		groupType := "channel"
+		categoryID := ""
+		if coordStorage != nil {
+			if rec, err := coordStorage.GetGroupRecord(pw.GroupID); err == nil && rec != nil {
+				if normalizedType, normErr := normalizeGroupTypeRuntime(rec.GroupType); normErr == nil {
+					groupType = normalizedType
+				}
+				categoryID = strings.TrimSpace(rec.CategoryID)
+			}
 		}
-		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
-		_ = p2p.WriteInviteStoreJSONFrame(s, &req)
-		_ = s.Close()
+		if err := r.pushWelcomeStoreRecord(node, storePeer, pw.TargetPeerID, pw.GroupID, groupType, categoryID, pw.WelcomeBytes); err != nil {
+			slog.Debug("replicate pending welcome to store peer failed", "peer", storePeer, "target", pw.TargetPeerID, "group", pw.GroupID, "err", err)
+		}
 	}
 }
 
@@ -1065,6 +1116,16 @@ func (r *Runtime) refreshPendingInvites(ctx context.Context) error {
 	return nil
 }
 
+func (r *Runtime) schedulePendingInviteRefresh() {
+	backoffs := []time.Duration{300 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+	for _, d := range backoffs {
+		time.Sleep(d)
+		if err := r.refreshPendingInvites(r.appCtx()); err == nil {
+			return
+		}
+	}
+}
+
 // ── Phase 3a: Welcome delivery (creator → invitee, direct stream) ─────────────
 
 // deliverWelcome attempts to send Welcome bytes to targetID via direct stream.
@@ -1101,18 +1162,6 @@ func (r *Runtime) deliverWelcome(targetID peer.ID, groupID, groupType, categoryI
 	}
 
 	slog.Info("Welcome delivered via direct stream", "group", groupID, "target", targetID)
-	// Mark as delivered in DB (best-effort).
-	r.mu.Lock()
-	database := r.db
-	r.mu.Unlock()
-	if database != nil {
-		rows, _ := database.GetPendingWelcomesFor(targetID.String())
-		for _, pw := range rows {
-			if pw.GroupID == groupID {
-				_ = database.MarkWelcomeDelivered(pw.ID)
-			}
-		}
-	}
 }
 
 // retryPendingWelcomes is called when a peer connects; sends all undelivered
@@ -1124,6 +1173,9 @@ func (r *Runtime) retryPendingWelcomes(targetID peer.ID) {
 	r.mu.Unlock()
 	if database == nil {
 		return
+	}
+	if reopened, err := database.ReopenUnacknowledgedPendingWelcomes(); err == nil && reopened > 0 {
+		slog.Info("Reopened unacknowledged pending Welcomes", "count", reopened)
 	}
 
 	pending, err := database.GetPendingWelcomesFor(targetID.String())
@@ -1161,8 +1213,10 @@ func (r *Runtime) ensureLocalPublicKPBytes() ([]byte, error) {
 	pid := node.Host.ID().String()
 	pub, _, err := database.GetKPBundle(pid)
 	if err == nil && len(pub) > 0 {
+		slog.Debug("ensureLocalPublicKPBytes: using cached KP bundle", "peer", pid, "bytes", len(pub))
 		return pub, nil
 	}
+	slog.Info("ensureLocalPublicKPBytes: generating fresh KP bundle", "peer", pid)
 	kpRes, err := r.GenerateKeyPackage()
 	if err != nil {
 		return nil, err
@@ -1172,6 +1226,7 @@ func (r *Runtime) ensureLocalPublicKPBytes() ([]byte, error) {
 	if err := database.SaveKPBundle(pid, publicKP, privateBundle); err != nil {
 		return nil, err
 	}
+	slog.Info("ensureLocalPublicKPBytes: generated fresh KP bundle", "peer", pid, "bytes", len(publicKP))
 	return publicKP, nil
 }
 
@@ -1556,8 +1611,23 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID
 		"group_id": groupID,
 	})
 	go r.broadcastGroupJoinAck(groupID)
+	go r.pullOfflineSyncFromVerifiedPeers()
 	slog.Info("Joined group via Welcome", "group", groupID)
 	return nil
+}
+
+func (r *Runtime) pullOfflineSyncFromVerifiedPeers() {
+	r.mu.RLock()
+	node := r.node
+	r.mu.RUnlock()
+	if node == nil || node.AuthProtocol == nil {
+		return
+	}
+	for _, pid := range node.Host.Network().Peers() {
+		if node.AuthProtocol.IsVerified(pid) {
+			go r.scheduleOfflineSyncPull(pid)
+		}
+	}
 }
 
 func fallbackWelcomeFingerprint(groupID string, welcomeBytes []byte) string {
@@ -1667,6 +1737,9 @@ func (r *Runtime) handleGroupJoinAckStream(s network.Stream) {
 			}
 		}
 	}
+	if err := database.MarkWelcomeDeliveredFor(msg.PeerID, msg.GroupID); err != nil {
+		slog.Debug("MarkWelcomeDeliveredFor failed", "group", msg.GroupID, "peer", msg.PeerID, "err", err)
+	}
 }
 
 func (r *Runtime) registerGroupJoinAckHandler() {
@@ -1752,14 +1825,8 @@ type peerConnectedHook struct {
 func (h *peerConnectedHook) Listen(network.Network, ma.Multiaddr)      {}
 func (h *peerConnectedHook) ListenClose(network.Network, ma.Multiaddr) {}
 func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
-	p := c.RemotePeer()
-	go h.rt.retryPendingWelcomes(p)
 	// Keep key package replicas fresh whenever a verified peer connects.
 	go h.rt.advertiseKeyPackage()
-	go h.rt.scheduleOfflineSyncPull(p)
-	go h.rt.scheduleReplicatedProfilePull(p)
-	go h.rt.scheduleChannelCategorySync(p)
-	go h.rt.flushPendingDeliveryAcksTo(p)
 	go h.rt.emitNodeStatusChanged("peer_connected")
 	go h.rt.emitAllGroupsMembersChanged("presence")
 }

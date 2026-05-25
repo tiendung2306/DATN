@@ -19,18 +19,21 @@ import (
 // Tickers are practically disabled via 1-hour durations to prevent goroutine thrashing.
 func SweepConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
-		TokenHolderTimeout:     1 * time.Hour,
-		HeartbeatInterval:      1 * time.Hour,
-		AnnounceInterval:       0,
-		PeerDeadAfter:          3,
-		MaxBatchedProposals:    10000,
-		KeyRotationInterval:    0,
-		ReplayThrottleMs:       0,
-		MetricsEnabled:         true,
-		OfflineSyncEnabled:     false,
-		EnvelopeLogTTL:         7 * 24 * time.Hour,
-		EnvelopeLogMaxPerGroup: 10000,
-		BatchingDelay:          0, // Immediate commit on token holder
+		TokenHolderTimeout:          1 * time.Hour,
+		HeartbeatInterval:           1 * time.Hour,
+		AnnounceInterval:            0,
+		PeerDeadAfter:               3,
+		MaxBatchedProposals:         10000,
+		KeyRotationInterval:         0,
+		ReplayThrottleMs:            0,
+		MetricsEnabled:              true,
+		OfflineSyncEnabled:          false,
+		EnvelopeLogTTL:              7 * 24 * time.Hour,
+		EnvelopeLogMaxPerGroup:      10000,
+		BatchingDelay:               0, // Immediate commit on token holder
+		MLSOperationTimeout:         5 * time.Second,
+		ApplicationAckTimeout:       100 * time.Millisecond,
+		ApplicationDirectRetryLimit: 1,
 	}
 }
 
@@ -261,10 +264,10 @@ func prePopulateMockGroup(t *testing.T, nodes []*testNode, groupID string, epoch
 
 	// Construct mock OpenMLS group state JSON representation
 	state := mockGroupState{
-		GroupID:    groupID,
-		Epoch:      epoch,
-		TreeHash:   hex.EncodeToString(th),
-		Members:    mockMembers,
+		GroupID:  groupID,
+		Epoch:    epoch,
+		TreeHash: hex.EncodeToString(th),
+		Members:  mockMembers,
 	}
 	stateBytes, err := json.Marshal(state)
 	if err != nil {

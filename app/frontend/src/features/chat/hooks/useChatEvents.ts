@@ -137,8 +137,21 @@ export function useChatEvents({
     async (payload: GroupMembersChangedPayload) => {
       if (!payload?.group_id) return
       const reason = String(payload.reason ?? '')
-      if (reason === 'profile_push' || reason === 'group_avatar' || reason === 'presence') {
+      const isVisualOnly =
+        reason === 'profile_push' || reason === 'group_avatar' || reason === 'presence'
+      const affectsGroupTopology =
+        reason === 'created' ||
+        reason === 'joined' ||
+        reason === 'joined_ack' ||
+        reason === 'invited' ||
+        reason === 'removed' ||
+        reason === 'removed_self' ||
+        reason === 'epoch_reconcile'
+      if (isVisualOnly) {
         scheduleGroupsVisualRefresh()
+      }
+      if (affectsGroupTopology) {
+        await refreshGroups()
       }
       if (payload.group_id === activeGroupId) {
         await refreshGroupMembers(payload.group_id)

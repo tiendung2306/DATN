@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -109,11 +110,15 @@ func (r *Runtime) ReconnectP2P() error {
 }
 
 type DiagnosticsGroupSnapshot struct {
-	GroupID       string `json:"group_id"`
-	Epoch         uint64 `json:"epoch"`
-	TokenHolder   string `json:"token_holder"`
-	ActiveMembers int    `json:"active_members"`
-	TreeHashShort string `json:"tree_hash_short,omitempty"`
+	GroupID           string   `json:"group_id"`
+	Epoch             uint64   `json:"epoch"`
+	TokenHolder       string   `json:"token_holder"`
+	TokenHolderPeerID string   `json:"token_holder_peer_id,omitempty"`
+	ActiveMembers     int      `json:"active_members"`
+	ActiveView         []string `json:"active_view,omitempty"`
+	TreeHashHex       string   `json:"tree_hash_hex,omitempty"`
+	TreeHashShort     string   `json:"tree_hash_short,omitempty"`
+	IsHealing         bool     `json:"is_healing"`
 }
 
 type DiagnosticsSnapshot struct {
@@ -170,11 +175,35 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 
 	for _, gid := range groupIDs {
 		coord := r.coordinators[gid]
+		
+		tokenHolderID := ""
+		if holder, err := coord.CurrentTokenHolder(); err == nil {
+			tokenHolderID = holder.String()
+		}
+		
+		var activeViewList []string
+		for _, pid := range coord.ActiveMembers() {
+			activeViewList = append(activeViewList, pid.String())
+		}
+		
+		treeHashHex := hex.EncodeToString(coord.GetTreeHash())
+		treeHashShort := ""
+		if len(treeHashHex) > 8 {
+			treeHashShort = treeHashHex[:8]
+		} else {
+			treeHashShort = treeHashHex
+		}
+
 		snapshot.Groups = append(snapshot.Groups, DiagnosticsGroupSnapshot{
-			GroupID:       gid,
-			Epoch:         coord.CurrentEpoch(),
-			TokenHolder:   map[bool]string{true: "self", false: "other"}[coord.IsTokenHolder()],
-			ActiveMembers: len(coord.ActiveMembers()),
+			GroupID:           gid,
+			Epoch:             coord.CurrentEpoch(),
+			TokenHolder:       map[bool]string{true: "self", false: "other"}[coord.IsTokenHolder()],
+			TokenHolderPeerID: tokenHolderID,
+			ActiveMembers:     len(coord.ActiveMembers()),
+			ActiveView:        activeViewList,
+			TreeHashHex:       treeHashHex,
+			TreeHashShort:     treeHashShort,
+			IsHealing:         coord.IsHealing(),
 		})
 	}
 	return snapshot, nil

@@ -5,6 +5,7 @@
 package service
 
 import (
+	"app/adapter/store"
 	"strings"
 	"testing"
 )
@@ -36,6 +37,46 @@ func TestBusinessP1_Sprint2_BI026_CreateDMGroup_CreatorInRoster(t *testing.T) {
 	}
 	if !sawCreator {
 		t.Fatal("creator peer not found in roster")
+	}
+}
+
+func TestBusinessP1_Sprint2_BI026_CreateGroup_PersistsCreatorMetadata(t *testing.T) {
+	rt, _ := businessRuntimeAuthorizedWithMockMLS(t)
+	gid := "group-bi026-metadata"
+
+	if err := rt.CreateGroupChat(gid, "group", ""); err != nil {
+		t.Fatalf("CreateGroupChat: %v", err)
+	}
+	info, err := rt.GetOnboardingInfo()
+	if err != nil || info == nil {
+		t.Fatalf("GetOnboardingInfo: %v", err)
+	}
+	creatorPeerID, err := rt.db.GetGroupCreatorPeerID(gid)
+	if err != nil {
+		t.Fatalf("GetGroupCreatorPeerID: %v", err)
+	}
+	if creatorPeerID != info.PeerID {
+		t.Fatalf("creator peer id = %q, want %q", creatorPeerID, info.PeerID)
+	}
+	members, err := rt.db.ListGroupMembers(gid, store.GroupMemberStatusActive)
+	if err != nil {
+		t.Fatalf("ListGroupMembers: %v", err)
+	}
+	var creatorRow *store.GroupMemberRecord
+	for i := range members {
+		if members[i].PeerID == info.PeerID {
+			creatorRow = &members[i]
+			break
+		}
+	}
+	if creatorRow == nil {
+		t.Fatal("creator row missing from group_members")
+	}
+	if creatorRow.Role != "creator" {
+		t.Fatalf("creator role = %q, want creator", creatorRow.Role)
+	}
+	if creatorRow.Source != "create" {
+		t.Fatalf("creator source = %q, want create", creatorRow.Source)
 	}
 }
 

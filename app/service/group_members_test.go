@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,15 @@ import (
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+type rosterSyncTestMLSEngine struct {
+	*membershipTestMLSEngine
+	identities [][]byte
+}
+
+func (m *rosterSyncTestMLSEngine) ListMemberIdentities(context.Context, []byte) ([][]byte, error) {
+	return m.identities, nil
+}
 
 func TestGetGroupMembers_UsesRosterForOfflineMembers(t *testing.T) {
 	rt := setupMembershipRuntime(t)
@@ -185,4 +196,150 @@ func TestGetGroupMembers_PendingInviteDoesNotCreateActiveMember(t *testing.T) {
 	if members[0].PeerID != localPeerID.String() {
 		t.Fatalf("unexpected member: %+v", members[0])
 	}
+}
+
+func TestGetGroupMembers_HistoryDoesNotReviveLeftMember(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	now := time.Now()
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-left-history",
+		GroupState: []byte("state"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	_, pub, err := p2pCrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key: %v", err)
+	}
+	senderID, err := peer.IDFromPublicKey(pub)
+	if err != nil {
+		t.Fatalf("IDFromPublicKey: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID: "group-left-history",
+		PeerID:  senderID.String(),
+		Role:    "member",
+		Status:  store.GroupMemberStatusActive,
+		Source:  "invite",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember: %v", err)
+	}
+	if err := rt.db.MarkGroupMemberLeft("group-left-history", senderID.String(), 0); err != nil {
+		t.Fatalf("MarkGroupMemberLeft: %v", err)
+	}
+	if err := rt.coordStorage.SaveMessage(&coordination.StoredMessage{
+		GroupID:      "group-left-history",
+		Epoch:        1,
+		SenderID:     senderID,
+		Content:      []byte("old message"),
+		Timestamp:    coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "n1"},
+		EnvelopeHash: []byte{9, 9, 9, 9},
+	}); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	members, err := rt.GetGroupMembers("group-left-history")
+	if err != nil {
+		t.Fatalf("GetGroupMembers: %v", err)
+	}
+	for _, m := range members {
+		if m.PeerID == senderID.String() {
+			t.Fatalf("removed member was revived by history backfill: %+v", members)
+		}
+	}
+}
+
+func TestReconcileGroupRosterWithMLS_MarksRemovedMemberLeft(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	engine := &rosterSyncTestMLSEngine{membershipTestMLSEngine: &membershipTestMLSEngine{}}
+	rt.mlsEngine = engine
+	now := time.Now()
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-reconcile",
+		GroupState: []byte("state"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+
+	_, alicePub, err := p2pCrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key alice: %v", err)
+	}
+	aliceID, err := peer.IDFromPublicKey(alicePub)
+	if err != nil {
+		t.Fatalf("IDFromPublicKey alice: %v", err)
+	}
+	_, bobPub, err := p2pCrypto.GenerateEd25519Key(nil)
+	if err != nil {
+		t.Fatalf("GenerateEd25519Key bob: %v", err)
+	}
+	bobID, err := peer.IDFromPublicKey(bobPub)
+	if err != nil {
+		t.Fatalf("IDFromPublicKey bob: %v", err)
+	}
+	if err := rt.db.UpsertPeerProfileWithKey(aliceID.String(), "Alice", hex.EncodeToString(mustMarshalPublicKeyBytes(t, alicePub))); err != nil {
+		t.Fatalf("UpsertPeerProfileWithKey alice: %v", err)
+	}
+	if err := rt.db.UpsertPeerProfileWithKey(bobID.String(), "Bob", hex.EncodeToString(mustMarshalPublicKeyBytes(t, bobPub))); err != nil {
+		t.Fatalf("UpsertPeerProfileWithKey bob: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID: "group-reconcile",
+		PeerID:  aliceID.String(),
+		Role:    "creator",
+		Status:  store.GroupMemberStatusActive,
+		Source:  "create",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember alice: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID: "group-reconcile",
+		PeerID:  bobID.String(),
+		Role:    "member",
+		Status:  store.GroupMemberStatusActive,
+		Source:  "invite",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember bob: %v", err)
+	}
+
+	engine.identities = [][]byte{
+		mustMarshalPublicKeyBytes(t, alicePub),
+	}
+
+	changed, err := rt.reconcileGroupRosterWithMLS("group-reconcile")
+	if err != nil {
+		t.Fatalf("reconcileGroupRosterWithMLS: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected roster reconciliation to detect removed member")
+	}
+	rows, err := rt.db.ListGroupMembers("group-reconcile")
+	if err != nil {
+		t.Fatalf("ListGroupMembers: %v", err)
+	}
+	for _, row := range rows {
+		if row.PeerID != bobID.String() {
+			continue
+		}
+		if row.Status != store.GroupMemberStatusLeft {
+			t.Fatalf("bob status=%q want left after reconciliation", row.Status)
+		}
+		return
+	}
+	t.Fatalf("bob row missing after reconciliation: %+v", rows)
+}
+
+func mustMarshalPublicKeyBytes(t *testing.T, pub p2pCrypto.PubKey) []byte {
+	t.Helper()
+	raw, err := pub.Raw()
+	if err != nil {
+		t.Fatalf("pub.Raw: %v", err)
+	}
+	return raw
 }

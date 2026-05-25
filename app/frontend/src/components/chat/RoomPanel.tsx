@@ -3,10 +3,11 @@ import { service } from '../../../wailsjs/go/models'
 import { shortPeerId } from '../../lib/chatModel'
 import { formatLeaveGroupError, formatRemoveMemberError } from '../../lib/formatRemoveMemberError'
 import { useContactStore } from '../../stores/useContactStore'
+import { useAppRuntimeStore } from '../../stores/useAppRuntimeStore'
 import { useToastStore } from '../../stores/useToastStore'
 import { Button } from '../ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog'
-import { LogOut, Settings, Shield, UserMinus, UserPlus, Users, X, ImageIcon } from 'lucide-react'
+import { LogOut, Settings, Shield, UserMinus, UserPlus, Users, X, ImageIcon, Terminal, Activity, ChevronDown, ChevronUp, RefreshCw, CheckCircle, XCircle, Clock, FileText, Hash, ShieldAlert } from 'lucide-react'
 import { runtimeClient } from '../../services/runtime/runtimeClient'
 import AddMemberModal from '../../features/chat/components/AddMemberModal'
 import { ConversationKind } from '../../lib/chatModel'
@@ -45,6 +46,72 @@ type InviteListItem = {
   updated_at?: number
 }
 
+type GroupEventPayload = Record<string, any>
+
+const parseGroupEventPayload = (payloadJson?: string): GroupEventPayload => {
+  if (!payloadJson) return {}
+  try {
+    const parsed = JSON.parse(payloadJson)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const formatGroupEventLabel = (eventType: string) => {
+  switch (eventType) {
+    case 'group_created':
+      return 'Group created'
+    case 'member_joined':
+      return 'Member joined'
+    case 'member_left':
+      return 'Member left'
+    case 'proposal_received':
+      return 'Proposal observed'
+    case 'commit_issued':
+      return 'Commit issued'
+    case 'add_commit_observed':
+      return 'Add commit observed'
+    case 'invite_request_created':
+      return 'Invite request created'
+    case 'invite_request_approved':
+      return 'Invite request approved'
+    case 'invite_request_rejected':
+      return 'Invite request rejected'
+    case 'fork_heal_started':
+      return 'Fork heal started'
+    case 'fork_heal_completed':
+      return 'Fork heal completed'
+    case 'fork_heal_failed':
+      return 'Fork heal failed'
+    default:
+      return eventType.split('_').join(' ')
+  }
+}
+
+const eventToneClass = (eventType: string) => {
+  switch (eventType) {
+    case 'group_created':
+    case 'member_joined':
+    case 'invite_request_approved':
+    case 'fork_heal_completed':
+      return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+    case 'commit_issued':
+    case 'proposal_received':
+    case 'add_commit_observed':
+      return 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+    case 'fork_heal_started':
+    case 'invite_request_created':
+      return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+    case 'member_left':
+    case 'invite_request_rejected':
+    case 'fork_heal_failed':
+      return 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+    default:
+      return 'bg-slate-800 text-slate-300 border-slate-700'
+  }
+}
+
 export default function RoomPanel({
   activeGroupId,
   activeKind,
@@ -59,10 +126,76 @@ export default function RoomPanel({
 }: RoomPanelProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
   const pushToast = useToastStore((s) => s.pushToast)
+  const isDevMode = useAppRuntimeStore((s) => s.isDevMode)
+  
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [isLeaving, setIsLeaving] = useState(false)
   const [removingPeerId, setRemovingPeerId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'members' | 'invites'>('members')
+  const [activeTab, setActiveTab] = useState<'members' | 'invites' | 'diagnostics'>('members')
+  
+  const [diagSnapshot, setDiagSnapshot] = useState<any | null>(null)
+  const [healHistory, setHealHistory] = useState<any[]>([])
+  const [groupEvents, setGroupEvents] = useState<service.GroupEventLogEntry[]>([])
+  const [loadingDiag, setLoadingDiag] = useState(false)
+  const [expandedHealTrace, setExpandedHealTrace] = useState<string | null>(null)
+  const [expandedEventId, setExpandedEventId] = useState<number | null>(null)
+  const diagRequestSeq = useRef(0)
+
+  const resetDiagnosticsView = useCallback(() => {
+    setDiagSnapshot(null)
+    setHealHistory([])
+    setGroupEvents([])
+    setExpandedHealTrace(null)
+    setExpandedEventId(null)
+  }, [])
+
+  const loadGroupDiagData = useCallback(async () => {
+    if (!activeGroupId || !isDevMode) {
+      resetDiagnosticsView()
+      return
+    }
+    const requestId = ++diagRequestSeq.current
+    const groupID = activeGroupId
+    setLoadingDiag(true)
+    resetDiagnosticsView()
+    try {
+      const snap = await runtimeClient.getDiagnosticsSnapshot()
+      if (diagRequestSeq.current !== requestId || groupID !== activeGroupId) return
+      const groupSnap = snap.groups?.find((g: any) => g.group_id === groupID)
+      setDiagSnapshot(groupSnap || null)
+      
+      const history = await runtimeClient.getForkHealHistory(groupID, 10)
+      if (diagRequestSeq.current !== requestId || groupID !== activeGroupId) return
+      setHealHistory(history || [])
+
+      const events = await runtimeClient.getGroupEventLog(groupID, 50)
+      if (diagRequestSeq.current !== requestId || groupID !== activeGroupId) return
+      setGroupEvents(events || [])
+    } catch (err) {
+      if (diagRequestSeq.current === requestId) {
+        resetDiagnosticsView()
+      }
+      console.error('Failed to load group diagnostics', err)
+    } finally {
+      if (diagRequestSeq.current === requestId) {
+        setLoadingDiag(false)
+      }
+    }
+  }, [activeGroupId, isDevMode, resetDiagnosticsView])
+
+  useEffect(() => {
+    if (activeTab === 'diagnostics' && activeGroupId) {
+      void loadGroupDiagData()
+      
+      const interval = setInterval(() => {
+        void loadGroupDiagData()
+      }, 4000)
+      return () => clearInterval(interval)
+    }
+    diagRequestSeq.current += 1
+    resetDiagnosticsView()
+    setLoadingDiag(false)
+  }, [activeTab, activeGroupId, loadGroupDiagData, resetDiagnosticsView])
   const [inviteItems, setInviteItems] = useState<InviteListItem[]>([])
   const [loadingInvites, setLoadingInvites] = useState(false)
   const [changingInviteId, setChangingInviteId] = useState<string | null>(null)
@@ -414,7 +547,10 @@ export default function RoomPanel({
 
       <div className="px-4">
         {activeKind !== 'dm' ? (
-          <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-slate-800 p-1">
+          <div className={cn(
+            "mb-3 grid gap-2 rounded-lg border border-slate-800 p-1",
+            isDevMode ? "grid-cols-3" : "grid-cols-2"
+          )}>
             <Button
               type="button"
               variant={activeTab === 'members' ? 'secondary' : 'ghost'}
@@ -436,60 +572,70 @@ export default function RoomPanel({
                 </span>
               ) : null}
             </Button>
+            {isDevMode && (
+              <Button
+                type="button"
+                variant={activeTab === 'diagnostics' ? 'secondary' : 'ghost'}
+                className="h-8 min-h-0 gap-1.5 px-1.5 text-xs text-amber-400 hover:text-amber-300"
+                onClick={() => setActiveTab('diagnostics')}
+              >
+                Dev Mode
+              </Button>
+            )}
           </div>
         ) : null}
         {activeTab === 'members' || activeKind === 'dm' ? (
           <>
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          <Users className="h-3.5 w-3.5" />
-          <span>Members</span>
-        </div>
-        <div className="space-y-2 pb-4">
-          {peers.length === 0 ? (
-            <p className="text-xs text-slate-500">No members available.</p>
-          ) : (
-            peers.map((peer) => (
-              <div
-                key={peer.peer_id}
-                className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <ChatListAvatar
-                    variant="dm"
-                    displayName={getDisplayName(peer.peer_id)}
-                    imageUrl={peer.avatar_data_url}
-                    size="sm"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
-                    <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              <Users className="h-3.5 w-3.5" />
+              <span>Members</span>
+            </div>
+            <div className="space-y-2 pb-4">
+              {peers.length === 0 ? (
+                <p className="text-xs text-slate-500">No members available.</p>
+              ) : (
+                peers.map((peer) => (
+                  <div
+                    key={peer.peer_id}
+                    className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <ChatListAvatar
+                        variant="dm"
+                        displayName={getDisplayName(peer.peer_id)}
+                        imageUrl={peer.avatar_data_url}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
+                        <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {canRemoveMembers && peer.peer_id !== localPeerId ? (
+                        <button
+                          type="button"
+                          aria-label={`Remove ${getDisplayName(peer.peer_id)} from group`}
+                          disabled={removingPeerId === peer.peer_id}
+                          className="rounded p-1 text-slate-400 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => void handleRemoveMember(peer.peer_id)}
+                        >
+                          <UserMinus className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          peer.is_online ? 'bg-emerald-400' : 'bg-slate-500'
+                        }`}
+                        title={peer.is_online ? 'online' : 'offline'}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {canRemoveMembers && peer.peer_id !== localPeerId ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${getDisplayName(peer.peer_id)} from group`}
-                      disabled={removingPeerId === peer.peer_id}
-                      className="rounded p-1 text-slate-400 transition hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={() => void handleRemoveMember(peer.peer_id)}
-                    >
-                      <UserMinus className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      peer.is_online ? 'bg-emerald-400' : 'bg-slate-500'
-                    }`}
-                    title={peer.is_online ? 'online' : 'offline'}
-                  />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                ))
+              )}
+            </div>
           </>
-        ) : (
+        ) : activeTab === 'invites' ? (
           <>
             <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               <Users className="h-3.5 w-3.5" />
@@ -545,7 +691,395 @@ export default function RoomPanel({
               })}
             </div>
           </>
-        )}
+        ) : activeTab === 'diagnostics' && isDevMode ? (
+          <div className="flex-1 overflow-y-auto pr-1 space-y-4 pb-6" style={{ maxHeight: 'calc(100vh - 24rem)' }}>
+            {/* MLS Metadata */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2 text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                <Terminal className="h-3.5 w-3.5" />
+                <span>MLS Group Cryptographics</span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-slate-950 p-2 border border-slate-800/50">
+                  <span className="block text-[10px] text-slate-500 uppercase tracking-tight">Current Epoch</span>
+                  <span className="font-mono text-sm font-semibold text-emerald-400 tracking-wide">
+                    e{diagSnapshot?.epoch ?? 0}
+                  </span>
+                </div>
+                <div className="rounded-lg bg-slate-950 p-2 border border-slate-800/50">
+                  <span className="block text-[10px] text-slate-500 uppercase tracking-tight">Consensus Size</span>
+                  <span className="font-mono text-sm font-semibold text-sky-400">
+                    {diagSnapshot?.active_members ?? peers.length} nodes
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-slate-950 p-2 border border-slate-800/50 text-xs">
+                <span className="block text-[10px] text-slate-500 uppercase tracking-tight mb-1">Tree Hash</span>
+                {diagSnapshot?.tree_hash_hex ? (
+                  <div className="space-y-1">
+                    <span className="font-mono font-bold text-amber-500 px-1 py-0.5 rounded bg-amber-950/20 text-[10px] border border-amber-900/20">
+                      {diagSnapshot.tree_hash_short}
+                    </span>
+                    <span className="block font-mono text-[9px] text-slate-400 select-all break-all leading-normal pt-1 border-t border-slate-900">
+                      {diagSnapshot.tree_hash_hex}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-slate-500 font-mono text-[10px]">No tree hash generated</span>
+                )}
+              </div>
+
+              <div className="rounded-lg bg-slate-950 p-2 border border-slate-800/50 text-xs">
+                <span className="block text-[10px] text-slate-500 uppercase tracking-tight mb-1">Token Holder</span>
+                {diagSnapshot?.token_holder_peer_id ? (
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="truncate font-semibold text-slate-200">
+                        {getDisplayName(diagSnapshot.token_holder_peer_id)}
+                      </span>
+                      {diagSnapshot.token_holder_peer_id === localPeerId && (
+                        <span className="shrink-0 text-[9px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1 py-px rounded">
+                          Me
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-[9px] text-slate-400 select-all truncate">
+                      {diagSnapshot.token_holder_peer_id}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-slate-500 font-mono text-[10px]">Electing Token Holder...</span>
+                )}
+              </div>
+
+              {/* Liveness Overlay */}
+              <div className="space-y-1 text-xs">
+                <span className="block text-[10px] text-slate-500 uppercase tracking-tight">Consensus Online View</span>
+                <div className="flex flex-wrap gap-1 pt-1 max-h-24 overflow-y-auto">
+                  {peers.map((peer) => {
+                    const isConsensusActive = diagSnapshot?.active_view?.includes(peer.peer_id) ?? true;
+                    return (
+                      <span
+                        key={peer.peer_id}
+                        className={cn(
+                          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                          peer.is_online
+                            ? isConsensusActive
+                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                            : "bg-slate-900 text-slate-500 border-slate-800"
+                        )}
+                        title={`${getDisplayName(peer.peer_id)}: ${
+                          peer.is_online ? (isConsensusActive ? "Online & Consensus Active" : "Online but Out-of-sync") : "Offline"
+                        }`}
+                      >
+                        <span className={cn("h-1 w-1 rounded-full", peer.is_online ? "bg-emerald-400" : "bg-slate-500")} />
+                        {getDisplayName(peer.peer_id).substring(0, 10)}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {diagSnapshot?.is_healing && (
+                <div className="flex items-center gap-2 p-2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse text-[11px] font-medium">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Fork healing active. Recovering consistency...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2 text-[11px] font-semibold uppercase tracking-wider text-sky-400">
+                <Activity className="h-3.5 w-3.5" />
+                <span>Group Event Log</span>
+              </div>
+
+              {groupEvents.length === 0 ? (
+                <div className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-4 text-center">
+                  <p className="text-xs font-medium text-slate-300">Chua co su kien coordination nao</p>
+                  <p className="mt-1 text-[10px] text-slate-500">Log se hien thi proposal, commit, invite request va fork-heal moi nhat.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {groupEvents.map((event) => {
+                    const payload = parseGroupEventPayload(event.payload_json)
+                    const isCommit = event.event_type === 'commit_issued'
+                    const traceId = typeof payload.trace_id === 'string' ? payload.trace_id : ''
+                    const linkedHeal = traceId ? healHistory.find((item: any) => item.trace_id === traceId) : null
+                    const expandable = isCommit || Boolean(linkedHeal)
+                    const isExpanded = expandedEventId === event.id
+                    const actorName = event.actor_peer_id ? getDisplayName(event.actor_peer_id) : ''
+                    const targetName = event.target_peer_id ? getDisplayName(event.target_peer_id) : ''
+                    let summary = formatGroupEventLabel(event.event_type)
+
+                    if (event.event_type === 'group_created') {
+                      summary = `${actorName || 'Creator'} initialized MLS state`
+                    } else if (event.event_type === 'member_joined') {
+                      summary = `${targetName || actorName || 'Member'} joined the group`
+                    } else if (event.event_type === 'member_left') {
+                      summary = `${targetName || actorName || 'Member'} left (${payload.reason || 'unknown'})`
+                    } else if (event.event_type === 'proposal_received') {
+                      summary = `${actorName || 'Member'} submitted ${payload.proposal_type || 'unknown'} proposal`
+                    } else if (event.event_type === 'commit_issued') {
+                      summary = `${actorName || 'Token holder'} issued commit for epoch ${event.epoch}`
+                    } else if (event.event_type === 'add_commit_observed') {
+                      summary = `Add commit observed for ${targetName || payload.target_peer_id || 'invitee'}`
+                    } else if (event.event_type === 'invite_request_created') {
+                      summary = `${actorName || payload.requester_peer_id || 'Member'} requested invite for ${targetName || payload.target_peer_id || 'target'}`
+                    } else if (event.event_type === 'invite_request_approved') {
+                      summary = `Invite approved for ${targetName || payload.target_peer_id || 'target'}`
+                    } else if (event.event_type === 'invite_request_rejected') {
+                      summary = `Invite rejected for ${targetName || payload.target_peer_id || 'target'}`
+                    } else if (event.event_type === 'fork_heal_started') {
+                      summary = `Fork heal started from winner epoch ${payload.winner_epoch ?? 'unknown'}`
+                    } else if (event.event_type === 'fork_heal_completed') {
+                      summary = `Fork heal completed at epoch ${payload.new_epoch ?? event.epoch}`
+                    } else if (event.event_type === 'fork_heal_failed') {
+                      summary = `Fork heal failed at ${payload.failed_step || 'unknown step'}`
+                    }
+
+                    return (
+                      <div key={event.id} className="overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+                        <button
+                          type="button"
+                          disabled={!expandable}
+                          className={cn(
+                            'flex w-full items-start justify-between gap-3 p-2.5 text-left',
+                            expandable ? 'transition-colors hover:bg-slate-900' : 'cursor-default',
+                          )}
+                          onClick={() => {
+                            if (!expandable) return
+                            setExpandedEventId(isExpanded ? null : event.id)
+                          }}
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={cn('rounded-[4px] border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide', eventToneClass(event.event_type))}>
+                                {formatGroupEventLabel(event.event_type)}
+                              </span>
+                              {event.epoch > 0 ? (
+                                <span className="text-[10px] font-mono text-slate-400">e{event.epoch}</span>
+                              ) : null}
+                            </div>
+                            <p className="text-[11px] font-medium leading-relaxed text-slate-200">{summary}</p>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                              <span>{new Date(event.created_at_ms).toLocaleTimeString()}</span>
+                              {payload.request_id ? (
+                                <>
+                                  <span>•</span>
+                                  <span>Req {String(payload.request_id).slice(0, 8)}</span>
+                                </>
+                              ) : null}
+                              {payload.operation_id ? (
+                                <>
+                                  <span>•</span>
+                                  <span>Op {String(payload.operation_id).slice(0, 8)}</span>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                          {expandable ? (
+                            isExpanded ? <ChevronUp className="h-4 w-4 shrink-0 text-slate-400" /> : <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                          ) : null}
+                        </button>
+
+                        {isExpanded ? (
+                          <div className="space-y-2 border-t border-slate-900 bg-slate-950 p-2.5 text-[11px] leading-relaxed">
+                            {isCommit ? (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <span className="block text-[9px] uppercase tracking-tight text-slate-500">Token Holder</span>
+                                    <span className="block truncate font-mono text-slate-300">{actorName || event.actor_peer_id || 'unknown'}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[9px] uppercase tracking-tight text-slate-500">Epoch Transition</span>
+                                    <span className="block font-mono text-slate-300">
+                                      e{payload.previous_epoch ?? '?'} → e{payload.new_epoch ?? event.epoch}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="block text-[9px] uppercase tracking-tight text-slate-500">Commit Proposals</span>
+                                  {Array.isArray(payload.proposals) && payload.proposals.length > 0 ? (
+                                    <div className="space-y-1">
+                                      {payload.proposals.map((proposal: any, idx: number) => (
+                                        <div key={`${event.id}-${idx}`} className="rounded border border-slate-800 bg-slate-900/50 px-2 py-1.5">
+                                          <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-300">
+                                            <span className="font-semibold uppercase">{proposal.proposal_type || 'unknown'}</span>
+                                            {proposal.target_peer_id ? <span>{getDisplayName(proposal.target_peer_id)}</span> : null}
+                                          </div>
+                                          <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                                            {proposal.request_id ? <span>Req {String(proposal.request_id).slice(0, 8)}</span> : null}
+                                            {proposal.operation_id ? <span>Op {String(proposal.operation_id).slice(0, 8)}</span> : null}
+                                            {proposal.group_type ? <span>{proposal.group_type}</span> : null}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[10px] text-slate-500">No proposal summary attached.</p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {!isCommit && linkedHeal ? (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <span className="block text-[9px] uppercase tracking-tight text-slate-500">Trace</span>
+                                    <span className="block font-mono text-slate-300">{traceId}</span>
+                                  </div>
+                                  <div>
+                                    <span className="block text-[9px] uppercase tracking-tight text-slate-500">Outcome</span>
+                                    <span className="block text-slate-300">{linkedHeal.outcome}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <span className="block text-[9px] uppercase tracking-tight text-slate-500">Audit Steps</span>
+                                  <div className="space-y-1">
+                                    {linkedHeal.audit?.map((step: any, idx: number) => (
+                                      <div key={`${traceId}-${idx}`} className="flex items-start gap-2 rounded border border-slate-800 bg-slate-900/50 px-2 py-1.5">
+                                        <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', step.status === 'success' ? 'bg-emerald-500' : 'bg-rose-500')} />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center justify-between gap-2 text-[10px]">
+                                            <span className="font-mono uppercase text-slate-300">{step.step}</span>
+                                            <span className="text-slate-500">{step.duration_ms}ms</span>
+                                          </div>
+                                          {step.error ? <p className="mt-1 text-[10px] text-rose-400">{step.error}</p> : null}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Fork Healing History */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3.5 space-y-3">
+              <div className="flex items-center gap-2 border-b border-slate-800/80 pb-2 text-[11px] font-semibold uppercase tracking-wider text-purple-400">
+                <ShieldAlert className="h-3.5 w-3.5" />
+                <span>Autonomous Fork Healing ({healHistory.length})</span>
+              </div>
+
+              {healHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-4 text-center rounded bg-slate-950 border border-slate-800/50">
+                  <CheckCircle className="h-6 w-6 text-emerald-500 mb-1" />
+                  <span className="text-xs font-semibold text-slate-300">Consistency Intact</span>
+                  <span className="text-[10px] text-slate-500">No network forks or stale epochs detected.</span>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {healHistory.map((item: any) => {
+                    const isSuccess = item.outcome === 'success';
+                    const isExpanded = expandedHealTrace === item.trace_id;
+                    const scheduledDate = item.scheduled_at_ms ? new Date(item.scheduled_at_ms).toLocaleTimeString() : 'Unknown';
+                    
+                    return (
+                      <div key={item.trace_id} className="rounded-lg bg-slate-950 border border-slate-800 overflow-hidden text-xs">
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between p-2.5 hover:bg-slate-900 transition-colors text-left"
+                          onClick={() => setExpandedHealTrace(isExpanded ? null : item.trace_id)}
+                        >
+                          <div className="min-w-0 flex-1 space-y-1 pr-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={cn(
+                                "px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold uppercase shrink-0 tracking-wide",
+                                isSuccess ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"
+                              )}>
+                                {item.outcome?.toUpperCase() ?? "FAILED"}
+                              </span>
+                              <span className="font-semibold text-[10px] text-slate-200">
+                                Trace: {item.trace_id?.substring(0, 8)}...
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                              <span>At {scheduledDate}</span>
+                              <span>•</span>
+                              <span>{item.duration_ms}ms</span>
+                              {item.replayed_message_count > 0 && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-emerald-400">{item.replayed_message_count} replayed</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />}
+                        </button>
+
+                        {isExpanded && (
+                          <div className="border-t border-slate-900 bg-slate-950 p-2.5 space-y-2 text-[11px] leading-relaxed">
+                            <div className="grid grid-cols-2 gap-x-2 gap-y-1 pb-2 border-b border-slate-900">
+                              <div>
+                                <span className="block text-[9px] text-slate-500 uppercase tracking-tight">Winning Branch</span>
+                                <span className="font-mono text-slate-300 truncate block">
+                                  e{item.winner_epoch} ({item.winner_peer_id ? shortPeerId(item.winner_peer_id) : 'unknown'})
+                                </span>
+                              </div>
+                              <div>
+                                <span className="block text-[9px] text-slate-500 uppercase tracking-tight">Resolved Branch</span>
+                                <span className="font-mono text-slate-300 truncate block">
+                                  e{item.new_epoch} ({item.new_tree_hash_hex ? item.new_tree_hash_hex.substring(0, 8) : 'unknown'})
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 8 Audit steps */}
+                            <div className="pt-1.5 space-y-2">
+                              <span className="block text-[9px] text-slate-500 uppercase tracking-tight mb-1">Step Audit Log</span>
+                              <div className="space-y-1.5 pl-1.5 border-l border-slate-800">
+                                {item.audit?.map((step: any, idx: number) => {
+                                  const stepOk = step.status === 'success';
+                                  return (
+                                    <div key={idx} className="relative flex items-start gap-2">
+                                      <span className={cn(
+                                        "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
+                                        stepOk ? "bg-emerald-500" : "bg-red-500"
+                                      )} />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center justify-between text-[10px]">
+                                          <span className="font-mono font-medium text-slate-300 uppercase tracking-tight">
+                                            {step.step}
+                                          </span>
+                                          <span className="text-slate-500 text-[9px]">
+                                            {step.duration_ms}ms
+                                          </span>
+                                        </div>
+                                        {step.error && (
+                                          <p className="text-[10px] text-red-400 font-medium break-all pl-1.5 mt-0.5 border-l border-red-500/20 bg-red-950/10 rounded">
+                                            Error: {step.error}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-auto space-y-2 border-t border-slate-800 p-4">

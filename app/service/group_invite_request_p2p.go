@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	errCreatorUnreachable   = "ERR_CREATOR_UNREACHABLE"
-	errGroupCreatorUnknown  = "ERR_GROUP_CREATOR_UNKNOWN"
-	groupMemberRoleCreator  = "creator"
+	errCreatorUnreachable  = "ERR_CREATOR_UNREACHABLE"
+	errGroupCreatorUnknown = "ERR_GROUP_CREATOR_UNKNOWN"
+	groupMemberRoleCreator = "creator"
 )
 
 func (r *Runtime) registerGroupInviteRequestHandler() {
@@ -223,6 +223,13 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		"request_id": id,
 		"status":     store.InviteRequestStatusPending,
 		"reason":     "created_remote",
+	})
+	r.appendGroupEvent(groupID, groupEventTypeInviteRequestCreated, remote.String(), targetPeerID, 0, map[string]any{
+		"request_id":        id,
+		"requester_peer_id": remote.String(),
+		"target_peer_id":    targetPeerID,
+		"status":            store.InviteRequestStatusPending,
+		"source":            "creator",
 	})
 
 	// Notification for the Creator about a new member request

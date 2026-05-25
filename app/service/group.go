@@ -20,6 +20,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+const generateKeyPackageTimeout = 20 * time.Second
+
 // ─── Types exposed to the frontend via Wails ─────────────────────────────────
 
 // MessageInfo is a single chat message returned to the frontend.
@@ -183,8 +185,11 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
-		OnAddCommitted: r.makeAddCommittedHandler(groupID),
-		OnPeerObserved: r.makePeerObservedHandler(groupID),
+		OnAddCommitted:     r.makeAddCommittedHandler(groupID),
+		OnPeerObserved:     r.makePeerObservedHandler(groupID),
+		OnProposalObserved: r.makeProposalAuditHandler(groupID),
+		OnCommitIssued:     r.makeCommitAuditHandler(groupID),
+		OnForkHealEvent:    r.makeForkHealAuditHandler(groupID),
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -207,7 +212,8 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 	if err := r.coordStorage.SaveGroupRecord(rec); err != nil {
 		return fmt.Errorf("save group metadata: %w", err)
 	}
-	_ = r.db.SetGroupCreatorPeerID(groupID, r.node.Host.ID().String())
+	localPeerID := r.node.Host.ID().String()
+	_ = r.db.SetGroupCreatorPeerID(groupID, localPeerID)
 	if normalizedGroupType == "channel" && categoryID != "" {
 		if err := r.db.AssignCategoryToGroup(groupID, categoryID); err != nil {
 			return err
@@ -222,7 +228,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 	r.coordinators[groupID] = coord
 	_ = r.db.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID:     groupID,
-		PeerID:      r.node.Host.ID().String(),
+		PeerID:      localPeerID,
 		DisplayName: strings.TrimSpace(identity.DisplayName),
 		Role:        "creator",
 		Status:      store.GroupMemberStatusActive,
@@ -230,6 +236,12 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		UpdatedAt:   time.Now().Unix(),
 	})
 	emitMembersChanged = true
+	r.appendGroupEvent(groupID, groupEventTypeCreated, localPeerID, "", rec.Epoch, map[string]any{
+		"creator_peer_id": localPeerID,
+		"group_type":      normalizedGroupType,
+		"category_id":     rec.CategoryID,
+		"initial_epoch":   rec.Epoch,
+	})
 	slog.Info("Group chat created", "group_id", groupID, "type", normalizedGroupType)
 	return nil
 }
@@ -282,7 +294,6 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 			return "", err
 		}
 	}
-
 
 	r.mu.RLock()
 	coord := r.coordinators[groupID]
@@ -509,7 +520,9 @@ func (r *Runtime) GenerateKeyPackage() (KeyPackageResult, error) {
 	if err != nil {
 		return KeyPackageResult{}, fmt.Errorf("get MLS identity: %w", err)
 	}
-	kp, bundle, err := r.mlsEngine.GenerateKeyPackage(context.Background(), identity.SigningKeyPrivate)
+	ctx, cancel := context.WithTimeout(context.Background(), generateKeyPackageTimeout)
+	defer cancel()
+	kp, bundle, err := r.mlsEngine.GenerateKeyPackage(ctx, identity.SigningKeyPrivate)
 	if err != nil {
 		return KeyPackageResult{}, err
 	}
@@ -751,8 +764,11 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
-		OnAddCommitted: r.makeAddCommittedHandler(groupID),
-		OnPeerObserved: r.makePeerObservedHandler(groupID),
+		OnAddCommitted:     r.makeAddCommittedHandler(groupID),
+		OnPeerObserved:     r.makePeerObservedHandler(groupID),
+		OnProposalObserved: r.makeProposalAuditHandler(groupID),
+		OnCommitIssued:     r.makeCommitAuditHandler(groupID),
+		OnForkHealEvent:    r.makeForkHealAuditHandler(groupID),
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -772,6 +788,13 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}); err != nil {
 		// Log but don't fail join
 	}
+	r.appendGroupEvent(groupID, groupEventTypeMemberJoined, r.node.Host.ID().String(), r.node.Host.ID().String(), epoch, map[string]any{
+		"peer_id":      r.node.Host.ID().String(),
+		"source":       "welcome",
+		"group_type":   normalizedGroupType,
+		"category_id":  resolvedCat,
+		"joined_epoch": epoch,
+	})
 	emitMembersChanged = true
 	runLeafBackfill = true
 	if resolvedCat != "" && strings.EqualFold(normalizedGroupType, "channel") && hint == "" {
@@ -876,7 +899,7 @@ func (r *Runtime) GetGroupStatus(groupID string) map[string]interface{} {
 		"active_members":      len(coord.ActiveMembers()),
 		"commits_issued":      snap.CommitsIssued,
 		"proposals_received":  snap.ProposalsReceived,
-		"messages_encrypted":  snap.CommitBytesTotal,
+		"commit_bytes_total":  snap.CommitBytesTotal,
 		"partitions_detected": snap.PartitionsDetected,
 	}
 }
@@ -965,8 +988,11 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 				r.publishBlindStoreEnvelope(mt, gid, wire)
 			},
-			OnAddCommitted: r.makeAddCommittedHandler(rec.GroupID),
-			OnPeerObserved: r.makePeerObservedHandler(rec.GroupID),
+			OnAddCommitted:     r.makeAddCommittedHandler(rec.GroupID),
+			OnPeerObserved:     r.makePeerObservedHandler(rec.GroupID),
+			OnProposalObserved: r.makeProposalAuditHandler(rec.GroupID),
+			OnCommitIssued:     r.makeCommitAuditHandler(rec.GroupID),
+			OnForkHealEvent:    r.makeForkHealAuditHandler(rec.GroupID),
 		})
 		if err != nil {
 			slog.Warn("Failed to create coordinator for existing group",
@@ -1066,6 +1092,12 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 
 func (r *Runtime) makeEpochHandler(groupID string) func(uint64) {
 	return func(epoch uint64) {
+		if changed, err := r.reconcileGroupRosterWithMLS(groupID); err == nil && changed {
+			r.emit("group:members_changed", map[string]interface{}{
+				"group_id": groupID,
+				"reason":   "epoch_reconcile",
+			})
+		}
 		r.emit("group:epoch", map[string]interface{}{
 			"group_id": groupID,
 			"epoch":    epoch,
@@ -1114,6 +1146,19 @@ func (r *Runtime) makeAddCommittedHandler(groupID string) func(coordination.AddC
 			slog.Warn("MarkAddCommitObserved failed",
 				"operation", delivery.OperationID, "group", groupID, "err", mErr)
 		}
+		role := "observer"
+		if len(welcome) > 0 {
+			role = "token_holder"
+		}
+		r.appendGroupEvent(groupID, groupEventTypeAddCommitObserved, "", delivery.TargetPeerID, commitEpoch, map[string]any{
+			"operation_id":   delivery.OperationID,
+			"target_peer_id": delivery.TargetPeerID,
+			"request_id":     delivery.RequestID,
+			"group_type":     delivery.GroupType,
+			"category_id":    delivery.CategoryID,
+			"welcome_hash":   welcomeHashHex,
+			"role":           role,
+		})
 
 		// Observer path: nothing more to do beyond audit. The Token Holder
 		// will deliver the Welcome out-of-band to the invitee.
@@ -1187,6 +1232,7 @@ func (r *Runtime) makeAccessLostHandler(groupID string) func(string, uint64, str
 		if reason == "" {
 			reason = "removed"
 		}
+		localPeerID := ""
 
 		r.mu.Lock()
 		var coordToStop interface{ Stop() }
@@ -1207,7 +1253,6 @@ func (r *Runtime) makeAccessLostHandler(groupID string) func(string, uint64, str
 		r.mu.Lock()
 		if r.db != nil {
 			_ = r.db.MarkGroupLeft(groupID)
-			localPeerID := ""
 			if r.node != nil {
 				localPeerID = r.node.Host.ID().String()
 			} else if info, err := r.GetOnboardingInfo(); err == nil && info != nil {
@@ -1224,6 +1269,12 @@ func (r *Runtime) makeAccessLostHandler(groupID string) func(string, uint64, str
 			"reason":   reason,
 			"epoch":    epoch,
 		})
+		if localPeerID != "" {
+			r.appendGroupEvent(groupID, groupEventTypeMemberLeft, localPeerID, localPeerID, epoch, map[string]any{
+				"peer_id": localPeerID,
+				"reason":  "access_lost",
+			})
+		}
 		r.emit("group:members_changed", map[string]interface{}{
 			"group_id": groupID,
 			"reason":   "removed_self",

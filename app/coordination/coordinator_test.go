@@ -21,6 +21,21 @@ type testNode struct {
 	storage *MockStorage
 }
 
+type blockingAddMembersEngine struct {
+	*MockMLSEngine
+	started chan struct{}
+}
+
+func (b *blockingAddMembersEngine) AddMembers(ctx context.Context, _ []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
+	select {
+	case <-b.started:
+	default:
+		close(b.started)
+	}
+	<-ctx.Done()
+	return nil, nil, nil, nil, ctx.Err()
+}
+
 func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwork, *FakeClock) {
 	t.Helper()
 	network := NewFakeNetwork()
@@ -45,6 +60,9 @@ func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwor
 		})
 		if err != nil {
 			t.Fatalf("NewCoordinator[%d]: %v", i, err)
+		}
+		if err := transport.Subscribe("/coordination/direct/1.0.0", coord.ReceiveDirectMessage); err != nil {
+			t.Fatalf("Subscribe direct[%d]: %v", i, err)
 		}
 		nodes[i] = &testNode{id: id, coord: coord, mls: mls, storage: storage}
 	}
@@ -80,6 +98,18 @@ func startAll(t *testing.T, nodes []*testNode) {
 			n.coord.Stop()
 		}
 	})
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, description string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %v: %s", timeout, description)
 }
 
 // exchangeHeartbeats makes each node broadcast a heartbeat and delivers them.
@@ -124,6 +154,9 @@ func setupClusterWithIDs(t *testing.T, ids []peer.ID, groupID string) ([]*testNo
 		})
 		if err != nil {
 			t.Fatalf("NewCoordinator[%d]: %v", i, err)
+		}
+		if err := transport.Subscribe("/coordination/direct/1.0.0", coord.ReceiveDirectMessage); err != nil {
+			t.Fatalf("Subscribe direct[%d]: %v", i, err)
 		}
 		nodes = append(nodes, &testNode{id: id, coord: coord, mls: mls, storage: storage})
 	}
@@ -197,6 +230,108 @@ func TestCoordinator_SendAndReceiveMessage(t *testing.T) {
 	if bobMsgs[0].SenderID != nodes[0].id {
 		t.Errorf("sender should be alice, got %s", bobMsgs[0].SenderID)
 	}
+}
+
+func TestCoordinator_SendMessage_DirectRetryRepairsDelayedGossip(t *testing.T) {
+	nodes, network, clk := setupCluster(t, 2, "grp-direct-repair")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+	baseWaiters := clk.WaitersCount()
+
+	alice := nodes[0]
+	bob := nodes[1]
+
+	if _, err := alice.coord.SendMessage([]byte("repair via direct retry")); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if got := len(bob.storage.Messages()); got != 0 {
+		t.Fatalf("bob should not have message before gossip drain/direct retry, got %d", got)
+	}
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		alice.coord.mu.Lock()
+		defer alice.coord.mu.Unlock()
+		return len(alice.coord.pendingAppDeliveries) == 1
+	}, "sender should track pending delivery")
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		return clk.WaitersCount() >= baseWaiters+1
+	}, "ack retry timer should register")
+
+	clk.Advance(alice.coord.cfg.ApplicationAckTimeout)
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		return len(bob.storage.Messages()) == 1
+	}, "direct retry should deliver message")
+
+	network.DrainAll()
+
+	bobMsgs := bob.storage.Messages()
+	if len(bobMsgs) != 1 {
+		t.Fatalf("bob should have exactly 1 deduplicated message, got %d", len(bobMsgs))
+	}
+	if string(bobMsgs[0].Content) != "repair via direct retry" {
+		t.Fatalf("unexpected content %q", bobMsgs[0].Content)
+	}
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		alice.coord.mu.Lock()
+		defer alice.coord.mu.Unlock()
+		return len(alice.coord.pendingAppDeliveries) == 0
+	}, "sender should clear pending delivery after ack")
+}
+
+func TestCoordinator_SendMessage_RetryOutstandingDeliveriesAfterReconnect(t *testing.T) {
+	nodes, network, clk := setupCluster(t, 2, "grp-direct-reconnect")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+	baseWaiters := clk.WaitersCount()
+
+	alice := nodes[0]
+	bob := nodes[1]
+	network.Partition([]peer.ID{alice.id}, []peer.ID{bob.id})
+
+	if _, err := alice.coord.SendMessage([]byte("repair after reconnect")); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if got := len(bob.storage.Messages()); got != 0 {
+		t.Fatalf("bob should not receive message while partitioned, got %d", got)
+	}
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		alice.coord.mu.Lock()
+		defer alice.coord.mu.Unlock()
+		return len(alice.coord.pendingAppDeliveries) == 1
+	}, "sender should track pending delivery while partitioned")
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		return clk.WaitersCount() >= baseWaiters+1
+	}, "ack retry timer should register while partitioned")
+
+	for i := 0; i < alice.coord.cfg.ApplicationDirectRetryLimit; i++ {
+		clk.Advance(alice.coord.cfg.ApplicationAckTimeout)
+	}
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		alice.coord.mu.Lock()
+		defer alice.coord.mu.Unlock()
+		return len(alice.coord.pendingAppDeliveries) == 1
+	}, "sender should keep pending delivery for reconnect repair")
+
+	network.Heal()
+	alice.coord.RetryOutstandingDeliveriesTo(bob.id)
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		return len(bob.storage.Messages()) == 1
+	}, "reconnect-triggered retry should deliver message")
+
+	waitForCondition(t, 200*time.Millisecond, func() bool {
+		alice.coord.mu.Lock()
+		defer alice.coord.mu.Unlock()
+		return len(alice.coord.pendingAppDeliveries) == 0
+	}, "sender should clear pending delivery after reconnect ack")
 }
 
 func TestCoordinator_ReplayEnvelopes_DeduplicatesDuplicateApplication(t *testing.T) {
@@ -824,6 +959,55 @@ func TestCoordinator_AddMember_TokenHolderCommitsDirectly(t *testing.T) {
 	}
 	if holderObs[0].welcomeLen == 0 {
 		t.Fatal("token holder direct AddMember must surface Welcome in callback")
+	}
+}
+
+func TestCoordinator_AddMember_TimesOutInsteadOfHangingForever(t *testing.T) {
+	aliceID := mustRealPeerID(t)
+	bobID := mustRealPeerID(t)
+	nodes, network, _ := setupClusterWithIDs(t, []peer.ID{aliceID, bobID}, "grp-add-timeout")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+			break
+		}
+	}
+	if holder == nil {
+		t.Fatal("failed to elect token holder")
+	}
+
+	holder.coord.cfg.MLSOperationTimeout = 50 * time.Millisecond
+	blocker := &blockingAddMembersEngine{
+		MockMLSEngine: NewMockMLSEngine(),
+		started:       make(chan struct{}),
+	}
+	holder.coord.mls = blocker
+
+	startedAt := time.Now()
+	_, err := holder.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("invitee-timeout"),
+		KeyPackageBytes: []byte("mock-key-package-bytes"),
+		OperationID:     "ga_timeout_1",
+		KeyPackageHash:  []byte("kphash-timeout"),
+	})
+	elapsed := time.Since(startedAt)
+
+	if err == nil {
+		t.Fatal("expected AddMember timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("AddMember took too long after timeout: %v", elapsed)
+	}
+	if holder.coord.CurrentEpoch() != 0 {
+		t.Fatalf("epoch advanced unexpectedly to %d", holder.coord.CurrentEpoch())
 	}
 }
 

@@ -110,6 +110,10 @@ func (r *Runtime) LeaveGroup(groupID string) error {
 	}
 	if localPeerID != "" {
 		_ = database.MarkGroupMemberLeft(groupID, localPeerID, 0)
+		r.appendGroupEvent(groupID, groupEventTypeMemberLeft, localPeerID, localPeerID, 0, map[string]any{
+			"peer_id": localPeerID,
+			"reason":  "left",
+		})
 	}
 
 	r.emit("group:left", map[string]interface{}{
@@ -189,6 +193,10 @@ func (r *Runtime) RemoveMemberFromGroup(groupID string, peerID string) error {
 	}
 
 	_ = database.MarkGroupMemberLeft(groupID, peerID, 0)
+	r.appendGroupEvent(groupID, groupEventTypeMemberLeft, localPeerID, peerID, 0, map[string]any{
+		"peer_id": peerID,
+		"reason":  "removed",
+	})
 	r.emit("group:members_changed", map[string]interface{}{
 		"group_id":       groupID,
 		"reason":         "removed",

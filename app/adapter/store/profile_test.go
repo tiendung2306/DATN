@@ -148,3 +148,37 @@ func TestMergePeerDirectoryProfile_ClearedFieldsClearsEmail(t *testing.T) {
 		t.Fatalf("email should be cleared, got %+v", row.Email)
 	}
 }
+
+func TestEnsureLocalProfileRow_SeedsRevisionOne(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.EnsureLocalProfileRow("peer-seed", "Seed User"); err != nil {
+		t.Fatalf("EnsureLocalProfileRow: %v", err)
+	}
+	row, err := d.GetLocalProfile()
+	if err != nil {
+		t.Fatalf("GetLocalProfile: %v", err)
+	}
+	if row.ProfileRevision != 1 {
+		t.Fatalf("profile_revision=%d, want 1", row.ProfileRevision)
+	}
+}
+
+func TestEnsureLocalProfileRevisionFloor_HealsLegacyZero(t *testing.T) {
+	d := setupTestDB(t)
+	if _, err := d.Conn.Exec(
+		`INSERT INTO local_profile (id, peer_id, display_name, profile_revision, updated_at)
+		 VALUES (1, 'peer-legacy', 'Legacy User', 0, strftime('%s','now'))`,
+	); err != nil {
+		t.Fatalf("seed local_profile: %v", err)
+	}
+	if err := d.EnsureLocalProfileRevisionFloor(1); err != nil {
+		t.Fatalf("EnsureLocalProfileRevisionFloor: %v", err)
+	}
+	row, err := d.GetLocalProfile()
+	if err != nil {
+		t.Fatalf("GetLocalProfile: %v", err)
+	}
+	if row.ProfileRevision != 1 {
+		t.Fatalf("profile_revision=%d, want 1", row.ProfileRevision)
+	}
+}

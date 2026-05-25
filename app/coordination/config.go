@@ -63,24 +63,44 @@ type CoordinatorConfig struct {
 	// BatchingDelay is how long the Token Holder waits after receiving the first
 	// proposal before executing a commit, allowing concurrent proposals to collect.
 	BatchingDelay time.Duration
+
+	// MLSOperationTimeout bounds a single Rust sidecar MLS RPC that sits on a
+	// user-facing or protocol-critical path (AddMembers, CreateCommit,
+	// Encrypt/Decrypt, ProcessCommit, ...). Without a per-call deadline, a stalled
+	// sidecar RPC can wedge the caller forever because the coordinator lifetime
+	// context is only cancelled on app shutdown.
+	MLSOperationTimeout time.Duration
+
+	// ApplicationAckTimeout is how long a sender waits for a direct delivery ACK
+	// for one MsgApplication envelope before retrying over the direct stream.
+	// GossipSub remains the primary path; this timeout is only a repair trigger.
+	ApplicationAckTimeout time.Duration
+
+	// ApplicationDirectRetryLimit bounds how many timed direct retries the
+	// coordinator attempts for one outstanding application envelope before giving
+	// up and waiting for a future reconnect/offline-sync repair.
+	ApplicationDirectRetryLimit int
 }
 
 // DefaultConfig returns production-ready defaults optimized for LAN/intranet
 // where network latency is typically <1ms.
 func DefaultConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
-		TokenHolderTimeout:     4 * time.Second,
-		HeartbeatInterval:      5 * time.Second,
-		AnnounceInterval:       10 * time.Second,
-		PeerDeadAfter:          3,
-		MaxBatchedProposals:    10,
-		KeyRotationInterval:    5 * time.Minute,
-		ReplayThrottleMs:       100,
-		MetricsEnabled:         true,
-		OfflineSyncEnabled:     true,
-		EnvelopeLogTTL:         7 * 24 * time.Hour,
-		EnvelopeLogMaxPerGroup: 10000,
-		BatchingDelay:          1 * time.Second,
+		TokenHolderTimeout:          4 * time.Second,
+		HeartbeatInterval:           5 * time.Second,
+		AnnounceInterval:            10 * time.Second,
+		PeerDeadAfter:               3,
+		MaxBatchedProposals:         10,
+		KeyRotationInterval:         5 * time.Minute,
+		ReplayThrottleMs:            100,
+		MetricsEnabled:              true,
+		OfflineSyncEnabled:          true,
+		EnvelopeLogTTL:              7 * 24 * time.Hour,
+		EnvelopeLogMaxPerGroup:      10000,
+		BatchingDelay:               1 * time.Second,
+		MLSOperationTimeout:         20 * time.Second,
+		ApplicationAckTimeout:       3 * time.Second,
+		ApplicationDirectRetryLimit: 2,
 	}
 }
 
@@ -89,18 +109,21 @@ func DefaultConfig() *CoordinatorConfig {
 // so tests control epoch transitions explicitly.
 func TestConfig() *CoordinatorConfig {
 	return &CoordinatorConfig{
-		TokenHolderTimeout:     100 * time.Millisecond,
-		HeartbeatInterval:      50 * time.Millisecond,
-		AnnounceInterval:       0,
-		PeerDeadAfter:          3,
-		MaxBatchedProposals:    10,
-		KeyRotationInterval:    0,
-		ReplayThrottleMs:       0,
-		MetricsEnabled:         true,
-		OfflineSyncEnabled:     true,
-		EnvelopeLogTTL:         7 * 24 * time.Hour,
-		EnvelopeLogMaxPerGroup: 10000,
-		BatchingDelay:          0,
+		TokenHolderTimeout:          100 * time.Millisecond,
+		HeartbeatInterval:           50 * time.Millisecond,
+		AnnounceInterval:            0,
+		PeerDeadAfter:               3,
+		MaxBatchedProposals:         10,
+		KeyRotationInterval:         0,
+		ReplayThrottleMs:            0,
+		MetricsEnabled:              true,
+		OfflineSyncEnabled:          true,
+		EnvelopeLogTTL:              7 * 24 * time.Hour,
+		EnvelopeLogMaxPerGroup:      10000,
+		BatchingDelay:               0,
+		MLSOperationTimeout:         250 * time.Millisecond,
+		ApplicationAckTimeout:       50 * time.Millisecond,
+		ApplicationDirectRetryLimit: 2,
 	}
 }
 
@@ -146,6 +169,18 @@ func (c *CoordinatorConfig) Validate() error {
 	if c.BatchingDelay < 0 {
 		return fmt.Errorf("%w: BatchingDelay must be >= 0, got %v",
 			ErrInvalidConfig, c.BatchingDelay)
+	}
+	if c.MLSOperationTimeout <= 0 {
+		return fmt.Errorf("%w: MLSOperationTimeout must be positive, got %v",
+			ErrInvalidConfig, c.MLSOperationTimeout)
+	}
+	if c.ApplicationAckTimeout <= 0 {
+		return fmt.Errorf("%w: ApplicationAckTimeout must be positive, got %v",
+			ErrInvalidConfig, c.ApplicationAckTimeout)
+	}
+	if c.ApplicationDirectRetryLimit < 0 {
+		return fmt.Errorf("%w: ApplicationDirectRetryLimit must be >= 0, got %d",
+			ErrInvalidConfig, c.ApplicationDirectRetryLimit)
 	}
 	return nil
 }

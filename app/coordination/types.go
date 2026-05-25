@@ -56,6 +56,7 @@ const (
 	MsgAnnounce    MessageType = "announce"
 	MsgEpochNotify MessageType = "epoch_notify"
 	MsgApplication MessageType = "application"
+	MsgDeliveryAck MessageType = "delivery_ack"
 )
 
 // Envelope is the top-level wire format for all coordination messages.
@@ -169,6 +170,51 @@ type AddMemberResult struct {
 	Delivery    AddCommitDelivery
 }
 
+// ProposalAuditSummary is a service-facing semantic summary of one observed proposal.
+type ProposalAuditSummary struct {
+	GroupID        string
+	Epoch          uint64
+	ActorPeerID    string
+	ProposalType   ProposalType
+	OperationID    string
+	TargetPeerID   string
+	RequestID      string
+	GroupType      string
+	CategoryID     string
+	KeyPackageHash []byte
+}
+
+// CommitAuditProposalSummary is one human-auditable proposal included in a commit.
+type CommitAuditProposalSummary struct {
+	ProposalType ProposalType `json:"proposal_type"`
+	OperationID  string       `json:"operation_id,omitempty"`
+	TargetPeerID string       `json:"target_peer_id,omitempty"`
+	RequestID    string       `json:"request_id,omitempty"`
+	GroupType    string       `json:"group_type,omitempty"`
+	CategoryID   string       `json:"category_id,omitempty"`
+}
+
+// CommitAuditSummary captures one commit issued by the local Token Holder.
+type CommitAuditSummary struct {
+	GroupID           string
+	TokenHolderPeerID string
+	PrevEpoch         uint64
+	NewEpoch          uint64
+	Proposals         []CommitAuditProposalSummary
+}
+
+// ForkHealAuditSummary captures a high-level fork-heal lifecycle event.
+type ForkHealAuditSummary struct {
+	GroupID              string
+	TraceID              string
+	Stage                string
+	WinnerPeerID         string
+	WinnerEpoch          uint64
+	NewEpoch             uint64
+	FailedStep           string
+	ReplayedMessageCount int
+}
+
 // HeartbeatMsg is a lightweight liveness signal broadcast periodically.
 type HeartbeatMsg struct {
 	// No extra fields — From + Epoch in Envelope are sufficient.
@@ -193,6 +239,12 @@ type EpochNotification struct {
 // ApplicationMsg carries an MLS-encrypted chat message.
 type ApplicationMsg struct {
 	Ciphertext []byte `json:"ciphertext"` // MLS ciphertext bytes
+}
+
+// DeliveryAckMsg acknowledges successful application-layer receipt of one
+// application envelope identified by its raw wire hash.
+type DeliveryAckMsg struct {
+	EnvelopeHash []byte `json:"envelope_hash"`
 }
 
 // ─── Persistence Types ───────────────────────────────────────────────────────

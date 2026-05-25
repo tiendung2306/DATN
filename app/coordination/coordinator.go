@@ -66,6 +66,13 @@ type CoordinatorOpts struct {
 	// can upsert into the local roster. Fires from a fresh goroutine so the
 	// service layer may perform DB I/O without blocking the coordinator.
 	OnPeerObserved func(groupID string, peerID peer.ID, observedAt time.Time)
+	// OnProposalObserved fires whenever a proposal is accepted into the local
+	// single-writer buffer.
+	OnProposalObserved func(ProposalAuditSummary)
+	// OnCommitIssued fires whenever the local node issues a commit as Token Holder.
+	OnCommitIssued func(CommitAuditSummary)
+	// OnForkHealEvent fires for high-level fork-heal lifecycle stages.
+	OnForkHealEvent func(ForkHealAuditSummary)
 }
 
 // Coordinator orchestrates the Decentralized Coordination Protocol for a
@@ -89,20 +96,23 @@ type Coordinator struct {
 	hlc     *HLC
 	metrics *Metrics
 
-	onMessage       func(*StoredMessage)
-	onEpochChange   func(uint64)
-	onAccessLost    func(string, uint64, string)
-	onEnvelope      func(MessageType, string, []byte)
-	onAddCommitted  func(AddCommitDelivery, uint64, []byte)
-	onPeerObserved  func(string, peer.ID, time.Time)
-	groupInfoFetch  GroupInfoFetchFunc
-	localIdentity   []byte
+	onMessage          func(*StoredMessage)
+	onEpochChange      func(uint64)
+	onAccessLost       func(string, uint64, string)
+	onEnvelope         func(MessageType, string, []byte)
+	onAddCommitted     func(AddCommitDelivery, uint64, []byte)
+	onPeerObserved     func(string, peer.ID, time.Time)
+	onProposalObserved func(ProposalAuditSummary)
+	onCommitIssued     func(CommitAuditSummary)
+	onForkHealEvent    func(ForkHealAuditSummary)
+	groupInfoFetch     GroupInfoFetchFunc
+	localIdentity      []byte
 
 	// Mutable state (protected by mu)
-	mu           sync.Mutex
-	groupState   []byte
-	treeHash     []byte
-	epoch        uint64
+	mu                sync.Mutex
+	groupState        []byte
+	treeHash          []byte
+	epoch             uint64
 	activeView        *ActiveView
 	singleWriter      *SingleWriter
 	epochTracker      *EpochTracker
@@ -110,9 +120,9 @@ type Coordinator struct {
 	proposalTimerChan <-chan time.Time
 	lastTokenHolder   peer.ID
 	started           bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
 
 	// healing is set to 1 while a fork-heal goroutine is in flight. Manipulated
 	// via atomic CAS so handleAnnounceLocked never blocks on a long heal and
@@ -121,6 +131,18 @@ type Coordinator struct {
 	// accessRevoked flips when local membership no longer exists in MLS state.
 	// All local mutation APIs are blocked once this is true.
 	accessRevoked bool
+
+	// pendingAppDeliveries tracks locally-sent MsgApplication envelopes awaiting a
+	// direct receipt ACK from each intended recipient. Key format:
+	// "<peer-id>|<envelope-hash-hex>".
+	pendingAppDeliveries map[string]*pendingAppDelivery
+}
+
+type pendingAppDelivery struct {
+	peerID       peer.ID
+	envelopeHash string
+	envelope     []byte
+	attempts     int
 }
 
 // GroupInfoFetchResult is the winner-branch snapshot fetched over
@@ -142,24 +164,28 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 	}
 
 	c := &Coordinator{
-		cfg:            opts.Config,
-		transport:      opts.Transport,
-		clock:          opts.Clock,
-		mls:            opts.MLS,
-		storage:        opts.Storage,
-		localID:        opts.LocalID,
-		groupID:        opts.GroupID,
-		signingKey:     opts.SigningKey,
-		hlc:            NewHLC(opts.Clock, opts.LocalID.String()),
-		metrics:        NewMetrics(),
-		onMessage:      opts.OnMessage,
-		onEpochChange:  opts.OnEpochChange,
-		onAccessLost:   opts.OnAccessLost,
-		onEnvelope:     opts.OnEnvelopeBroadcast,
-		onAddCommitted: opts.OnAddCommitted,
-		onPeerObserved: opts.OnPeerObserved,
-		groupInfoFetch: opts.GroupInfoFetcher,
-		localIdentity:  deriveIdentityFromSigningKey(opts.SigningKey),
+		cfg:                  opts.Config,
+		transport:            opts.Transport,
+		clock:                opts.Clock,
+		mls:                  opts.MLS,
+		storage:              opts.Storage,
+		localID:              opts.LocalID,
+		groupID:              opts.GroupID,
+		signingKey:           opts.SigningKey,
+		hlc:                  NewHLC(opts.Clock, opts.LocalID.String()),
+		metrics:              NewMetrics(),
+		onMessage:            opts.OnMessage,
+		onEpochChange:        opts.OnEpochChange,
+		onAccessLost:         opts.OnAccessLost,
+		onEnvelope:           opts.OnEnvelopeBroadcast,
+		onAddCommitted:       opts.OnAddCommitted,
+		onPeerObserved:       opts.OnPeerObserved,
+		onProposalObserved:   opts.OnProposalObserved,
+		onCommitIssued:       opts.OnCommitIssued,
+		onForkHealEvent:      opts.OnForkHealEvent,
+		groupInfoFetch:       opts.GroupInfoFetcher,
+		localIdentity:        deriveIdentityFromSigningKey(opts.SigningKey),
+		pendingAppDeliveries: make(map[string]*pendingAppDelivery),
 	}
 
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, func(members []peer.ID) {
@@ -294,6 +320,14 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	return nil
 }
 
+func (c *Coordinator) mlsOperationContext() (context.Context, context.CancelFunc) {
+	base := c.ctx
+	if base == nil {
+		base = context.Background()
+	}
+	return context.WithTimeout(base, c.cfg.MLSOperationTimeout)
+}
+
 // Stop cancels all background work and unsubscribes from the group topic.
 func (c *Coordinator) Stop() {
 	c.mu.Lock()
@@ -345,6 +379,8 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 		c.handleCommitLocked(&env, data)
 	case MsgApplication:
 		c.handleApplicationLocked(from, &env, data)
+	case MsgDeliveryAck:
+		c.handleDeliveryAckLocked(from, &env)
 	}
 }
 
@@ -406,6 +442,20 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 		KeyPackageHash: proposal.KeyPackageHash,
 	})
 	c.metrics.IncrProposalsReceived()
+	if c.onProposalObserved != nil {
+		c.onProposalObserved(ProposalAuditSummary{
+			GroupID:        c.groupID,
+			Epoch:          env.Epoch,
+			ActorPeerID:    from.String(),
+			ProposalType:   proposal.ProposalType,
+			OperationID:    proposal.OperationID,
+			TargetPeerID:   proposal.TargetPeerID,
+			RequestID:      proposal.RequestID,
+			GroupType:      proposal.GroupType,
+			CategoryID:     proposal.CategoryID,
+			KeyPackageHash: append([]byte(nil), proposal.KeyPackageHash...),
+		})
+	}
 
 	if c.singleWriter.IsTokenHolder() {
 		c.scheduleBatchCommitLocked()
@@ -436,7 +486,9 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 
 	start := c.clock.Now()
 
-	newState, newTreeHash, err := c.mls.ProcessCommit(c.ctx, c.groupState, commit.CommitData)
+	opCtx, cancel := c.mlsOperationContext()
+	newState, newTreeHash, err := c.mls.ProcessCommit(opCtx, c.groupState, commit.CommitData)
+	cancel()
 	if err != nil {
 		return false
 	}
@@ -506,7 +558,9 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 		localTs.NodeID = c.localID.String()
 	}
 
-	plaintext, newState, err := c.mls.DecryptMessage(c.ctx, c.groupState, appMsg.Ciphertext)
+	opCtx, cancel := c.mlsOperationContext()
+	plaintext, newState, err := c.mls.DecryptMessage(opCtx, c.groupState, appMsg.Ciphertext)
+	cancel()
 	if err != nil {
 		slog.Error("Failed to decrypt message", "group", c.groupID, "from", env.From, "error", err)
 		return false
@@ -543,7 +597,19 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
+	c.sendDeliveryAckLocked(sender, envelopeHash)
 	return true
+}
+
+func (c *Coordinator) handleDeliveryAckLocked(from peer.ID, env *Envelope) {
+	var ack DeliveryAckMsg
+	if err := json.Unmarshal(env.Payload, &ack); err != nil {
+		return
+	}
+	if len(ack.EnvelopeHash) == 0 {
+		return
+	}
+	delete(c.pendingAppDeliveries, pendingAppDeliveryKey(from, ack.EnvelopeHash))
 }
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
@@ -569,7 +635,7 @@ func (c *Coordinator) scheduleBatchCommitLocked() {
 
 	go func(timerChan <-chan time.Time) {
 		<-timerChan // Wait for the delay to expire (fully testable with FakeClock!)
-		
+
 		c.mu.Lock()
 		defer c.mu.Unlock()
 
@@ -599,13 +665,16 @@ func (c *Coordinator) tryCommitLocked() {
 	if len(batch) == 0 {
 		return
 	}
+	prevEpoch := c.epoch
 
 	rawProposals := make([][]byte, 0, len(batch))
 	for i := range batch {
 		rawProposals = append(rawProposals, batch[i].Data)
 	}
 
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(c.ctx, c.groupState, rawProposals)
+	opCtx, cancel := c.mlsOperationContext()
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(opCtx, c.groupState, rawProposals)
+	cancel()
 	if err != nil {
 		return
 	}
@@ -644,6 +713,7 @@ func (c *Coordinator) tryCommitLocked() {
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, batch)
 
 	// Hand off Welcome dispatch to the runtime. This local node is the Token
 	// Holder that just ran CreateCommit, so it is the only node holding the
@@ -659,6 +729,34 @@ func (c *Coordinator) tryCommitLocked() {
 			}
 		}()
 	}
+}
+
+func summarizeBufferedProposal(p BufferedProposal) CommitAuditProposalSummary {
+	return CommitAuditProposalSummary{
+		ProposalType: p.Type,
+		OperationID:  p.OperationID,
+		TargetPeerID: p.TargetPeerID,
+		RequestID:    p.RequestID,
+		GroupType:    p.GroupType,
+		CategoryID:   p.CategoryID,
+	}
+}
+
+func (c *Coordinator) emitCommitIssuedLocked(prevEpoch, newEpoch uint64, batch []BufferedProposal) {
+	if c.onCommitIssued == nil {
+		return
+	}
+	proposals := make([]CommitAuditProposalSummary, 0, len(batch))
+	for _, item := range batch {
+		proposals = append(proposals, summarizeBufferedProposal(item))
+	}
+	c.onCommitIssued(CommitAuditSummary{
+		GroupID:           c.groupID,
+		TokenHolderPeerID: c.localID.String(),
+		PrevEpoch:         prevEpoch,
+		NewEpoch:          newEpoch,
+		Proposals:         proposals,
+	})
 }
 
 // buildAddDeliveriesFromBatch projects routing metadata from a homogeneous
@@ -798,7 +896,9 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	// Non-holder path: broadcast ProposalAdd and let whichever node holds
 	// the token at the committing epoch author the Welcome.
 	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
-		proposalBytes, err := c.mls.CreateProposal(c.ctx, c.groupState, ProposalAdd, req.KeyPackageBytes)
+		opCtx, cancel := c.mlsOperationContext()
+		proposalBytes, err := c.mls.CreateProposal(opCtx, c.groupState, ProposalAdd, req.KeyPackageBytes)
+		cancel()
 		if err != nil {
 			return AddMemberResult{}, fmt.Errorf("CreateProposal: %w", err)
 		}
@@ -826,6 +926,20 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 			KeyPackageHash: msg.KeyPackageHash,
 		})
 		c.metrics.IncrProposalsReceived()
+		if c.onProposalObserved != nil {
+			c.onProposalObserved(ProposalAuditSummary{
+				GroupID:        c.groupID,
+				Epoch:          c.epoch,
+				ActorPeerID:    c.localID.String(),
+				ProposalType:   ProposalAdd,
+				OperationID:    req.OperationID,
+				TargetPeerID:   req.TargetPeerID.String(),
+				RequestID:      req.RequestID,
+				GroupType:      req.GroupType,
+				CategoryID:     req.CategoryID,
+				KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
+			})
+		}
 
 		return AddMemberResult{
 			OperationID: req.OperationID,
@@ -835,10 +949,27 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	}
 
 	// Token Holder path: commit synchronously.
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(c.ctx, c.groupState, [][]byte{req.KeyPackageBytes})
+	slog.Info("Coordinator AddMember: token-holder path started",
+		"group", c.groupID,
+		"epoch", c.epoch,
+		"target", req.TargetPeerID.String(),
+		"operation_id", req.OperationID,
+		"timeout", c.cfg.MLSOperationTimeout,
+	)
+	opCtx, cancel := c.mlsOperationContext()
+	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(opCtx, c.groupState, [][]byte{req.KeyPackageBytes})
+	cancel()
 	if err != nil {
 		return AddMemberResult{}, fmt.Errorf("AddMembers: %w", err)
 	}
+	slog.Info("Coordinator AddMember: sidecar AddMembers completed",
+		"group", c.groupID,
+		"next_epoch", c.epoch+1,
+		"target", req.TargetPeerID.String(),
+		"operation_id", req.OperationID,
+		"commit_bytes", len(commitBytes),
+		"welcome_bytes", len(welcomeBytes),
+	)
 
 	if len(welcomeBytes) > 0 {
 		sum := sha256.Sum256(welcomeBytes)
@@ -855,6 +986,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	if len(envBytes) == 0 {
 		return AddMemberResult{}, fmt.Errorf("failed to encode commit envelope")
 	}
+	prevEpoch := c.epoch
 	nextEpoch := c.epoch + 1
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
@@ -870,12 +1002,27 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	if !applied {
 		return AddMemberResult{}, fmt.Errorf("commit envelope already applied")
 	}
+	slog.Info("Coordinator AddMember: commit persisted",
+		"group", c.groupID,
+		"next_epoch", nextEpoch,
+		"target", req.TargetPeerID.String(),
+		"operation_id", req.OperationID,
+	)
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
+		Type:           ProposalAdd,
+		OperationID:    req.OperationID,
+		TargetPeerID:   req.TargetPeerID.String(),
+		RequestID:      req.RequestID,
+		GroupType:      req.GroupType,
+		CategoryID:     req.CategoryID,
+		KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
+	}})
 
 	// Hand off Welcome delivery on the holder side. We dispatch via the
 	// callback so the same outbox-style code path (pending_welcomes_out +
@@ -928,7 +1075,9 @@ func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
 		return c.proposeLocked(ProposalRemove, targetIdentity)
 	}
 
-	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(c.ctx, c.groupState, [][]byte{targetIdentity})
+	opCtx, cancel := c.mlsOperationContext()
+	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(opCtx, c.groupState, [][]byte{targetIdentity})
+	cancel()
 	if err != nil {
 		return fmt.Errorf("RemoveMembers: %w", err)
 	}
@@ -942,6 +1091,7 @@ func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
 	if len(envBytes) == 0 {
 		return fmt.Errorf("failed to encode commit envelope")
 	}
+	prevEpoch := c.epoch
 	nextEpoch := c.epoch + 1
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
@@ -963,6 +1113,9 @@ func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
+		Type: ProposalRemove,
+	}})
 
 	return nil
 }
@@ -996,7 +1149,9 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 		ts.NodeID = c.localID.String()
 	}
 
-	ciphertext, newState, err := c.mls.EncryptMessage(c.ctx, c.groupState, plaintext)
+	opCtx, cancel := c.mlsOperationContext()
+	ciphertext, newState, err := c.mls.EncryptMessage(opCtx, c.groupState, plaintext)
+	cancel()
 	if err != nil {
 		slog.Error("Failed to encrypt message", "group", c.groupID, "error", err)
 		return nil, fmt.Errorf("encrypt: %w", err)
@@ -1031,12 +1186,159 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 	}
 	c.groupState = newState
 	c.publishPreparedEnvelopeLocked(MsgApplication, envBytes)
+	c.trackPendingApplicationDeliveriesLocked(envBytes, envelopeHash)
 	slog.Info("Message sent", "group", c.groupID, "epoch", c.epoch, "ts", ts.WallTimeMs)
 	if c.onMessage != nil {
 		c.onMessage(msg)
 	}
 
 	return &ts, nil
+}
+
+func pendingAppDeliveryKey(pid peer.ID, envelopeHash []byte) string {
+	return pid.String() + "|" + hex.EncodeToString(envelopeHash)
+}
+
+func (c *Coordinator) trackPendingApplicationDeliveriesLocked(envBytes, envelopeHash []byte) {
+	if len(envBytes) == 0 || len(envelopeHash) == 0 || c.cfg.ApplicationDirectRetryLimit == 0 {
+		return
+	}
+	recipients := c.applicationRecipientsLocked()
+	for _, pid := range recipients {
+		key := pendingAppDeliveryKey(pid, envelopeHash)
+		if _, exists := c.pendingAppDeliveries[key]; exists {
+			continue
+		}
+		c.pendingAppDeliveries[key] = &pendingAppDelivery{
+			peerID:       pid,
+			envelopeHash: hex.EncodeToString(envelopeHash),
+			envelope:     append([]byte(nil), envBytes...),
+		}
+		go c.applicationAckWatchLoop(pid, append([]byte(nil), envelopeHash...))
+	}
+}
+
+func (c *Coordinator) applicationRecipientsLocked() []peer.ID {
+	seen := make(map[string]struct{})
+	out := make([]peer.ID, 0)
+	addPeer := func(pid peer.ID) {
+		if pid == "" || pid == c.localID {
+			return
+		}
+		key := pid.String()
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, pid)
+	}
+	for _, pid := range c.activeView.Members() {
+		addPeer(pid)
+	}
+	if len(out) == 0 {
+		for _, pid := range c.transport.ConnectedPeers() {
+			addPeer(pid)
+		}
+	}
+	return out
+}
+
+func (c *Coordinator) applicationAckWatchLoop(pid peer.ID, envelopeHash []byte) {
+	key := pendingAppDeliveryKey(pid, envelopeHash)
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.clock.After(c.cfg.ApplicationAckTimeout):
+		}
+
+		c.mu.Lock()
+		pending, ok := c.pendingAppDeliveries[key]
+		if !ok {
+			c.mu.Unlock()
+			return
+		}
+		if pending.attempts >= c.cfg.ApplicationDirectRetryLimit {
+			c.mu.Unlock()
+			return
+		}
+		pending.attempts++
+		wire := append([]byte(nil), pending.envelope...)
+		groupID := c.groupID
+		attempt := pending.attempts
+		c.mu.Unlock()
+
+		if err := c.sendDirectEnvelope(pid, wire); err != nil {
+			slog.Debug("application direct retry failed",
+				"group", groupID,
+				"peer", pid,
+				"attempt", attempt,
+				"err", err,
+			)
+			continue
+		}
+		slog.Info("application direct retry sent",
+			"group", groupID,
+			"peer", pid,
+			"attempt", attempt,
+		)
+	}
+}
+
+func (c *Coordinator) sendDeliveryAckLocked(to peer.ID, envelopeHash []byte) {
+	if to == "" || to == c.localID || len(envelopeHash) == 0 {
+		return
+	}
+	envBytes := c.buildEnvelopeWithEpochAndTimestampLocked(
+		MsgDeliveryAck,
+		DeliveryAckMsg{EnvelopeHash: append([]byte(nil), envelopeHash...)},
+		c.epoch,
+		c.hlc.Now(),
+	)
+	if len(envBytes) == 0 {
+		return
+	}
+	go func(pid peer.ID, wire []byte) {
+		if err := c.sendDirectEnvelope(pid, wire); err != nil {
+			slog.Debug("delivery ack send failed", "group", c.groupID, "peer", pid, "err", err)
+		}
+	}(to, envBytes)
+}
+
+func (c *Coordinator) sendDirectEnvelope(to peer.ID, wire []byte) error {
+	ctx := c.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	dctx, cancel := context.WithTimeout(ctx, c.cfg.ApplicationAckTimeout)
+	defer cancel()
+	return c.transport.SendDirect(dctx, to, wire)
+}
+
+// RetryOutstandingDeliveriesTo immediately re-sends every still-unacked local
+// application envelope to one peer. Intended for reconnect / re-verify hooks.
+func (c *Coordinator) RetryOutstandingDeliveriesTo(pid peer.ID) {
+	if pid == "" || pid == c.localID {
+		return
+	}
+	c.mu.Lock()
+	var wires [][]byte
+	for _, pending := range c.pendingAppDeliveries {
+		if pending.peerID != pid {
+			continue
+		}
+		wires = append(wires, append([]byte(nil), pending.envelope...))
+	}
+	c.mu.Unlock()
+	for _, wire := range wires {
+		if err := c.sendDirectEnvelope(pid, wire); err != nil {
+			slog.Debug("retry outstanding delivery failed", "group", c.groupID, "peer", pid, "err", err)
+		}
+	}
 }
 
 // ProposeAdd broadcasts an Add proposal.
@@ -1075,7 +1377,9 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 		return ErrAccessRevoked
 	}
 
-	proposalBytes, err := c.mls.CreateProposal(c.ctx, c.groupState, pType, data)
+	opCtx, cancel := c.mlsOperationContext()
+	proposalBytes, err := c.mls.CreateProposal(opCtx, c.groupState, pType, data)
+	cancel()
 	if err != nil {
 		return fmt.Errorf("CreateProposal: %w", err)
 	}
@@ -1084,6 +1388,14 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 
 	c.singleWriter.BufferProposal(BufferedProposal{Type: pType, Data: proposalBytes})
 	c.metrics.IncrProposalsReceived()
+	if c.onProposalObserved != nil {
+		c.onProposalObserved(ProposalAuditSummary{
+			GroupID:      c.groupID,
+			Epoch:        c.epoch,
+			ActorPeerID:  c.localID.String(),
+			ProposalType: pType,
+		})
+	}
 
 	if c.singleWriter.IsTokenHolder() {
 		c.scheduleBatchCommitLocked()
@@ -1116,7 +1428,9 @@ func (c *Coordinator) updateLocalAccessRevocationLocked(groupState []byte, epoch
 	if len(c.localIdentity) == 0 {
 		return
 	}
-	ok, err := c.mls.HasMember(c.ctx, groupState, c.localIdentity)
+	opCtx, cancel := c.mlsOperationContext()
+	ok, err := c.mls.HasMember(opCtx, groupState, c.localIdentity)
+	cancel()
 	if err != nil {
 		slog.Warn("Failed membership query", "group", c.groupID, "epoch", epoch, "err", err)
 		return
@@ -1173,7 +1487,14 @@ func (c *Coordinator) buildEnvelopeWithEpochAndTimestampLocked(msgType MessageTy
 }
 
 func (c *Coordinator) publishPreparedEnvelopeLocked(msgType MessageType, envBytes []byte) {
-	_ = c.transport.Publish(c.ctx, GroupTopic(c.groupID), envBytes)
+	if err := c.transport.Publish(c.ctx, GroupTopic(c.groupID), envBytes); err != nil {
+		slog.Warn("Failed to publish coordination envelope",
+			"group", c.groupID,
+			"type", msgType,
+			"epoch", c.epoch,
+			"err", err,
+		)
+	}
 	if c.onEnvelope != nil && (msgType == MsgCommit || msgType == MsgApplication) {
 		c.onEnvelope(msgType, c.groupID, envBytes)
 	}
@@ -1354,6 +1675,16 @@ func (c *Coordinator) IsTokenHolder() bool {
 	return c.singleWriter.IsTokenHolder()
 }
 
+// CurrentTokenHolder returns the PeerID of the elected Token Holder for the current epoch.
+func (c *Coordinator) CurrentTokenHolder() (peer.ID, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.singleWriter == nil {
+		return "", fmt.Errorf("singleWriter not initialized")
+	}
+	return c.singleWriter.CurrentTokenHolder()
+}
+
 func (c *Coordinator) GetMetrics() MetricsSnapshot {
 	return c.metrics.Snapshot()
 }
@@ -1438,6 +1769,16 @@ func (c *Coordinator) scheduleHeal(event *ForkEvent) {
 		"partition_window_ms", partitionWindowMs,
 		"scheduled_at_ms", scheduledAt.UnixMilli(),
 	)
+	if c.onForkHealEvent != nil {
+		c.onForkHealEvent(ForkHealAuditSummary{
+			GroupID:      event.GroupID,
+			TraceID:      traceID,
+			Stage:        "fork_heal_started",
+			WinnerPeerID: event.RemotePeer.String(),
+			WinnerEpoch:  event.RemoteEpoch,
+			NewEpoch:     localEpoch,
+		})
+	}
 
 	go c.runHeal(c.ctx, traceID, event, scheduledAt)
 }
@@ -1693,6 +2034,17 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
 		ReplayedMessageCount: replayedCount,
 	})
+	if c.onForkHealEvent != nil {
+		c.onForkHealEvent(ForkHealAuditSummary{
+			GroupID:              event.GroupID,
+			TraceID:              traceID,
+			Stage:                "fork_heal_completed",
+			WinnerPeerID:         event.RemotePeer.String(),
+			WinnerEpoch:          gi.Epoch,
+			NewEpoch:             newEpoch,
+			ReplayedMessageCount: replayedCount,
+		})
+	}
 }
 
 func (c *Coordinator) fetchGroupInfoForHeal(ctx context.Context, remote peer.ID, groupID string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
@@ -1828,6 +2180,17 @@ func (c *Coordinator) logHealFailed(traceID string, event *ForkEvent, startedAt,
 		TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
 		ReplayedMessageCount: 0,
 	})
+	if c.onForkHealEvent != nil {
+		c.onForkHealEvent(ForkHealAuditSummary{
+			GroupID:      event.GroupID,
+			TraceID:      traceID,
+			Stage:        "fork_heal_failed",
+			WinnerPeerID: event.RemotePeer.String(),
+			WinnerEpoch:  event.RemoteEpoch,
+			NewEpoch:     c.CurrentEpoch(),
+			FailedStep:   step,
+		})
+	}
 }
 
 func (c *Coordinator) recordForkHealAudit(traceID, groupID, step, status string, ts time.Time, durationMs int64, errMsg string) {

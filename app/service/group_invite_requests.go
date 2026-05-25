@@ -331,6 +331,13 @@ func (r *Runtime) RequestGroupInvite(groupID, targetPeerID string) (GroupInviteR
 	if err := database.UpsertGroupInviteRequestMirror(wireRec); err != nil {
 		return GroupInviteRequestInfo{}, err
 	}
+	r.appendGroupEvent(groupID, groupEventTypeInviteRequestCreated, requester, targetPeerID, 0, map[string]any{
+		"request_id":        wireRec.RequestID,
+		"requester_peer_id": requester,
+		"target_peer_id":    targetPeerID,
+		"status":            wireRec.Status,
+		"source":            "mirror",
+	})
 	out, err := database.GetGroupInviteRequest(wireRec.RequestID)
 	if err != nil {
 		return GroupInviteRequestInfo{}, err
@@ -367,6 +374,12 @@ func (r *Runtime) ApproveGroupInviteRequest(requestID string) (GroupInviteReques
 	if err != nil {
 		return GroupInviteRequestInfo{}, err
 	}
+	r.appendGroupEvent(rec.GroupID, groupEventTypeInviteRequestApproved, rec.RequesterPeerID, rec.TargetPeerID, 0, map[string]any{
+		"request_id":        rec.RequestID,
+		"requester_peer_id": rec.RequesterPeerID,
+		"target_peer_id":    rec.TargetPeerID,
+		"status":            rec.Status,
+	})
 	return toInviteRequestInfo(rec), nil
 }
 
@@ -396,6 +409,13 @@ func (r *Runtime) RejectGroupInviteRequest(requestID, reason string) (GroupInvit
 		return GroupInviteRequestInfo{}, err
 	}
 	r.maybePushInviteUpdate(context.Background(), out)
+	r.appendGroupEvent(rec.GroupID, groupEventTypeInviteRequestRejected, rec.RequesterPeerID, rec.TargetPeerID, 0, map[string]any{
+		"request_id":        requestID,
+		"requester_peer_id": rec.RequesterPeerID,
+		"target_peer_id":    rec.TargetPeerID,
+		"status":            store.InviteRequestStatusRejected,
+		"reason":            strings.TrimSpace(reason),
+	})
 	r.emit("group:invite_request_decided", map[string]interface{}{
 		"group_id":       rec.GroupID,
 		"request_id":     requestID,

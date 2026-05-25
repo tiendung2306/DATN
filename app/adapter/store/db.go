@@ -400,6 +400,20 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_seq ON runtime_event_log(seq);`,
 		`CREATE INDEX IF NOT EXISTS idx_runtime_event_log_aggregate_rev ON runtime_event_log(aggregate, revision);`,
+		`CREATE TABLE IF NOT EXISTS group_event_log (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			group_id       TEXT    NOT NULL,
+			event_type     TEXT    NOT NULL,
+			actor_peer_id  TEXT    NOT NULL DEFAULT '',
+			target_peer_id TEXT    NOT NULL DEFAULT '',
+			epoch          INTEGER NOT NULL DEFAULT 0,
+			payload_json   BLOB    NOT NULL,
+			created_at_ms  INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_event_log_group_created
+			ON group_event_log(group_id, created_at_ms DESC, id DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_group_event_log_group_type
+			ON group_event_log(group_id, event_type, created_at_ms DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS fork_heal_events (
 			id                        INTEGER PRIMARY KEY AUTOINCREMENT,
 			trace_id                  TEXT    NOT NULL,
@@ -1159,6 +1173,30 @@ func (d *Database) ListGroupMembers(groupID string, statuses ...string) ([]Group
 	return out, rows.Err()
 }
 
+func (d *Database) GetGroupMember(groupID, peerID string) (*GroupMemberRecord, error) {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	if groupID == "" || peerID == "" {
+		return nil, fmt.Errorf("GetGroupMember: group_id and peer_id are required")
+	}
+	var rec GroupMemberRecord
+	err := d.Conn.QueryRow(
+		`SELECT group_id, peer_id, display_name, role, status, source, joined_at, left_at, updated_at
+		   FROM group_members
+		  WHERE group_id = ? AND peer_id = ?`,
+		groupID, peerID,
+	).Scan(&rec.GroupID, &rec.PeerID, &rec.DisplayName, &rec.Role, &rec.Status, &rec.Source, &rec.JoinedAt, &rec.LeftAt, &rec.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetGroupMember: %w", err)
+	}
+	rec.Status = normalizeGroupMemberStatus(rec.Status)
+	rec.Role = normalizeGroupMemberRole(rec.Role)
+	return &rec, nil
+}
+
 func (d *Database) MarkGroupMemberLeft(groupID, peerID string, leftAt int64) error {
 	groupID = strings.TrimSpace(groupID)
 	peerID = strings.TrimSpace(peerID)
@@ -1355,12 +1393,76 @@ func (d *Database) GetPendingWelcomesFor(targetPeerID string) ([]PendingWelcome,
 	return out, rows.Err()
 }
 
+func (d *Database) ListPendingWelcomes() ([]PendingWelcome, error) {
+	rows, err := d.Conn.Query(
+		`SELECT id, target_peer_id, group_id, welcome_bytes
+		 FROM pending_welcomes_out
+		 WHERE delivered = 0`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListPendingWelcomes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PendingWelcome
+	for rows.Next() {
+		var pw PendingWelcome
+		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes); err != nil {
+			return nil, err
+		}
+		out = append(out, pw)
+	}
+	return out, rows.Err()
+}
+
 // MarkWelcomeDelivered marks a pending welcome row as delivered.
 func (d *Database) MarkWelcomeDelivered(id int64) error {
 	_, err := d.Conn.Exec(
 		`UPDATE pending_welcomes_out SET delivered = 1 WHERE id = ?`, id,
 	)
 	return err
+}
+
+func (d *Database) MarkWelcomeDeliveredFor(targetPeerID, groupID string) error {
+	_, err := d.Conn.Exec(
+		`UPDATE pending_welcomes_out
+		 SET delivered = 1
+		 WHERE target_peer_id = ? AND group_id = ?`,
+		targetPeerID, groupID,
+	)
+	return err
+}
+
+func (d *Database) ReopenWelcomeDelivery(targetPeerID, groupID string) error {
+	_, err := d.Conn.Exec(
+		`UPDATE pending_welcomes_out
+		 SET delivered = 0
+		 WHERE target_peer_id = ? AND group_id = ?`,
+		targetPeerID, groupID,
+	)
+	return err
+}
+
+func (d *Database) ReopenUnacknowledgedPendingWelcomes() (int64, error) {
+	res, err := d.Conn.Exec(
+		`UPDATE pending_welcomes_out
+		 SET delivered = 0
+		 WHERE delivered = 1
+		   AND EXISTS (
+		     SELECT 1 FROM group_add_operations gao
+		     WHERE gao.group_id = pending_welcomes_out.group_id
+		       AND gao.target_peer_id = pending_welcomes_out.target_peer_id
+		       AND gao.status NOT IN ('welcome_delivered', 'failed')
+		   )`,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("ReopenUnacknowledgedPendingWelcomes: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("ReopenUnacknowledgedPendingWelcomes rows: %w", err)
+	}
+	return n, nil
 }
 
 // SaveStoredKeyPackage upserts a public KeyPackage replica for peerID.
@@ -2177,6 +2279,7 @@ func (d *Database) PurgeGroupMetadata(groupID string) error {
 		"applied_envelopes",
 		"envelope_log",
 		"envelope_dedup",
+		"group_event_log",
 		"fork_heal_events",
 		"fork_audit",
 		"group_invite_requests",
@@ -2194,7 +2297,6 @@ func (d *Database) PurgeGroupMetadata(groupID string) error {
 	}
 	return nil
 }
-
 
 type StoredMessageRow struct {
 	ID      string

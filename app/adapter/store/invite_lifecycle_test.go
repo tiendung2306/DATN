@@ -115,6 +115,92 @@ func TestPendingWelcome_GetAnyPendingWelcomeForGroupIncludesDelivered(t *testing
 	}
 }
 
+func TestPendingWelcome_DeliveredOnlyAfterJoinAckCanReopen(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline")); err != nil {
+		t.Fatalf("SavePendingWelcome: %v", err)
+	}
+	rows, err := d.ListPendingWelcomes()
+	if err != nil {
+		t.Fatalf("ListPendingWelcomes: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("pending rows=%d want 1", len(rows))
+	}
+	if err := d.MarkWelcomeDeliveredFor("peer-b", "group-offline"); err != nil {
+		t.Fatalf("MarkWelcomeDeliveredFor: %v", err)
+	}
+	rows, err = d.GetPendingWelcomesFor("peer-b")
+	if err != nil {
+		t.Fatalf("GetPendingWelcomesFor after delivered: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("pending rows after delivered=%d want 0", len(rows))
+	}
+	if err := d.ReopenWelcomeDelivery("peer-b", "group-offline"); err != nil {
+		t.Fatalf("ReopenWelcomeDelivery: %v", err)
+	}
+	rows, err = d.GetPendingWelcomesFor("peer-b")
+	if err != nil {
+		t.Fatalf("GetPendingWelcomesFor after reopen: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("pending rows after reopen=%d want 1", len(rows))
+	}
+}
+
+func TestPendingWelcome_ReopenUnacknowledgedUsesAddOperationStatus(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline")); err != nil {
+		t.Fatalf("SavePendingWelcome: %v", err)
+	}
+	rows, err := d.GetPendingWelcomesFor("peer-b")
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("GetPendingWelcomesFor: rows=%d err=%v", len(rows), err)
+	}
+	if err := d.MarkWelcomeDelivered(rows[0].ID); err != nil {
+		t.Fatalf("MarkWelcomeDelivered: %v", err)
+	}
+	if _, err := d.CreateGroupAddOperation(GroupAddOperationRecord{
+		OperationID:    "ga-offline",
+		GroupID:        "group-offline",
+		TargetPeerID:   "peer-b",
+		KeyPackageHash: "kp",
+		Status:         AddOpStatusWelcomeQueued,
+		CreatedAt:      1,
+		UpdatedAt:      1,
+	}); err != nil {
+		t.Fatalf("CreateGroupAddOperation: %v", err)
+	}
+	reopened, err := d.ReopenUnacknowledgedPendingWelcomes()
+	if err != nil {
+		t.Fatalf("ReopenUnacknowledgedPendingWelcomes: %v", err)
+	}
+	if reopened != 1 {
+		t.Fatalf("reopened=%d want 1", reopened)
+	}
+	rows, err = d.GetPendingWelcomesFor("peer-b")
+	if err != nil {
+		t.Fatalf("GetPendingWelcomesFor after reopen: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("pending rows after reopen=%d want 1", len(rows))
+	}
+	if err := d.MarkAddWelcomeDelivered("ga-offline"); err != nil {
+		t.Fatalf("MarkAddWelcomeDelivered: %v", err)
+	}
+	if err := d.MarkWelcomeDelivered(rows[0].ID); err != nil {
+		t.Fatalf("MarkWelcomeDelivered second: %v", err)
+	}
+	reopened, err = d.ReopenUnacknowledgedPendingWelcomes()
+	if err != nil {
+		t.Fatalf("ReopenUnacknowledgedPendingWelcomes delivered: %v", err)
+	}
+	if reopened != 0 {
+		t.Fatalf("reopened terminal=%d want 0", reopened)
+	}
+}
+
 func TestPendingInvite_ReopenRejectedInvite(t *testing.T) {
 	d := setupTestDB(t)
 	firstWelcome := []byte("welcome-1")

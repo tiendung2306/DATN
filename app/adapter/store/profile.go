@@ -123,11 +123,32 @@ func (d *Database) EnsureLocalProfileRow(peerID, displayName string) error {
 	displayName = strings.TrimSpace(displayName)
 	_, err := d.Conn.Exec(
 		`INSERT OR IGNORE INTO local_profile (id, peer_id, display_name, profile_revision, updated_at)
-		 VALUES (1, ?, ?, 0, strftime('%s','now'))`,
+		 VALUES (1, ?, ?, 1, strftime('%s','now'))`,
 		peerID, displayName,
 	)
 	if err != nil {
 		return fmt.Errorf("EnsureLocalProfileRow: %w", err)
+	}
+	return nil
+}
+
+// EnsureLocalProfileRevisionFloor heals legacy rows seeded with revision 0 so
+// replicated profile records always satisfy the replicated-store monotonicity contract.
+func (d *Database) EnsureLocalProfileRevisionFloor(minRevision int64) error {
+	if minRevision <= 0 {
+		minRevision = 1
+	}
+	_, err := d.Conn.Exec(
+		`UPDATE local_profile
+		    SET profile_revision = CASE
+		            WHEN profile_revision < ? THEN ?
+		            ELSE profile_revision
+		        END
+		  WHERE id = 1`,
+		minRevision, minRevision,
+	)
+	if err != nil {
+		return fmt.Errorf("EnsureLocalProfileRevisionFloor: %w", err)
 	}
 	return nil
 }

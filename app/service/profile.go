@@ -165,6 +165,9 @@ func (r *Runtime) ensureLocalProfileSeeded() error {
 	if err := db.EnsureLocalProfileRow(info.PeerID, identity.DisplayName); err != nil {
 		return err
 	}
+	if err := db.EnsureLocalProfileRevisionFloor(1); err != nil {
+		return err
+	}
 	if err := db.SyncLocalProfileIdentity(info.PeerID, identity.DisplayName); err != nil {
 		return err
 	}

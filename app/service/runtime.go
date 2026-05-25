@@ -297,6 +297,15 @@ func (r *Runtime) launchP2PNode() error {
 		node.AuthProtocol.SetPeerProfileAnnexHandler(r.handleAuthProfileAnnex)
 		node.AuthProtocol.SetOnPeerVerified(func(pid peer.ID) {
 			go r.pushLocalUserProfileToPeer(pid)
+			go r.retryOutstandingDeliveriesToPeer(pid)
+			go r.retryPendingWelcomes(pid)
+			go r.replicatePendingWelcomesToStorePeer(pid)
+			go r.replicateRecentEnvelopesToStorePeer(pid)
+			go r.schedulePendingInviteRefresh()
+			go r.scheduleOfflineSyncPull(pid)
+			go r.scheduleReplicatedProfilePull(pid)
+			go r.scheduleChannelCategorySync(pid)
+			go r.flushPendingDeliveryAcksTo(pid)
 		})
 	}
 	r.node = node
@@ -332,6 +341,22 @@ func (r *Runtime) launchP2PNode() error {
 	go r.processPendingWelcomesOnStartup(nodeCtx)
 
 	return nil
+}
+
+func (r *Runtime) retryOutstandingDeliveriesToPeer(pid peer.ID) {
+	r.mu.RLock()
+	if len(r.coordinators) == 0 {
+		r.mu.RUnlock()
+		return
+	}
+	coords := make([]*coordination.Coordinator, 0, len(r.coordinators))
+	for _, coord := range r.coordinators {
+		coords = append(coords, coord)
+	}
+	r.mu.RUnlock()
+	for _, coord := range coords {
+		coord.RetryOutstandingDeliveriesTo(pid)
+	}
 }
 
 // kickInitialOfflineSync proactively schedules offline pulls for peers that may

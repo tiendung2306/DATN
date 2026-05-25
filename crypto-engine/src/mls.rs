@@ -766,12 +766,20 @@ pub fn add_members(
     group_state: &[u8],
     key_packages_bytes: &[Vec<u8>],
 ) -> Result<CommitResult, String> {
+    let started = Instant::now();
     let mut imp = import_state(group_state)?;
+    eprintln!(
+        "mls::add_members phase=import_state_done group_id={} epoch={} elapsed_ms={}",
+        imp.group_id,
+        get_epoch(&imp.group),
+        started.elapsed().as_millis()
+    );
 
     if key_packages_bytes.is_empty() {
         return Err("no key packages".into());
     }
 
+    let kp_deserialize_started = Instant::now();
     let mut key_packages: Vec<KeyPackage> = Vec::with_capacity(key_packages_bytes.len());
     for raw in key_packages_bytes {
         let mut rd = raw.as_slice();
@@ -782,16 +790,37 @@ pub fn add_members(
             .map_err(|e| format!("invalid KeyPackage: {e:?}"))?;
         key_packages.push(kp);
     }
+    eprintln!(
+        "mls::add_members phase=keypackages_validated group_id={} count={} elapsed_ms={}",
+        imp.group_id,
+        key_packages.len(),
+        kp_deserialize_started.elapsed().as_millis()
+    );
 
+    let add_started = Instant::now();
     let (commit_out, welcome_out, _group_info) = imp
         .group
         .add_members(&imp.provider, &imp.signer, &key_packages)
         .map_err(|e| format!("add_members: {e:?}"))?;
+    eprintln!(
+        "mls::add_members phase=openmls_add_members_done group_id={} new_epoch={} elapsed_ms={}",
+        imp.group_id,
+        get_epoch(&imp.group),
+        add_started.elapsed().as_millis()
+    );
 
+    let merge_started = Instant::now();
     imp.group
         .merge_pending_commit(&imp.provider)
         .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
+    eprintln!(
+        "mls::add_members phase=merge_pending_commit_done group_id={} epoch={} elapsed_ms={}",
+        imp.group_id,
+        get_epoch(&imp.group),
+        merge_started.elapsed().as_millis()
+    );
 
+    let serialize_started = Instant::now();
     let commit_bytes = commit_out
         .tls_serialize_detached()
         .map_err(|e| format!("serialize commit: {e:?}"))?;
@@ -803,6 +832,16 @@ pub fn add_members(
     let epoch = get_epoch(&imp.group);
     let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
     let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
+    eprintln!(
+        "mls::add_members phase=serialized group_id={} epoch={} commit_bytes={} welcome_bytes={} state_bytes={} elapsed_ms={} total_ms={}",
+        imp.group_id,
+        epoch,
+        commit_bytes.len(),
+        welcome_bytes.len(),
+        new_state.len(),
+        serialize_started.elapsed().as_millis(),
+        started.elapsed().as_millis()
+    );
 
     Ok(CommitResult {
         commit_bytes,
