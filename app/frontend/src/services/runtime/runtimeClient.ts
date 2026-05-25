@@ -21,6 +21,7 @@ import {
   GetAppState,
   GetDiagnosticsSnapshot,
   GetForkHealHistory,
+  GetGroupAdmins,
   GetGroupEventLog,
   GetGroupMembers,
   GetMessageLimits,
@@ -67,6 +68,7 @@ import {
   SendGroupFile,
   SetBootstrapAddress,
   SetGroupInvitePolicy,
+  SetGroupMemberAdmin,
   StartDirectMessage,
   SyncInviteRequestFromCreator,
   TriggerOfflineSync,
@@ -104,6 +106,7 @@ export const runtimeClient = {
   getGroups: GetGroups,
   getKnownPeers: GetKnownPeers,
   getGroupStatus: GetGroupStatus,
+  getGroupAdmins: GetGroupAdmins,
   getGroupMembers: GetGroupMembers,
   getMessageLimits: GetMessageLimits,
   getGroupMessages: GetGroupMessages,
@@ -131,6 +134,7 @@ export const runtimeClient = {
   rejectGroupInviteRequest: RejectGroupInviteRequest,
   retryGroupInviteRequest: RetryGroupInviteRequest,
   setGroupInvitePolicy: SetGroupInvitePolicy,
+  setGroupMemberAdmin: SetGroupMemberAdmin,
   getGroupInvitePolicy: async (groupId: string): Promise<'creator_approval' | 'any_member'> => {
     try {
       const p = await GetGroupInvitePolicy(groupId)

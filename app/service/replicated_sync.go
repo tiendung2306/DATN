@@ -155,6 +155,48 @@ func (r *Runtime) handleReplicaStorePush(remote peer.ID, meta p2p.ReplicaPushMet
 			return nil
 		}
 		return err
+	case store.NamespaceGroupRoleV1:
+		recordKey := strings.TrimSpace(meta.RecordKey)
+		if recordKey == "" {
+			return fmt.Errorf("replica push: group role record_key required")
+		}
+		var w groupRoleWireV1
+		if err := json.Unmarshal(wireJSON, &w); err != nil {
+			return fmt.Errorf("group role wire: %w", err)
+		}
+		if groupRoleRecordKey(w.GroupID, w.TargetPeerID) != recordKey {
+			return fmt.Errorf("replica push: group role key mismatch")
+		}
+		actor := strings.TrimSpace(w.ActorPeerID)
+		if actor == "" {
+			return fmt.Errorf("replica push: group role actor required")
+		}
+		err := r.applySignedRemoteGroupRolePush(actor, wireJSON, signature)
+		if err != nil && errors.Is(err, errReplicationStaleGroupRole) {
+			return nil
+		}
+		return err
+	case store.NamespaceGroupInvitePolicyV1:
+		gid := strings.TrimSpace(meta.RecordKey)
+		if gid == "" {
+			return fmt.Errorf("replica push: group invite policy record_key required")
+		}
+		var w groupInvitePolicyWireV1
+		if err := json.Unmarshal(wireJSON, &w); err != nil {
+			return fmt.Errorf("group invite policy wire: %w", err)
+		}
+		if strings.TrimSpace(w.GroupID) != gid {
+			return fmt.Errorf("replica push: group invite policy key mismatch")
+		}
+		actor := strings.TrimSpace(w.ActorPeerID)
+		if actor == "" {
+			return fmt.Errorf("replica push: group invite policy actor required")
+		}
+		err := r.applySignedRemoteGroupInvitePolicyPush(actor, wireJSON, signature)
+		if err != nil && errors.Is(err, errReplicationStaleGroupInvitePolicy) {
+			return nil
+		}
+		return err
 	default:
 		return fmt.Errorf("unsupported namespace %q", meta.Namespace)
 	}
@@ -226,6 +268,58 @@ func (r *Runtime) serveReplicaStoreP2P(remote peer.ID, req *p2p.ReplicaPullReque
 			blob := r.avatarBlobAttachmentForGroupAvatarWire([]byte(row.BodyJSON))
 			hdr := p2p.ReplicaPullRecordHeaderV1{Key: key, Revision: row.Revision}
 			if err := emit(hdr, []byte(row.BodyJSON), row.Signature, blob); err != nil {
+				return err
+			}
+		}
+		return nil
+	case store.NamespaceGroupRoleV1:
+		if len(req.Keys) > 512 {
+			return fmt.Errorf("replica pull: too many keys")
+		}
+		for _, key := range req.Keys {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			row, err := db.GetReplicatedRecord(ns, key)
+			if err != nil {
+				continue
+			}
+			cur := int64(0)
+			if req.Cursors != nil {
+				cur = req.Cursors[key]
+			}
+			if row.Revision <= cur {
+				continue
+			}
+			hdr := p2p.ReplicaPullRecordHeaderV1{Key: key, Revision: row.Revision}
+			if err := emit(hdr, []byte(row.BodyJSON), row.Signature, nil); err != nil {
+				return err
+			}
+		}
+		return nil
+	case store.NamespaceGroupInvitePolicyV1:
+		if len(req.Keys) > 256 {
+			return fmt.Errorf("replica pull: too many keys")
+		}
+		for _, key := range req.Keys {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			row, err := db.GetReplicatedRecord(ns, key)
+			if err != nil {
+				continue
+			}
+			cur := int64(0)
+			if req.Cursors != nil {
+				cur = req.Cursors[key]
+			}
+			if row.Revision <= cur {
+				continue
+			}
+			hdr := p2p.ReplicaPullRecordHeaderV1{Key: key, Revision: row.Revision}
+			if err := emit(hdr, []byte(row.BodyJSON), row.Signature, nil); err != nil {
 				return err
 			}
 		}
@@ -323,33 +417,101 @@ func (r *Runtime) pullReplicatedProfilesFromPeerOnce(remote peer.ID) error {
 	if err != nil {
 		return err
 	}
-	if greq == nil || len(greq.Keys) == 0 {
-		return nil
-	}
-	ctx2, cancel2 := context.WithTimeout(r.appCtx(), 30*time.Second)
-	defer cancel2()
-	return p2p.PullReplicaStoreRecords(ctx2, node.Host, remote, greq, func(k string, rev int64, wire, sig, blob []byte) error {
-		var w groupAvatarWireV1
-		if err := json.Unmarshal(wire, &w); err != nil {
-			slog.Debug("replica-store: group avatar wire invalid", "replica", remote, "err", err)
-			return nil
-		}
-		creator := strings.TrimSpace(w.CreatorPeerID)
-		if creator == "" {
-			return nil
-		}
-		if err := r.applySignedRemoteGroupAvatarPush(creator, wire, sig, blob); err != nil {
-			if errors.Is(err, errReplicationStaleGroupAvatar) {
-				return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupAvatarV1, k, rev)
-			}
-			if errors.Is(err, errProfileUnknownPublicKey) {
-				slog.Debug("replica-store: group avatar skipped until MLS public key is known", "creator", creator, "replica", remote)
+	if greq != nil && len(greq.Keys) > 0 {
+		ctx2, cancel2 := context.WithTimeout(r.appCtx(), 30*time.Second)
+		err = p2p.PullReplicaStoreRecords(ctx2, node.Host, remote, greq, func(k string, rev int64, wire, sig, blob []byte) error {
+			var w groupAvatarWireV1
+			if err := json.Unmarshal(wire, &w); err != nil {
+				slog.Debug("replica-store: group avatar wire invalid", "replica", remote, "err", err)
 				return nil
 			}
-			slog.Debug("replica-store: group avatar record rejected", "group", k, "replica", remote, "err", err)
+			creator := strings.TrimSpace(w.CreatorPeerID)
+			if creator == "" {
+				return nil
+			}
+			if err := r.applySignedRemoteGroupAvatarPush(creator, wire, sig, blob); err != nil {
+				if errors.Is(err, errReplicationStaleGroupAvatar) {
+					return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupAvatarV1, k, rev)
+				}
+				if errors.Is(err, errProfileUnknownPublicKey) {
+					slog.Debug("replica-store: group avatar skipped until MLS public key is known", "creator", creator, "replica", remote)
+					return nil
+				}
+				slog.Debug("replica-store: group avatar record rejected", "group", k, "replica", remote, "err", err)
+				return nil
+			}
+			return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupAvatarV1, k, rev)
+		})
+		cancel2()
+		if err != nil {
+			return err
+		}
+	}
+	rreq, err := r.buildReplicatedGroupRolePullRequest(remote, db)
+	if err != nil {
+		return err
+	}
+	if rreq != nil && len(rreq.Keys) > 0 {
+		ctx3, cancel3 := context.WithTimeout(r.appCtx(), 30*time.Second)
+		err = p2p.PullReplicaStoreRecords(ctx3, node.Host, remote, rreq, func(k string, rev int64, wire, sig, _ []byte) error {
+			var w groupRoleWireV1
+			if err := json.Unmarshal(wire, &w); err != nil {
+				slog.Debug("replica-store: group role wire invalid", "replica", remote, "err", err)
+				return nil
+			}
+			actor := strings.TrimSpace(w.ActorPeerID)
+			if actor == "" {
+				return nil
+			}
+			if err := r.applySignedRemoteGroupRolePush(actor, wire, sig); err != nil {
+				if errors.Is(err, errReplicationStaleGroupRole) {
+					return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupRoleV1, k, rev)
+				}
+				if errors.Is(err, errProfileUnknownPublicKey) {
+					slog.Debug("replica-store: group role skipped until MLS public key is known", "actor", actor, "replica", remote)
+					return nil
+				}
+				slog.Debug("replica-store: group role record rejected", "record_key", k, "replica", remote, "err", err)
+				return nil
+			}
+			return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupRoleV1, k, rev)
+		})
+		cancel3()
+		if err != nil {
+			return err
+		}
+	}
+	preq, err := r.buildReplicatedGroupInvitePolicyPullRequest(remote, db)
+	if err != nil {
+		return err
+	}
+	if preq == nil || len(preq.Keys) == 0 {
+		return nil
+	}
+	ctx4, cancel4 := context.WithTimeout(r.appCtx(), 30*time.Second)
+	defer cancel4()
+	return p2p.PullReplicaStoreRecords(ctx4, node.Host, remote, preq, func(k string, rev int64, wire, sig, _ []byte) error {
+		var w groupInvitePolicyWireV1
+		if err := json.Unmarshal(wire, &w); err != nil {
+			slog.Debug("replica-store: group invite policy wire invalid", "replica", remote, "err", err)
 			return nil
 		}
-		return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupAvatarV1, k, rev)
+		actor := strings.TrimSpace(w.ActorPeerID)
+		if actor == "" {
+			return nil
+		}
+		if err := r.applySignedRemoteGroupInvitePolicyPush(actor, wire, sig); err != nil {
+			if errors.Is(err, errReplicationStaleGroupInvitePolicy) {
+				return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupInvitePolicyV1, k, rev)
+			}
+			if errors.Is(err, errProfileUnknownPublicKey) {
+				slog.Debug("replica-store: group invite policy skipped until MLS public key is known", "actor", actor, "replica", remote)
+				return nil
+			}
+			slog.Debug("replica-store: group invite policy record rejected", "group", k, "replica", remote, "err", err)
+			return nil
+		}
+		return db.UpsertReplicatedPullCursor(remote.String(), store.NamespaceGroupInvitePolicyV1, k, rev)
 	})
 }
 
@@ -401,6 +563,74 @@ func (r *Runtime) buildReplicatedGroupAvatarPullRequest(remote peer.ID, db *stor
 	}
 	return &p2p.ReplicaPullRequestV1{
 		Namespace: store.NamespaceGroupAvatarV1,
+		Keys:      keys,
+		Cursors:   cursors,
+	}, nil
+}
+
+func (r *Runtime) buildReplicatedGroupRolePullRequest(remote peer.ID, db *store.Database) (*p2p.ReplicaPullRequestV1, error) {
+	groupIDs, err := db.ListJoinedGroupChatIDsForReplication(256)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	keys := make([]string, 0)
+	for _, groupID := range groupIDs {
+		members, err := db.ListGroupMembers(groupID)
+		if err != nil {
+			continue
+		}
+		for _, member := range members {
+			if member.PeerID == "" || member.Status != store.GroupMemberStatusActive {
+				continue
+			}
+			key := groupRoleRecordKey(groupID, member.PeerID)
+			if key == "|" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	cursors := make(map[string]int64, len(keys))
+	for _, k := range keys {
+		cur, err := db.GetReplicatedPullCursor(remote.String(), store.NamespaceGroupRoleV1, k)
+		if err != nil {
+			return nil, err
+		}
+		cursors[k] = cur
+	}
+	return &p2p.ReplicaPullRequestV1{
+		Namespace: store.NamespaceGroupRoleV1,
+		Keys:      keys,
+		Cursors:   cursors,
+	}, nil
+}
+
+func (r *Runtime) buildReplicatedGroupInvitePolicyPullRequest(remote peer.ID, db *store.Database) (*p2p.ReplicaPullRequestV1, error) {
+	keys, err := db.ListJoinedGroupChatIDsForReplication(256)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	cursors := make(map[string]int64, len(keys))
+	for _, k := range keys {
+		cur, err := db.GetReplicatedPullCursor(remote.String(), store.NamespaceGroupInvitePolicyV1, k)
+		if err != nil {
+			return nil, err
+		}
+		cursors[k] = cur
+	}
+	return &p2p.ReplicaPullRequestV1{
+		Namespace: store.NamespaceGroupInvitePolicyV1,
 		Keys:      keys,
 		Cursors:   cursors,
 	}, nil

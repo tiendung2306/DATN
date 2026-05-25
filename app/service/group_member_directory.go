@@ -149,12 +149,17 @@ func (r *Runtime) upsertGroupMemberFromRosterEvidence(groupID, peerID, source st
 		}
 	}
 
+	role := "member"
+	if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil && creator != "" && peerID == creator {
+		role = "creator"
+	}
+
 	displayName := r.resolveDisplayNameForPeer(peerID)
 	return database.UpsertGroupMemberPreservingRole(store.GroupMemberRecord{
 		GroupID:     groupID,
 		PeerID:      peerID,
 		DisplayName: displayName,
-		Role:        "member",
+		Role:        role,
 		Status:      store.GroupMemberStatusActive,
 		Source:      source,
 		UpdatedAt:   time.Now().Unix(),

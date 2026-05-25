@@ -6,6 +6,7 @@ package service
 
 import (
 	"app/adapter/store"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -158,6 +159,52 @@ func TestBusinessP1_Sprint2_BI029_GetGroups_DMChannelAfterLeave(t *testing.T) {
 	}
 	if _, ok := ids["g-left"]; ok {
 		t.Fatal("left group should not appear in GetGroups (lifecycle inactive)")
+	}
+}
+
+func TestBusinessP1_StartDirectMessage_UsesCounterpartyMetadataForTitle(t *testing.T) {
+	rt, _ := businessRuntimeAuthorizedWithMockMLS(t)
+	targetPeerID := testPeerID(t)
+	if err := rt.db.UpsertPeerProfileWithKey(targetPeerID, "Bob", ""); err != nil {
+		t.Fatalf("UpsertPeerProfileWithKey: %v", err)
+	}
+	businessSeedStoredKeyPackageForPeer(t, rt, targetPeerID, hex.EncodeToString([]byte("mock-bob-kp")))
+
+	groupID, err := rt.StartDirectMessage(targetPeerID)
+	if err != nil {
+		t.Fatalf("StartDirectMessage: %v", err)
+	}
+
+	rec, err := rt.coordStorage.GetGroupRecord(groupID)
+	if err != nil {
+		t.Fatalf("GetGroupRecord: %v", err)
+	}
+	if rec.DMCounterpartyPeerID != targetPeerID {
+		t.Fatalf("DMCounterpartyPeerID=%q want %q", rec.DMCounterpartyPeerID, targetPeerID)
+	}
+
+	groups, err := rt.GetGroups()
+	if err != nil {
+		t.Fatalf("GetGroups: %v", err)
+	}
+	var found *GroupInfo
+	for i := range groups {
+		if groups[i].GroupID == groupID {
+			found = &groups[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("DM not found in GetGroups")
+	}
+	if found.CounterpartyPeerID != targetPeerID {
+		t.Fatalf("CounterpartyPeerID=%q want %q", found.CounterpartyPeerID, targetPeerID)
+	}
+	if found.ConversationTitle != "Bob" {
+		t.Fatalf("ConversationTitle=%q want Bob", found.ConversationTitle)
+	}
+	if strings.HasPrefix(found.ConversationTitle, "dm-") {
+		t.Fatalf("ConversationTitle leaked group id placeholder: %q", found.ConversationTitle)
 	}
 }
 

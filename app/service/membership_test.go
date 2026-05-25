@@ -121,6 +121,46 @@ func attachActiveCreatorCoordinator(t *testing.T, rt *Runtime, groupID string, l
 	rt.mu.Lock()
 	rt.coordinators[groupID] = coord
 	rt.mu.Unlock()
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:   groupID,
+		PeerID:    localID.String(),
+		Role:      store.GroupMemberRoleCreator,
+		Status:    store.GroupMemberStatusActive,
+		Source:    "test",
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember local creator: %v", err)
+	}
+	return coord
+}
+
+func attachMembershipCoordinator(t *testing.T, rt *Runtime, groupID string, localID peer.ID) *coordination.Coordinator {
+	t.Helper()
+
+	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
+		Config:     coordination.DefaultConfig(),
+		Transport:  &membershipTestTransport{local: localID},
+		Clock:      coordination.RealClock{},
+		MLS:        &membershipTestMLSEngine{},
+		Storage:    rt.coordStorage,
+		LocalID:    localID,
+		GroupID:    groupID,
+		SigningKey: []byte("test-signing-key"),
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+	if err := coord.CreateGroup(); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	if err := coord.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(coord.Stop)
+
+	rt.mu.Lock()
+	rt.coordinators[groupID] = coord
+	rt.mu.Unlock()
 	return coord
 }
 
@@ -203,9 +243,71 @@ func TestLeaveGroupMissingGroup(t *testing.T) {
 	}
 }
 
+func TestLeaveGroupCreatorBlocked(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	localPriv, _, err := p2pCrypto.GenerateKeyPair(p2pCrypto.Ed25519, -1)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair local: %v", err)
+	}
+	localPeerID, err := peer.IDFromPrivateKey(localPriv)
+	if err != nil {
+		t.Fatalf("IDFromPrivateKey local: %v", err)
+	}
+	if err := rt.db.SaveMLSIdentity(&store.MLSIdentity{
+		DisplayName:       "Local",
+		PublicKey:         []byte{1, 2, 3},
+		SigningKeyPrivate: []byte{4, 5, 6},
+		Credential:        []byte{7, 8, 9},
+	}); err != nil {
+		t.Fatalf("SaveMLSIdentity: %v", err)
+	}
+	rt.privKey = localPriv
+	now := time.Now()
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "group-creator-leave",
+		GroupState: []byte("state"),
+		MyRole:     coordination.RoleCreator,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:   "group-creator-leave",
+		PeerID:    localPeerID.String(),
+		Role:      store.GroupMemberRoleCreator,
+		Status:    store.GroupMemberStatusActive,
+		Source:    "test",
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember local: %v", err)
+	}
+
+	if err := rt.LeaveGroup("group-creator-leave"); !errors.Is(err, ErrCreatorCannotLeave) {
+		t.Fatalf("LeaveGroup err=%v want ErrCreatorCannotLeave", err)
+	}
+}
+
 func TestRemoveMemberFromGroupCreatorOnly(t *testing.T) {
 	rt := setupMembershipRuntime(t)
 	now := time.Now()
+	localPriv, _, err := p2pCrypto.GenerateKeyPair(p2pCrypto.Ed25519, -1)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair local: %v", err)
+	}
+	localPeerID, err := peer.IDFromPrivateKey(localPriv)
+	if err != nil {
+		t.Fatalf("IDFromPrivateKey local: %v", err)
+	}
+	if err := rt.db.SaveMLSIdentity(&store.MLSIdentity{
+		DisplayName:       "Local",
+		PublicKey:         []byte{1, 2, 3},
+		SigningKeyPrivate: []byte{4, 5, 6},
+		Credential:        []byte{7, 8, 9},
+	}); err != nil {
+		t.Fatalf("SaveMLSIdentity: %v", err)
+	}
+	rt.privKey = localPriv
 	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
 		GroupID:    "group-1",
 		GroupState: []byte("state"),
@@ -223,6 +325,16 @@ func TestRemoveMemberFromGroupCreatorOnly(t *testing.T) {
 	peerID, err := peer.IDFromPrivateKey(priv)
 	if err != nil {
 		t.Fatalf("IDFromPrivateKey: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:   "group-1",
+		PeerID:    localPeerID.String(),
+		Role:      store.GroupMemberRoleMember,
+		Status:    store.GroupMemberStatusActive,
+		Source:    "test",
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember local: %v", err)
 	}
 	if err := rt.RemoveMemberFromGroup("group-1", peerID.String()); !errors.Is(err, ErrRemoveMemberForbidden) {
 		t.Fatalf("RemoveMemberFromGroup err = %v, want ErrRemoveMemberForbidden", err)
@@ -373,6 +485,46 @@ func TestRemoveMemberFromGroupFailsWhenTargetNotVerified(t *testing.T) {
 	err = rt.RemoveMemberFromGroup("group-1", targetPeerID.String())
 	if err == nil {
 		t.Fatal("expected remove to fail when target is not verified")
+	}
+}
+
+func TestRemoveMemberFromGroup_AdminCannotRemoveAdmin(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	localID := seedAdminTestIdentity(t, rt)
+	attachMembershipCoordinator(t, rt, "group-admin-remove", localID)
+	seedAdminTestGroup(t, rt, "group-admin-remove", localID, store.GroupMemberRoleAdmin)
+	targetID := seedAdminTestMember(t, rt, "group-admin-remove", store.GroupMemberRoleAdmin)
+
+	if err := rt.RemoveMemberFromGroup("group-admin-remove", targetID.String()); !errors.Is(err, ErrRemoveAdminForbidden) {
+		t.Fatalf("RemoveMemberFromGroup err=%v want ErrRemoveAdminForbidden", err)
+	}
+}
+
+func TestRemoveMemberFromGroup_AdminCanRemoveMember(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	origGetVerifiedTokenPublicKey := getVerifiedTokenPublicKey
+	t.Cleanup(func() { getVerifiedTokenPublicKey = origGetVerifiedTokenPublicKey })
+
+	localID := seedAdminTestIdentity(t, rt)
+	attachMembershipCoordinator(t, rt, "group-admin-remove-ok", localID)
+	seedAdminTestGroup(t, rt, "group-admin-remove-ok", localID, store.GroupMemberRoleAdmin)
+	targetID := seedAdminTestMember(t, rt, "group-admin-remove-ok", store.GroupMemberRoleMember)
+	getVerifiedTokenPublicKey = func(_ *p2p.P2PNode, target peer.ID) []byte {
+		if target == targetID {
+			return []byte("target-mls-pubkey")
+		}
+		return nil
+	}
+
+	if err := rt.RemoveMemberFromGroup("group-admin-remove-ok", targetID.String()); err != nil {
+		t.Fatalf("RemoveMemberFromGroup: %v", err)
+	}
+	got, err := rt.db.GetGroupMember("group-admin-remove-ok", targetID.String())
+	if err != nil {
+		t.Fatalf("GetGroupMember target: %v", err)
+	}
+	if got.Status != store.GroupMemberStatusLeft {
+		t.Fatalf("target status=%q want %q", got.Status, store.GroupMemberStatusLeft)
 	}
 }
 

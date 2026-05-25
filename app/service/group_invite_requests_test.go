@@ -6,11 +6,31 @@ import (
 
 	"app/adapter/store"
 	"app/coordination"
+
+	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func TestProcessInviteRequest_AlreadyMemberAutoApproves(t *testing.T) {
 	rt := setupMembershipRuntime(t)
 	now := time.Now()
+	localPriv, _, err := p2pCrypto.GenerateKeyPair(p2pCrypto.Ed25519, -1)
+	if err != nil {
+		t.Fatalf("GenerateKeyPair local: %v", err)
+	}
+	localPeerID, err := peer.IDFromPrivateKey(localPriv)
+	if err != nil {
+		t.Fatalf("IDFromPrivateKey local: %v", err)
+	}
+	if err := rt.db.SaveMLSIdentity(&store.MLSIdentity{
+		DisplayName:       "Local",
+		PublicKey:         []byte{1, 2, 3},
+		SigningKeyPrivate: []byte{4, 5, 6},
+		Credential:        []byte{7, 8, 9},
+	}); err != nil {
+		t.Fatalf("SaveMLSIdentity: %v", err)
+	}
+	rt.privKey = localPriv
 	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
 		GroupID:    "group-invite-1",
 		GroupState: []byte("state"),
@@ -19,6 +39,16 @@ func TestProcessInviteRequest_AlreadyMemberAutoApproves(t *testing.T) {
 		UpdatedAt:  now,
 	}); err != nil {
 		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:   "group-invite-1",
+		PeerID:    localPeerID.String(),
+		Role:      store.GroupMemberRoleCreator,
+		Status:    store.GroupMemberStatusActive,
+		Source:    "test",
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember local: %v", err)
 	}
 	if err := rt.db.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID:   "group-invite-1",
@@ -61,4 +91,3 @@ func TestProcessInviteRequest_AlreadyMemberAutoApproves(t *testing.T) {
 // (2026-05-10) together with CancelGroupInviteRequest itself. See
 // service/group_invite_requests.go for the rationale (P2P cancel would
 // require CRDT-style coordination; we keep only Approve/Reject).
-

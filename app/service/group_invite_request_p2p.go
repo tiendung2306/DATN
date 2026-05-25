@@ -118,7 +118,7 @@ func (r *Runtime) handleGroupInviteWireRPC(remote peer.ID, req *p2p.GroupInviteW
 	return out
 }
 
-// rpcSubmitInviteRequest creates an invite row on the creator node (authority).
+// rpcSubmitInviteRequest creates an invite row on one active invite authority node.
 func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWireClientReqV1) (*store.GroupInviteRequestRecord, error) {
 	groupID := strings.TrimSpace(req.GroupID)
 	targetPeerID := strings.TrimSpace(req.TargetPeerID)
@@ -131,12 +131,8 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 	if remote.String() == targetPeerID {
 		return nil, fmt.Errorf("cannot invite yourself")
 	}
-	isCreator, err := r.isLocalCreator(groupID)
-	if err != nil {
-		return nil, err
-	}
-	if !isCreator {
-		return nil, fmt.Errorf("%s: only creator accepts invite submissions", errInviteForbidden)
+	if _, _, err := r.requireGroupPermission(groupID, permissionManageInvites); err != nil {
+		return nil, fmt.Errorf("%s: only an active admin can accept invite submissions", errInviteForbidden)
 	}
 	r.mu.RLock()
 	database := r.db
@@ -152,10 +148,9 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		return nil, err
 	}
 	// Both policies are accepted at the wire layer:
-	//   - creator_approval → row stays pending; creator decides via UI.
+	//   - creator_approval → row stays pending; an active admin decides via UI.
 	//   - any_member       → row is auto-approved by the creator below
-	//                        (the creator is the Token Holder so it is the
-	//                        only node entitled to issue the MLS Commit).
+	//                        (the active authority is also an AuthorizedCommitter).
 	if policy != store.GroupInvitePolicyCreatorApproval && policy != store.GroupInvitePolicyAnyMember {
 		return nil, fmt.Errorf("%s: unsupported invite policy %q", errInviteForbidden, policy)
 	}
@@ -206,7 +201,7 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 	// Cache the requester-attached target KeyPackage BEFORE processing so
 	// processInviteRequest → InvitePeerToGroup → fetchPeerKeyPackage hits
 	// the local cache (`stored_keypackages`) instead of running a fresh
-	// discovery from the creator. The creator may not have a live link
+	// discovery from the authority. The acting admin may not have a live link
 	// with the target — relying on its own fetch is the exact failure path
 	// that caused ERR_INVITE_ADD_MEMBER_FAILED in production.
 	if len(req.TargetKeyPackage) > 0 {
@@ -229,13 +224,13 @@ func (r *Runtime) rpcSubmitInviteRequest(remote peer.ID, req *p2p.GroupInviteWir
 		"requester_peer_id": remote.String(),
 		"target_peer_id":    targetPeerID,
 		"status":            store.InviteRequestStatusPending,
-		"source":            "creator",
+		"source":            "authority",
 	})
 
-	// Notification for the Creator about a new member request
+	// Notification for the acting admin/creator about a new member request
 	r.insertNotification(domain.NotificationTypeInviteRequest, groupID, remote.String(), id, "")
 
-	// any_member auto-approve: creator (= Token Holder by default) commits
+	// any_member auto-approve: the acting authority commits the add locally.
 	// the AddMember locally so the requester does not need to wait for a
 	// manual approval step. Failures keep the row pending/failed for retry
 	// or manual recovery via ApproveGroupInviteRequest.
@@ -273,12 +268,8 @@ func (r *Runtime) rpcSyncInviteRequest(remote peer.ID, req *p2p.GroupInviteWireC
 	if rec.IsMirror {
 		return nil, fmt.Errorf("%s: cannot sync mirror row", errInviteForbidden)
 	}
-	isCreator, err := r.isLocalCreator(rec.GroupID)
-	if err != nil {
-		return nil, err
-	}
-	if !isCreator {
-		return nil, fmt.Errorf("%s: only creator can serve invite sync", errInviteForbidden)
+	if _, _, err := r.requireGroupPermission(rec.GroupID, permissionManageInvites); err != nil {
+		return nil, fmt.Errorf("%s: only an active admin can serve invite sync", errInviteForbidden)
 	}
 	if remote.String() != rec.RequesterPeerID {
 		return nil, fmt.Errorf("%s: only the requester can sync this row", errInviteForbidden)
@@ -295,13 +286,13 @@ func (r *Runtime) applyInviteRequestPushFromCreator(remote peer.ID, push *p2p.Gr
 	if groupID == "" {
 		return
 	}
-	creatorPID, err := r.resolveGroupCreatorPeerID(groupID)
+	ok, err := r.isActiveGroupAuthorizedPeer(groupID, remote.String())
 	if err != nil {
-		slog.Debug("group-invite push: no creator", "group", groupID, "err", err)
+		slog.Debug("group-invite push: authority lookup failed", "group", groupID, "remote", remote, "err", err)
 		return
 	}
-	if creatorPID != remote {
-		slog.Warn("group-invite push: remote is not creator", "group", groupID, "remote", remote, "want", creatorPID)
+	if !ok {
+		slog.Warn("group-invite push: remote is not an active admin", "group", groupID, "remote", remote)
 		return
 	}
 	r.mu.RLock()
@@ -371,6 +362,57 @@ func (r *Runtime) resolveGroupCreatorPeerID(groupID string) (peer.ID, error) {
 	return "", fmt.Errorf("%s: Chưa đồng bộ đủ thông tin nhóm.", errGroupCreatorUnknown)
 }
 
+func (r *Runtime) resolveGroupInviteAuthorityPeerIDs(groupID string) ([]peer.ID, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, fmt.Errorf("group ID is required")
+	}
+	peers, err := r.authorizedGroupPeerIDs(groupID)
+	if err == nil && len(peers) > 0 {
+		return peers, nil
+	}
+	creator, creatorErr := r.resolveGroupCreatorPeerID(groupID)
+	if creatorErr != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, creatorErr
+	}
+	return []peer.ID{creator}, nil
+}
+
+func (r *Runtime) groupInviteWireCallAuthorities(ctx context.Context, authorities []peer.ID, req *p2p.GroupInviteWireClientReqV1, continueOnNotFound bool) (*p2p.GroupInviteWireRespV1, peer.ID, error) {
+	seen := make(map[string]struct{})
+	var lastErr error
+	for _, authority := range authorities {
+		if authority == "" {
+			continue
+		}
+		key := authority.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		resp, err := r.groupInviteWireCall(ctx, authority, req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp != nil && resp.OK {
+			return resp, authority, nil
+		}
+		if resp != nil && continueOnNotFound && strings.Contains(strings.ToUpper(strings.TrimSpace(resp.Error)), errInviteNotFound) {
+			lastErr = errors.New(strings.TrimSpace(resp.Error))
+			continue
+		}
+		return resp, authority, nil
+	}
+	if lastErr != nil {
+		return nil, "", lastErr
+	}
+	return nil, "", fmt.Errorf("%s: no invite authority available", errCreatorUnreachable)
+}
+
 func (r *Runtime) groupInviteWireCall(ctx context.Context, remote peer.ID, req *p2p.GroupInviteWireClientReqV1) (*p2p.GroupInviteWireRespV1, error) {
 	r.mu.RLock()
 	node := r.node
@@ -407,8 +449,7 @@ func (r *Runtime) maybePushInviteUpdate(ctx context.Context, rec *store.GroupInv
 	if rec == nil || rec.IsMirror {
 		return
 	}
-	isCreator, err := r.isLocalCreator(rec.GroupID)
-	if err != nil || !isCreator {
+	if _, _, err := r.requireGroupPermission(rec.GroupID, permissionManageInvites); err != nil {
 		return
 	}
 	local, err := r.localPeerID()

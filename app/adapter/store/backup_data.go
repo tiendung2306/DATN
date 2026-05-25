@@ -6,15 +6,16 @@ import (
 )
 
 type BackupGroupRecord struct {
-	GroupID         string
-	GroupState      []byte
-	Epoch           uint64
-	TreeHash        []byte
-	MyRole          string
-	GroupType       string
-	CategoryID      string
-	LifecycleStatus string
-	LeftAt          int64
+	GroupID              string
+	GroupState           []byte
+	Epoch                uint64
+	TreeHash             []byte
+	MyRole               string
+	GroupType            string
+	CategoryID           string
+	DMCounterpartyPeerID string
+	LifecycleStatus      string
+	LeftAt               int64
 }
 
 type BackupStoredMessage struct {
@@ -54,7 +55,7 @@ type BackupPendingInvite struct {
 }
 
 func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
-	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, lifecycle_status, left_at FROM mls_groups`)
+	rows, err := d.Conn.Query(`SELECT group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, dm_counterparty_peer_id, lifecycle_status, left_at FROM mls_groups`)
 	if err != nil {
 		return nil, fmt.Errorf("GetAllGroupsForBackup: %w", err)
 	}
@@ -63,7 +64,7 @@ func (d *Database) GetAllGroupsForBackup() ([]BackupGroupRecord, error) {
 	var out []BackupGroupRecord
 	for rows.Next() {
 		var rec BackupGroupRecord
-		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole, &rec.GroupType, &rec.CategoryID, &rec.LifecycleStatus, &rec.LeftAt); err != nil {
+		if err := rows.Scan(&rec.GroupID, &rec.GroupState, &rec.Epoch, &rec.TreeHash, &rec.MyRole, &rec.GroupType, &rec.CategoryID, &rec.DMCounterpartyPeerID, &rec.LifecycleStatus, &rec.LeftAt); err != nil {
 			return nil, fmt.Errorf("GetAllGroupsForBackup scan: %w", err)
 		}
 		out = append(out, rec)
@@ -196,14 +197,19 @@ func (d *Database) RestoreGroupsFromBackup(groups []BackupGroupRecord) error {
 			status = GroupLifecycleActive
 		}
 		_, err := d.Conn.Exec(
-			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, lifecycle_status, left_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, dm_counterparty_peer_id, lifecycle_status, left_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(group_id) DO UPDATE SET
 			     group_state = excluded.group_state,
 			     epoch = excluded.epoch,
 			     tree_hash = excluded.tree_hash,
 			     my_role = excluded.my_role,
 			     group_type = CASE WHEN trim(excluded.group_type) <> '' THEN excluded.group_type ELSE mls_groups.group_type END,
+			     dm_counterparty_peer_id = CASE
+			       WHEN lower(COALESCE(NULLIF(trim(excluded.group_type), ''), mls_groups.group_type)) = 'dm'
+			         THEN CASE WHEN trim(excluded.dm_counterparty_peer_id) <> '' THEN excluded.dm_counterparty_peer_id ELSE mls_groups.dm_counterparty_peer_id END
+			       ELSE ''
+			     END,
 			     category_id = CASE
 			       WHEN lower(COALESCE(NULLIF(trim(excluded.group_type), ''), mls_groups.group_type)) = 'channel'
 			         THEN CASE WHEN trim(excluded.category_id) <> '' THEN excluded.category_id ELSE mls_groups.category_id END
@@ -212,7 +218,7 @@ func (d *Database) RestoreGroupsFromBackup(groups []BackupGroupRecord) error {
 			     lifecycle_status = excluded.lifecycle_status,
 			     left_at = excluded.left_at,
 			     updated_at = CURRENT_TIMESTAMP`,
-			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole, strings.TrimSpace(g.GroupType), strings.TrimSpace(g.CategoryID), status, g.LeftAt,
+			g.GroupID, g.GroupState, g.Epoch, g.TreeHash, g.MyRole, strings.TrimSpace(g.GroupType), strings.TrimSpace(g.CategoryID), strings.TrimSpace(g.DMCounterpartyPeerID), status, g.LeftAt,
 		)
 		if err != nil {
 			return fmt.Errorf("RestoreGroupsFromBackup(%s): %w", g.GroupID, err)

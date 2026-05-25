@@ -24,12 +24,20 @@ const groupAvatarWireVersion = 1
 type groupAvatarWireV1 struct {
 	V               int      `json:"v"`
 	GroupID         string   `json:"group_id"`
-	CreatorPeerID   string   `json:"creator_peer_id"`
+	ActorPeerID     string   `json:"actor_peer_id,omitempty"`
+	CreatorPeerID   string   `json:"creator_peer_id,omitempty"` // legacy alias for older replicated rows
 	AvatarHash      string   `json:"avatar_hash"`
 	AvatarMime      string   `json:"avatar_mime"`
 	AvatarUpdatedAt int64    `json:"avatar_updated_at"`
 	Revision        int64    `json:"revision"`
 	ClearedFields   []string `json:"cleared_fields,omitempty"`
+}
+
+func (w groupAvatarWireV1) signerPeerID() string {
+	if strings.TrimSpace(w.ActorPeerID) != "" {
+		return strings.TrimSpace(w.ActorPeerID)
+	}
+	return strings.TrimSpace(w.CreatorPeerID)
 }
 
 func groupAvatarBlobRefsFromWire(wireJSON []byte) []store.ReplicatedBlobRef {
@@ -102,6 +110,7 @@ func (r *Runtime) packSignedGroupAvatarPushPayload(groupID string) (wireJSON, si
 	wire := groupAvatarWireV1{
 		V:               groupAvatarWireVersion,
 		GroupID:         groupID,
+		ActorPeerID:     info.PeerID,
 		CreatorPeerID:   info.PeerID,
 		AvatarHash:      hash,
 		AvatarMime:      mime,
@@ -146,7 +155,7 @@ func (r *Runtime) persistOwnReplicatedGroupAvatar(wireJSON, signature []byte) er
 	h := store.ReplicatedBodyHash(body)
 	refs := groupAvatarBlobRefsFromWire(wireJSON)
 	return db.PutReplicatedRecordForce(
-		store.NamespaceGroupAvatarV1, w.GroupID, w.CreatorPeerID,
+		store.NamespaceGroupAvatarV1, w.GroupID, w.signerPeerID(),
 		w.Revision, 1, body, h, signature, pubHex, 0, refs,
 	)
 }
@@ -239,7 +248,7 @@ func (r *Runtime) applySignedRemoteGroupAvatarPush(signerPeerID string, wireJSON
 	}
 	signerPeerID = strings.TrimSpace(signerPeerID)
 	if signerPeerID == "" {
-		return fmt.Errorf("creator_peer_id is required")
+		return fmt.Errorf("actor_peer_id is required")
 	}
 	r.mu.RLock()
 	db := r.db
@@ -274,8 +283,8 @@ func (r *Runtime) applySignedRemoteGroupAvatarPush(signerPeerID string, wireJSON
 	if gid == "" {
 		return fmt.Errorf("group_id required in wire")
 	}
-	if strings.TrimSpace(w.CreatorPeerID) != signerPeerID {
-		return fmt.Errorf("creator_peer_id mismatch in signed payload")
+	if w.signerPeerID() != signerPeerID {
+		return fmt.Errorf("actor peer mismatch in signed payload")
 	}
 	has, err := db.HasGroup(gid)
 	if err != nil {
@@ -284,12 +293,12 @@ func (r *Runtime) applySignedRemoteGroupAvatarPush(signerPeerID string, wireJSON
 	if !has {
 		return fmt.Errorf("group avatar push: not a member of group %q", gid)
 	}
-	ok, err := r.isActiveGroupCreatorPeer(gid, signerPeerID)
+	ok, err := r.isActiveGroupAuthorizedPeer(gid, signerPeerID)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("group avatar push: peer %q is not the active creator for group %q", signerPeerID, gid)
+		return fmt.Errorf("group avatar push: peer %q is not an active admin for group %q", signerPeerID, gid)
 	}
 	clearAvatar := false
 	for _, f := range w.ClearedFields {

@@ -60,17 +60,30 @@ export function useChatActions({
         await runtimeClient.createGroupChat(groupId, groupType, categoryId || '')
       }
 
-      const inviteFailures: string[] = []
+      const peersToInvite = members
+        .map((peerId) => peerId.trim())
+        .filter((peerId) => peerId.length > 0)
       if (groupType !== 'dm') {
-        for (const peerId of members) {
-          const trimmed = peerId.trim()
-          if (!trimmed) continue
-          try {
-            await runtimeClient.invitePeerToGroup(trimmed, groupId)
-          } catch (e) {
-            const mapped = formatOutboundSendError(e)
-            inviteFailures.push(`${mapped.title}: ${mapped.description}`)
-          }
+        if (peersToInvite.length > 0) {
+          void (async () => {
+            const inviteFailures: string[] = []
+            for (const peerId of peersToInvite) {
+              try {
+                await runtimeClient.invitePeerToGroup(peerId, groupId)
+              } catch (e) {
+                const mapped = formatOutboundSendError(e)
+                inviteFailures.push(`${mapped.title}: ${mapped.description}`)
+              }
+            }
+            await refreshGroups()
+            if (inviteFailures.length > 0) {
+              useToastStore.getState().pushToast({
+                title: 'Failed to send some invites',
+                description: inviteFailures.slice(0, 4).join(' · '),
+                variant: 'destructive',
+              })
+            }
+          })()
         }
       }
 
@@ -93,14 +106,6 @@ export function useChatActions({
         pushPost(groupId, systemMessage)
       } else {
         pushMessage(groupId, systemMessage)
-      }
-
-      if (inviteFailures.length > 0) {
-        useToastStore.getState().pushToast({
-          title: 'Failed to send some invites',
-          description: inviteFailures.slice(0, 4).join(' · '),
-          variant: 'destructive',
-        })
       }
     } finally {
       setCreatingGroup(false)

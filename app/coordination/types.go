@@ -87,9 +87,10 @@ type ProposalMsg struct {
 	ProposalType ProposalType `json:"proposal_type"`
 	Data         []byte       `json:"data"` // MLS Proposal bytes (opaque)
 
-	// Application-layer correlation fields. Populated for ProposalAdd; left
-	// empty for ProposalRemove / ProposalUpdate so older wire frames that
-	// omit these keys still parse cleanly.
+	// Application-layer correlation fields. Populated for ProposalAdd and for
+	// ProposalRemove.TargetPeerID so Token Holder election can exclude members
+	// removed by the candidate batch. Older wire frames that omit these keys
+	// still parse cleanly.
 	OperationID    string `json:"operation_id,omitempty"`
 	TargetPeerID   string `json:"target_peer_id,omitempty"`
 	RequestID      string `json:"request_id,omitempty"`
@@ -149,6 +150,19 @@ type BufferedProposal struct {
 	GroupType      string
 	CategoryID     string
 	KeyPackageHash []byte
+}
+
+// AuthorizedCommittersProvider projects application policy into the
+// coordination layer. The coordinator passes the candidate commit batch so
+// callers can choose policy by proposal type without the coordinator knowing
+// business roles such as creator/admin.
+type AuthorizedCommittersProvider func(groupID string, epoch uint64, candidateBatch []BufferedProposal) ([]peer.ID, error)
+
+// RemoveMemberRequest carries both the MLS identity required by Rust and the
+// peer-level target used by the coordination election layer.
+type RemoveMemberRequest struct {
+	TargetPeerID   peer.ID
+	TargetIdentity []byte
 }
 
 // AddMemberResult is the structured outcome of Coordinator.AddMember.
@@ -267,8 +281,11 @@ type GroupRecord struct {
 	MyRole     GroupRole
 	GroupType  string // channel | dm
 	CategoryID string // channel category identifier (empty for dm/group)
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// DMCounterpartyPeerID stores the intended other participant for a DM.
+	// It is product metadata, not cryptographic membership truth.
+	DMCounterpartyPeerID string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // CoordState is the persistent coordination metadata for a group.

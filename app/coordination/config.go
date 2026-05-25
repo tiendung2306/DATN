@@ -99,7 +99,7 @@ func DefaultConfig() *CoordinatorConfig {
 		EnvelopeLogMaxPerGroup:      10000,
 		BatchingDelay:               1 * time.Second,
 		MLSOperationTimeout:         20 * time.Second,
-		ApplicationAckTimeout:       3 * time.Second,
+		ApplicationAckTimeout:       10 * time.Second,
 		ApplicationDirectRetryLimit: 2,
 	}
 }

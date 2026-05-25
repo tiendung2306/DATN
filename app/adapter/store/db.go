@@ -136,6 +136,7 @@ func (d *Database) createTables() error {
 			lifecycle_status TEXT    NOT NULL DEFAULT 'active',
 			left_at          INTEGER NOT NULL DEFAULT 0,
 			group_type       TEXT    NOT NULL DEFAULT 'channel',
+			dm_counterparty_peer_id TEXT NOT NULL DEFAULT '',
 			category_id      TEXT    NOT NULL DEFAULT '',
 			invite_policy    TEXT    NOT NULL DEFAULT 'creator_approval',
 			created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -605,6 +606,9 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("mls_groups", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("mls_groups", "dm_counterparty_peer_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("mls_groups", "group_creator_peer_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -996,11 +1000,14 @@ func normalizeGroupMemberStatus(status string) string {
 }
 
 func normalizeGroupMemberRole(role string) string {
-	role = strings.TrimSpace(strings.ToLower(role))
-	if role == "" {
-		return "member"
+	switch strings.TrimSpace(strings.ToLower(role)) {
+	case GroupMemberRoleCreator:
+		return GroupMemberRoleCreator
+	case GroupMemberRoleAdmin:
+		return GroupMemberRoleAdmin
+	default:
+		return GroupMemberRoleMember
 	}
-	return role
 }
 
 func (d *Database) UpsertGroupMember(rec GroupMemberRecord) error {
@@ -1195,6 +1202,101 @@ func (d *Database) GetGroupMember(groupID, peerID string) (*GroupMemberRecord, e
 	rec.Status = normalizeGroupMemberStatus(rec.Status)
 	rec.Role = normalizeGroupMemberRole(rec.Role)
 	return &rec, nil
+}
+
+// SetGroupMemberRole updates an active member's role. The creator role is
+// immutable: callers may not promote someone to creator or demote an existing
+// creator through this path.
+func (d *Database) SetGroupMemberRole(groupID, peerID, role string) error {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	role = normalizeGroupMemberRole(role)
+	if groupID == "" || peerID == "" {
+		return fmt.Errorf("SetGroupMemberRole: group_id and peer_id are required")
+	}
+	if role == GroupMemberRoleCreator {
+		return fmt.Errorf("SetGroupMemberRole: creator role is immutable")
+	}
+	rec, err := d.GetGroupMember(groupID, peerID)
+	if err != nil {
+		return err
+	}
+	if rec == nil || rec.Status != GroupMemberStatusActive {
+		return sql.ErrNoRows
+	}
+	if rec.Role == GroupMemberRoleCreator {
+		return fmt.Errorf("SetGroupMemberRole: creator role is immutable")
+	}
+	res, err := d.Conn.Exec(
+		`UPDATE group_members
+		 SET role = ?, updated_at = ?
+		 WHERE group_id = ? AND peer_id = ? AND status = ? AND role <> ?`,
+		role, time.Now().Unix(), groupID, peerID, GroupMemberStatusActive, GroupMemberRoleCreator,
+	)
+	if err != nil {
+		return fmt.Errorf("SetGroupMemberRole: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("SetGroupMemberRole rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *Database) ListGroupAdmins(groupID string) ([]GroupMemberRecord, error) {
+	return d.listGroupMembersByRoles(groupID, []string{GroupMemberRoleCreator, GroupMemberRoleAdmin})
+}
+
+func (d *Database) ListAuthorizedCommitters(groupID string) ([]GroupMemberRecord, error) {
+	return d.ListGroupAdmins(groupID)
+}
+
+func (d *Database) listGroupMembersByRoles(groupID string, roles []string) ([]GroupMemberRecord, error) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" {
+		return nil, fmt.Errorf("listGroupMembersByRoles: group_id is required")
+	}
+	filtered := make([]string, 0, len(roles))
+	for _, role := range roles {
+		n := normalizeGroupMemberRole(role)
+		if n != "" {
+			filtered = append(filtered, n)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, nil
+	}
+	args := []interface{}{groupID, GroupMemberStatusActive}
+	holders := make([]string, 0, len(filtered))
+	for _, role := range filtered {
+		holders = append(holders, "?")
+		args = append(args, role)
+	}
+	rows, err := d.Conn.Query(
+		`SELECT group_id, peer_id, display_name, role, status, source, joined_at, left_at, updated_at
+		   FROM group_members
+		  WHERE group_id = ? AND status = ? AND role IN (`+strings.Join(holders, ",")+`)
+		  ORDER BY role ASC, joined_at ASC, peer_id ASC`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listGroupMembersByRoles: %w", err)
+	}
+	defer rows.Close()
+	out := make([]GroupMemberRecord, 0)
+	for rows.Next() {
+		var rec GroupMemberRecord
+		if err := rows.Scan(&rec.GroupID, &rec.PeerID, &rec.DisplayName, &rec.Role, &rec.Status, &rec.Source, &rec.JoinedAt, &rec.LeftAt, &rec.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("listGroupMembersByRoles scan: %w", err)
+		}
+		rec.Status = normalizeGroupMemberStatus(rec.Status)
+		rec.Role = normalizeGroupMemberRole(rec.Role)
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
 
 func (d *Database) MarkGroupMemberLeft(groupID, peerID string, leftAt int64) error {
@@ -2112,6 +2214,38 @@ func (d *Database) SetGroupCreatorPeerID(groupID, creatorPeerID string) error {
 	return nil
 }
 
+// SetDMCounterpartyPeerID stores the product-level intended peer for a DM.
+// This is deliberately separate from group_members, which tracks confirmed
+// MLS membership and must not be faked before AddMembers commits.
+func (d *Database) SetDMCounterpartyPeerID(groupID, peerID string) error {
+	groupID = strings.TrimSpace(groupID)
+	peerID = strings.TrimSpace(peerID)
+	if groupID == "" {
+		return fmt.Errorf("group id required")
+	}
+	if peerID == "" {
+		return fmt.Errorf("counterparty peer id required")
+	}
+	res, err := d.Conn.Exec(
+		`UPDATE mls_groups
+		    SET dm_counterparty_peer_id = ?,
+		        updated_at = CURRENT_TIMESTAMP
+		  WHERE group_id = ? AND lower(group_type) = 'dm'`,
+		peerID, groupID,
+	)
+	if err != nil {
+		return fmt.Errorf("SetDMCounterpartyPeerID(%q): %w", groupID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("SetDMCounterpartyPeerID rows: %w", err)
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // GetGroupCreatorPeerID returns the authoritative creator peer id for a group
 // if known. Empty string means unknown/unset.
 func (d *Database) GetGroupCreatorPeerID(groupID string) (string, error) {
@@ -2204,6 +2338,10 @@ func (d *Database) ListJoinedGroupChatIDsForReplication(limit int) ([]string, er
 const (
 	GroupMemberStatusActive = "active"
 	GroupMemberStatusLeft   = "left"
+
+	GroupMemberRoleCreator = "creator"
+	GroupMemberRoleAdmin   = "admin"
+	GroupMemberRoleMember  = "member"
 )
 
 type GroupMemberRecord struct {

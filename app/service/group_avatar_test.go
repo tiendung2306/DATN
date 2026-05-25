@@ -16,6 +16,25 @@ import (
 	"app/coordination"
 )
 
+func seedLocalGroupRoleForAvatarTest(t *testing.T, rt *Runtime, d *store.Database, groupID, role string) string {
+	t.Helper()
+	info, err := p2p.GetOnboardingInfo(d, rt.privKey)
+	if err != nil {
+		t.Fatalf("GetOnboardingInfo: %v", err)
+	}
+	if err := d.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:   groupID,
+		PeerID:    info.PeerID,
+		Role:      role,
+		Status:    store.GroupMemberStatusActive,
+		Source:    "test",
+		UpdatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember local: %v", err)
+	}
+	return info.PeerID
+}
+
 func TestSaveGroupChatAvatar_CreatorSetsAndClears(t *testing.T) {
 	d := openServiceTestDB(t)
 	rt := testProfileRuntime(t, d)
@@ -33,6 +52,7 @@ func TestSaveGroupChatAvatar_CreatorSetsAndClears(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveGroupRecord: %v", err)
 	}
+	seedLocalGroupRoleForAvatarTest(t, rt, d, gid, store.GroupMemberRoleCreator)
 	if err := rt.SaveGroupChatAvatar(gid, png, 1); err != nil {
 		t.Fatalf("SaveGroupChatAvatar: %v", err)
 	}
@@ -81,8 +101,9 @@ func TestSaveGroupChatAvatar_MemberDenied(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveGroupRecord: %v", err)
 	}
+	seedLocalGroupRoleForAvatarTest(t, rt, d, gid, store.GroupMemberRoleMember)
 	if err := rt.SaveGroupChatAvatar(gid, png, 1); err == nil {
-		t.Fatalf("expected error for non-creator")
+		t.Fatalf("expected error for non-admin member")
 	}
 }
 
@@ -104,6 +125,7 @@ func TestSaveGroupChatAvatar_ChannelRejected(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveGroupRecord: %v", err)
 	}
+	seedLocalGroupRoleForAvatarTest(t, rt, d, gid, store.GroupMemberRoleCreator)
 	if err := rt.SaveGroupChatAvatar(gid, png, 1); err == nil {
 		t.Fatalf("expected error for channel")
 	}
@@ -141,6 +163,7 @@ func TestSaveGroupChatAvatar_PersistsReplicatedRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveGroupRecord: %v", err)
 	}
+	seedLocalGroupRoleForAvatarTest(t, rt, d, gid, store.GroupMemberRoleCreator)
 	if err := rt.SaveGroupChatAvatar(gid, png, 1); err != nil {
 		t.Fatalf("SaveGroupChatAvatar: %v", err)
 	}
@@ -157,6 +180,41 @@ func TestSaveGroupChatAvatar_PersistsReplicatedRecord(t *testing.T) {
 	}
 	if store.AvatarContentHash(png) != strings.TrimSpace(strings.ToLower(w.AvatarHash)) {
 		t.Fatalf("wire hash mismatch: %q vs computed", w.AvatarHash)
+	}
+}
+
+func TestSaveGroupChatAvatar_AdminSetsAndReplicates(t *testing.T) {
+	d := openServiceTestDB(t)
+	rt := testProfileRuntime(t, d)
+	rt.SetContext(context.Background())
+	rt.coordStorage = store.NewSQLiteCoordinationStorage(d)
+	now := time.Now()
+	png := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	gid := "g-admin-avatar"
+	if err := rt.coordStorage.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    gid,
+		GroupState: []byte{1},
+		MyRole:     coordination.RoleMember,
+		GroupType:  "group",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	localPeerID := seedLocalGroupRoleForAvatarTest(t, rt, d, gid, store.GroupMemberRoleAdmin)
+	if err := rt.SaveGroupChatAvatar(gid, png, 1); err != nil {
+		t.Fatalf("SaveGroupChatAvatar: %v", err)
+	}
+	row := waitReplicatedGroupAvatarRow(t, d, gid)
+	var w groupAvatarWireV1
+	if err := json.Unmarshal([]byte(row.BodyJSON), &w); err != nil {
+		t.Fatalf("unmarshal wire: %v", err)
+	}
+	if w.signerPeerID() != localPeerID {
+		t.Fatalf("signer=%q want %q", w.signerPeerID(), localPeerID)
+	}
+	if store.AvatarContentHash(png) != strings.TrimSpace(strings.ToLower(w.AvatarHash)) {
+		t.Fatalf("wire hash mismatch: %q", w.AvatarHash)
 	}
 }
 
@@ -319,7 +377,7 @@ func TestApplySignedRemoteGroupAvatarPush_UsesAuthoritativeCreatorID(t *testing.
 	rt.SetContext(context.Background())
 	rt.coordStorage = store.NewSQLiteCoordinationStorage(d)
 	now := time.Now()
-	gid := "g-creator-authoritative"
+	gid := "g-admin-authoritative"
 	creatorPeer := "12D3KooWKcreatorPeerIDhere000000000"
 	otherPeer := "12D3KooWKotherPeerIDhere00000000000"
 	pubOther, privOther, err := ed25519.GenerateKey(rand.Reader)
@@ -340,12 +398,12 @@ func TestApplySignedRemoteGroupAvatarPush_UsesAuthoritativeCreatorID(t *testing.
 	if err := d.SetGroupCreatorPeerID(gid, creatorPeer); err != nil {
 		t.Fatalf("SetGroupCreatorPeerID: %v", err)
 	}
-	// Corrupted/stale roster row incorrectly marks "otherPeer" as creator.
+	// Admin signer is not the creator but is still allowed to change settings.
 	if err := d.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID: gid, PeerID: otherPeer, DisplayName: "Other",
-		Role: "creator", Status: store.GroupMemberStatusActive, Source: "test",
+		Role: "admin", Status: store.GroupMemberStatusActive, Source: "test",
 	}); err != nil {
-		t.Fatalf("UpsertGroupMember other creator: %v", err)
+		t.Fatalf("UpsertGroupMember other admin: %v", err)
 	}
 	if err := d.UpsertPeerProfileWithKey(otherPeer, "Other", hex.EncodeToString(pubOther)); err != nil {
 		t.Fatalf("UpsertPeerProfileWithKey other: %v", err)
@@ -355,6 +413,7 @@ func TestApplySignedRemoteGroupAvatarPush_UsesAuthoritativeCreatorID(t *testing.
 	wire := groupAvatarWireV1{
 		V:               groupAvatarWireVersion,
 		GroupID:         gid,
+		ActorPeerID:     otherPeer,
 		CreatorPeerID:   otherPeer,
 		AvatarHash:      hash,
 		AvatarMime:      "image/png",
@@ -363,12 +422,12 @@ func TestApplySignedRemoteGroupAvatarPush_UsesAuthoritativeCreatorID(t *testing.
 	}
 	raw, _ := json.Marshal(wire)
 	sig := ed25519.Sign(privOther, raw)
-	if err := rt.applySignedRemoteGroupAvatarPush(otherPeer, raw, sig, png); err == nil {
-		t.Fatal("expected rejection when signer is not authoritative creator")
+	if err := rt.applySignedRemoteGroupAvatarPush(otherPeer, raw, sig, png); err != nil {
+		t.Fatalf("expected admin signer accepted, got %v", err)
 	}
 }
 
-func TestApplySignedRemoteGroupAvatarPush_RejectsNonCreatorSigner(t *testing.T) {
+func TestApplySignedRemoteGroupAvatarPush_RejectsNonAdminSigner(t *testing.T) {
 	d := openServiceTestDB(t)
 	rt := testProfileRuntime(t, d)
 	rt.SetContext(context.Background())
@@ -421,6 +480,7 @@ func TestApplySignedRemoteGroupAvatarPush_RejectsNonCreatorSigner(t *testing.T) 
 	wire := groupAvatarWireV1{
 		V:               groupAvatarWireVersion,
 		GroupID:         gid,
+		ActorPeerID:     info.PeerID,
 		CreatorPeerID:   info.PeerID,
 		AvatarHash:      hash,
 		AvatarMime:      "image/png",
@@ -430,7 +490,7 @@ func TestApplySignedRemoteGroupAvatarPush_RejectsNonCreatorSigner(t *testing.T) 
 	raw, _ := json.Marshal(wire)
 	sig := ed25519.Sign(privM, raw)
 	if err := rt.applySignedRemoteGroupAvatarPush(info.PeerID, raw, sig, png); err == nil {
-		t.Fatal("expected error when member is not roster creator")
+		t.Fatal("expected error when member is not admin")
 	}
 }
 
@@ -474,6 +534,7 @@ func TestApplySignedRemoteGroupAvatarPush_StaleRevision(t *testing.T) {
 		wire := groupAvatarWireV1{
 			V:               groupAvatarWireVersion,
 			GroupID:         gid,
+			ActorPeerID:     creatorPeer,
 			CreatorPeerID:   creatorPeer,
 			AvatarHash:      hash,
 			AvatarMime:      "image/png",

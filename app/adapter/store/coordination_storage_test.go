@@ -136,6 +136,44 @@ func TestSQLiteCoordinationStorage_GroupRecord_Upsert_PreservesMyRoleWhenOmitted
 	}
 }
 
+func TestSQLiteCoordinationStorage_GroupRecord_DMCounterpartySurvivesEpochSave(t *testing.T) {
+	s := setupTestStorage(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:              "dm-meta",
+		GroupState:           []byte("v0"),
+		Epoch:                0,
+		MyRole:               coordination.RoleCreator,
+		GroupType:            "dm",
+		DMCounterpartyPeerID: "peer-b",
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SaveGroupRecord(&coordination.GroupRecord{
+		GroupID:    "dm-meta",
+		GroupState: []byte("v1"),
+		Epoch:      1,
+		MyRole:     "",
+		GroupType:  "",
+		CreatedAt:  time.Time{},
+		UpdatedAt:  now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetGroupRecord("dm-meta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DMCounterpartyPeerID != "peer-b" {
+		t.Fatalf("DMCounterpartyPeerID=%q want peer-b", got.DMCounterpartyPeerID)
+	}
+}
+
 func TestSQLiteCoordinationStorage_ListGroups(t *testing.T) {
 	s := setupTestStorage(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

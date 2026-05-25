@@ -16,6 +16,12 @@ const NamespaceUserProfileV1 = "user.profile.v1"
 // NamespaceGroupAvatarV1 is the replicated namespace for MLS-signed group chat avatars.
 const NamespaceGroupAvatarV1 = "group.avatar.v1"
 
+// NamespaceGroupRoleV1 is the replicated namespace for creator-signed group role changes.
+const NamespaceGroupRoleV1 = "group.role.v1"
+
+// NamespaceGroupInvitePolicyV1 is the replicated namespace for admin-signed invite policy changes.
+const NamespaceGroupInvitePolicyV1 = "group.invite_policy.v1"
+
 var (
 	// ErrReplicatedStaleRevision means the incoming record is older than what we store.
 	ErrReplicatedStaleRevision = errors.New("replicated: stale revision")

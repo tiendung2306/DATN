@@ -64,6 +64,7 @@ const (
 	groupJoinAckProtocol     = protocol.ID("/app/group-join-ack/1.0.0")
 	maxWelcomeFrame          = 4 << 20 // 4 MiB
 	defaultReplicationFanout = 3
+	keyPackageFetchTimeout   = 12 * time.Second
 )
 
 // welcomeDeliveryWire is the JSON payload for /app/welcome-delivery/1.0.0.
@@ -272,6 +273,9 @@ func (r *Runtime) InvitePeerToGroup(peerIDStr, groupID string) error {
 	}
 	if targetID == node.Host.ID() {
 		return fmt.Errorf("cannot invite yourself")
+	}
+	if _, _, err := r.requireGroupPermission(groupID, permissionManageInvites); err != nil {
+		return err
 	}
 	// Resolve groupType + categoryID from the inviter's authoritative state.
 	// CategoryID lives in mls_groups (set by CreateGroupChat /
@@ -526,6 +530,13 @@ func (r *Runtime) resendPendingWelcome(targetID peer.ID, groupID, groupType, cat
 }
 
 func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
+	baseCtx := r.appCtx()
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	ctx, cancelFetch := context.WithTimeout(baseCtx, keyPackageFetchTimeout)
+	defer cancelFetch()
+
 	r.mu.Lock()
 	node := r.node
 	database := r.db
@@ -546,7 +557,7 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 		return localCopy, nil
 	}
 
-	if kp, err := p2p.FetchKeyPackageDirect(context.Background(), node.Host, targetID); err == nil && len(kp) > 0 {
+	if kp, err := p2p.FetchKeyPackageDirect(ctx, node.Host, targetID); err == nil && len(kp) > 0 {
 		_ = database.SaveStoredKeyPackage(targetID.String(), kp, targetID.String())
 		slog.Info("fetchPeerKeyPackage: direct fetch succeeded", "target", targetID, "bytes", len(kp))
 		return kp, nil
@@ -579,16 +590,23 @@ func (r *Runtime) fetchPeerKeyPackage(targetID peer.ID) ([]byte, error) {
 
 	req := p2p.KPFetchRequestV1{V: 1, PeerID: targetID.String()}
 	for _, pid := range ordered {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("key package fetch timeout: %w", err)
+		}
 		if pid == targetID {
 			continue
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		s, err := node.Host.NewStream(ctx, pid, p2p.KPFetchProtocol)
+		streamCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		s, err := node.Host.NewStream(streamCtx, pid, p2p.KPFetchProtocol)
 		cancel()
 		if err != nil {
 			continue
 		}
-		_ = s.SetDeadline(time.Now().Add(15 * time.Second))
+		deadline := time.Now().Add(4 * time.Second)
+		if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+			deadline = ctxDeadline
+		}
+		_ = s.SetDeadline(deadline)
 		if err := p2p.WriteInviteStoreJSONFrame(s, &req); err != nil {
 			_ = s.Close()
 			continue
@@ -839,6 +857,9 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 		if strings.TrimSpace(sourcePeerID) != "" {
 			_ = database.SetGroupCreatorPeerID(groupID, strings.TrimSpace(sourcePeerID))
 		}
+		if normalizedGroupType == "dm" && strings.TrimSpace(sourcePeerID) != "" {
+			_ = database.SetDMCounterpartyPeerID(groupID, strings.TrimSpace(sourcePeerID))
+		}
 		if strings.TrimSpace(sourcePeerID) != "" {
 			// welcome-source is observation-only: we know this peer
 			// delivered the Welcome (could be Token Holder, creator, or
@@ -988,6 +1009,9 @@ func (r *Runtime) processPendingWelcomesOnStartup(ctx context.Context) {
 		}
 		if strings.TrimSpace(inv.SourcePeerID) != "" {
 			_ = database.SetGroupCreatorPeerID(inv.GroupID, strings.TrimSpace(inv.SourcePeerID))
+		}
+		if strings.EqualFold(strings.TrimSpace(inv.GroupType), "dm") && strings.TrimSpace(inv.SourcePeerID) != "" {
+			_ = database.SetDMCounterpartyPeerID(inv.GroupID, strings.TrimSpace(inv.SourcePeerID))
 		}
 		if strings.TrimSpace(inv.SourcePeerID) != "" {
 			// Observation-only — same reasoning as the wire-path

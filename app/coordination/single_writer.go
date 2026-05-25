@@ -24,7 +24,7 @@ func ComputeTokenHolder(activeView []peer.ID, epoch uint64) (peer.ID, error) {
 	binary.LittleEndian.PutUint64(epochBuf[:], epoch)
 
 	var (
-		best    peer.ID
+		best     peer.ID
 		bestHash [sha256.Size]byte
 		first    = true
 	)
@@ -75,6 +75,8 @@ type SingleWriter struct {
 	epoch      uint64
 	proposals  []BufferedProposal // buffered proposals for the current epoch
 	cfg        *CoordinatorConfig
+	groupID    string
+	authorized AuthorizedCommittersProvider
 }
 
 // NewSingleWriter creates a SingleWriter for the given group.
@@ -87,15 +89,25 @@ func NewSingleWriter(av *ActiveView, localID peer.ID, epoch uint64, cfg *Coordin
 	}
 }
 
+func (sw *SingleWriter) SetAuthorizedCommitters(groupID string, provider AuthorizedCommittersProvider) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	sw.groupID = groupID
+	sw.authorized = provider
+}
+
 // IsTokenHolder returns true if the local node is the Token Holder for the
 // current epoch. Returns false if the active view is empty.
 func (sw *SingleWriter) IsTokenHolder() bool {
 	sw.mu.Lock()
 	epoch := sw.epoch
+	groupID := sw.groupID
+	provider := sw.authorized
+	batch := sw.peekNextBatchLocked()
 	sw.mu.Unlock()
 
 	members := sw.activeView.Members()
-	holder, err := ComputeTokenHolder(members, epoch)
+	holder, err := sw.computeHolder(members, epoch, groupID, batch, provider)
 	if err != nil {
 		return false
 	}
@@ -106,9 +118,12 @@ func (sw *SingleWriter) IsTokenHolder() bool {
 func (sw *SingleWriter) CurrentTokenHolder() (peer.ID, error) {
 	sw.mu.Lock()
 	epoch := sw.epoch
+	groupID := sw.groupID
+	provider := sw.authorized
+	batch := sw.peekNextBatchLocked()
 	sw.mu.Unlock()
 
-	return ComputeTokenHolder(sw.activeView.Members(), epoch)
+	return sw.computeHolder(sw.activeView.Members(), epoch, groupID, batch, provider)
 }
 
 // BufferProposal adds an MLS Proposal to the internal buffer. The proposal's
@@ -167,6 +182,24 @@ func (sw *SingleWriter) DrainNextBatch() []BufferedProposal {
 	return batch
 }
 
+func (sw *SingleWriter) PeekNextBatch() []BufferedProposal {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return cloneProposalBatch(sw.peekNextBatchLocked())
+}
+
+func (sw *SingleWriter) peekNextBatchLocked() []BufferedProposal {
+	if len(sw.proposals) == 0 {
+		return nil
+	}
+	headType := sw.proposals[0].Type
+	cutoff := 0
+	for cutoff < len(sw.proposals) && sw.proposals[cutoff].Type == headType {
+		cutoff++
+	}
+	return sw.proposals[:cutoff]
+}
+
 // DrainProposals returns every buffered proposal and clears the buffer.
 //
 // Prefer DrainNextBatch when calling into mls.CreateCommit so the Token
@@ -205,4 +238,105 @@ func (sw *SingleWriter) Epoch() uint64 {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 	return sw.epoch
+}
+
+func (sw *SingleWriter) computeHolder(activeView []peer.ID, epoch uint64, groupID string, batch []BufferedProposal, provider AuthorizedCommittersProvider) (peer.ID, error) {
+	eligible := activeView
+	if provider != nil {
+		authorized, err := provider(groupID, epoch, cloneProposalBatch(batch))
+		if err != nil {
+			return "", err
+		}
+		eligible = intersectPeerIDs(activeView, authorized)
+	}
+	eligible = filterRemovedByBatch(eligible, batch)
+	if groupID == "" {
+		return ComputeTokenHolder(eligible, epoch)
+	}
+	return computeTokenHolderScoped(groupID, eligible, epoch)
+}
+
+func computeTokenHolderScoped(groupID string, activeView []peer.ID, epoch uint64) (peer.ID, error) {
+	if len(activeView) == 0 {
+		return "", ErrNoActiveView
+	}
+	var epochBuf [8]byte
+	binary.LittleEndian.PutUint64(epochBuf[:], epoch)
+	var (
+		best     peer.ID
+		bestHash [sha256.Size]byte
+		first    = true
+	)
+	for _, pid := range activeView {
+		h := sha256.New()
+		h.Write([]byte(groupID))
+		h.Write(epochBuf[:])
+		h.Write([]byte(pid))
+		var candidate [sha256.Size]byte
+		h.Sum(candidate[:0])
+		if first || hashLess(candidate, bestHash) {
+			best = pid
+			bestHash = candidate
+			first = false
+		}
+	}
+	return best, nil
+}
+
+func intersectPeerIDs(active, authorized []peer.ID) []peer.ID {
+	if len(active) == 0 || len(authorized) == 0 {
+		return nil
+	}
+	allowed := make(map[peer.ID]struct{}, len(authorized))
+	for _, pid := range authorized {
+		if pid != "" {
+			allowed[pid] = struct{}{}
+		}
+	}
+	out := make([]peer.ID, 0, len(active))
+	for _, pid := range active {
+		if _, ok := allowed[pid]; ok {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+func filterRemovedByBatch(candidates []peer.ID, batch []BufferedProposal) []peer.ID {
+	if len(candidates) == 0 || len(batch) == 0 {
+		return candidates
+	}
+	removed := make(map[peer.ID]struct{})
+	for _, p := range batch {
+		if p.Type != ProposalRemove || p.TargetPeerID == "" {
+			continue
+		}
+		pid, err := peer.Decode(p.TargetPeerID)
+		if err == nil && pid != "" {
+			removed[pid] = struct{}{}
+		}
+	}
+	if len(removed) == 0 {
+		return candidates
+	}
+	out := make([]peer.ID, 0, len(candidates))
+	for _, pid := range candidates {
+		if _, ok := removed[pid]; !ok {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+func cloneProposalBatch(in []BufferedProposal) []BufferedProposal {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]BufferedProposal, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].Data = append([]byte(nil), in[i].Data...)
+		out[i].KeyPackageHash = append([]byte(nil), in[i].KeyPackageHash...)
+	}
+	return out
 }

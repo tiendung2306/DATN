@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"app/adapter/p2p"
+	"app/adapter/store"
 	"app/coordination"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -38,14 +39,22 @@ const (
 	ErrCodeRemoveMemberCryptoFailure = "ERR_REMOVE_MEMBER_CRYPTO_FAILURE"
 	ErrCodeRemoveMemberInvalidPeerID = "ERR_REMOVE_MEMBER_INVALID_PEER_ID"
 	ErrCodeRuntimeNotInitialized     = "ERR_RUNTIME_NOT_INITIALIZED"
+	ErrCodeCreatorCannotLeave        = "ERR_CREATOR_CANNOT_LEAVE"
+	ErrCodeRemoveCreatorForbidden    = "ERR_REMOVE_CREATOR_FORBIDDEN"
+	ErrCodeRemoveAdminForbidden      = "ERR_REMOVE_ADMIN_FORBIDDEN"
+	ErrCodeRemoveAdminRequiresDemote = "ERR_REMOVE_ADMIN_REQUIRES_DEMOTE"
 )
 
 var (
 	ErrGroupNotFound             = errors.New(ErrCodeGroupNotFound + ": group not found")
-	ErrRemoveMemberForbidden     = errors.New(ErrCodeRemoveMemberForbidden + ": only group creator can remove members")
+	ErrRemoveMemberForbidden     = errors.New(ErrCodeRemoveMemberForbidden + ": admin role required to remove members")
 	ErrRemoveSelfNotAllowed      = errors.New(ErrCodeRemoveMemberSelf + ": cannot remove yourself; use LeaveGroup")
 	ErrRemoveMemberPeerNotKnown  = errors.New(ErrCodeRemoveMemberPeerNotKnown + ": target peer is not verified or missing MLS public key")
 	ErrRemoveMemberAccessRevoked = errors.New(ErrCodeRemoveMemberAccessRevoked + ": local membership has been revoked")
+	ErrCreatorCannotLeave        = errors.New(ErrCodeCreatorCannotLeave + ": group creator cannot leave the group")
+	ErrRemoveCreatorForbidden    = errors.New(ErrCodeRemoveCreatorForbidden + ": group creator cannot be removed")
+	ErrRemoveAdminForbidden      = errors.New(ErrCodeRemoveAdminForbidden + ": admins cannot remove other admins")
+	ErrRemoveAdminRequiresDemote = errors.New(ErrCodeRemoveAdminRequiresDemote + ": revoke admin role before removing this member")
 )
 
 // LeaveGroup performs a local soft leave: active participation stops, while
@@ -73,6 +82,9 @@ func (r *Runtime) LeaveGroup(groupID string) error {
 	}
 	if !exists {
 		return ErrGroupNotFound
+	}
+	if rec, _, roleErr := r.localGroupMember(groupID); roleErr == nil && isCreatorRole(rec.Role) {
+		return ErrCreatorCannotLeave
 	}
 
 	active, err := database.IsGroupActive(groupID)
@@ -145,39 +157,39 @@ func (r *Runtime) RemoveMemberFromGroup(groupID string, peerID string) error {
 
 	r.mu.RLock()
 	database := r.db
-	coordStorage := r.coordStorage
 	coord := r.coordinators[groupID]
 	node := r.node
 	r.mu.RUnlock()
-	if database == nil || coordStorage == nil {
+	if database == nil {
 		return fmt.Errorf("%s: runtime not initialized", ErrCodeRuntimeNotInitialized)
 	}
 
-	rec, err := coordStorage.GetGroupRecord(groupID)
-	if errors.Is(err, coordination.ErrGroupNotFound) {
-		return ErrGroupNotFound
-	}
+	actor, localPeerID, err := r.requireGroupPermission(groupID, permissionRemoveMembers)
 	if err != nil {
-		return fmt.Errorf("load group record: %w", err)
-	}
-	if rec == nil {
-		return ErrGroupNotFound
-	}
-	if rec.MyRole != coordination.RoleCreator {
 		return ErrRemoveMemberForbidden
 	}
 	if coord == nil {
 		return ErrGroupNotFound
 	}
 
-	localPeerID := ""
-	if node != nil {
-		localPeerID = node.Host.ID().String()
-	} else if info, infoErr := r.GetOnboardingInfo(); infoErr == nil && info != nil {
-		localPeerID = strings.TrimSpace(info.PeerID)
-	}
 	if localPeerID != "" && localPeerID == peerID {
 		return ErrRemoveSelfNotAllowed
+	}
+	targetRec, err := database.GetGroupMember(groupID, peerID)
+	if err != nil {
+		return err
+	}
+	if targetRec == nil || targetRec.Status != store.GroupMemberStatusActive {
+		return ErrRemoveMemberPeerNotKnown
+	}
+	if isCreatorRole(targetRec.Role) {
+		return ErrRemoveCreatorForbidden
+	}
+	if strings.EqualFold(strings.TrimSpace(targetRec.Role), store.GroupMemberRoleAdmin) {
+		if isCreatorRole(actor.Role) {
+			return ErrRemoveAdminRequiresDemote
+		}
+		return ErrRemoveAdminForbidden
 	}
 
 	target, _ := peer.Decode(peerID)
@@ -185,7 +197,7 @@ func (r *Runtime) RemoveMemberFromGroup(groupID string, peerID string) error {
 	if err != nil {
 		return ErrRemoveMemberPeerNotKnown
 	}
-	if err := coord.RemoveMember(targetIdentity); err != nil {
+	if err := coord.RemoveMemberWithPeer(coordination.RemoveMemberRequest{TargetPeerID: target, TargetIdentity: targetIdentity}); err != nil {
 		if errors.Is(err, coordination.ErrAccessRevoked) {
 			return ErrRemoveMemberAccessRevoked
 		}

@@ -112,6 +112,29 @@ func TestGroupMembers_UpsertPreservingRole_DoesNotDowngradeCreator(t *testing.T)
 	}
 }
 
+func TestGroupMembers_UpsertPreservingRole_DoesNotDowngradeAdmin(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.UpsertGroupMember(GroupMemberRecord{
+		GroupID: "g-admin", PeerID: "peer-admin", DisplayName: "Admin",
+		Role: GroupMemberRoleAdmin, Status: GroupMemberStatusActive, Source: "grant-admin",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMember admin: %v", err)
+	}
+	if err := d.UpsertGroupMemberPreservingRole(GroupMemberRecord{
+		GroupID: "g-admin", PeerID: "peer-admin", DisplayName: "Admin Refreshed",
+		Role: GroupMemberRoleMember, Status: GroupMemberStatusActive, Source: "heartbeat",
+	}); err != nil {
+		t.Fatalf("UpsertGroupMemberPreservingRole: %v", err)
+	}
+	rows, err := d.ListGroupMembers("g-admin", GroupMemberStatusActive)
+	if err != nil {
+		t.Fatalf("ListGroupMembers: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Role != GroupMemberRoleAdmin {
+		t.Fatalf("admin role not preserved: %+v", rows)
+	}
+}
+
 // TestGroupMembers_UpsertPreservingRole_InsertsNewRowWithMember verifies
 // that UpsertGroupMemberPreservingRole still INSERTs a freshly-discovered
 // peer with the supplied (normalised) role. This is the normal path on a
@@ -173,6 +196,85 @@ func TestGroupMembers_UpsertOverwritesRole(t *testing.T) {
 	rows, _ := d.ListGroupMembers("g-roleflip", GroupMemberStatusActive)
 	if len(rows) != 1 || rows[0].Role != "creator" {
 		t.Fatalf("authoritative upsert failed to set role: %+v", rows)
+	}
+}
+
+func TestGroupMembers_SetGroupMemberRole_GrantAndRevokeAdmin(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.UpsertGroupMember(GroupMemberRecord{
+		GroupID: "g-role", PeerID: "peer-a", Role: GroupMemberRoleMember,
+		Status: GroupMemberStatusActive, Source: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetGroupMemberRole("g-role", "peer-a", GroupMemberRoleAdmin); err != nil {
+		t.Fatalf("grant admin: %v", err)
+	}
+	admins, err := d.ListGroupAdmins("g-role")
+	if err != nil {
+		t.Fatalf("ListGroupAdmins: %v", err)
+	}
+	if len(admins) != 1 || admins[0].PeerID != "peer-a" || admins[0].Role != GroupMemberRoleAdmin {
+		t.Fatalf("admins mismatch after grant: %+v", admins)
+	}
+	if err := d.SetGroupMemberRole("g-role", "peer-a", GroupMemberRoleMember); err != nil {
+		t.Fatalf("revoke admin: %v", err)
+	}
+	admins, err = d.ListGroupAdmins("g-role")
+	if err != nil {
+		t.Fatalf("ListGroupAdmins after revoke: %v", err)
+	}
+	if len(admins) != 0 {
+		t.Fatalf("admins after revoke = %+v, want none", admins)
+	}
+}
+
+func TestGroupMembers_SetGroupMemberRole_CreatorImmutable(t *testing.T) {
+	d := setupTestDB(t)
+	if err := d.UpsertGroupMember(GroupMemberRecord{
+		GroupID: "g-creator-immutable", PeerID: "peer-creator", Role: GroupMemberRoleCreator,
+		Status: GroupMemberStatusActive, Source: "create",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SetGroupMemberRole("g-creator-immutable", "peer-creator", GroupMemberRoleMember); err == nil {
+		t.Fatal("expected creator demotion to fail")
+	}
+	if err := d.SetGroupMemberRole("g-creator-immutable", "peer-creator", GroupMemberRoleAdmin); err == nil {
+		t.Fatal("expected creator admin overwrite to fail")
+	}
+	rows, err := d.ListGroupMembers("g-creator-immutable", GroupMemberStatusActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Role != GroupMemberRoleCreator {
+		t.Fatalf("creator role changed: %+v", rows)
+	}
+}
+
+func TestGroupMembers_ListAuthorizedCommitters_ActiveCreatorAndAdminsOnly(t *testing.T) {
+	d := setupTestDB(t)
+	seed := []GroupMemberRecord{
+		{GroupID: "g-authz", PeerID: "creator", Role: GroupMemberRoleCreator, Status: GroupMemberStatusActive},
+		{GroupID: "g-authz", PeerID: "admin", Role: GroupMemberRoleAdmin, Status: GroupMemberStatusActive},
+		{GroupID: "g-authz", PeerID: "left-admin", Role: GroupMemberRoleAdmin, Status: GroupMemberStatusLeft, LeftAt: 1},
+		{GroupID: "g-authz", PeerID: "member", Role: GroupMemberRoleMember, Status: GroupMemberStatusActive},
+	}
+	for _, rec := range seed {
+		if err := d.UpsertGroupMember(rec); err != nil {
+			t.Fatalf("seed %s: %v", rec.PeerID, err)
+		}
+	}
+	rows, err := d.ListAuthorizedCommitters("g-authz")
+	if err != nil {
+		t.Fatalf("ListAuthorizedCommitters: %v", err)
+	}
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.PeerID] = row.Role
+	}
+	if len(got) != 2 || got["creator"] != GroupMemberRoleCreator || got["admin"] != GroupMemberRoleAdmin {
+		t.Fatalf("authorized committers mismatch: %+v", rows)
 	}
 }
 

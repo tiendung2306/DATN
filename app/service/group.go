@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -63,10 +64,15 @@ type GroupInfo struct {
 
 // MemberInfo describes a peer in the coordination active view with liveness.
 type MemberInfo struct {
-	PeerID        string `json:"peer_id"`
-	DisplayName   string `json:"display_name"`
-	AvatarDataURL string `json:"avatar_data_url,omitempty"`
-	IsOnline      bool   `json:"is_online"`
+	PeerID         string `json:"peer_id"`
+	DisplayName    string `json:"display_name"`
+	AvatarDataURL  string `json:"avatar_data_url,omitempty"`
+	IsOnline       bool   `json:"is_online"`
+	Role           string `json:"role"`
+	IsAdmin        bool   `json:"is_admin"`
+	IsCreator      bool   `json:"is_creator"`
+	CanManageAdmin bool   `json:"can_manage_admin"`
+	CanRemove      bool   `json:"can_remove"`
 }
 
 // KeyPackageResult is returned by GenerateKeyPackage for Wails/TS bindings.
@@ -170,18 +176,19 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 	}
 
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-		Config:           coordination.DefaultConfig(),
-		Transport:        r.transport,
-		Clock:            coordination.RealClock{},
-		MLS:              r.mlsEngine,
-		Storage:          r.coordStorage,
-		LocalID:          r.node.Host.ID(),
-		GroupID:          groupID,
-		SigningKey:       identity.SigningKeyPrivate,
-		GroupInfoFetcher: r.fetchGroupInfoForHeal,
-		OnMessage:        r.makeMessageHandler(groupID),
-		OnEpochChange:    r.makeEpochHandler(groupID),
-		OnAccessLost:     r.makeAccessLostHandler(groupID),
+		Config:               coordination.DefaultConfig(),
+		Transport:            r.transport,
+		Clock:                coordination.RealClock{},
+		MLS:                  r.mlsEngine,
+		Storage:              r.coordStorage,
+		LocalID:              r.node.Host.ID(),
+		GroupID:              groupID,
+		SigningKey:           identity.SigningKeyPrivate,
+		GroupInfoFetcher:     r.fetchGroupInfoForHeal,
+		AuthorizedCommitters: r.authorizedCommittersProvider(db),
+		OnMessage:            r.makeMessageHandler(groupID),
+		OnEpochChange:        r.makeEpochHandler(groupID),
+		OnAccessLost:         r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
@@ -294,6 +301,9 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 			return "", err
 		}
 	}
+	if err := database.SetDMCounterpartyPeerID(groupID, targetID.String()); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		slog.Warn("StartDirectMessage: persist DM counterparty failed", "group_id", groupID, "target", targetID.String(), "err", err)
+	}
 
 	r.mu.RLock()
 	coord := r.coordinators[groupID]
@@ -372,6 +382,11 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 
 		if normalizedType == "dm" && database != nil {
 			title = ""
+			counterpartyPeerID = strings.TrimSpace(rec.DMCounterpartyPeerID)
+			if counterpartyPeerID == localPeerID {
+				counterpartyPeerID = ""
+			}
+			memberDisplayName := ""
 			members, err := database.ListGroupMembers(rec.GroupID, store.GroupMemberStatusActive)
 			if err == nil {
 				for _, m := range members {
@@ -381,18 +396,25 @@ func (r *Runtime) GetGroups() ([]GroupInfo, error) {
 					if m.PeerID == localPeerID {
 						continue
 					}
-					counterpartyPeerID = m.PeerID
+					if counterpartyPeerID == "" {
+						counterpartyPeerID = m.PeerID
+						_ = database.SetDMCounterpartyPeerID(rec.GroupID, counterpartyPeerID)
+					}
+					if m.PeerID != counterpartyPeerID {
+						continue
+					}
 					displayName := strings.TrimSpace(m.DisplayName)
-					if displayName == "" {
-						displayName = r.resolveDisplayNameForPeer(counterpartyPeerID)
-					}
-					if displayName != "" {
-						title = displayName
-					}
-					subtitle = counterpartyPeerID
-					_, isCounterpartyOnline = online[counterpartyPeerID]
+					memberDisplayName = displayName
 					break
 				}
+			}
+			if counterpartyPeerID != "" {
+				if memberDisplayName == "" {
+					memberDisplayName = r.resolveDisplayNameForPeer(counterpartyPeerID)
+				}
+				title = memberDisplayName
+				subtitle = counterpartyPeerID
+				_, isCounterpartyOnline = online[counterpartyPeerID]
 			}
 		}
 
@@ -452,7 +474,7 @@ func (r *Runtime) groupChatAvatarDataURL(groupID string) string {
 	return avatarDataURL(outMime, data)
 }
 
-// SaveGroupChatAvatar updates the local image for a group-type MLS chat (creator only).
+// SaveGroupChatAvatar updates the local image for a group-type MLS chat.
 // avatarChange: 0 = no image change, 1 = replace with imageBytes, 2 = remove image.
 func (r *Runtime) SaveGroupChatAvatar(groupID string, imageBytes []byte, avatarChange int) error {
 	if err := r.ensureSessionActive(); err != nil {
@@ -480,8 +502,8 @@ func (r *Runtime) SaveGroupChatAvatar(groupID string, imageBytes []byte, avatarC
 	if normalizedType != "group" {
 		return fmt.Errorf("group avatar is only supported for group chats, not %q", normalizedType)
 	}
-	if rec.MyRole != coordination.RoleCreator {
-		return fmt.Errorf("only the group creator can change the group image")
+	if _, _, err := r.requireGroupPermission(groupID, permissionChangeGroupSetting); err != nil {
+		return err
 	}
 	switch avatarChange {
 	case 0:
@@ -754,18 +776,19 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}
 
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-		Config:           coordination.DefaultConfig(),
-		Transport:        r.transport,
-		Clock:            coordination.RealClock{},
-		MLS:              r.mlsEngine,
-		Storage:          r.coordStorage,
-		LocalID:          r.node.Host.ID(),
-		GroupID:          groupID,
-		SigningKey:       identity.SigningKeyPrivate,
-		GroupInfoFetcher: r.fetchGroupInfoForHeal,
-		OnMessage:        r.makeMessageHandler(groupID),
-		OnEpochChange:    r.makeEpochHandler(groupID),
-		OnAccessLost:     r.makeAccessLostHandler(groupID),
+		Config:               coordination.DefaultConfig(),
+		Transport:            r.transport,
+		Clock:                coordination.RealClock{},
+		MLS:                  r.mlsEngine,
+		Storage:              r.coordStorage,
+		LocalID:              r.node.Host.ID(),
+		GroupID:              groupID,
+		SigningKey:           identity.SigningKeyPrivate,
+		GroupInfoFetcher:     r.fetchGroupInfoForHeal,
+		AuthorizedCommitters: r.authorizedCommittersProvider(r.db),
+		OnMessage:            r.makeMessageHandler(groupID),
+		OnEpochChange:        r.makeEpochHandler(groupID),
+		OnAccessLost:         r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			r.publishBlindStoreEnvelope(mt, gid, wire)
 		},
@@ -820,6 +843,11 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 	if database == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
+
+	creatorPeerID := ""
+	if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil {
+		creatorPeerID = creator
+	}
 	hasGroup, err := database.HasGroup(groupID)
 	if err != nil {
 		return nil, err
@@ -843,6 +871,17 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 	}
 	if node != nil {
 		online[node.Host.ID().String()] = struct{}{}
+	}
+	localPeerID := ""
+	if node != nil {
+		localPeerID = node.Host.ID().String()
+	}
+	localRole := store.GroupMemberRoleMember
+	for _, rec := range members {
+		if rec.PeerID == localPeerID && rec.Status == store.GroupMemberStatusActive {
+			localRole = rec.Role
+			break
+		}
 	}
 
 	out := make([]MemberInfo, 0, len(members))
@@ -873,11 +912,18 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 		}
 		_, isOn := online[rec.PeerID]
 		avatarURL := r.memberAvatarDataURL(rec.PeerID)
+		isCreator := isCreatorRole(rec.Role) || (creatorPeerID != "" && rec.PeerID == creatorPeerID)
+		isAdmin := isAdminRole(rec.Role) || isCreator
 		out = append(out, MemberInfo{
-			PeerID:        rec.PeerID,
-			DisplayName:   displayName,
-			AvatarDataURL: avatarURL,
-			IsOnline:      isOn,
+			PeerID:         rec.PeerID,
+			DisplayName:    displayName,
+			AvatarDataURL:  avatarURL,
+			IsOnline:       isOn,
+			Role:           rec.Role,
+			IsAdmin:        isAdmin,
+			IsCreator:      isCreator,
+			CanManageAdmin: isCreatorRole(localRole) && !isCreator,
+			CanRemove:      canRemoveMemberByRole(localRole, rec.Role, localPeerID == rec.PeerID),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -978,18 +1024,19 @@ func (r *Runtime) loadExistingGroupsLocked() {
 
 	for _, rec := range groups {
 		coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
-			Config:           coordination.DefaultConfig(),
-			Transport:        r.transport,
-			Clock:            coordination.RealClock{},
-			MLS:              r.mlsEngine,
-			Storage:          r.coordStorage,
-			LocalID:          r.node.Host.ID(),
-			GroupID:          rec.GroupID,
-			SigningKey:       identity.SigningKeyPrivate,
-			GroupInfoFetcher: r.fetchGroupInfoForHeal,
-			OnMessage:        r.makeMessageHandler(rec.GroupID),
-			OnEpochChange:    r.makeEpochHandler(rec.GroupID),
-			OnAccessLost:     r.makeAccessLostHandler(rec.GroupID),
+			Config:               coordination.DefaultConfig(),
+			Transport:            r.transport,
+			Clock:                coordination.RealClock{},
+			MLS:                  r.mlsEngine,
+			Storage:              r.coordStorage,
+			LocalID:              r.node.Host.ID(),
+			GroupID:              rec.GroupID,
+			SigningKey:           identity.SigningKeyPrivate,
+			GroupInfoFetcher:     r.fetchGroupInfoForHeal,
+			AuthorizedCommitters: r.authorizedCommittersProvider(r.db),
+			OnMessage:            r.makeMessageHandler(rec.GroupID),
+			OnEpochChange:        r.makeEpochHandler(rec.GroupID),
+			OnAccessLost:         r.makeAccessLostHandler(rec.GroupID),
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 				r.publishBlindStoreEnvelope(mt, gid, wire)
 			},

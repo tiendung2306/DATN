@@ -18,7 +18,22 @@ const REMOVE_MEMBER_ERROR_MAP: Record<string, FormattedActionError> = {
   },
   ERR_REMOVE_MEMBER_FORBIDDEN: {
     title: 'Permission denied',
-    description: 'Only the group creator can remove members.',
+    description: 'Only the creator or an admin can remove regular members.',
+    variant: 'destructive',
+  },
+  ERR_REMOVE_CREATOR_FORBIDDEN: {
+    title: 'Creator cannot be removed',
+    description: 'The group creator is the immutable owner in this version.',
+    variant: 'destructive',
+  },
+  ERR_REMOVE_ADMIN_FORBIDDEN: {
+    title: 'Cannot remove admin',
+    description: 'Admins cannot remove other admins. The creator must revoke admin first.',
+    variant: 'destructive',
+  },
+  ERR_REMOVE_ADMIN_REQUIRES_DEMOTE: {
+    title: 'Revoke admin first',
+    description: 'Creator must revoke admin role before removing this member.',
     variant: 'destructive',
   },
   ERR_REMOVE_MEMBER_SELF: {
@@ -101,6 +116,13 @@ export function formatLeaveGroupError(err: unknown): FormattedActionError {
     return {
       title: 'Group not found',
       description: 'The group might have been deleted or you already left. Please refresh your list.',
+      variant: 'destructive',
+    }
+  }
+  if (code === 'ERR_CREATOR_CANNOT_LEAVE') {
+    return {
+      title: 'Creator cannot leave',
+      description: 'The group creator is the immutable owner in this version.',
       variant: 'destructive',
     }
   }

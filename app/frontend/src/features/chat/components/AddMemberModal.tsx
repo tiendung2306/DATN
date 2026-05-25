@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Search, Check, UserPlus } from 'lucide-react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../../lib/formatSendError'
+import { useToastStore } from '../../../stores/useToastStore'
 
 interface AddMemberModalProps {
   isOpen: boolean
@@ -31,6 +32,7 @@ export default function AddMemberModal({
   const [selectedPeers, setSelectedPeers] = useState<string[]>([])
   const [inviting, setInviting] = useState(false)
   const [error, setError] = useState('')
+  const pushToast = useToastStore((s) => s.pushToast)
 
   useEffect(() => {
     if (isOpen && groupId) {
@@ -72,21 +74,33 @@ export default function AddMemberModal({
     e.preventDefault()
     if (selectedPeers.length === 0) return
 
+    const peers = selectedPeers
+      .map((peerId) => peerId.trim())
+      .filter((peerId) => peerId.length > 0)
     setInviting(true)
     setError('')
-    try {
-      for (const peerId of selectedPeers) {
-        await runtimeClient.requestGroupInvite(groupId, peerId)
+    setSelectedPeers([])
+    if (onSuccess) onSuccess()
+    onClose()
+    void (async () => {
+      const failures: string[] = []
+      for (const peerId of peers) {
+        try {
+          await runtimeClient.requestGroupInvite(groupId, peerId)
+        } catch (err) {
+          const mapped = formatOutboundSendError(err)
+          failures.push(mapped.description ? `${mapped.title}: ${mapped.description}` : mapped.title)
+        }
       }
-      setSelectedPeers([])
-      if (onSuccess) onSuccess()
-      onClose()
-    } catch (err) {
-      const mapped = formatOutboundSendError(err)
-      setError(mapped.description ? `${mapped.title}: ${mapped.description}` : mapped.title)
-    } finally {
       setInviting(false)
-    }
+      if (failures.length > 0) {
+        pushToast({
+          title: 'Some invite requests failed',
+          description: failures.slice(0, 4).join(' · '),
+          variant: 'destructive',
+        })
+      }
+    })()
   }
 
   const getInitials = (name: string) => {

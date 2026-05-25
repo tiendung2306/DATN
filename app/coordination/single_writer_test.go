@@ -162,3 +162,91 @@ func TestSingleWriter_BufferProposal_DefensiveCopy(t *testing.T) {
 		t.Error("BufferProposal should make a defensive copy")
 	}
 }
+
+func TestSingleWriter_AuthorizedCommittersLimitElection(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	av.RecordHeartbeat(peerID("bob"))
+	av.RecordHeartbeat(peerID("carol"))
+
+	sw := NewSingleWriter(av, peerID("bob"), 7, cfg)
+	sw.SetAuthorizedCommitters("group-1", func(string, uint64, []BufferedProposal) ([]peer.ID, error) {
+		return []peer.ID{peerID("bob")}, nil
+	})
+
+	holder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holder != peerID("bob") || !sw.IsTokenHolder() {
+		t.Fatalf("holder=%s, want authorized committer bob", holder)
+	}
+}
+
+func TestSingleWriter_AdminElectedWhenCreatorOffline(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("bob"), nil)
+	av.RecordHeartbeat(peerID("member"))
+
+	sw := NewSingleWriter(av, peerID("bob"), 1, cfg)
+	sw.SetAuthorizedCommitters("group-1", func(string, uint64, []BufferedProposal) ([]peer.ID, error) {
+		return []peer.ID{peerID("creator"), peerID("bob")}, nil
+	})
+
+	holder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holder != peerID("bob") {
+		t.Fatalf("holder=%s, want online admin bob because creator is offline", holder)
+	}
+}
+
+func TestSingleWriter_RemoveProposalExcludesTargetFromElection(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	av.RecordHeartbeat(peerID("bob"))
+
+	sw := NewSingleWriter(av, peerID("bob"), 1, cfg)
+	sw.SetAuthorizedCommitters("group-1", func(string, uint64, []BufferedProposal) ([]peer.ID, error) {
+		return []peer.ID{peerID("alice"), peerID("bob")}, nil
+	})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, TargetPeerID: "alice", Data: []byte("remove-alice")})
+
+	holder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holder != peerID("bob") {
+		t.Fatalf("holder=%s, want bob after removed target alice is excluded", holder)
+	}
+	if sw.ProposalCount() != 1 {
+		t.Fatalf("CurrentTokenHolder drained proposal buffer")
+	}
+}
+
+func TestSingleWriter_PeekNextBatchDoesNotDrain(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
+
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("proposal-1")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("proposal-2")})
+
+	batch := sw.PeekNextBatch()
+	if len(batch) != 1 || string(batch[0].Data) != "proposal-1" {
+		t.Fatalf("peek batch=%+v, want first proposal only", batch)
+	}
+	batch[0].Data[0] = 'X'
+	if sw.ProposalCount() != 2 {
+		t.Fatalf("PeekNextBatch drained buffer, count=%d", sw.ProposalCount())
+	}
+	drained := sw.DrainNextBatch()
+	if len(drained) != 1 || string(drained[0].Data) != "proposal-1" {
+		t.Fatalf("drained=%+v, want original first proposal", drained)
+	}
+}

@@ -31,7 +31,8 @@ type CoordinatorOpts struct {
 	// GroupInfoFetcher fetches GroupInfo from a winning peer during fork heal.
 	// Required for Sprint 2D external-join orchestration; may be nil in tests
 	// that do not exercise healing.
-	GroupInfoFetcher GroupInfoFetchFunc
+	GroupInfoFetcher     GroupInfoFetchFunc
+	AuthorizedCommitters AuthorizedCommittersProvider
 
 	OnMessage     func(*StoredMessage) // called when an application message is decrypted
 	OnEpochChange func(uint64)         // called when the group advances to a new epoch
@@ -96,17 +97,18 @@ type Coordinator struct {
 	hlc     *HLC
 	metrics *Metrics
 
-	onMessage          func(*StoredMessage)
-	onEpochChange      func(uint64)
-	onAccessLost       func(string, uint64, string)
-	onEnvelope         func(MessageType, string, []byte)
-	onAddCommitted     func(AddCommitDelivery, uint64, []byte)
-	onPeerObserved     func(string, peer.ID, time.Time)
-	onProposalObserved func(ProposalAuditSummary)
-	onCommitIssued     func(CommitAuditSummary)
-	onForkHealEvent    func(ForkHealAuditSummary)
-	groupInfoFetch     GroupInfoFetchFunc
-	localIdentity      []byte
+	onMessage            func(*StoredMessage)
+	onEpochChange        func(uint64)
+	onAccessLost         func(string, uint64, string)
+	onEnvelope           func(MessageType, string, []byte)
+	onAddCommitted       func(AddCommitDelivery, uint64, []byte)
+	onPeerObserved       func(string, peer.ID, time.Time)
+	onProposalObserved   func(ProposalAuditSummary)
+	onCommitIssued       func(CommitAuditSummary)
+	onForkHealEvent      func(ForkHealAuditSummary)
+	groupInfoFetch       GroupInfoFetchFunc
+	authorizedCommitters AuthorizedCommittersProvider
+	localIdentity        []byte
 
 	// Mutable state (protected by mu)
 	mu                sync.Mutex
@@ -184,6 +186,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		onCommitIssued:       opts.OnCommitIssued,
 		onForkHealEvent:      opts.OnForkHealEvent,
 		groupInfoFetch:       opts.GroupInfoFetcher,
+		authorizedCommitters: opts.AuthorizedCommitters,
 		localIdentity:        deriveIdentityFromSigningKey(opts.SigningKey),
 		pendingAppDeliveries: make(map[string]*pendingAppDelivery),
 	}
@@ -197,7 +200,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 
 // handleActiveViewChange is triggered asynchronously whenever the ActiveView
 // member list changes (e.g., due to peer eviction or observation).
-func (c *Coordinator) handleActiveViewChange(members []peer.ID) {
+func (c *Coordinator) handleActiveViewChange(_ []peer.ID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -205,7 +208,10 @@ func (c *Coordinator) handleActiveViewChange(members []peer.ID) {
 		return
 	}
 
-	newHolder, err := ComputeTokenHolder(members, c.epoch)
+	if c.singleWriter == nil {
+		return
+	}
+	newHolder, err := c.singleWriter.CurrentTokenHolder()
 	if err != nil {
 		return
 	}
@@ -238,7 +244,9 @@ func (c *Coordinator) CreateGroup() error {
 		return fmt.Errorf("coordinator already started")
 	}
 
-	state, treeHash, err := c.mls.CreateGroup(context.Background(), c.groupID, c.signingKey)
+	opCtx, cancel := c.mlsOperationContext()
+	state, treeHash, err := c.mls.CreateGroup(opCtx, c.groupID, c.signingKey)
+	cancel()
 	if err != nil {
 		return fmt.Errorf("CreateGroup: %w", err)
 	}
@@ -291,6 +299,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 
 	c.epochTracker = NewEpochTracker(c.epoch, c.treeHash)
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, c.epoch, c.cfg)
+	c.singleWriter.SetAuthorizedCommitters(c.groupID, c.authorizedCommitters)
 	if holder, err := c.singleWriter.CurrentTokenHolder(); err == nil {
 		c.lastTokenHolder = holder
 	}
@@ -1052,6 +1061,10 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 // targetIdentity must be the MLS BasicCredential identity bytes (signing public
 // key bytes) for the member to remove.
 func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
+	return c.RemoveMemberWithPeer(RemoveMemberRequest{TargetIdentity: targetIdentity})
+}
+
+func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -1067,16 +1080,16 @@ func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
 			"violation_source", "local_membership_guard")
 		return ErrAccessRevoked
 	}
-	if len(targetIdentity) == 0 {
+	if len(req.TargetIdentity) == 0 {
 		return fmt.Errorf("target identity is required")
 	}
 
 	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
-		return c.proposeLocked(ProposalRemove, targetIdentity)
+		return c.proposeLockedWithMetadata(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String()})
 	}
 
 	opCtx, cancel := c.mlsOperationContext()
-	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(opCtx, c.groupState, [][]byte{targetIdentity})
+	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(opCtx, c.groupState, [][]byte{req.TargetIdentity})
 	cancel()
 	if err != nil {
 		return fmt.Errorf("RemoveMembers: %w", err)
@@ -1114,7 +1127,8 @@ func (c *Coordinator) RemoveMember(targetIdentity []byte) error {
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
-		Type: ProposalRemove,
+		Type:         ProposalRemove,
+		TargetPeerID: req.TargetPeerID.String(),
 	}})
 
 	return nil
@@ -1364,6 +1378,10 @@ func (c *Coordinator) propose(pType ProposalType, data []byte) error {
 }
 
 func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
+	return c.proposeLockedWithMetadata(pType, data, BufferedProposal{})
+}
+
+func (c *Coordinator) proposeLockedWithMetadata(pType ProposalType, data []byte, meta BufferedProposal) error {
 	if !c.started {
 		return fmt.Errorf("coordinator not started")
 	}
@@ -1384,9 +1402,13 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 		return fmt.Errorf("CreateProposal: %w", err)
 	}
 
-	c.broadcastLocked(MsgProposal, ProposalMsg{ProposalType: pType, Data: proposalBytes})
+	c.broadcastLocked(MsgProposal, ProposalMsg{
+		ProposalType: pType,
+		Data:         proposalBytes,
+		TargetPeerID: meta.TargetPeerID,
+	})
 
-	c.singleWriter.BufferProposal(BufferedProposal{Type: pType, Data: proposalBytes})
+	c.singleWriter.BufferProposal(BufferedProposal{Type: pType, Data: proposalBytes, TargetPeerID: meta.TargetPeerID})
 	c.metrics.IncrProposalsReceived()
 	if c.onProposalObserved != nil {
 		c.onProposalObserved(ProposalAuditSummary{
@@ -1394,6 +1416,7 @@ func (c *Coordinator) proposeLocked(pType ProposalType, data []byte) error {
 			Epoch:        c.epoch,
 			ActorPeerID:  c.localID.String(),
 			ProposalType: pType,
+			TargetPeerID: meta.TargetPeerID,
 		})
 	}
 
@@ -2107,6 +2130,7 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 	c.epoch = newEpoch
 	c.epochTracker = NewEpochTracker(newEpoch, newTreeHash)
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, newEpoch, c.cfg)
+	c.singleWriter.SetAuthorizedCommitters(c.groupID, c.authorizedCommitters)
 
 	var commitHash []byte
 	if len(externalCommit) > 0 {

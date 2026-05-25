@@ -229,8 +229,7 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 		return err
 	}
 
-	maxByGroup := make(map[string]int64)
-	pendingBlobs := make(map[string][][]byte)
+	pendingEntries := make(map[string][]p2p.OfflineSyncEntryV1)
 
 	for {
 		var batch p2p.OfflineSyncBatchV1
@@ -240,12 +239,7 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 			}
 			return err
 		}
-		for _, e := range batch.Entries {
-			if e.Seq > maxByGroup[batch.GroupID] {
-				maxByGroup[batch.GroupID] = e.Seq
-			}
-			pendingBlobs[batch.GroupID] = append(pendingBlobs[batch.GroupID], e.Envelope)
-		}
+		pendingEntries[batch.GroupID] = append(pendingEntries[batch.GroupID], batch.Entries...)
 	}
 
 	r.mu.Lock()
@@ -255,16 +249,32 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 	}
 	r.mu.Unlock()
 
-	for gid, blobs := range pendingBlobs {
+	maxByGroup := make(map[string]int64)
+
+	for gid, entries := range pendingEntries {
 		coord := coords[gid]
 		if coord == nil {
 			continue
 		}
-		if _, err := coord.ReplayEnvelopes(blobs); err != nil {
-			slog.Warn("offline-sync: ReplayEnvelopes", "group", gid, "err", err)
+
+		// Sort entries by Seq ASC to replay in strict chronological order
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Seq < entries[j].Seq
+		})
+
+		lastSuccessSeq := int64(0)
+		for _, e := range entries {
+			_, err := coord.ReplayEnvelopes([][]byte{e.Envelope})
+			if err != nil {
+				slog.Error("offline-sync: ReplayEnvelopes failed with system error", "group", gid, "seq", e.Seq, "err", err)
+				break
+			}
+			lastSuccessSeq = e.Seq
 		}
-		if m := maxByGroup[gid]; m > 0 {
-			_ = cs.SetOfflinePullCursor(gid, remote.String(), m)
+
+		if lastSuccessSeq > 0 {
+			maxByGroup[gid] = lastSuccessSeq
+			_ = cs.SetOfflinePullCursor(gid, remote.String(), lastSuccessSeq)
 		}
 	}
 

@@ -13,6 +13,7 @@ import AddMemberModal from '../../features/chat/components/AddMemberModal'
 import { ConversationKind } from '../../lib/chatModel'
 import { formatOutboundSendError } from '../../lib/formatSendError'
 import { cn } from '@/lib/utils'
+import { useWailsEvent } from '../../hooks/useWailsEvent'
 import ChatListAvatar from './ChatListAvatar'
 import {
   AVATAR_INPUT_MAX_BYTES,
@@ -199,6 +200,7 @@ export default function RoomPanel({
   const [inviteItems, setInviteItems] = useState<InviteListItem[]>([])
   const [loadingInvites, setLoadingInvites] = useState(false)
   const [changingInviteId, setChangingInviteId] = useState<string | null>(null)
+  const [changingAdminPeerId, setChangingAdminPeerId] = useState<string | null>(null)
   const [invitePolicy, setInvitePolicy] = useState<'creator_approval' | 'any_member' | null>(null)
   const [loadingPolicy, setLoadingPolicy] = useState(false)
   const [savingPolicy, setSavingPolicy] = useState(false)
@@ -206,7 +208,12 @@ export default function RoomPanel({
     'creator_approval',
   )
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
-  const canRemoveMembers = activeKind !== 'dm' && myRole === 'creator'
+  const localMember = localPeerId ? peers.find((peer) => peer.peer_id === localPeerId) : undefined
+  const localIsCreator = Boolean(localMember?.is_creator || myRole === 'creator')
+  const localIsAdmin = Boolean(localMember?.is_admin || localIsCreator)
+  const canManageGroupSettings = activeKind !== 'dm' && localIsAdmin
+  const canManageAdmins = activeKind !== 'dm' && localIsCreator
+  const canLeaveGroup = activeKind !== 'dm' && !localIsCreator
 
   const groupAvatarFileRef = useRef<HTMLInputElement>(null)
   const [pendingGroupCompressedAvatar, setPendingGroupCompressedAvatar] = useState<CompressedAvatarResult | null>(null)
@@ -326,10 +333,17 @@ export default function RoomPanel({
     setSettingsDraftPolicy(invitePolicy)
   }, [isGroupSettingsOpen, invitePolicy])
 
+  useWailsEvent<{ group_id?: string; policy?: string }>('group:invite_policy_changed', (payload) => {
+    if (!activeGroupId || payload?.group_id !== activeGroupId) return
+    const nextPolicy = payload?.policy === 'any_member' ? 'any_member' : 'creator_approval'
+    setInvitePolicy(nextPolicy)
+    setSettingsDraftPolicy((prev) => (prev === 'any_member' || prev === 'creator_approval' ? nextPolicy : prev))
+  })
+
   const hasStoredAvatar = Boolean(String(groupAvatarDataUrl || '').trim())
   const avatarDirty =
     activeKind === 'group' &&
-    canRemoveMembers &&
+    canManageGroupSettings &&
     (pendingGroupCompressedAvatar !== null || (removeGroupAvatarOnSave && hasStoredAvatar))
   const policyDirty = invitePolicy !== null && settingsDraftPolicy !== invitePolicy
   const settingsDirty = policyDirty || avatarDirty
@@ -487,7 +501,8 @@ export default function RoomPanel({
   }
 
   const handleRemoveMember = async (peerId: string) => {
-    if (!activeGroupId || !canRemoveMembers || !peerId || peerId === localPeerId) return
+    const target = peers.find((peer) => peer.peer_id === peerId)
+    if (!activeGroupId || !target?.can_remove || !peerId || peerId === localPeerId) return
     const displayName = getDisplayName(peerId)
     if (!confirm(`Are you sure you want to remove member ${displayName} from group?`)) return
     setRemovingPeerId(peerId)
@@ -504,6 +519,31 @@ export default function RoomPanel({
       pushToast(formatRemoveMemberError(e))
     } finally {
       setRemovingPeerId(null)
+    }
+  }
+
+  const handleSetMemberAdmin = async (peerId: string, isAdmin: boolean) => {
+    if (!activeGroupId || !canManageAdmins || !peerId || peerId === localPeerId) return
+    const target = peers.find((peer) => peer.peer_id === peerId)
+    if (!target || target.is_creator) return
+    const displayName = getDisplayName(peerId)
+    const verb = isAdmin ? 'make admin' : 'revoke admin from'
+    if (!confirm(`Are you sure you want to ${verb} ${displayName}?`)) return
+    setChangingAdminPeerId(peerId)
+    try {
+      await runtimeClient.setGroupMemberAdmin(activeGroupId, peerId, isAdmin)
+      if (refreshGroups) await refreshGroups()
+      pushToast({
+        title: isAdmin ? 'Admin granted' : 'Admin revoked',
+        description: isAdmin
+          ? `${displayName} can now approve invites, change group settings, and remove regular members.`
+          : `${displayName} is now a regular member.`,
+        variant: 'default',
+      })
+    } catch (err) {
+      pushToast(formatOutboundSendError(err))
+    } finally {
+      setChangingAdminPeerId(null)
     }
   }
 
@@ -607,12 +647,23 @@ export default function RoomPanel({
                         size="sm"
                       />
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
+                        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <p className="truncate text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
+                          {peer.is_creator ? (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+                              Creator
+                            </span>
+                          ) : peer.is_admin ? (
+                            <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-300">
+                              Admin
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {canRemoveMembers && peer.peer_id !== localPeerId ? (
+                      {peer.can_remove ? (
                         <button
                           type="button"
                           aria-label={`Remove ${getDisplayName(peer.peer_id)} from group`}
@@ -653,7 +704,7 @@ export default function RoomPanel({
                 const targetPeer = String(item.target_peer_id ?? '')
                 const requesterPeer = String(item.requester_peer_id ?? '')
                 const isBusy = changingInviteId === requestId
-                const isLocalCreator = canRemoveMembers
+                const canReviewInvite = canManageGroupSettings
                 return (
                   <div key={requestId} className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
                     <p className="text-xs font-medium text-slate-200">{getDisplayName(targetPeer)}</p>
@@ -663,7 +714,7 @@ export default function RoomPanel({
                         Requested by: {getDisplayName(requesterPeer)}
                       </p>
                     ) : null}
-                    {isLocalCreator ? (
+                    {canReviewInvite ? (
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Button
                           size="sm"
@@ -684,7 +735,7 @@ export default function RoomPanel({
                         </Button>
                       </div>
                     ) : (
-                      <p className="mt-2 text-[11px] text-slate-500">Awaiting creator approval.</p>
+                      <p className="mt-2 text-[11px] text-slate-500">Awaiting admin approval.</p>
                     )}
                   </div>
                 )
@@ -1087,7 +1138,7 @@ export default function RoomPanel({
           <Shield className="h-3.5 w-3.5" />
           <span>{activeKind === 'dm' ? 'DM actions' : 'Group actions'}</span>
         </div>
-        {activeKind !== 'dm' && canRemoveMembers ? (
+        {canManageGroupSettings ? (
           <Button
             className="w-full gap-2 border border-slate-700 bg-slate-900 text-slate-100 hover:bg-slate-800"
             variant="secondary"
@@ -1098,7 +1149,7 @@ export default function RoomPanel({
             Group Settings
           </Button>
         ) : null}
-        {activeKind !== 'dm' ? (
+        {canManageGroupSettings ? (
           <Button
             className="w-full bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 gap-2"
             variant="secondary"
@@ -1112,12 +1163,17 @@ export default function RoomPanel({
         <Button
           className="w-full text-slate-400 hover:text-red-400 hover:bg-red-500/10 gap-2"
           variant="ghost"
-          disabled={!activeGroupId || isLeaving}
+          disabled={!activeGroupId || isLeaving || !canLeaveGroup}
           onClick={() => void handleLeaveGroup()}
         >
           <LogOut className="h-4 w-4" />
           {isLeaving ? 'Leaving...' : 'Leave Group'}
         </Button>
+        {activeKind !== 'dm' && localIsCreator ? (
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            Creator cannot leave the group in this version. Transfer is intentionally unsupported.
+          </p>
+        ) : null}
       </div>
 
       <AddMemberModal
@@ -1169,7 +1225,7 @@ export default function RoomPanel({
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
-            {activeKind === 'group' && canRemoveMembers ? (
+            {activeKind === 'group' && canManageGroupSettings ? (
               <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
                 <input
                   ref={groupAvatarFileRef}
@@ -1250,6 +1306,53 @@ export default function RoomPanel({
               </section>
             ) : null}
 
+            {canManageAdmins ? (
+              <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
+                <div className="flex gap-3 border-b border-slate-800/80 pb-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80 text-sky-300">
+                    <Shield className="h-4 w-4" aria-hidden />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-100">Admins</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      Creator is always an admin. Revoke admin before removing that member from the group.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 space-y-2">
+                  {peers
+                    .filter((peer) => !peer.is_creator && peer.peer_id !== localPeerId)
+                    .map((peer) => {
+                      const busy = changingAdminPeerId === peer.peer_id
+                      return (
+                        <div
+                          key={`admin-${peer.peer_id}`}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium text-slate-200">{getDisplayName(peer.peer_id)}</p>
+                            <p className="text-[11px] text-slate-500">{shortPeerId(peer.peer_id)}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={peer.is_admin ? 'ghost' : 'secondary'}
+                            className={cn('h-7 shrink-0 text-[11px]', peer.is_admin && 'text-amber-200 hover:text-amber-100')}
+                            disabled={busy || savingPolicy}
+                            onClick={() => void handleSetMemberAdmin(peer.peer_id, !peer.is_admin)}
+                          >
+                            {busy ? 'Updating...' : peer.is_admin ? 'Revoke admin' : 'Make admin'}
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  {peers.filter((peer) => !peer.is_creator && peer.peer_id !== localPeerId).length === 0 ? (
+                    <p className="text-xs text-slate-500">No eligible member to promote yet.</p>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
+
             <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 ring-1 ring-white/[0.03]">
               <div className="flex gap-3 border-b border-slate-800/80 pb-4">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-800/80 text-emerald-400/90">
@@ -1285,9 +1388,9 @@ export default function RoomPanel({
                         onChange={() => setSettingsDraftPolicy('creator_approval')}
                       />
                       <span className="min-w-0 text-sm leading-snug">
-                        <span className="font-medium text-slate-100">Creator approval only</span>
+                        <span className="font-medium text-slate-100">Admin approval required</span>
                         <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-                          Members send invite requests → only creator can approve. Best for private groups.
+                          Members send invite requests and an active admin or creator reviews them. Best for private groups.
                         </span>
                       </span>
                     </label>

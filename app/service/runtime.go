@@ -16,6 +16,7 @@ import (
 	"app/mls_service"
 
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"google.golang.org/grpc"
 )
@@ -338,6 +339,7 @@ func (r *Runtime) launchP2PNode() error {
 
 	go r.advertiseKeyPackage()
 	go r.offlineEnvelopeGCLoop(nodeCtx)
+	go r.startP2PKeepAliveLoop(nodeCtx)
 	go r.processPendingWelcomesOnStartup(nodeCtx)
 
 	return nil
@@ -383,3 +385,55 @@ func (r *Runtime) kickInitialOfflineSync(ctx context.Context) {
 		}
 	}
 }
+
+func (r *Runtime) startP2PKeepAliveLoop(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.maintainPeerConnections()
+		}
+	}
+}
+
+func (r *Runtime) maintainPeerConnections() {
+	r.mu.RLock()
+	node := r.node
+	if node == nil {
+		r.mu.RUnlock()
+		return
+	}
+	peerIDs := make(map[peer.ID]struct{})
+	for _, coord := range r.coordinators {
+		for _, m := range coord.ActiveMembers() {
+			if m != node.Host.ID() && m != "" {
+				peerIDs[m] = struct{}{}
+			}
+		}
+	}
+	r.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	for pid := range peerIDs {
+		// Protect connection from being pruned by the connection manager
+		node.Host.ConnManager().Protect(pid, "coordination")
+
+		// Reconnect if connection was dropped
+		if node.Host.Network().Connectedness(pid) != network.Connected {
+			slog.Debug("P2P keepalive reconnecting", "peer", pid)
+			addrs := node.Host.Peerstore().Addrs(pid)
+			if len(addrs) > 0 {
+				_ = node.Host.Connect(ctx, peer.AddrInfo{
+					ID:    pid,
+					Addrs: addrs,
+				})
+			}
+		}
+	}
+}
+

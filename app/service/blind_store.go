@@ -259,6 +259,50 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 			if err := rt.applySignedRemoteGroupAvatarPush(creator, wire, sig, blob); err != nil && !errors.Is(err, errReplicationStaleGroupAvatar) {
 				slog.Debug("blind-store: group avatar replicated record rejected", "group", gid, "err", err)
 			}
+		case store.NamespaceGroupRoleV1:
+			recordKey := strings.TrimSpace(msg.RecordKey)
+			if recordKey == "" || len(msg.RecordWireJSON) == 0 || len(msg.RecordSignature) == 0 {
+				return
+			}
+			wire := append([]byte(nil), msg.RecordWireJSON...)
+			sig := append([]byte(nil), msg.RecordSignature...)
+			var w groupRoleWireV1
+			if err := json.Unmarshal(wire, &w); err != nil {
+				return
+			}
+			if groupRoleRecordKey(w.GroupID, w.TargetPeerID) != recordKey {
+				slog.Debug("blind-store: group role record key mismatch", "record_key", recordKey, "group", w.GroupID)
+				return
+			}
+			actor := strings.TrimSpace(w.ActorPeerID)
+			if actor == "" {
+				return
+			}
+			if err := rt.applySignedRemoteGroupRolePush(actor, wire, sig); err != nil && !errors.Is(err, errReplicationStaleGroupRole) {
+				slog.Debug("blind-store: group role replicated record rejected", "record_key", recordKey, "err", err)
+			}
+		case store.NamespaceGroupInvitePolicyV1:
+			gid := strings.TrimSpace(msg.RecordKey)
+			if gid == "" || len(msg.RecordWireJSON) == 0 || len(msg.RecordSignature) == 0 {
+				return
+			}
+			wire := append([]byte(nil), msg.RecordWireJSON...)
+			sig := append([]byte(nil), msg.RecordSignature...)
+			var w groupInvitePolicyWireV1
+			if err := json.Unmarshal(wire, &w); err != nil {
+				return
+			}
+			if strings.TrimSpace(w.GroupID) != gid {
+				slog.Debug("blind-store: group invite policy record key mismatch", "record_key", gid, "group", w.GroupID)
+				return
+			}
+			actor := strings.TrimSpace(w.ActorPeerID)
+			if actor == "" {
+				return
+			}
+			if err := rt.applySignedRemoteGroupInvitePolicyPush(actor, wire, sig); err != nil && !errors.Is(err, errReplicationStaleGroupInvitePolicy) {
+				slog.Debug("blind-store: group invite policy replicated record rejected", "group", gid, "err", err)
+			}
 		default:
 			return
 		}
@@ -433,6 +477,70 @@ func (r *Runtime) publishBlindStoreReplicatedGroupAvatar(wire, sig, blob []byte)
 		RecordWireJSON:  append([]byte(nil), wire...),
 		RecordSignature: append([]byte(nil), sig...),
 		RecordBlob:      append([]byte(nil), blob...),
+		ReplicaTargets:  targets,
+	}
+	r.publishBlindStoreFrame(frame)
+}
+
+func (r *Runtime) publishBlindStoreReplicatedGroupRole(wire, sig []byte) {
+	r.mu.RLock()
+	layer := r.blindStore
+	node := r.node
+	r.mu.RUnlock()
+	if layer == nil || node == nil || len(wire) == 0 {
+		return
+	}
+	var w groupRoleWireV1
+	if err := json.Unmarshal(wire, &w); err != nil {
+		return
+	}
+	key := groupRoleRecordKey(w.GroupID, w.TargetPeerID)
+	if strings.TrimSpace(w.GroupID) == "" || strings.TrimSpace(w.TargetPeerID) == "" || key == "|" {
+		return
+	}
+	sum := sha256.Sum256(wire)
+	routing := "replica:" + store.NamespaceGroupRoleV1 + ":" + key + ":" + fmt.Sprintf("%x", sum[:])
+	targets := layer.selectReplicaTargets(node.Host.ID(), routing)
+	frame := blindStoreEnvelopeV1{
+		V:               1,
+		PublishedAt:     time.Now().UnixMilli(),
+		ObjectType:      blindStoreObjectReplicatedRecord,
+		RecordNamespace: store.NamespaceGroupRoleV1,
+		RecordKey:       key,
+		RecordWireJSON:  append([]byte(nil), wire...),
+		RecordSignature: append([]byte(nil), sig...),
+		ReplicaTargets:  targets,
+	}
+	r.publishBlindStoreFrame(frame)
+}
+
+func (r *Runtime) publishBlindStoreReplicatedGroupInvitePolicy(wire, sig []byte) {
+	r.mu.RLock()
+	layer := r.blindStore
+	node := r.node
+	r.mu.RUnlock()
+	if layer == nil || node == nil || len(wire) == 0 {
+		return
+	}
+	var w groupInvitePolicyWireV1
+	if err := json.Unmarshal(wire, &w); err != nil {
+		return
+	}
+	gid := strings.TrimSpace(w.GroupID)
+	if gid == "" {
+		return
+	}
+	sum := sha256.Sum256(wire)
+	routing := "replica:" + store.NamespaceGroupInvitePolicyV1 + ":" + gid + ":" + fmt.Sprintf("%x", sum[:])
+	targets := layer.selectReplicaTargets(node.Host.ID(), routing)
+	frame := blindStoreEnvelopeV1{
+		V:               1,
+		PublishedAt:     time.Now().UnixMilli(),
+		ObjectType:      blindStoreObjectReplicatedRecord,
+		RecordNamespace: store.NamespaceGroupInvitePolicyV1,
+		RecordKey:       gid,
+		RecordWireJSON:  append([]byte(nil), wire...),
+		RecordSignature: append([]byte(nil), sig...),
 		ReplicaTargets:  targets,
 	}
 	r.publishBlindStoreFrame(frame)

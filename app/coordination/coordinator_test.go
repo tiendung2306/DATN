@@ -26,6 +26,21 @@ type blockingAddMembersEngine struct {
 	started chan struct{}
 }
 
+type blockingCreateGroupEngine struct {
+	*MockMLSEngine
+	started chan struct{}
+}
+
+func (b *blockingCreateGroupEngine) CreateGroup(ctx context.Context, _ string, _ []byte) ([]byte, []byte, error) {
+	select {
+	case <-b.started:
+	default:
+		close(b.started)
+	}
+	<-ctx.Done()
+	return nil, nil, ctx.Err()
+}
+
 func (b *blockingAddMembersEngine) AddMembers(ctx context.Context, _ []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
 	select {
 	case <-b.started:
@@ -1008,6 +1023,45 @@ func TestCoordinator_AddMember_TimesOutInsteadOfHangingForever(t *testing.T) {
 	}
 	if holder.coord.CurrentEpoch() != 0 {
 		t.Fatalf("epoch advanced unexpectedly to %d", holder.coord.CurrentEpoch())
+	}
+}
+
+func TestCoordinator_CreateGroup_TimesOutInsteadOfHangingForever(t *testing.T) {
+	id := mustRealPeerID(t)
+	network := NewFakeNetwork()
+	clk := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	cfg := TestConfig()
+	cfg.MLSOperationTimeout = 50 * time.Millisecond
+	blocker := &blockingCreateGroupEngine{
+		MockMLSEngine: NewMockMLSEngine(),
+		started:       make(chan struct{}),
+	}
+
+	coord, err := NewCoordinator(CoordinatorOpts{
+		Config:    cfg,
+		Transport: network.AddNode(id),
+		Clock:     clk,
+		MLS:       blocker,
+		Storage:   NewMockStorage(),
+		LocalID:   id,
+		GroupID:   "grp-create-timeout",
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+
+	startedAt := time.Now()
+	err = coord.CreateGroup()
+	elapsed := time.Since(startedAt)
+
+	if err == nil {
+		t.Fatal("expected CreateGroup timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("CreateGroup took too long after timeout: %v", elapsed)
 	}
 }
 
