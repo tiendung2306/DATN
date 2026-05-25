@@ -281,6 +281,33 @@ func (r *Runtime) reconcileGroupRosterWithMLS(groupID string) (bool, error) {
 			continue
 		}
 		if peerID == "" {
+			if strings.ToLower(strings.TrimSpace(rec.GroupType)) == "dm" {
+				counterpartyID := ""
+				if creator, err := database.GetGroupCreatorPeerID(groupID); err == nil && creator != "" && creator != localPeerID {
+					counterpartyID = creator
+				} else {
+					if mbrs, err := database.ListGroupMembers(groupID); err == nil {
+						for _, m := range mbrs {
+							if m.PeerID != "" && m.PeerID != localPeerID {
+								counterpartyID = m.PeerID
+								break
+							}
+						}
+					}
+				}
+				if counterpartyID != "" {
+					slog.Info("backfillMLSLeafRoster resolving missing DM counterparty pubkey",
+						"group_id", groupID, "counterparty", counterpartyID, "pubkey", pubHex)
+					if err := database.UpsertPeerProfileWithKey(counterpartyID, "", pubHex); err == nil {
+						peerID = counterpartyID
+					} else {
+						slog.Warn("backfillMLSLeafRoster UpsertPeerProfileWithKey failed",
+							"group_id", groupID, "counterparty", counterpartyID, "err", err)
+					}
+				}
+			}
+		}
+		if peerID == "" {
 			missed++
 			continue
 		}

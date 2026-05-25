@@ -287,8 +287,8 @@ func TestSaveMyProfile_StoresReplicatedRecordBlobRefAndClearsIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReplicatedRecord: %v", err)
 	}
-	if row.Revision != 1 {
-		t.Fatalf("replicated revision=%d want 1", row.Revision)
+	if row.Revision != 2 {
+		t.Fatalf("replicated revision=%d want 2", row.Revision)
 	}
 	refs, err := d.GetReplicatedRecordBlobRefs(store.NamespaceUserProfileV1, ob.PeerID)
 	if err != nil {

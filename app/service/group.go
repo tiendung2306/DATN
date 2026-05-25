@@ -301,6 +301,7 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 	if coord != nil {
 		for _, member := range coord.ActiveMembers() {
 			if member.String() == targetID.String() {
+				_ = r.resendPendingWelcome(targetID, groupID, "dm", "")
 				return groupID, nil
 			}
 		}
@@ -310,7 +311,11 @@ func (r *Runtime) StartDirectMessage(peerID string) (string, error) {
 	if err == nil {
 		for _, rec := range members {
 			if rec.PeerID == targetID.String() {
-				return groupID, nil
+				if resent := r.resendPendingWelcome(targetID, groupID, "dm", ""); resent {
+					return groupID, nil
+				}
+				slog.Info("resendPendingWelcome failed, performing fresh InvitePeerToGroup", "group", groupID, "target", targetID.String())
+				break
 			}
 		}
 	}
