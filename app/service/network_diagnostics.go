@@ -109,13 +109,33 @@ func (r *Runtime) ReconnectP2P() error {
 	return nil
 }
 
+func (r *Runtime) DisconnectP2P() error {
+	r.mu.Lock()
+	r.stopCoordinatorsLocked()
+	r.stopNetworkLocked()
+	r.mu.Unlock()
+	r.setP2PStatus(false, "P2P node disconnected by operator")
+	return nil
+}
+
+func (r *Runtime) ResumeP2P() error {
+	if err := r.ensureSessionActive(); err != nil {
+		return err
+	}
+	if err := r.launchP2PNode(); err != nil {
+		return err
+	}
+	r.setP2PStatus(true, "P2P node resumed")
+	return nil
+}
+
 type DiagnosticsGroupSnapshot struct {
 	GroupID           string   `json:"group_id"`
 	Epoch             uint64   `json:"epoch"`
 	TokenHolder       string   `json:"token_holder"`
 	TokenHolderPeerID string   `json:"token_holder_peer_id,omitempty"`
 	ActiveMembers     int      `json:"active_members"`
-	ActiveView         []string `json:"active_view,omitempty"`
+	ActiveView        []string `json:"active_view,omitempty"`
 	TreeHashHex       string   `json:"tree_hash_hex,omitempty"`
 	TreeHashShort     string   `json:"tree_hash_short,omitempty"`
 	IsHealing         bool     `json:"is_healing"`
@@ -175,17 +195,17 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 
 	for _, gid := range groupIDs {
 		coord := r.coordinators[gid]
-		
+
 		tokenHolderID := ""
 		if holder, err := coord.CurrentTokenHolder(); err == nil {
 			tokenHolderID = holder.String()
 		}
-		
+
 		var activeViewList []string
 		for _, pid := range coord.ActiveMembers() {
 			activeViewList = append(activeViewList, pid.String())
 		}
-		
+
 		treeHashHex := hex.EncodeToString(coord.GetTreeHash())
 		treeHashShort := ""
 		if len(treeHashHex) > 8 {
@@ -214,10 +234,11 @@ func (r *Runtime) ExportDiagnostics() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(".local", 0700); err != nil {
+	localDir := r.localDir()
+	if err := os.MkdirAll(localDir, 0700); err != nil {
 		return "", err
 	}
-	outPath := filepath.Join(".local", fmt.Sprintf("diagnostics-%d.json", time.Now().Unix()))
+	outPath := filepath.Join(localDir, fmt.Sprintf("diagnostics-%d.json", time.Now().Unix()))
 	raw, err := json.MarshalIndent(snapshot, "", "  ")
 	if err != nil {
 		return "", err
@@ -229,7 +250,7 @@ func (r *Runtime) ExportDiagnostics() (string, error) {
 }
 
 func (r *Runtime) OpenLogFolder() error {
-	target := ".local"
+	target := r.localDir()
 	switch runtime.GOOS {
 	case "windows":
 		return exec.Command("explorer", target).Start()

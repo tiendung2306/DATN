@@ -26,6 +26,7 @@ app/*.log
 # Local runtime data — databases, bundles, backups, bootstrap info
 .local/
 app/.local/
+.demo-control/
 
 # Rust
 crypto-engine/target/
@@ -35,6 +36,7 @@ crypto-engine/target/
 node_modules/
 frontend/dist/
 app/frontend/dist/
+demo-control/frontend/dist/
 frontend/.env
 frontend/.env.local
 frontend/.env.development.local
@@ -52,9 +54,12 @@ yarn-error.log*
 # Wails
 build/bin/
 app/build/bin/
+demo-control/build/bin/
 frontend/src/wailsjs/
 app/frontend/wailsjs/
+demo-control/frontend/wailsjs/
 app/frontend/package.json.md5
+demo-control/frontend/package.json.md5
 
 # Temporary files
 tmp/

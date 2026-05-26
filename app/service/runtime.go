@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -43,7 +45,8 @@ type Runtime struct {
 	coordinators map[string]*coordination.Coordinator
 	blindStore   *blindStoreLayer
 
-	health RuntimeHealth
+	health        RuntimeHealth
+	controlServer *http.Server
 
 	adminUnlockedUntil      time.Time
 	adminUnlockTimer        *time.Timer
@@ -114,8 +117,12 @@ func (r *Runtime) Startup(ctx context.Context) {
 	r.ctx = ctx
 	r.mu.Unlock()
 
+	if err := r.startControlServer(); err != nil {
+		slog.Warn("Demo control API unavailable", "error", err)
+	}
+
 	r.setStartupProgress(startupStageLocalDir, "creating local runtime directory")
-	if err := os.MkdirAll(".local", 0700); err != nil {
+	if err := os.MkdirAll(r.localDir(), 0700); err != nil {
 		slog.Error("Failed to create .local dir", "error", err)
 		r.setStartupError("filesystem", "failed to create local runtime directory", true)
 		return
@@ -200,6 +207,10 @@ func (r *Runtime) Shutdown(_ context.Context) {
 
 // teardown releases all resources. Must be called with r.mu held.
 func (r *Runtime) teardown() {
+	if r.controlServer != nil {
+		_ = r.controlServer.Close()
+		r.controlServer = nil
+	}
 	if r.adminUnlockTimer != nil {
 		r.adminUnlockTimer.Stop()
 		r.adminUnlockTimer = nil
@@ -221,6 +232,13 @@ func (r *Runtime) teardown() {
 		r.db.Close()
 		r.db = nil
 	}
+}
+
+func (r *Runtime) localDir() string {
+	if r.cfg != nil && r.cfg.RuntimeDir != "" {
+		return filepath.Clean(r.cfg.RuntimeDir)
+	}
+	return ".local"
 }
 
 // stopNetworkLocked stops P2P-facing resources while preserving DB and sidecar.

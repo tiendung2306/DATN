@@ -5,10 +5,14 @@ import "flag"
 // Config holds all CLI-parsed configuration for this process.
 type Config struct {
 	DBPath         string
+	RuntimeDir     string
 	P2PPort        int
 	BootstrapAddr  string
 	WriteBootstrap string
 	Headless       bool
+	ControlPort    int
+	ControlToken   string
+	InstanceLabel  string
 
 	Setup              bool
 	ImportBundle       string
@@ -26,10 +30,10 @@ type Config struct {
 	BundlePubKey    string
 	BundleOutput    string
 
-	StoreNode             bool
-	BlindStoreParticipant bool
-	OfflineReplicaK       int
-	RuntimeEventReplay    bool
+	StoreNode              bool
+	BlindStoreParticipant  bool
+	OfflineReplicaK        int
+	RuntimeEventReplay     bool
 	FileTransferChunkBytes int
 }
 
@@ -38,10 +42,14 @@ func Parse() *Config {
 	cfg := &Config{}
 
 	flag.StringVar(&cfg.DBPath, "db", ".local/app.db", "Path to SQLite database file")
+	flag.StringVar(&cfg.RuntimeDir, "runtime-dir", "", "Directory for demo/runtime artifacts")
 	flag.IntVar(&cfg.P2PPort, "p2p-port", 4001, "Port for P2P connections")
 	flag.StringVar(&cfg.BootstrapAddr, "bootstrap", "", "Multiaddr of bootstrap peer (overrides stored bundle)")
 	flag.StringVar(&cfg.WriteBootstrap, "write-bootstrap", "", "Write this node's multiaddress to a file after startup")
 	flag.BoolVar(&cfg.Headless, "headless", false, "Run in headless mode (no GUI)")
+	flag.IntVar(&cfg.ControlPort, "control-port", 0, "Localhost demo-control API port (0 disables)")
+	flag.StringVar(&cfg.ControlToken, "control-token", "", "Bearer token for the demo-control API")
+	flag.StringVar(&cfg.InstanceLabel, "instance-label", "", "Human-readable label for demo-managed instances")
 
 	flag.BoolVar(&cfg.Setup, "setup", false, "Generate MLS key pair (first-time setup, run once)")
 	flag.StringVar(&cfg.ImportBundle, "import-bundle", "", "Path to .bundle file received from Admin")
@@ -73,6 +81,20 @@ func Parse() *Config {
 	}
 	if cfg.FileTransferChunkBytes <= 0 {
 		cfg.FileTransferChunkBytes = 1 << 20
+	}
+	if cfg.RuntimeDir != "" {
+		if cfg.DBPath == ".local/app.db" {
+			cfg.DBPath = cfg.RuntimeDir + "/app.db"
+		}
+		if cfg.ExportOutputPath == ".local/identity.backup" {
+			cfg.ExportOutputPath = cfg.RuntimeDir + "/identity.backup"
+		}
+		if cfg.BundleOutput == ".local/invite.bundle" {
+			cfg.BundleOutput = cfg.RuntimeDir + "/invite.bundle"
+		}
+		if cfg.WriteBootstrap == "" {
+			cfg.WriteBootstrap = cfg.RuntimeDir + "/bootstrap.txt"
+		}
 	}
 	return cfg
 }

@@ -433,7 +433,7 @@ func (r *Runtime) PrepareOutgoingFileTransfer(groupID string, sourcePath string)
 	if err != nil {
 		return zero, err
 	}
-	outDir := filepath.Join(".local", "file-transfer", "out", fileID)
+	outDir := filepath.Join(r.localDir(), "file-transfer", "out", fileID)
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return zero, fmt.Errorf("mkdir staging: %w", err)
 	}

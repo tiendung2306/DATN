@@ -15,7 +15,11 @@ import (
 
 // Run executes CLI / headless mode: database, identity, optional crypto engine, then commands or P2P node.
 func Run(cfg *config.Config) error {
-	if err := os.MkdirAll(".local", 0700); err != nil {
+	localDir := ".local"
+	if cfg.RuntimeDir != "" {
+		localDir = cfg.RuntimeDir
+	}
+	if err := os.MkdirAll(localDir, 0700); err != nil {
 		return fmt.Errorf("create .local dir: %w", err)
 	}
 

@@ -1,0 +1,378 @@
+:root {
+  color: #edf2f7;
+  background: #101218;
+  font-family: "Segoe UI", "Aptos", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 1180px;
+  min-height: 100vh;
+  background:
+    linear-gradient(135deg, rgba(31, 41, 55, 0.9), rgba(16, 18, 24, 0.98)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0, rgba(255, 255, 255, 0.025) 1px, transparent 1px, transparent 48px);
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  min-height: 100vh;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 12px;
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(12, 14, 19, 0.92);
+}
+
+.brand {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  border-radius: 8px;
+  color: #9ff0c8;
+  font-weight: 700;
+}
+
+.rail-btn,
+.icon-btn {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(31, 41, 55, 0.65);
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.rail-btn {
+  width: 44px;
+  height: 44px;
+}
+
+.rail-btn.active,
+.icon-btn:hover,
+.cmd:hover {
+  border-color: rgba(16, 185, 129, 0.72);
+  color: #b7f7d4;
+}
+
+.workspace {
+  padding: 22px;
+  overflow: hidden;
+}
+
+.topbar,
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+h3 {
+  font-size: 14px;
+}
+
+.topbar p,
+.muted,
+.node-card header p,
+.scenario-row p {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.toolbar,
+.node-card footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cmd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(30, 34, 43, 0.88);
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+.cmd.primary {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(10, 94, 70, 0.75);
+}
+
+.cmd.danger {
+  border-color: rgba(244, 63, 94, 0.42);
+  background: rgba(95, 28, 43, 0.72);
+}
+
+.cmd:disabled,
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  border-radius: 8px;
+  background: rgba(120, 80, 21, 0.28);
+  color: #f8d18b;
+  font-size: 13px;
+}
+
+.danger-alert {
+  border-color: rgba(244, 63, 94, 0.38);
+  background: rgba(95, 28, 43, 0.34);
+  color: #fecdd3;
+}
+
+.content-grid,
+.topology-layout,
+.scenario-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.instance-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.node-card,
+.side-panel,
+.scenario-row {
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(20, 24, 33, 0.82);
+}
+
+.node-card {
+  min-height: 252px;
+  padding: 12px;
+}
+
+.node-card.selected {
+  border-color: rgba(16, 185, 129, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.24);
+}
+
+.node-card header {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  gap: 9px;
+  align-items: start;
+}
+
+.select-dot {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.selected .select-dot {
+  background: #10b981;
+  border-color: #10b981;
+}
+
+.status {
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.status.running {
+  background: rgba(16, 185, 129, 0.16);
+  color: #86efac;
+}
+
+.status.stopped {
+  background: rgba(100, 116, 139, 0.18);
+  color: #cbd5e1;
+}
+
+.node-body {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.metric-row,
+.event-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.metric-row strong {
+  color: #e2e8f0;
+  font-weight: 650;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.peer-id,
+.event-row code {
+  display: block;
+  overflow: hidden;
+  color: #a7f3d0;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error-text {
+  margin-top: 8px;
+  color: #fda4af;
+  font-size: 11px;
+}
+
+.node-card footer {
+  margin-top: 13px;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+.side-panel {
+  min-height: 620px;
+  padding: 16px;
+}
+
+.side-panel h2 {
+  margin-bottom: 14px;
+}
+
+.wide {
+  width: 100%;
+  margin: 14px 0;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.event-row {
+  justify-content: flex-start;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.event-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matrix {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.matrix-cell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(20, 24, 33, 0.78);
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.matrix-cell.selected {
+  border-color: rgba(16, 185, 129, 0.7);
+  background: rgba(12, 85, 65, 0.55);
+}
+
+.cluster-box {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.cluster-box span {
+  color: #a7f3d0;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 12px;
+}
+
+.scenario-list {
+  display: grid;
+  gap: 12px;
+}
+
+.scenario-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+}
