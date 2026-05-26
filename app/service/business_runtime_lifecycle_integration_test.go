@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestBusinessP0_Startup_AwaitingBundle_DoesNotRunP2P(t *testing.T) {
@@ -79,6 +80,35 @@ func TestBusinessP0_RuntimeHealth_AfterStartupReadyStage(t *testing.T) {
 	h1 := rt.GetRuntimeHealth()
 	if h1.StartupStage != startupStageReady {
 		t.Fatalf("after Startup StartupStage = %q, want ready", h1.StartupStage)
+	}
+}
+
+func TestBusinessP0_Startup_RestoresExistingGroups_WithoutDeadlock(t *testing.T) {
+	root := businessIntegrationChdirToTemp(t)
+	businessSeedAuthorizedWorkDir(t, root)
+
+	rt1, _ := businessRuntimeStartMockInWorkDir(t, root)
+	if err := rt1.CreateGroupChat("restore-on-startup", "group", ""); err != nil {
+		t.Fatalf("CreateGroupChat: %v", err)
+	}
+	businessShutdownRuntimeInWorkDir(t, rt1)
+
+	rt2 := businessNewRuntime(businessDefaultConfig(businessDBPath(root)))
+	done := make(chan struct{})
+	go func() {
+		rt2.Startup(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Startup hung while restoring existing groups")
+	}
+	defer rt2.Shutdown(context.Background())
+
+	if h := rt2.GetRuntimeHealth(); h.StartupStage != startupStageReady {
+		t.Fatalf("StartupStage = %q, want %q", h.StartupStage, startupStageReady)
 	}
 }
 

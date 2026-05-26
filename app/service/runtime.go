@@ -297,6 +297,7 @@ func (r *Runtime) launchP2PNode() error {
 		})
 		node.AuthProtocol.SetPeerProfileAnnexHandler(r.handleAuthProfileAnnex)
 		node.AuthProtocol.SetOnPeerVerified(func(pid peer.ID) {
+			go r.emitNodeStatusChanged("peer_verified")
 			go r.pushLocalUserProfileToPeer(pid)
 			go r.retryOutstandingDeliveriesToPeer(pid)
 			go r.retryPendingWelcomes(pid)

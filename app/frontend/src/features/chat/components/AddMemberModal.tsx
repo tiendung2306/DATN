@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Label } from '../../../components/ui/label'
@@ -7,6 +7,7 @@ import { Search, Check, UserPlus } from 'lucide-react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../../lib/formatSendError'
 import { useToastStore } from '../../../stores/useToastStore'
+import { useWailsEvent } from '../../../hooks/useWailsEvent'
 
 interface AddMemberModalProps {
   isOpen: boolean
@@ -34,33 +35,37 @@ export default function AddMemberModal({
   const [error, setError] = useState('')
   const pushToast = useToastStore((s) => s.pushToast)
 
+  const loadPeers = useCallback(async () => {
+    if (!groupId) return
+    try {
+      const peers = await runtimeClient.getKnownPeers()
+      const members = await runtimeClient.getGroupMembers(groupId)
+      const memberIds = members.map((m: any) => m.peer_id)
+
+      setKnownPeers(
+        peers
+          .map((p: any) => ({
+            id: p.id,
+            display_name: p.display_name || p.id.slice(0, 10),
+            verified: p.verified,
+          }))
+          .filter((p: any) => !memberIds.includes(p.id))
+      )
+    } catch (e) {
+      console.error("Failed to load appropriate candidate peers", e)
+    }
+  }, [groupId])
+
   useEffect(() => {
     if (isOpen && groupId) {
-      const loadPeers = async () => {
-        try {
-          // Fetch all peers known to the system
-          const peers = await runtimeClient.getKnownPeers()
-          
-          // Fetch existing members of this group to filter them out
-          const members = await runtimeClient.getGroupMembers(groupId)
-          const memberIds = members.map((m: any) => m.peer_id)
-
-          setKnownPeers(
-            peers
-              .map((p: any) => ({
-                id: p.id,
-                display_name: p.display_name || p.id.slice(0, 10),
-                verified: p.verified,
-              }))
-              .filter((p: any) => !memberIds.includes(p.id)) // Only show non-members
-          )
-        } catch (e) {
-          console.error("Failed to load appropriate candidate peers", e)
-        }
-      }
-      loadPeers()
+      void loadPeers()
     }
-  }, [isOpen, groupId])
+  }, [groupId, isOpen, loadPeers])
+
+  useWailsEvent('node:status', () => {
+    if (!isOpen) return
+    void loadPeers()
+  })
 
   const toggleSelection = (peerId: string) => {
     if (selectedPeers.includes(peerId)) {

@@ -8,6 +8,8 @@ import (
 	"app/mls_service"
 )
 
+const rebuildSidecarHint = "rebuild the Rust sidecar with `cd crypto-engine && cargo build` and ensure the Go/Rust sources are in sync"
+
 // GrpcMLSEngine adapts the gRPC MLSCryptoServiceClient to coordination.MLSEngine.
 type GrpcMLSEngine struct {
 	client mls_service.MLSCryptoServiceClient
@@ -25,6 +27,13 @@ func truncateSigningKey(key []byte) []byte {
 	return key
 }
 
+func requireNonEmptyState(rpcName, fieldName string, value []byte) ([]byte, error) {
+	if len(value) == 0 {
+		return nil, fmt.Errorf("grpc %s: empty %s from crypto-engine; %s", rpcName, fieldName, rebuildSidecarHint)
+	}
+	return value, nil
+}
+
 func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error) {
 	resp, err := g.client.CreateGroup(ctx, &mls_service.CreateGroupRequest{
 		GroupId:    groupID,
@@ -33,7 +42,11 @@ func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signing
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc CreateGroup: %w", err)
 	}
-	return resp.GetGroupState(), resp.GetTreeHash(), nil
+	groupState, err = requireNonEmptyState("CreateGroup", "group_state", resp.GetGroupState())
+	if err != nil {
+		return nil, nil, err
+	}
+	return groupState, resp.GetTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) CreateProposal(ctx context.Context, groupState []byte, pType coordination.ProposalType, data []byte) (coordination.CreateProposalResult, error) {
@@ -45,10 +58,14 @@ func (g *GrpcMLSEngine) CreateProposal(ctx context.Context, groupState []byte, p
 	if err != nil {
 		return coordination.CreateProposalResult{}, fmt.Errorf("grpc CreateProposal: %w", err)
 	}
+	newGroupState, err := requireNonEmptyState("CreateProposal", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return coordination.CreateProposalResult{}, err
+	}
 	return coordination.CreateProposalResult{
 		ProposalBytes: resp.GetProposalBytes(),
 		ProposalRef:   resp.GetProposalRef(),
-		NewGroupState: resp.GetNewGroupState(),
+		NewGroupState: newGroupState,
 	}, nil
 }
 
@@ -60,10 +77,14 @@ func (g *GrpcMLSEngine) ProcessProposal(ctx context.Context, groupState []byte, 
 	if err != nil {
 		return coordination.ProcessProposalResult{}, fmt.Errorf("grpc ProcessProposal: %w", err)
 	}
+	newGroupState, err := requireNonEmptyState("ProcessProposal", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return coordination.ProcessProposalResult{}, err
+	}
 	return coordination.ProcessProposalResult{
 		ProposalRef:   resp.GetProposalRef(),
 		ProposalType:  resp.GetProposalType(),
-		NewGroupState: resp.GetNewGroupState(),
+		NewGroupState: newGroupState,
 	}, nil
 }
 
@@ -75,12 +96,16 @@ func (g *GrpcMLSEngine) CreateCommit(ctx context.Context, groupState []byte, exp
 	if err != nil {
 		return coordination.CreateCommitResult{}, fmt.Errorf("grpc CreateCommit: %w", err)
 	}
+	newGroupState, err := requireNonEmptyState("CreateCommit", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return coordination.CreateCommitResult{}, err
+	}
 	return coordination.CreateCommitResult{
 		CommitBytes:           resp.GetCommitBytes(),
 		WelcomeBytes:          resp.GetWelcomeBytes(),
 		GroupInfo:             resp.GetGroupInfo(),
 		CommittedProposalRefs: resp.GetCommittedProposalRefs(),
-		NewGroupState:         resp.GetNewGroupState(),
+		NewGroupState:         newGroupState,
 		NewTreeHash:           resp.GetNewTreeHash(),
 	}, nil
 }
@@ -110,7 +135,11 @@ func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, co
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc ProcessCommit: %w", err)
 	}
-	return resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
+	newGroupState, err = requireNonEmptyState("ProcessCommit", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return nil, nil, err
+	}
+	return newGroupState, resp.GetNewTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error) {
@@ -122,7 +151,11 @@ func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signin
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("grpc ProcessWelcome: %w", err)
 	}
-	return resp.GetGroupState(), resp.GetTreeHash(), resp.GetEpoch(), nil
+	groupState, err = requireNonEmptyState("ProcessWelcome", "group_state", resp.GetGroupState())
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return groupState, resp.GetTreeHash(), resp.GetEpoch(), nil
 }
 
 func (g *GrpcMLSEngine) GenerateKeyPackage(ctx context.Context, signingKey []byte) (keyPackageBytes, keyPackageBundlePrivate []byte, err error) {
@@ -143,7 +176,11 @@ func (g *GrpcMLSEngine) AddMembers(ctx context.Context, groupState []byte, keyPa
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("grpc AddMembers: %w", err)
 	}
-	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
+	newGroupState, err = requireNonEmptyState("AddMembers", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), newGroupState, resp.GetNewTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) RemoveMembers(ctx context.Context, groupState []byte, targetIdentities [][]byte) (commitBytes, newGroupState, newTreeHash []byte, err error) {
@@ -154,7 +191,11 @@ func (g *GrpcMLSEngine) RemoveMembers(ctx context.Context, groupState []byte, ta
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("grpc RemoveMembers: %w", err)
 	}
-	return resp.GetCommitBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
+	newGroupState, err = requireNonEmptyState("RemoveMembers", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resp.GetCommitBytes(), newGroupState, resp.GetNewTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) HasMember(ctx context.Context, groupState []byte, identity []byte) (bool, error) {
@@ -186,7 +227,11 @@ func (g *GrpcMLSEngine) EncryptMessage(ctx context.Context, groupState []byte, p
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc EncryptMessage: %w", err)
 	}
-	return resp.GetCiphertext(), resp.GetNewGroupState(), nil
+	newGroupState, err = requireNonEmptyState("EncryptMessage", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp.GetCiphertext(), newGroupState, nil
 }
 
 func (g *GrpcMLSEngine) DecryptMessage(ctx context.Context, groupState []byte, ciphertext []byte) (plaintext, newGroupState []byte, err error) {
@@ -197,7 +242,11 @@ func (g *GrpcMLSEngine) DecryptMessage(ctx context.Context, groupState []byte, c
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc DecryptMessage: %w", err)
 	}
-	return resp.GetPlaintext(), resp.GetNewGroupState(), nil
+	newGroupState, err = requireNonEmptyState("DecryptMessage", "new_group_state", resp.GetNewGroupState())
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp.GetPlaintext(), newGroupState, nil
 }
 
 func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error) {
@@ -208,7 +257,11 @@ func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey 
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("grpc ExternalJoin: %w", err)
 	}
-	return resp.GetGroupState(), resp.GetCommitBytes(), resp.GetTreeHash(), nil
+	groupState, err = requireNonEmptyState("ExternalJoin", "group_state", resp.GetGroupState())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return groupState, resp.GetCommitBytes(), resp.GetTreeHash(), nil
 }
 
 func (g *GrpcMLSEngine) ExportGroupInfo(ctx context.Context, groupState []byte, withRatchetTree bool) (groupInfo []byte, err error) {

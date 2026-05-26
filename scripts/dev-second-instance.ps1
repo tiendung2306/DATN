@@ -53,6 +53,21 @@ if (-not $PSBoundParameters.ContainsKey('AutoBuild')) {
     $AutoBuild = $true
 }
 
+function Invoke-CheckedNative {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string] $Description,
+
+        [Parameter(Mandatory = $true)]
+        [scriptblock] $Command
+    )
+
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE"
+    }
+}
+
 function Resolve-FromAppDir([string] $PathLike) {
     if ([string]::IsNullOrWhiteSpace($PathLike)) { return $PathLike }
     if ([System.IO.Path]::IsPathRooted($PathLike)) { return [System.IO.Path]::GetFullPath($PathLike) }
@@ -79,6 +94,10 @@ if ($Bootstrap -eq '' -and $env:DATN_BOOTSTRAP) {
     $Bootstrap = $env:DATN_BOOTSTRAP.Trim()
 }
 
+if ($Bootstrap -eq '') {
+    Write-Warning "Khong tim thay bootstrap override cho instance 2. Neu ban dang chay node 1 bang wails dev local, hay start node 1 voi: cd app && wails dev -appargs `"-write-bootstrap .local\\dev-bootstrap.txt`""
+}
+
 $runArgs = @('-db', $db, '-p2p-port', "$port")
 if ($Bootstrap -ne '') {
     $runArgs += @('-bootstrap', $Bootstrap)
@@ -97,7 +116,7 @@ if (-not $UseGoRun -and $AutoBuild) {
     Write-Host "Auto build: wails build (instance 2)" -ForegroundColor DarkGray
     Push-Location $AppDir
     try {
-        & wails build
+        Invoke-CheckedNative "wails build" { wails build }
     }
     finally {
         Pop-Location
@@ -130,7 +149,7 @@ Push-Location $AppDir
 try {
     $goArgs = @('run', '.', '--') + $runArgs
     if ($NoNewWindow) {
-        & go @goArgs
+        Invoke-CheckedNative "go run" { go @goArgs }
     }
     else {
         Start-Process -FilePath 'go' -WorkingDirectory $AppDir -ArgumentList $goArgs

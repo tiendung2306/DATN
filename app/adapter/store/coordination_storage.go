@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"app/coordination"
@@ -48,6 +49,9 @@ func (s *SQLiteCoordinationStorage) GetGroupRecord(groupID string) (*coordinatio
 }
 
 func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecord) error {
+	if err := validateGroupRecordForSave(rec); err != nil {
+		return err
+	}
 	_, err := s.db.Conn.Exec(
 		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, dm_counterparty_peer_id, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -81,6 +85,19 @@ func (s *SQLiteCoordinationStorage) SaveGroupRecord(rec *coordination.GroupRecor
 	)
 	if err != nil {
 		return fmt.Errorf("SaveGroupRecord(%q): %w", rec.GroupID, err)
+	}
+	return nil
+}
+
+func validateGroupRecordForSave(rec *coordination.GroupRecord) error {
+	if rec == nil {
+		return fmt.Errorf("SaveGroupRecord: nil group record")
+	}
+	if strings.TrimSpace(rec.GroupID) == "" {
+		return fmt.Errorf("SaveGroupRecord: empty group ID")
+	}
+	if len(rec.GroupState) == 0 {
+		return fmt.Errorf("SaveGroupRecord(%q): empty group_state (stale or incompatible MLS sidecar response)", rec.GroupID)
 	}
 	return nil
 }
@@ -530,6 +547,9 @@ func hasAppliedEnvelopeTx(tx *sql.Tx, groupID string, envelopeHash []byte) (bool
 }
 
 func saveGroupRecordTx(tx *sql.Tx, rec *coordination.GroupRecord) error {
+	if err := validateGroupRecordForSave(rec); err != nil {
+		return err
+	}
 	_, err := tx.Exec(
 		`INSERT INTO mls_groups (group_id, group_state, epoch, tree_hash, my_role, group_type, category_id, dm_counterparty_peer_id, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

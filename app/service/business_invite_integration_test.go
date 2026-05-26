@@ -10,6 +10,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"app/adapter/store"
 )
@@ -420,6 +421,117 @@ func TestBusinessP1_AutoJoin_DeferredWhenKPMissing(t *testing.T) {
 	if err != nil || !has {
 		t.Fatalf("expected retry to succeed after KP available, has=%v err=%v", has, err)
 	}
+}
+
+func TestBusinessP1_AutoJoin_DeferredRetriesInCurrentSession(t *testing.T) {
+	rt, _ := businessRuntimeAuthorizedWithMockMLS(t)
+	originalBackoffs := pendingInviteRefreshBackoffs
+	pendingInviteRefreshBackoffs = []time.Duration{10 * time.Millisecond, 20 * time.Millisecond, 40 * time.Millisecond}
+	defer func() {
+		pendingInviteRefreshBackoffs = originalBackoffs
+	}()
+
+	gid := "grp-autojoin-live-retry"
+	state := bizMockGroupState{
+		GroupID:  gid,
+		Epoch:    1,
+		TreeHash: hex.EncodeToString(bizMockTreeHash(1)),
+	}
+	welcomeBytes, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+		t.Fatalf("savePendingInviteFromWelcome: %v", err)
+	}
+
+	rt.mu.RLock()
+	database := rt.db
+	rt.mu.RUnlock()
+	has, err := database.HasGroup(gid)
+	if err != nil {
+		t.Fatalf("HasGroup: %v", err)
+	}
+	if has {
+		t.Fatal("expected initial live auto-join to be deferred while KP is missing")
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	businessPersistMockKPBundle(t, rt)
+
+	deadline := time.Now().Add(800 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		has, err = database.HasGroup(gid)
+		if err != nil {
+			t.Fatalf("HasGroup during retry: %v", err)
+		}
+		if has {
+			invID := store.PendingInviteID(gid, welcomeBytes)
+			inv, invErr := database.GetPendingInvite(invID)
+			if invErr != nil {
+				t.Fatalf("GetPendingInvite: %v", invErr)
+			}
+			if inv.Status != store.PendingInviteStatusAccepted {
+				t.Fatalf("invite status=%q want accepted after in-session retry", inv.Status)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("expected pending welcome to auto-join after in-session retry without restart")
+}
+
+func TestBusinessP1_AutoJoin_DeferredRetriesPastFirstBackoff(t *testing.T) {
+	rt, _ := businessRuntimeAuthorizedWithMockMLS(t)
+	originalBackoffs := pendingInviteRefreshBackoffs
+	pendingInviteRefreshBackoffs = []time.Duration{10 * time.Millisecond, 30 * time.Millisecond, 60 * time.Millisecond}
+	defer func() {
+		pendingInviteRefreshBackoffs = originalBackoffs
+	}()
+
+	gid := "grp-autojoin-late-kp"
+	state := bizMockGroupState{
+		GroupID:  gid,
+		Epoch:    1,
+		TreeHash: hex.EncodeToString(bizMockTreeHash(1)),
+	}
+	welcomeBytes, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+		t.Fatalf("savePendingInviteFromWelcome: %v", err)
+	}
+
+	rt.mu.RLock()
+	database := rt.db
+	rt.mu.RUnlock()
+
+	time.Sleep(15 * time.Millisecond)
+	businessPersistMockKPBundle(t, rt)
+
+	deadline := time.Now().Add(900 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		has, hasErr := database.HasGroup(gid)
+		if hasErr != nil {
+			t.Fatalf("HasGroup during retry: %v", hasErr)
+		}
+		if has {
+			invID := store.PendingInviteID(gid, welcomeBytes)
+			inv, invErr := database.GetPendingInvite(invID)
+			if invErr != nil {
+				t.Fatalf("GetPendingInvite: %v", invErr)
+			}
+			if inv.Status != store.PendingInviteStatusAccepted {
+				t.Fatalf("invite status=%q want accepted after later retry", inv.Status)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("expected pending welcome to auto-join after a later backoff retry without restart")
 }
 
 // Wire-path regression guard: Alice invites Bob through the real sender API

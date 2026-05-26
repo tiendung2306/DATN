@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Label } from '../../../components/ui/label'
@@ -7,6 +7,7 @@ import { Hash, MessageSquare, Plus, Search, Check, Users } from 'lucide-react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../../lib/formatSendError'
 import { useNetworkStore } from '../../../stores/useNetworkStore'
+import { useWailsEvent } from '../../../hooks/useWailsEvent'
 
 interface CreateGroupModalProps {
   isOpen: boolean
@@ -46,6 +47,23 @@ export default function CreateGroupModal({
   const [error, setError] = useState('')
   const localPeerId = useNetworkStore((state) => state.localPeerId)
 
+  const loadPeers = useCallback(async () => {
+    try {
+      const peers = await runtimeClient.getKnownPeers()
+      setKnownPeers(
+        peers
+          .filter((p: any) => p.id !== localPeerId)
+          .map((p: any) => ({
+            id: p.id,
+            display_name: p.display_name || p.id.slice(0, 10),
+            verified: p.verified
+          }))
+      )
+    } catch (e) {
+      console.error("Failed to load known peers", e)
+    }
+  }, [localPeerId])
+
   useEffect(() => {
     if (isOpen) {
       setGroupType(initialType)
@@ -57,31 +75,20 @@ export default function CreateGroupModal({
       if (forcedType) {
         setGroupType(forcedType)
       }
-      const loadPeers = async () => {
-        try {
-          const peers = await runtimeClient.getKnownPeers()
-          setKnownPeers(
-            peers
-              .filter((p: any) => p.id !== localPeerId)
-              .map((p: any) => ({
-                id: p.id,
-                display_name: p.display_name || p.id.slice(0, 10),
-                verified: p.verified
-              }))
-          )
-        } catch (e) {
-          console.error("Failed to load known peers", e)
-        }
-      }
-      loadPeers()
+      void loadPeers()
     }
-  }, [forcedCategoryId, forcedType, isOpen, initialType])
+  }, [forcedCategoryId, forcedType, initialType, isOpen, loadPeers])
 
   useEffect(() => {
     if (!isOpen) return
     setMembers([])
     setError('')
   }, [forcedCategoryId, groupType, isOpen])
+
+  useWailsEvent('node:status', () => {
+    if (!isOpen) return
+    void loadPeers()
+  })
 
   const toggleMember = (peerId: string) => {
     if (groupType === 'dm') {

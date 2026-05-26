@@ -64,6 +64,42 @@ func TestSavePendingInviteFromWelcome_ReinviteReopensRejected(t *testing.T) {
 	}
 }
 
+func TestFinalizeJoinedWelcome_PersistsAuditForLegacyJoinPath(t *testing.T) {
+	rt := setupMembershipRuntime(t)
+	groupID := "group-legacy-join"
+	groupType := "group"
+	welcome := []byte("welcome-legacy")
+
+	rt.finalizeJoinedWelcome(groupID, groupType, "", welcome, "", true)
+
+	fp := fallbackWelcomeFingerprint(groupID, welcome)
+	var appliedAt int64
+	if err := rt.db.Conn.QueryRow(
+		`SELECT applied_at FROM applied_welcomes WHERE welcome_fingerprint = ? AND group_id = ?`,
+		fp, groupID,
+	).Scan(&appliedAt); err != nil {
+		t.Fatalf("applied_welcomes missing row: %v", err)
+	}
+	if appliedAt == 0 {
+		t.Fatal("applied_welcomes.applied_at should be non-zero")
+	}
+
+	inviteID := store.PendingInviteID(groupID, welcome)
+	inv, err := rt.db.GetPendingInvite(inviteID)
+	if err != nil {
+		t.Fatalf("GetPendingInvite: %v", err)
+	}
+	if inv.Status != store.PendingInviteStatusAccepted {
+		t.Fatalf("pending invite status=%q want accepted", inv.Status)
+	}
+	if inv.GroupType != groupType {
+		t.Fatalf("pending invite group_type=%q want %q", inv.GroupType, groupType)
+	}
+	if got := string(inv.WelcomeBytes); got != string(welcome) {
+		t.Fatalf("pending invite welcome=%q want %q", got, welcome)
+	}
+}
+
 // TestAcceptInvite_RejoinLeftGroup verifies that when a group exists in the DB
 // but was previously left (lifecycle_status = 'left', active = false), calling
 // AcceptInvite on a new Welcome does NOT short-circuit with "already_joined" but

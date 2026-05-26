@@ -67,6 +67,12 @@ const (
 	keyPackageFetchTimeout   = 12 * time.Second
 )
 
+var pendingInviteRefreshBackoffs = []time.Duration{
+	300 * time.Millisecond,
+	1 * time.Second,
+	2 * time.Second,
+}
+
 // welcomeDeliveryWire is the JSON payload for /app/welcome-delivery/1.0.0.
 //
 // CategoryID is the channel-category assignment from the inviter's authoritative
@@ -960,6 +966,11 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 		"status":     store.PendingInviteStatusPending,
 		"reason":     "new",
 	})
+	// Retry inside the current session as well. This covers transient cases
+	// where the Welcome arrives before the invitee has a usable local
+	// KeyPackage bundle or before other startup tasks settle; previously those
+	// rows only retried on the next restart or peer-verify event.
+	go r.schedulePendingInviteRefresh()
 	return nil
 }
 
@@ -1141,10 +1152,22 @@ func (r *Runtime) refreshPendingInvites(ctx context.Context) error {
 }
 
 func (r *Runtime) schedulePendingInviteRefresh() {
-	backoffs := []time.Duration{300 * time.Millisecond, 1 * time.Second, 2 * time.Second}
-	for _, d := range backoffs {
+	for _, d := range pendingInviteRefreshBackoffs {
 		time.Sleep(d)
-		if err := r.refreshPendingInvites(r.appCtx()); err == nil {
+		if err := r.refreshPendingInvites(r.appCtx()); err != nil {
+			continue
+		}
+		r.mu.RLock()
+		database := r.db
+		r.mu.RUnlock()
+		if database == nil {
+			return
+		}
+		pending, err := database.ListPendingInvites(false)
+		if err != nil {
+			continue
+		}
+		if len(pending) == 0 {
 			return
 		}
 	}
@@ -1622,10 +1645,55 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID
 	if err := r.joinGroupWithWelcome(groupID, welcomeHex, hex.EncodeToString(privateBundle), groupType, strings.TrimSpace(categoryID)); err != nil {
 		return err
 	}
-	fp := fallbackWelcomeFingerprint(groupID, welcomeRaw)
-	if inserted, markErr := database.MarkWelcomeApplied(fp, groupID, time.Now().Unix()); markErr == nil && !inserted {
-		// Replay-safe no-op: this welcome has already been applied earlier.
-		slog.Debug("welcome fingerprint already applied", "group", groupID)
+	r.finalizeJoinedWelcome(groupID, groupType, strings.TrimSpace(categoryID), welcomeRaw, "", false)
+	slog.Info("Joined group via Welcome", "group", groupID)
+	return nil
+}
+
+func (r *Runtime) finalizeJoinedWelcome(groupID, groupType, categoryID string, welcomeRaw []byte, sourcePeerID string, persistInviteAudit bool) {
+	groupID = strings.TrimSpace(groupID)
+	if groupID == "" || len(welcomeRaw) == 0 {
+		return
+	}
+	normalizedGroupType, err := normalizeGroupTypeRuntime(groupType)
+	if err != nil {
+		normalizedGroupType = "group"
+	}
+	categoryID = strings.TrimSpace(categoryID)
+	sourcePeerID = strings.TrimSpace(sourcePeerID)
+
+	r.mu.RLock()
+	node := r.node
+	database := r.db
+	r.mu.RUnlock()
+	if database != nil {
+		fp := fallbackWelcomeFingerprint(groupID, welcomeRaw)
+		if inserted, markErr := database.MarkWelcomeApplied(fp, groupID, time.Now().Unix()); markErr == nil && !inserted {
+			// Replay-safe no-op: this welcome has already been applied earlier.
+			slog.Debug("welcome fingerprint already applied", "group", groupID)
+		}
+
+		if persistInviteAudit {
+			localPeerID := ""
+			if node != nil {
+				localPeerID = node.Host.ID().String()
+			}
+			if localPeerID != "" {
+				_ = database.SaveStoredWelcome(localPeerID, groupID, normalizedGroupType, categoryID, welcomeRaw, sourcePeerID)
+			}
+			inviteID := store.PendingInviteID(groupID, welcomeRaw)
+			_ = database.SavePendingInvite(&store.PendingInvite{
+				ID:            inviteID,
+				GroupID:       groupID,
+				GroupType:     normalizedGroupType,
+				CategoryID:    categoryID,
+				WelcomeBytes:  append([]byte(nil), welcomeRaw...),
+				SourcePeerID:  sourcePeerID,
+				InviterPeerID: sourcePeerID,
+				Status:        store.PendingInviteStatusAccepted,
+			})
+			_ = database.MarkPendingInviteAccepted(inviteID)
+		}
 	}
 
 	// KP is consumed after a successful join; generate a fresh one for next invite.
@@ -1636,8 +1704,6 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID
 	})
 	go r.broadcastGroupJoinAck(groupID)
 	go r.pullOfflineSyncFromVerifiedPeers()
-	slog.Info("Joined group via Welcome", "group", groupID)
-	return nil
 }
 
 func (r *Runtime) pullOfflineSyncFromVerifiedPeers() {

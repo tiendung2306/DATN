@@ -641,7 +641,26 @@ func coordinationAddOpID(groupID, targetPeerID, kpHash string) string {
 // JoinGroupWithWelcome joins an existing group using a Welcome message and the
 // private KeyPackage bundle from [App.GenerateKeyPackage] for this invite flow.
 func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex string) error {
-	return r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", "")
+	welcomeRaw, err := hex.DecodeString(strings.TrimSpace(welcomeHex))
+	if err != nil {
+		return fmt.Errorf("decode welcome hex: %w", err)
+	}
+	if err := r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", ""); err != nil {
+		return err
+	}
+
+	groupType := "group"
+	categoryID := ""
+	if r.coordStorage != nil {
+		if rec, recErr := r.coordStorage.GetGroupRecord(strings.TrimSpace(groupID)); recErr == nil && rec != nil {
+			if normalizedType, normErr := normalizeGroupTypeRuntime(rec.GroupType); normErr == nil {
+				groupType = normalizedType
+			}
+			categoryID = strings.TrimSpace(rec.CategoryID)
+		}
+	}
+	r.finalizeJoinedWelcome(groupID, groupType, categoryID, welcomeRaw, "", true)
+	return nil
 }
 
 // resolveChannelCategoryForWelcomeJoin returns category_id already associated
@@ -786,10 +805,6 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}); err != nil {
 		slog.Warn("Failed to persist local group member before coordinator start", "group", groupID, "error", err)
 	}
-	if _, err := r.reconcileGroupRosterWithMLS(groupID); err != nil {
-		slog.Warn("Failed to backfill MLS roster before coordinator start", "group", groupID, "error", err)
-	}
-
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
 		Config:               coordination.DefaultConfig(),
 		Transport:            r.transport,
@@ -1038,8 +1053,8 @@ func (r *Runtime) loadExistingGroupsLocked() {
 		return
 	}
 
+	restoredGroupIDs := make([]string, 0, len(groups))
 	for _, rec := range groups {
-		r.ensureGroupRosterBackfilled(rec.GroupID)
 		coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
 			Config:               coordination.DefaultConfig(),
 			Transport:            r.transport,
@@ -1075,10 +1090,27 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			continue
 		}
 		r.coordinators[rec.GroupID] = coord
+		restoredGroupIDs = append(restoredGroupIDs, rec.GroupID)
 		slog.Info("Restored group from DB", "group_id", rec.GroupID, "epoch", rec.Epoch)
 	}
 
 	r.recoverStaleAddOperationsLocked()
+	r.scheduleRestoredGroupRosterBackfill(restoredGroupIDs)
+}
+
+// scheduleRestoredGroupRosterBackfill defers best-effort roster reconciliation
+// until after startup releases r.mu. The backfill path needs to read runtime
+// state, so invoking it while launchP2PNode holds the write lock deadlocks.
+func (r *Runtime) scheduleRestoredGroupRosterBackfill(groupIDs []string) {
+	if len(groupIDs) == 0 {
+		return
+	}
+	ids := append([]string(nil), groupIDs...)
+	go func() {
+		for _, groupID := range ids {
+			r.ensureGroupRosterBackfilled(groupID)
+		}
+	}()
 }
 
 // initialActiveViewForGroupLocked seeds a coordinator with peers that are both

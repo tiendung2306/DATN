@@ -4,13 +4,16 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"time"
 )
 
 // ProcessManager manages the Rust crypto-engine child process.
@@ -77,6 +80,9 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 	if binPath == "" {
 		return 0, fmt.Errorf("crypto-engine binary not found. Searched in: %v. Please build the rust project.", possiblePaths)
 	}
+	if err := ensureBinaryFresh(binPath); err != nil {
+		return 0, err
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pm.cancelFunc = cancel
@@ -125,6 +131,98 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 	}()
 
 	return port, nil
+}
+
+func ensureBinaryFresh(binPath string) error {
+	binInfo, err := os.Stat(binPath)
+	if err != nil {
+		return fmt.Errorf("stat crypto-engine binary %q: %w", binPath, err)
+	}
+	latestSourcePath, latestSourceMod, ok, err := newestRustSourceArtifact(binPath)
+	if err != nil || !ok {
+		return err
+	}
+	if latestSourceMod.After(binInfo.ModTime()) {
+		return fmt.Errorf(
+			"crypto-engine binary is stale: binary=%q modified=%s, source=%q modified=%s. Rebuild with `cd crypto-engine && cargo build`",
+			binPath,
+			binInfo.ModTime().Format(time.RFC3339),
+			latestSourcePath,
+			latestSourceMod.Format(time.RFC3339),
+		)
+	}
+	return nil
+}
+
+func newestRustSourceArtifact(binPath string) (string, time.Time, bool, error) {
+	crateRoot, ok := rustCrateRootFromBinary(binPath)
+	if !ok {
+		return "", time.Time{}, false, nil
+	}
+
+	candidates := []string{
+		filepath.Join(crateRoot, "Cargo.toml"),
+		filepath.Join(crateRoot, "Cargo.lock"),
+	}
+	srcRoot := filepath.Join(crateRoot, "src")
+
+	var (
+		latestPath string
+		latestMod  time.Time
+		found      bool
+	)
+	recordNewest := func(path string, info fs.FileInfo) {
+		if info == nil {
+			return
+		}
+		if !found || info.ModTime().After(latestMod) {
+			found = true
+			latestMod = info.ModTime()
+			latestPath = path
+		}
+	}
+
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			recordNewest(candidate, info)
+		}
+	}
+
+	if info, err := os.Stat(srcRoot); err == nil && info.IsDir() {
+		walkErr := filepath.WalkDir(srcRoot, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			recordNewest(path, info)
+			return nil
+		})
+		if walkErr != nil {
+			return "", time.Time{}, false, fmt.Errorf("scan rust source tree %q: %w", srcRoot, walkErr)
+		}
+	}
+
+	return latestPath, latestMod, found, nil
+}
+
+func rustCrateRootFromBinary(binPath string) (string, bool) {
+	buildDir := filepath.Dir(binPath)
+	base := filepath.Base(buildDir)
+	if !strings.EqualFold(base, "debug") && !strings.EqualFold(base, "release") {
+		return "", false
+	}
+	targetDir := filepath.Dir(buildDir)
+	if !strings.EqualFold(filepath.Base(targetDir), "target") {
+		return "", false
+	}
+	return filepath.Dir(targetDir), true
 }
 
 // StopCryptoEngine stops the sidecar process.
