@@ -45,6 +45,24 @@ func NewActiveView(clock Clock, cfg *CoordinatorConfig, localID peer.ID, onChang
 	return av
 }
 
+// Seed inserts an initial set of known-online peers without firing onChange.
+// It is intended for coordinator bootstrap, before Start initializes the
+// SingleWriter. Runtime callers must only pass peers already authenticated by
+// the transport layer and intersected with the group's active roster.
+func (av *ActiveView) Seed(ids []peer.ID) {
+	av.mu.Lock()
+	defer av.mu.Unlock()
+
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, exists := av.members[id]; !exists {
+			av.members[id] = &memberState{}
+		}
+	}
+}
+
 // RecordHeartbeat marks a peer as alive and resets its missed-check counter.
 // If the peer was not previously in the view, it is added and onChange fires.
 //

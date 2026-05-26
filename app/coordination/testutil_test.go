@@ -245,16 +245,18 @@ func (ft *FakeTransport) deliver(from peer.ID, topic string, data []byte) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 type mockGroupState struct {
-	GroupID    string          `json:"group_id"`
-	Epoch      uint64          `json:"epoch"`
-	TreeHash   string          `json:"tree_hash"`
-	Members    map[string]bool `json:"members"` // peerID -> isMember
+	GroupID     string          `json:"group_id"`
+	Epoch       uint64          `json:"epoch"`
+	TreeHash    string          `json:"tree_hash"`
+	Members     map[string]bool `json:"members"` // peerID -> isMember
+	PendingRefs [][]byte        `json:"pending_refs,omitempty"`
 }
 
 type mockCommitData struct {
-	NewEpoch    uint64          `json:"new_epoch"`
-	NewTreeHash string          `json:"new_tree_hash"`
-	NewMembers  map[string]bool `json:"new_members"`
+	NewEpoch     uint64          `json:"new_epoch"`
+	NewTreeHash  string          `json:"new_tree_hash"`
+	NewMembers   map[string]bool `json:"new_members"`
+	ProposalRefs [][]byte        `json:"proposal_refs,omitempty"`
 }
 
 type mockCiphertext struct {
@@ -263,10 +265,10 @@ type mockCiphertext struct {
 }
 
 type MockMLSEngine struct {
-	mu              sync.Mutex
-	nextErr         error
-	hasMemberFn     func(groupState []byte, identity []byte) (bool, error)
-	listMembersFn   func(groupState []byte) ([][]byte, error)
+	mu            sync.Mutex
+	nextErr       error
+	hasMemberFn   func(groupState []byte, identity []byte) (bool, error)
+	listMembersFn func(groupState []byte) ([][]byte, error)
 }
 
 var _ MLSEngine = (*MockMLSEngine)(nil)
@@ -324,29 +326,60 @@ func (m *MockMLSEngine) CreateGroup(_ context.Context, groupID string, creatorKe
 	return stateBytes, th, nil
 }
 
-func (m *MockMLSEngine) CreateProposal(_ context.Context, _ []byte, _ ProposalType, data []byte) ([]byte, error) {
+func (m *MockMLSEngine) CreateProposal(_ context.Context, groupState []byte, _ ProposalType, data []byte) (CreateProposalResult, error) {
 	if err := m.popError(); err != nil {
-		return nil, err
+		return CreateProposalResult{}, err
 	}
-	cp := make([]byte, len(data))
-	copy(cp, data)
-	return cp, nil
+	proposalBytes := append([]byte(nil), data...)
+	sum := sha256.Sum256(proposalBytes)
+	proposalRef := sum[:]
+	newState := append([]byte(nil), groupState...)
+	var state mockGroupState
+	if json.Unmarshal(groupState, &state) == nil {
+		state.PendingRefs = append(state.PendingRefs, append([]byte(nil), proposalRef...))
+		newState, _ = json.Marshal(state)
+	}
+	return CreateProposalResult{
+		ProposalBytes: proposalBytes,
+		ProposalRef:   append([]byte(nil), proposalRef...),
+		NewGroupState: newState,
+	}, nil
 }
 
-func (m *MockMLSEngine) CreateCommit(_ context.Context, groupState []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
+func (m *MockMLSEngine) ProcessProposal(_ context.Context, groupState []byte, proposalBytes []byte) (ProcessProposalResult, error) {
 	if err := m.popError(); err != nil {
-		return nil, nil, nil, nil, err
+		return ProcessProposalResult{}, err
+	}
+	sum := sha256.Sum256(proposalBytes)
+	proposalRef := sum[:]
+	newState := append([]byte(nil), groupState...)
+	var state mockGroupState
+	if json.Unmarshal(groupState, &state) == nil {
+		state.PendingRefs = append(state.PendingRefs, append([]byte(nil), proposalRef...))
+		newState, _ = json.Marshal(state)
+	}
+	return ProcessProposalResult{
+		ProposalRef:   append([]byte(nil), proposalRef...),
+		ProposalType:  "Mock",
+		NewGroupState: newState,
+	}, nil
+}
+
+func (m *MockMLSEngine) CreateCommit(_ context.Context, groupState []byte, expectedProposalRefs [][]byte) (CreateCommitResult, error) {
+	if err := m.popError(); err != nil {
+		return CreateCommitResult{}, err
 	}
 	var state mockGroupState
 	if err := json.Unmarshal(groupState, &state); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("mock: bad state: %w", err)
+		return CreateCommitResult{}, fmt.Errorf("mock: bad state: %w", err)
 	}
 	state.Epoch++
 	newTH := mockTreeHash(state.Epoch)
 	state.TreeHash = hex.EncodeToString(newTH)
+	state.PendingRefs = nil
 
 	newStateBytes, _ := json.Marshal(state)
-	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
+	commitInfo := mockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash, ProposalRefs: cloneBytesList(expectedProposalRefs)}
 	commitBytes, _ := json.Marshal(commitInfo)
 	// Return a non-empty Welcome stub so the Token-Holder ProposalAdd path
 	// can be exercised end-to-end in tests. The coordinator only routes
@@ -354,10 +387,34 @@ func (m *MockMLSEngine) CreateCommit(_ context.Context, groupState []byte, _ [][
 	// (see buildAddDeliveriesFromBatch), so returning Welcome here is a
 	// harmless no-op for Remove/Update batches.
 	welcome := []byte(fmt.Sprintf("mock-welcome:%d", state.Epoch))
-	return commitBytes, welcome, newStateBytes, newTH, nil
+	return CreateCommitResult{
+		CommitBytes:           commitBytes,
+		WelcomeBytes:          welcome,
+		CommittedProposalRefs: cloneBytesList(expectedProposalRefs),
+		NewGroupState:         newStateBytes,
+		NewTreeHash:           newTH,
+	}, nil
 }
 
-func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes []byte) ([]byte, []byte, error) {
+func (m *MockMLSEngine) StageCommit(_ context.Context, _ []byte, commitBytes []byte, includedProposals [][]byte) (StageCommitResult, error) {
+	if err := m.popError(); err != nil {
+		return StageCommitResult{}, err
+	}
+	var commit mockCommitData
+	if err := json.Unmarshal(commitBytes, &commit); err != nil {
+		return StageCommitResult{}, fmt.Errorf("mock: bad commit: %w", err)
+	}
+	refs := cloneBytesList(commit.ProposalRefs)
+	if len(refs) == 0 {
+		for _, proposal := range includedProposals {
+			sum := sha256.Sum256(proposal)
+			refs = append(refs, sum[:])
+		}
+	}
+	return StageCommitResult{Epoch: commit.NewEpoch, ProposalRefs: refs}, nil
+}
+
+func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes []byte, _ [][]byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
@@ -371,6 +428,7 @@ func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes
 	}
 	state.Epoch = commit.NewEpoch
 	state.TreeHash = commit.NewTreeHash
+	state.PendingRefs = nil
 	if commit.NewMembers != nil {
 		state.Members = commit.NewMembers
 	}

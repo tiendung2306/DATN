@@ -307,6 +307,7 @@ func (r *Runtime) launchP2PNode() error {
 			go r.scheduleReplicatedProfilePull(pid)
 			go r.scheduleChannelCategorySync(pid)
 			go r.flushPendingDeliveryAcksTo(pid)
+			go r.observeVerifiedPeerForGroups(pid)
 		})
 	}
 	r.node = node
@@ -436,4 +437,3 @@ func (r *Runtime) maintainPeerConnections() {
 		}
 	}
 }
-

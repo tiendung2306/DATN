@@ -11,16 +11,21 @@ var fixedT = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestCompareBranchWeight_SameTreeHash(t *testing.T) {
 	a := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 3, Epoch: 0, CommitHash: []byte("abc")}
-	b := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 5, Epoch: 0, CommitHash: []byte("xyz")}
+	b := GroupStateAnnouncement{TreeHash: []byte("same"), MemberCount: 5, Epoch: 0, CommitHash: []byte("abc")}
 
 	if CompareBranchWeight(a, b) != BranchEqual {
-		t.Error("same TreeHash should return BranchEqual regardless of other fields")
+		t.Error("same TreeHash and CommitHash should return BranchEqual")
+	}
+
+	b.CommitHash = []byte("xyz")
+	if CompareBranchWeight(a, b) == BranchEqual {
+		t.Error("same TreeHash with different CommitHash is a fork and must not return BranchEqual")
 	}
 }
 
 func TestCompareBranchWeight_MoreMembers_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 5, Epoch: 0, CommitHash: []byte("aaa")}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte("aaa")}
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 5, Epoch: 0, CommitHash: []byte("commit-local")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte("commit-remote")}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
 		t.Error("local with more members should win")
@@ -40,8 +45,8 @@ func TestCompareBranchWeight_SameMembers_LowerCommitHash_Wins(t *testing.T) {
 }
 
 func TestCompareBranchWeight_SameMembers_HigherEpoch_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte("aaa")}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 20, CommitHash: []byte("aaa")}
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte("commit-local")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 20, CommitHash: []byte("commit-remote")}
 
 	if CompareBranchWeight(local, remote) != BranchRemote {
 		t.Error("remote with higher epoch should win when member count is equal")
@@ -61,8 +66,8 @@ func TestCompareBranchWeight_SameMembersAndEpoch_LowerCommitHash_Wins(t *testing
 }
 
 func TestCompareBranchWeight_FinalTiebreaker_TreeHash(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte{0x01}, MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}}
-	remote := GroupStateAnnouncement{TreeHash: []byte{0x02}, MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}}
+	local := GroupStateAnnouncement{TreeHash: []byte{0x01}, MemberCount: 3, Epoch: 0}
+	remote := GroupStateAnnouncement{TreeHash: []byte{0x02}, MemberCount: 3, Epoch: 0}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
 		t.Error("when everything else is equal, lower TreeHash should win")
@@ -86,7 +91,103 @@ func TestForkDetector_NoFork(t *testing.T) {
 	})
 
 	if event != nil {
-		t.Error("same TreeHash should not produce a fork event")
+		t.Error("same branch id should not produce a fork event")
+	}
+}
+
+func TestForkDetector_BranchIdentityUsesCommitHash(t *testing.T) {
+	fd := NewForkDetector()
+	fd.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("synthetic-same-tree"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  []byte("commit-local"),
+	})
+
+	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 2, GroupStateAnnouncement{
+		TreeHash:    []byte("synthetic-same-tree"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  []byte("commit-remote"),
+	})
+	if event == nil {
+		t.Fatal("different CommitHash must produce a fork even when TreeHash matches")
+	}
+	if fd.KnownBranches() != 1 {
+		t.Fatalf("known remote branches=%d, want 1", fd.KnownBranches())
+	}
+
+	fd.ProcessRemote(fixedT, peerID("peer-2"), 2, GroupStateAnnouncement{
+		TreeHash:    []byte("synthetic-same-tree"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  []byte("commit-third"),
+	})
+	if fd.KnownBranches() != 2 {
+		t.Fatalf("same TreeHash with different CommitHash must be tracked as separate branches, got %d",
+			fd.KnownBranches())
+	}
+}
+
+func TestForkDetector_RemoteBranchSupportBeatsCommitHashTiebreaker(t *testing.T) {
+	fd := NewForkDetector()
+	fd.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("tree-local"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  []byte{0x01},
+	})
+
+	remote := GroupStateAnnouncement{
+		TreeHash:    []byte("tree-remote"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  []byte{0xff},
+	}
+	if ev := fd.ProcessRemote(fixedT, peerID("peer-1"), 2, remote); ev == nil {
+		t.Fatal("first remote observation should surface a fork")
+	} else if ev.Result != BranchLocal {
+		t.Fatalf("local lower commit hash should win at equal support, got %v", ev.Result)
+	}
+
+	ev := fd.ProcessRemote(fixedT.Add(time.Second), peerID("peer-2"), 2, remote)
+	if ev == nil {
+		t.Fatal("second remote observation should still surface the fork")
+	}
+	if ev.Result != BranchRemote {
+		t.Fatalf("remote branch support=2 should beat local support=1 despite larger commit hash, got %v", ev.Result)
+	}
+	if !ev.NeedExternalJoin {
+		t.Fatal("local node should heal toward the better-supported remote branch")
+	}
+}
+
+func TestForkDetector_InvalidRemoteCommitCannotWin(t *testing.T) {
+	fd := NewForkDetector()
+	fd.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    []byte("tree-local"),
+		MemberCount: 1,
+		Epoch:       2,
+		CommitHash:  []byte{0xf0},
+	})
+
+	invalidCommit := []byte{0x01}
+	fd.MarkInvalidCommit(invalidCommit)
+
+	event := fd.ProcessRemote(fixedT, peerID("peer-1"), 2, GroupStateAnnouncement{
+		TreeHash:    []byte("tree-invalid"),
+		MemberCount: 3,
+		Epoch:       2,
+		CommitHash:  invalidCommit,
+	})
+	if event == nil {
+		t.Fatal("invalid branch is still a fork and should be reported")
+	}
+	if event.Result != BranchLocal {
+		t.Fatalf("invalid remote commit must not win branch selection, got %v", event.Result)
+	}
+	if event.NeedExternalJoin {
+		t.Fatal("local node must not heal into a branch whose commit was rejected as invalid")
 	}
 }
 

@@ -36,33 +36,76 @@ func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signing
 	return resp.GetGroupState(), resp.GetTreeHash(), nil
 }
 
-func (g *GrpcMLSEngine) CreateProposal(ctx context.Context, groupState []byte, pType coordination.ProposalType, data []byte) (proposalBytes []byte, err error) {
+func (g *GrpcMLSEngine) CreateProposal(ctx context.Context, groupState []byte, pType coordination.ProposalType, data []byte) (coordination.CreateProposalResult, error) {
 	resp, err := g.client.CreateProposal(ctx, &mls_service.CreateProposalRequest{
 		GroupState:   groupState,
 		ProposalType: mls_service.MlsProposalType(pType),
 		Data:         data,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("grpc CreateProposal: %w", err)
+		return coordination.CreateProposalResult{}, fmt.Errorf("grpc CreateProposal: %w", err)
 	}
-	return resp.GetProposalBytes(), nil
+	return coordination.CreateProposalResult{
+		ProposalBytes: resp.GetProposalBytes(),
+		ProposalRef:   resp.GetProposalRef(),
+		NewGroupState: resp.GetNewGroupState(),
+	}, nil
 }
 
-func (g *GrpcMLSEngine) CreateCommit(ctx context.Context, groupState []byte, proposals [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error) {
-	resp, err := g.client.CreateCommit(ctx, &mls_service.CreateCommitRequest{
-		GroupState: groupState,
-		Proposals:  proposals,
+func (g *GrpcMLSEngine) ProcessProposal(ctx context.Context, groupState []byte, proposalBytes []byte) (coordination.ProcessProposalResult, error) {
+	resp, err := g.client.ProcessProposal(ctx, &mls_service.ProcessProposalRequest{
+		GroupState:    groupState,
+		ProposalBytes: proposalBytes,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("grpc CreateCommit: %w", err)
+		return coordination.ProcessProposalResult{}, fmt.Errorf("grpc ProcessProposal: %w", err)
 	}
-	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
+	return coordination.ProcessProposalResult{
+		ProposalRef:   resp.GetProposalRef(),
+		ProposalType:  resp.GetProposalType(),
+		NewGroupState: resp.GetNewGroupState(),
+	}, nil
 }
 
-func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte) (newGroupState, newTreeHash []byte, err error) {
+func (g *GrpcMLSEngine) CreateCommit(ctx context.Context, groupState []byte, expectedProposalRefs [][]byte) (coordination.CreateCommitResult, error) {
+	resp, err := g.client.CreateCommit(ctx, &mls_service.CreateCommitRequest{
+		GroupState:           groupState,
+		ExpectedProposalRefs: expectedProposalRefs,
+	})
+	if err != nil {
+		return coordination.CreateCommitResult{}, fmt.Errorf("grpc CreateCommit: %w", err)
+	}
+	return coordination.CreateCommitResult{
+		CommitBytes:           resp.GetCommitBytes(),
+		WelcomeBytes:          resp.GetWelcomeBytes(),
+		GroupInfo:             resp.GetGroupInfo(),
+		CommittedProposalRefs: resp.GetCommittedProposalRefs(),
+		NewGroupState:         resp.GetNewGroupState(),
+		NewTreeHash:           resp.GetNewTreeHash(),
+	}, nil
+}
+
+func (g *GrpcMLSEngine) StageCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) (coordination.StageCommitResult, error) {
+	resp, err := g.client.StageCommit(ctx, &mls_service.StageCommitRequest{
+		GroupState:        groupState,
+		CommitBytes:       commitBytes,
+		IncludedProposals: includedProposals,
+	})
+	if err != nil {
+		return coordination.StageCommitResult{}, fmt.Errorf("grpc StageCommit: %w", err)
+	}
+	return coordination.StageCommitResult{
+		Epoch:         resp.GetEpoch(),
+		ProposalRefs:  resp.GetProposalRefs(),
+		ProposalTypes: resp.GetProposalTypes(),
+	}, nil
+}
+
+func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) (newGroupState, newTreeHash []byte, err error) {
 	resp, err := g.client.ProcessCommit(ctx, &mls_service.ProcessCommitRequest{
-		GroupState:  groupState,
-		CommitBytes: commitBytes,
+		GroupState:        groupState,
+		CommitBytes:       commitBytes,
+		IncludedProposals: includedProposals,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc ProcessCommit: %w", err)

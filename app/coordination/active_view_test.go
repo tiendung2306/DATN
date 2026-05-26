@@ -41,6 +41,30 @@ func TestActiveView_HeartbeatAddsNewPeer(t *testing.T) {
 	}
 }
 
+func TestActiveView_SeedInitialMembers(t *testing.T) {
+	callCount := 0
+	clk := NewFakeClock(time.Now())
+	av := NewActiveView(clk, TestConfig(), peerID("local"), func([]peer.ID) {
+		callCount++
+	})
+
+	av.Seed([]peer.ID{peerID("remote-2"), peerID(""), peerID("remote-1"), peerID("remote-2"), peerID("local")})
+
+	if callCount != 0 {
+		t.Fatalf("Seed should not fire onChange before coordinator start, got %d calls", callCount)
+	}
+	members := av.Members()
+	want := []peer.ID{peerID("local"), peerID("remote-1"), peerID("remote-2")}
+	if len(members) != len(want) {
+		t.Fatalf("members length = %d, want %d (%v)", len(members), len(want), members)
+	}
+	for i := range want {
+		if members[i] != want[i] {
+			t.Fatalf("members[%d] = %q, want %q (all=%v)", i, members[i], want[i], members)
+		}
+	}
+}
+
 func TestActiveView_HeartbeatExistingPeer_NoCallback(t *testing.T) {
 	callCount := 0
 	clk := NewFakeClock(time.Now())
@@ -68,8 +92,8 @@ func TestActiveView_CheckLiveness_Eviction(t *testing.T) {
 
 	av.RecordHeartbeat(peerID("remote-1"))
 
-	av.CheckLiveness() // missed = 1
-	av.CheckLiveness() // missed = 2
+	av.CheckLiveness()            // missed = 1
+	av.CheckLiveness()            // missed = 2
 	evicted := av.CheckLiveness() // missed = 3 -> evicted
 
 	if len(evicted) != 1 || evicted[0] != peerID("remote-1") {
@@ -90,8 +114,8 @@ func TestActiveView_HeartbeatResetsMissedCounter(t *testing.T) {
 	av := NewActiveView(clk, cfg, peerID("local"), nil)
 
 	av.RecordHeartbeat(peerID("remote-1"))
-	av.CheckLiveness() // missed = 1
-	av.CheckLiveness() // missed = 2
+	av.CheckLiveness()                     // missed = 1
+	av.CheckLiveness()                     // missed = 2
 	av.RecordHeartbeat(peerID("remote-1")) // reset
 	evicted := av.CheckLiveness()          // missed = 1
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -51,13 +52,36 @@ type membershipTestMLSEngine struct{}
 func (m *membershipTestMLSEngine) CreateGroup(context.Context, string, []byte) ([]byte, []byte, error) {
 	return []byte("state-0"), []byte("tree-0"), nil
 }
-func (m *membershipTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) ([]byte, error) {
-	return nil, errors.New("not implemented")
+func (m *membershipTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) (coordination.CreateProposalResult, error) {
+	proposalBytes := []byte("proposal-1")
+	ref := sha256.Sum256(proposalBytes)
+	return coordination.CreateProposalResult{
+		ProposalBytes: proposalBytes,
+		ProposalRef:   ref[:],
+		NewGroupState: []byte("state-pending"),
+	}, nil
 }
-func (m *membershipTestMLSEngine) CreateCommit(context.Context, []byte, [][]byte) ([]byte, []byte, []byte, []byte, error) {
-	return nil, nil, nil, nil, errors.New("not implemented")
+func (m *membershipTestMLSEngine) ProcessProposal(context.Context, []byte, []byte) (coordination.ProcessProposalResult, error) {
+	proposalBytes := []byte("proposal-1")
+	ref := sha256.Sum256(proposalBytes)
+	return coordination.ProcessProposalResult{
+		ProposalRef:   ref[:],
+		ProposalType:  "Mock",
+		NewGroupState: []byte("state-pending"),
+	}, nil
 }
-func (m *membershipTestMLSEngine) ProcessCommit(context.Context, []byte, []byte) ([]byte, []byte, error) {
+func (m *membershipTestMLSEngine) CreateCommit(_ context.Context, _ []byte, refs [][]byte) (coordination.CreateCommitResult, error) {
+	return coordination.CreateCommitResult{
+		CommitBytes:           []byte("commit-1"),
+		CommittedProposalRefs: refs,
+		NewGroupState:         []byte("state-1"),
+		NewTreeHash:           []byte("tree-1"),
+	}, nil
+}
+func (m *membershipTestMLSEngine) StageCommit(context.Context, []byte, []byte, [][]byte) (coordination.StageCommitResult, error) {
+	return coordination.StageCommitResult{}, errors.New("not implemented")
+}
+func (m *membershipTestMLSEngine) ProcessCommit(context.Context, []byte, []byte, [][]byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
 func (m *membershipTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte) ([]byte, []byte, uint64, error) {

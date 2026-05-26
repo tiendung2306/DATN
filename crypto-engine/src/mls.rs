@@ -1,11 +1,11 @@
 use dashmap::DashMap;
 use ed25519_dalek::SigningKey;
+use openmls::ciphersuite::hash_ref::ProposalRef;
 use openmls::prelude::*;
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::crypto::OpenMlsCrypto;
 use openmls_traits::storage::StorageProvider;
-use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tls_codec::{Deserialize as TlsDeserializeTrait, Serialize as TlsSerializeTrait};
@@ -226,8 +226,28 @@ pub struct CreateGroupResult {
 pub struct CommitResult {
     pub commit_bytes: Vec<u8>,
     pub welcome_bytes: Vec<u8>,
+    pub group_info: Vec<u8>,
+    pub committed_proposal_refs: Vec<Vec<u8>>,
     pub new_group_state: Vec<u8>,
     pub new_tree_hash: Vec<u8>,
+}
+
+pub struct ProposalResult {
+    pub proposal_bytes: Vec<u8>,
+    pub proposal_ref: Vec<u8>,
+    pub new_group_state: Vec<u8>,
+}
+
+pub struct ProcessProposalResult {
+    pub proposal_ref: Vec<u8>,
+    pub proposal_type: String,
+    pub new_group_state: Vec<u8>,
+}
+
+pub struct StageCommitResult {
+    pub epoch: u64,
+    pub proposal_refs: Vec<Vec<u8>>,
+    pub proposal_types: Vec<String>,
 }
 
 pub struct ProcessCommitResult {
@@ -262,14 +282,6 @@ pub struct GenerateKeyPackageResult {
     pub key_package_bundle_private: Vec<u8>,
 }
 
-// ─── Proposal descriptor (coordination-layer concept, not raw MLS) ───────────
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct ProposalDescriptor {
-    proposal_type: i32,
-    data: Vec<u8>,
-}
-
 // ─── Helper functions ────────────────────────────────────────────────────────
 
 fn reconstruct_signer(
@@ -289,17 +301,137 @@ fn reconstruct_signer(
     Ok(signer)
 }
 
-fn compute_tree_hash(group_id: &str, epoch: u64) -> Vec<u8> {
-    let mut hasher = Sha256::new();
-    hasher.update(b"tree_hash:");
-    hasher.update(group_id.as_bytes());
-    hasher.update(b":");
-    hasher.update(epoch.to_be_bytes());
-    hasher.finalize().to_vec()
+fn current_tree_hash(
+    provider: &OpenMlsRustCrypto,
+    signer: &SignatureKeyPair,
+    group: &MlsGroup,
+) -> Result<Vec<u8>, String> {
+    let group_info = group
+        .export_group_info(provider.crypto(), signer, false)
+        .map_err(|e| format!("export_group_info for tree hash: {e:?}"))?;
+    match group_info.body() {
+        MlsMessageBodyOut::GroupInfo(gi) => Ok(gi.group_context().tree_hash().to_vec()),
+        _ => Err("export_group_info returned non-GroupInfo message".into()),
+    }
 }
 
 fn get_epoch(group: &MlsGroup) -> u64 {
     group.epoch().as_u64()
+}
+
+fn serialize_proposal_ref(proposal_ref: &ProposalRef) -> Result<Vec<u8>, String> {
+    proposal_ref
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize ProposalRef: {e:?}"))
+}
+
+fn proposal_kind(proposal: &Proposal) -> String {
+    format!("{:?}", proposal.proposal_type())
+}
+
+fn queued_proposal_summary(proposal: &QueuedProposal) -> Result<(Vec<u8>, String), String> {
+    Ok((
+        serialize_proposal_ref(proposal.proposal_reference_ref())?,
+        proposal_kind(proposal.proposal()),
+    ))
+}
+
+fn pending_proposal_refs(group: &MlsGroup) -> Result<Vec<Vec<u8>>, String> {
+    group
+        .pending_proposals()
+        .map(|proposal| serialize_proposal_ref(proposal.proposal_reference_ref()))
+        .collect()
+}
+
+fn proposal_ref_is_pending(group: &MlsGroup, proposal_ref: &[u8]) -> Result<bool, String> {
+    Ok(pending_proposal_refs(group)?
+        .iter()
+        .any(|pending_ref| pending_ref.as_slice() == proposal_ref))
+}
+
+fn ensure_expected_proposal_refs(
+    group: &MlsGroup,
+    expected_proposal_refs: &[Vec<u8>],
+) -> Result<(), String> {
+    if expected_proposal_refs.is_empty() {
+        return Ok(());
+    }
+
+    let mut actual = pending_proposal_refs(group)?;
+    let mut expected = expected_proposal_refs.to_vec();
+    actual.sort();
+    expected.sort();
+    if actual != expected {
+        return Err(format!(
+            "pending proposal refs mismatch: expected {} refs, actual {} refs",
+            expected.len(),
+            actual.len()
+        ));
+    }
+    Ok(())
+}
+
+fn process_proposal_on_imported(
+    imp: &mut ImportedGroup,
+    proposal_bytes: &[u8],
+) -> Result<(Vec<u8>, String), String> {
+    let mls_msg = MlsMessageIn::tls_deserialize_exact(proposal_bytes)
+        .map_err(|e| format!("deserialize proposal: {e:?}"))?;
+    let protocol_msg = mls_msg
+        .try_into_protocol_message()
+        .map_err(|e| format!("extract proposal protocol message: {e:?}"))?;
+
+    let processed = imp
+        .group
+        .process_message(&imp.provider, protocol_msg)
+        .map_err(|e| format!("process_message (proposal): {e:?}"))?;
+
+    let proposal = match processed.into_content() {
+        ProcessedMessageContent::ProposalMessage(proposal) => proposal,
+        ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
+            return Err("external join proposals are not supported in the regular flow".into())
+        }
+        other => {
+            return Err(format!(
+                "expected ProposalMessage, got {:?}",
+                std::mem::discriminant(&other)
+            ))
+        }
+    };
+
+    let (proposal_ref, proposal_type) = queued_proposal_summary(&proposal)?;
+    if !proposal_ref_is_pending(&imp.group, &proposal_ref)? {
+        imp.group
+            .store_pending_proposal(imp.provider.storage(), *proposal)
+            .map_err(|e| format!("store_pending_proposal: {e:?}"))?;
+    }
+
+    Ok((proposal_ref, proposal_type))
+}
+
+fn process_included_proposals(
+    imp: &mut ImportedGroup,
+    included_proposals: &[Vec<u8>],
+) -> Result<(), String> {
+    for proposal_bytes in included_proposals {
+        process_proposal_on_imported(imp, proposal_bytes)?;
+    }
+    Ok(())
+}
+
+fn staged_commit_summary(staged_commit: &StagedCommit) -> Result<StageCommitResult, String> {
+    let mut proposal_refs = Vec::new();
+    let mut proposal_types = Vec::new();
+    for proposal in staged_commit.queued_proposals() {
+        let (proposal_ref, proposal_type) = queued_proposal_summary(proposal)?;
+        proposal_refs.push(proposal_ref);
+        proposal_types.push(proposal_type);
+    }
+    Ok(StageCommitResult {
+        epoch: staged_commit.epoch().as_u64(),
+        proposal_refs,
+        proposal_types,
+    })
 }
 
 impl RuntimeCache {
@@ -329,13 +461,14 @@ impl RuntimeCache {
             state_version,
             dirty: false,
         };
+        let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
         self.groups
             .insert(group_id.to_string(), Arc::new(Mutex::new(runtime)));
         Ok(CachedGroupMetadata {
             group_id: group_id.to_string(),
             epoch,
             state_version,
-            tree_hash: compute_tree_hash(group_id, epoch),
+            tree_hash,
             dirty: false,
             state_size_bytes: group_state.len() as u64,
         })
@@ -350,7 +483,7 @@ impl RuntimeCache {
         let runtime = group_ref
             .lock()
             .map_err(|_| format!("group '{group_id}' runtime lock poisoned"))?;
-        Ok(runtime.metadata())
+        runtime.metadata()
     }
 
     pub fn encrypt_message_cached(
@@ -452,6 +585,9 @@ impl RuntimeCache {
             signer,
             ..
         } = &mut *runtime;
+        if group.has_pending_proposals() {
+            return Err("cached self_update: pending proposals exist; use CreateCommit".into());
+        }
         let started = Instant::now();
         let bundle = group
             .self_update(provider, signer, LeafNodeParameters::default())
@@ -474,7 +610,7 @@ impl RuntimeCache {
         Ok(CachedUpdateCommitProfileResult {
             result: CachedUpdateCommitResult {
                 commit_bytes,
-                tree_hash: compute_tree_hash(&runtime.group_id, epoch),
+                tree_hash: current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?,
                 epoch,
                 state_version: runtime.state_version,
             },
@@ -523,7 +659,7 @@ impl RuntimeCache {
         runtime.mark_mutated();
         let epoch = get_epoch(&runtime.group);
         Ok(CachedProcessCommitResult {
-            tree_hash: compute_tree_hash(&runtime.group_id, epoch),
+            tree_hash: current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?,
             epoch,
             state_version: runtime.state_version,
         })
@@ -566,7 +702,7 @@ impl RuntimeCache {
         );
         runtime.dirty = false;
         Ok(CachedCheckpointResult {
-            tree_hash: compute_tree_hash(&runtime.group_id, epoch),
+            tree_hash: current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?,
             epoch,
             state_version: runtime.state_version,
             state_size_bytes: group_state.len() as u64,
@@ -614,18 +750,18 @@ impl GroupRuntime {
         self.dirty = true;
     }
 
-    fn metadata(&self) -> CachedGroupMetadata {
+    fn metadata(&self) -> Result<CachedGroupMetadata, String> {
         let epoch = get_epoch(&self.group);
         let state_size_bytes =
             export_state(&self.provider, &self.group_id, epoch, &self.signing_key).len() as u64;
-        CachedGroupMetadata {
+        Ok(CachedGroupMetadata {
             group_id: self.group_id.clone(),
             epoch,
             state_version: self.state_version,
-            tree_hash: compute_tree_hash(&self.group_id, epoch),
+            tree_hash: current_tree_hash(&self.provider, &self.signer, &self.group)?,
             dirty: self.dirty,
             state_size_bytes,
-        }
+        })
     }
 }
 
@@ -682,6 +818,9 @@ pub fn remove_members(
     if target_identities.is_empty() {
         return Err("no target identities".into());
     }
+    if imp.group.has_pending_proposals() {
+        return Err("remove_members: pending proposals exist; use CreateCommit".into());
+    }
 
     let mut leaf_indices: Vec<LeafNodeIndex> = Vec::with_capacity(target_identities.len());
     for identity in target_identities {
@@ -695,7 +834,7 @@ pub fn remove_members(
         leaf_indices.push(idx);
     }
 
-    let (commit_out, welcome_out, _group_info) = imp
+    let (commit_out, welcome_out, group_info_out) = imp
         .group
         .remove_members(&imp.provider, &imp.signer, &leaf_indices)
         .map_err(|e| format!("remove_members: {e:?}"))?;
@@ -716,14 +855,22 @@ pub fn remove_members(
             .map_err(|e| format!("serialize welcome: {e:?}"))?,
         None => Vec::new(),
     };
+    let group_info: Vec<u8> = match group_info_out {
+        Some(gi) => gi
+            .tls_serialize_detached()
+            .map_err(|e| format!("serialize group_info: {e:?}"))?,
+        None => Vec::new(),
+    };
 
     let epoch = get_epoch(&imp.group);
-    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_tree_hash = current_tree_hash(&imp.provider, &imp.signer, &imp.group)?;
     let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(CommitResult {
         commit_bytes,
         welcome_bytes,
+        group_info,
+        committed_proposal_refs: Vec::new(),
         new_group_state: new_state,
         new_tree_hash,
     })
@@ -778,6 +925,9 @@ pub fn add_members(
     if key_packages_bytes.is_empty() {
         return Err("no key packages".into());
     }
+    if imp.group.has_pending_proposals() {
+        return Err("add_members: pending proposals exist; use CreateCommit".into());
+    }
 
     let kp_deserialize_started = Instant::now();
     let mut key_packages: Vec<KeyPackage> = Vec::with_capacity(key_packages_bytes.len());
@@ -798,7 +948,7 @@ pub fn add_members(
     );
 
     let add_started = Instant::now();
-    let (commit_out, welcome_out, _group_info) = imp
+    let (commit_out, welcome_out, group_info_out) = imp
         .group
         .add_members(&imp.provider, &imp.signer, &key_packages)
         .map_err(|e| format!("add_members: {e:?}"))?;
@@ -828,9 +978,15 @@ pub fn add_members(
     let welcome_bytes = welcome_out
         .tls_serialize_detached()
         .map_err(|e| format!("serialize welcome: {e:?}"))?;
+    let group_info: Vec<u8> = match group_info_out {
+        Some(gi) => gi
+            .tls_serialize_detached()
+            .map_err(|e| format!("serialize group_info: {e:?}"))?,
+        None => Vec::new(),
+    };
 
     let epoch = get_epoch(&imp.group);
-    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_tree_hash = current_tree_hash(&imp.provider, &imp.signer, &imp.group)?;
     let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
     eprintln!(
         "mls::add_members phase=serialized group_id={} epoch={} commit_bytes={} welcome_bytes={} state_bytes={} elapsed_ms={} total_ms={}",
@@ -846,6 +1002,8 @@ pub fn add_members(
     Ok(CommitResult {
         commit_bytes,
         welcome_bytes,
+        group_info,
+        committed_proposal_refs: Vec::new(),
         new_group_state: new_state,
         new_tree_hash,
     })
@@ -880,7 +1038,7 @@ pub fn create_group(group_id: &str, signing_key: &[u8]) -> Result<CreateGroupRes
     .map_err(|e| format!("MlsGroup::new_with_group_id: {e:?}"))?;
 
     let epoch = get_epoch(&group);
-    let tree_hash = compute_tree_hash(group_id, epoch);
+    let tree_hash = current_tree_hash(&provider, &signer, &group)?;
     let state = export_state(&provider, group_id, epoch, signing_key);
 
     Ok(CreateGroupResult {
@@ -948,78 +1106,85 @@ pub fn decrypt_message(group_state: &[u8], ciphertext: &[u8]) -> Result<DecryptR
 }
 
 pub fn create_proposal(
-    _group_state: &[u8],
+    group_state: &[u8],
     proposal_type: i32,
     data: &[u8],
-) -> Result<Vec<u8>, String> {
-    let desc = ProposalDescriptor {
-        proposal_type,
-        data: data.to_vec(),
-    };
-    serde_json::to_vec(&desc).map_err(|e| format!("serialize proposal descriptor: {e}"))
-}
-
-pub fn create_commit(group_state: &[u8], proposals: &[Vec<u8>]) -> Result<CommitResult, String> {
-    if proposals.is_empty() {
-        return Err("no proposals to commit".into());
-    }
-
-    // Classify the batch. The Go coordination layer funnels homogeneous batches
-    // per epoch (Add / Remove / Update separately) because the Token Holder
-    // commits one proposal class at a time; mixed batches are rejected here
-    // to surface coordination-layer regressions early.
-    let mut update_count = 0u32;
-    let mut remove_targets: Vec<Vec<u8>> = Vec::new();
-    let mut add_key_packages: Vec<Vec<u8>> = Vec::new();
-    for raw in proposals {
-        let desc: ProposalDescriptor =
-            serde_json::from_slice(raw).map_err(|e| format!("parse proposal descriptor: {e}"))?;
-        match desc.proposal_type {
-            2 => update_count += 1,                // ProposalUpdate
-            1 => remove_targets.push(desc.data),   // ProposalRemove → identity bytes
-            0 => add_key_packages.push(desc.data), // ProposalAdd → KeyPackage bytes
-            _ => return Err(format!("unknown proposal type: {}", desc.proposal_type)),
-        }
-    }
-
-    let kinds = (update_count > 0) as u8
-        + (!remove_targets.is_empty() as u8)
-        + (!add_key_packages.is_empty() as u8);
-    if kinds > 1 {
-        return Err("create_commit: mixed proposal batches not supported".into());
-    }
-
-    if !add_key_packages.is_empty() {
-        // Token Holder applying buffered ProposalAdd descriptors. Reuse the
-        // dedicated add_members path so commit + welcome generation stays
-        // identical to the direct add_members RPC.
-        return add_members(group_state, &add_key_packages);
-    }
-
-    if !remove_targets.is_empty() {
-        // Delegate to the dedicated remove path so persistence/wire shapes
-        // stay identical regardless of whether the caller is the Token Holder
-        // committing buffered ProposalRemove descriptors or invoking the
-        // direct RemoveMembers RPC.
-        return remove_members(group_state, &remove_targets);
-    }
-
-    if update_count == 0 {
-        return Err("no supported proposals to commit".into());
-    }
-
+) -> Result<ProposalResult, String> {
     let mut imp = import_state(group_state)?;
 
-    let bundle = imp
+    let (proposal_out, proposal_ref) = match proposal_type {
+        0 => {
+            let mut rd = data;
+            let kpin = KeyPackageIn::tls_deserialize(&mut rd)
+                .map_err(|e| format!("deserialize KeyPackageIn: {e:?}"))?;
+            let key_package = kpin
+                .validate(imp.provider.crypto(), ProtocolVersion::Mls10)
+                .map_err(|e| format!("invalid KeyPackage: {e:?}"))?;
+            imp.group
+                .propose_add_member(&imp.provider, &imp.signer, &key_package)
+                .map_err(|e| format!("propose_add_member: {e:?}"))?
+        }
+        1 => {
+            let credential: Credential = BasicCredential::new(data.to_vec()).into();
+            imp.group
+                .propose_remove_member_by_credential(&imp.provider, &imp.signer, &credential)
+                .map_err(|e| format!("propose_remove_member_by_credential: {e:?}"))?
+        }
+        2 => imp
+            .group
+            .propose_self_update(&imp.provider, &imp.signer, LeafNodeParameters::default())
+            .map_err(|e| format!("propose_self_update: {e:?}"))?,
+        _ => return Err(format!("unknown proposal type: {proposal_type}")),
+    };
+
+    let proposal_bytes = proposal_out
+        .tls_serialize_detached()
+        .map_err(|e| format!("serialize proposal: {e:?}"))?;
+    let proposal_ref = serialize_proposal_ref(&proposal_ref)?;
+    let epoch = get_epoch(&imp.group);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
+
+    Ok(ProposalResult {
+        proposal_bytes,
+        proposal_ref,
+        new_group_state: new_state,
+    })
+}
+
+pub fn process_proposal(
+    group_state: &[u8],
+    proposal_bytes: &[u8],
+) -> Result<ProcessProposalResult, String> {
+    let mut imp = import_state(group_state)?;
+    let (proposal_ref, proposal_type) = process_proposal_on_imported(&mut imp, proposal_bytes)?;
+    let epoch = get_epoch(&imp.group);
+    let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
+
+    Ok(ProcessProposalResult {
+        proposal_ref,
+        proposal_type,
+        new_group_state: new_state,
+    })
+}
+
+pub fn create_commit(
+    group_state: &[u8],
+    included_proposals: &[Vec<u8>],
+    expected_proposal_refs: &[Vec<u8>],
+) -> Result<CommitResult, String> {
+    let mut imp = import_state(group_state)?;
+    process_included_proposals(&mut imp, included_proposals)?;
+    ensure_expected_proposal_refs(&imp.group, expected_proposal_refs)?;
+
+    if !imp.group.has_pending_proposals() {
+        return Err("no pending proposals to commit".into());
+    }
+
+    let committed_proposal_refs = pending_proposal_refs(&imp.group)?;
+    let (commit_out, welcome_out, group_info_out) = imp
         .group
-        .self_update(&imp.provider, &imp.signer, LeafNodeParameters::default())
-        .map_err(|e| format!("self_update: {e:?}"))?;
-
-    let (commit_out, welcome_out, _group_info) = bundle.into_contents();
-
-    imp.group
-        .merge_pending_commit(&imp.provider)
-        .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
+        .commit_to_pending_proposals(&imp.provider, &imp.signer)
+        .map_err(|e| format!("commit_to_pending_proposals: {e:?}"))?;
 
     let commit_bytes = commit_out
         .tls_serialize_detached()
@@ -1032,23 +1197,69 @@ pub fn create_commit(group_state: &[u8], proposals: &[Vec<u8>]) -> Result<Commit
         None => Vec::new(),
     };
 
+    let group_info: Vec<u8> = match group_info_out {
+        Some(gi) => gi
+            .tls_serialize_detached()
+            .map_err(|e| format!("serialize group_info: {e:?}"))?,
+        None => Vec::new(),
+    };
+
+    imp.group
+        .merge_pending_commit(&imp.provider)
+        .map_err(|e| format!("merge_pending_commit: {e:?}"))?;
+
     let epoch = get_epoch(&imp.group);
-    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_tree_hash = current_tree_hash(&imp.provider, &imp.signer, &imp.group)?;
     let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(CommitResult {
         commit_bytes,
         welcome_bytes,
+        group_info,
+        committed_proposal_refs,
         new_group_state: new_state,
         new_tree_hash,
     })
 }
 
+pub fn stage_commit(
+    group_state: &[u8],
+    commit_bytes: &[u8],
+    included_proposals: &[Vec<u8>],
+) -> Result<StageCommitResult, String> {
+    let mut imp = import_state(group_state)?;
+    process_included_proposals(&mut imp, included_proposals)?;
+
+    let mls_msg = MlsMessageIn::tls_deserialize_exact(commit_bytes)
+        .map_err(|e| format!("deserialize commit: {e:?}"))?;
+
+    let protocol_msg = mls_msg
+        .try_into_protocol_message()
+        .map_err(|e| format!("extract protocol message: {e:?}"))?;
+
+    let processed = imp
+        .group
+        .process_message(&imp.provider, protocol_msg)
+        .map_err(|e| format!("process_message (commit): {e:?}"))?;
+
+    match processed.into_content() {
+        ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
+            staged_commit_summary(&staged_commit)
+        }
+        other => Err(format!(
+            "expected StagedCommit, got {:?}",
+            std::mem::discriminant(&other)
+        )),
+    }
+}
+
 pub fn process_commit(
     group_state: &[u8],
     commit_bytes: &[u8],
+    included_proposals: &[Vec<u8>],
 ) -> Result<ProcessCommitResult, String> {
     let mut imp = import_state(group_state)?;
+    process_included_proposals(&mut imp, included_proposals)?;
 
     let mls_msg = MlsMessageIn::tls_deserialize_exact(commit_bytes)
         .map_err(|e| format!("deserialize commit: {e:?}"))?;
@@ -1077,7 +1288,7 @@ pub fn process_commit(
     }
 
     let epoch = get_epoch(&imp.group);
-    let new_tree_hash = compute_tree_hash(&imp.group_id, epoch);
+    let new_tree_hash = current_tree_hash(&imp.provider, &imp.signer, &imp.group)?;
     let new_state = export_state(&imp.provider, &imp.group_id, epoch, &imp.signing_key);
 
     Ok(ProcessCommitResult {
@@ -1126,7 +1337,7 @@ pub fn process_welcome(
 
     let group_id = String::from_utf8_lossy(group.group_id().as_slice()).to_string();
     let epoch = get_epoch(&group);
-    let tree_hash = compute_tree_hash(&group_id, epoch);
+    let tree_hash = current_tree_hash(&provider, &_signer, &group)?;
     let state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(WelcomeResult {
@@ -1208,7 +1419,7 @@ pub fn external_join(group_info: &[u8], signing_key: &[u8]) -> Result<ExternalJo
 
     let group_id = String::from_utf8_lossy(group.group_id().as_slice()).to_string();
     let epoch = get_epoch(&group);
-    let tree_hash = compute_tree_hash(&group_id, epoch);
+    let tree_hash = current_tree_hash(&provider, &signer, &group)?;
     let new_state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(ExternalJoinResult {
@@ -1296,10 +1507,20 @@ mod tests {
     }
 
     #[test]
-    fn test_create_proposal_descriptor() {
-        let prop = create_proposal(b"{}", 2, b"").expect("create_proposal");
-        let desc: ProposalDescriptor = serde_json::from_slice(&prop).unwrap();
-        assert_eq!(desc.proposal_type, 2);
+    fn test_create_proposal_add_returns_real_mls_message() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let cr = create_group("proposal-real-message", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("kp B");
+        let prop =
+            create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("create_proposal");
+        assert!(!prop.proposal_bytes.is_empty());
+        assert!(!prop.proposal_ref.is_empty());
+        MlsMessageIn::tls_deserialize_exact(prop.proposal_bytes.as_slice())
+            .expect("proposal bytes must be a TLS-serialized MLS message");
+        let commit = create_commit(&prop.new_group_state, &[], &[prop.proposal_ref])
+            .expect("pending add proposal should be committable");
+        assert!(!commit.welcome_bytes.is_empty());
     }
 
     #[test]
@@ -1364,12 +1585,17 @@ mod tests {
         let cr = create_group("proposal-add-group", &sk_a).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
 
-        // Wrap the public KeyPackage in the same ProposalDescriptor envelope
-        // any non-holder would broadcast on GossipSub.
+        // Create the same standalone MLS Proposal bytes any non-holder would
+        // broadcast on GossipSub.
         let proposal_add =
             create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("create_proposal");
 
-        let commit = create_commit(&cr.group_state, &[proposal_add]).expect("create_commit");
+        let commit = create_commit(
+            &proposal_add.new_group_state,
+            &[],
+            &[proposal_add.proposal_ref.clone()],
+        )
+        .expect("create_commit");
 
         assert!(
             !commit.commit_bytes.is_empty(),
@@ -1393,27 +1619,173 @@ mod tests {
         assert_eq!(dec_b.plaintext, b"hello via proposal");
     }
 
-    /// Mixing proposal types in a single batch must be rejected — the Go
-    /// coordination layer is responsible for splitting by type.
     #[test]
-    fn test_create_commit_rejects_mixed_batch() {
+    fn test_same_epoch_fork_commits_have_distinct_tree_hashes() {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
+        let sk_c = test_signing_key();
+
+        let cr = create_group("same-epoch-fork-tree-hash", &sk_a).expect("create_group");
+
+        let kp_b = generate_key_package(&sk_b).expect("kp B");
+        let prop_b =
+            create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("propose B");
+        let commit_b =
+            create_commit(&prop_b.new_group_state, &[], &[prop_b.proposal_ref]).expect("commit B");
+
+        let kp_c = generate_key_package(&sk_c).expect("kp C");
+        let prop_c =
+            create_proposal(&cr.group_state, 0, &kp_c.key_package_bytes).expect("propose C");
+        let commit_c =
+            create_commit(&prop_c.new_group_state, &[], &[prop_c.proposal_ref]).expect("commit C");
+
+        assert_ne!(
+            commit_b.new_tree_hash, commit_c.new_tree_hash,
+            "two different commits from the same base epoch must expose distinct MLS tree hashes"
+        );
+    }
+
+    /// OpenMLS/RFC 9420 allow a regular Commit to cover multiple valid proposal
+    /// types. The sidecar must not split or reject batches merely by kind.
+    #[test]
+    fn test_create_commit_accepts_mixed_batch() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let sk_c = test_signing_key();
 
         let cr = create_group("mixed-batch-group", &sk_a).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("kp B");
+        let kp_c = generate_key_package(&sk_c).expect("kp C");
+        let commit_ab =
+            add_members(&cr.group_state, &[kp_b.key_package_bytes.clone()]).expect("add B");
 
-        let add_prop = create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("add");
-        let upd_prop = create_proposal(&cr.group_state, 2, &[]).expect("update");
+        let add_prop =
+            create_proposal(&commit_ab.new_group_state, 0, &kp_c.key_package_bytes).expect("add C");
+        let target_b = invitee_identity_bytes(&sk_b);
+        let rm_prop = create_proposal(&add_prop.new_group_state, 1, &target_b).expect("remove B");
 
-        let err = match create_commit(&cr.group_state, &[add_prop, upd_prop]) {
-            Ok(_) => panic!("mixed batch must be rejected"),
-            Err(e) => e,
-        };
-        assert!(
-            err.contains("mixed proposal batches"),
-            "unexpected error: {err}"
+        let commit = create_commit(&rm_prop.new_group_state, &[], &[]).expect("mixed commit");
+        assert!(!commit.commit_bytes.is_empty());
+        assert!(!commit.welcome_bytes.is_empty());
+        assert_eq!(commit.committed_proposal_refs.len(), 2);
+    }
+
+    #[test]
+    fn test_process_proposal_remote_update_then_commit() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+
+        let group_a = create_group("remote-proposal-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let commit_add =
+            add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()]).expect("add B");
+        let group_b = process_welcome(
+            &commit_add.welcome_bytes,
+            &sk_b,
+            &kp_b.key_package_bundle_private,
+        )
+        .expect("B process_welcome");
+
+        let b_proposal = create_proposal(&group_b.group_state, 2, &[]).expect("B propose update");
+        let a_processed = process_proposal(&commit_add.new_group_state, &b_proposal.proposal_bytes)
+            .expect("A process B proposal");
+        assert_eq!(a_processed.proposal_ref, b_proposal.proposal_ref);
+
+        let commit = create_commit(
+            &a_processed.new_group_state,
+            &[],
+            &[b_proposal.proposal_ref.clone()],
+        )
+        .expect("A commit pending B proposal");
+        assert!(!commit.commit_bytes.is_empty());
+        assert_eq!(
+            commit.committed_proposal_refs,
+            vec![b_proposal.proposal_ref]
         );
+    }
+
+    #[test]
+    fn test_stage_commit_requires_included_proposals_when_receiver_lacks_pending_ref() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let sk_c = test_signing_key();
+
+        let group_a = create_group("stage-included-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
+        let commit_ab =
+            add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()]).expect("add B");
+        let group_b = process_welcome(
+            &commit_ab.welcome_bytes,
+            &sk_b,
+            &kp_b.key_package_bundle_private,
+        )
+        .expect("B process_welcome");
+        let commit_abc = add_members(
+            &commit_ab.new_group_state,
+            &[kp_c.key_package_bytes.clone()],
+        )
+        .expect("add C");
+        let group_b_after_c = process_commit(&group_b.group_state, &commit_abc.commit_bytes, &[])
+            .expect("B process C add commit");
+        let group_c = process_welcome(
+            &commit_abc.welcome_bytes,
+            &sk_c,
+            &kp_c.key_package_bundle_private,
+        )
+        .expect("C process_welcome");
+
+        let b_proposal =
+            create_proposal(&group_b_after_c.new_group_state, 2, &[]).expect("B propose update");
+        let a_processed = process_proposal(&commit_abc.new_group_state, &b_proposal.proposal_bytes)
+            .expect("A process B proposal");
+        let commit = create_commit(
+            &a_processed.new_group_state,
+            &[],
+            &[b_proposal.proposal_ref.clone()],
+        )
+        .expect("A commit B proposal");
+
+        let missing = stage_commit(&group_c.group_state, &commit.commit_bytes, &[]);
+        assert!(
+            missing.is_err(),
+            "receiver missing proposal store must not stage by-reference commit"
+        );
+
+        let staged = stage_commit(
+            &group_c.group_state,
+            &commit.commit_bytes,
+            &[b_proposal.proposal_bytes.clone()],
+        )
+        .expect("stage with included proposal");
+        assert_eq!(staged.proposal_refs, vec![b_proposal.proposal_ref.clone()]);
+
+        let merged = process_commit(
+            &group_c.group_state,
+            &commit.commit_bytes,
+            &[b_proposal.proposal_bytes],
+        )
+        .expect("merge with included proposal");
+        assert!(!merged.new_group_state.is_empty());
+    }
+
+    #[test]
+    fn test_direct_add_members_rejects_pending_proposals() {
+        let sk_a = test_signing_key();
+        let sk_b = test_signing_key();
+        let sk_c = test_signing_key();
+
+        let group_a = create_group("direct-guard-group", &sk_a).expect("create_group");
+        let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
+        let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
+        let proposal =
+            create_proposal(&group_a.group_state, 0, &kp_b.key_package_bytes).expect("propose B");
+
+        let err = match add_members(&proposal.new_group_state, &[kp_c.key_package_bytes]) {
+            Ok(_) => panic!("direct add must reject pending proposals"),
+            Err(err) => err,
+        };
+        assert!(err.contains("pending proposals exist"));
     }
 
     #[test]
@@ -1461,7 +1833,7 @@ mod tests {
         assert!(!join_b.tree_hash.is_empty());
 
         // A processes B's external commit to advance its own state to the joined epoch.
-        let commit_a = process_commit(&group_a.group_state, &join_b.commit_bytes)
+        let commit_a = process_commit(&group_a.group_state, &join_b.commit_bytes, &[])
             .expect("A process_commit(external)");
         assert!(!commit_a.new_group_state.is_empty());
 
@@ -1605,11 +1977,15 @@ mod tests {
             .expect("add_members");
 
         let target = invitee_identity_bytes(&sk_b);
-        let proposal_descriptor =
+        let proposal =
             create_proposal(&commit_add.new_group_state, 1, &target).expect("create_proposal");
 
-        let commit_rm = create_commit(&commit_add.new_group_state, &[proposal_descriptor])
-            .expect("create_commit with ProposalRemove");
+        let commit_rm = create_commit(
+            &proposal.new_group_state,
+            &[],
+            &[proposal.proposal_ref.clone()],
+        )
+        .expect("create_commit with ProposalRemove");
 
         assert!(commit_rm.welcome_bytes.is_empty());
         assert_ne!(commit_rm.new_tree_hash, commit_add.new_tree_hash);

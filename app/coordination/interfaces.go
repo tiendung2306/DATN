@@ -68,17 +68,21 @@ type MLSEngine interface {
 	// Returns the initial group state and tree hash.
 	CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error)
 
-	// CreateProposal generates an MLS Proposal (Add, Remove, or Update).
-	CreateProposal(ctx context.Context, groupState []byte, pType ProposalType, data []byte) (proposalBytes []byte, err error)
+	// CreateProposal generates and locally stores an MLS Proposal (Add, Remove, or Update).
+	CreateProposal(ctx context.Context, groupState []byte, pType ProposalType, data []byte) (CreateProposalResult, error)
 
-	// CreateCommit bundles one or more Proposals into a Commit, advancing the
-	// group to the next epoch. Returns the Commit bytes, an optional Welcome
-	// message for newly added members, the updated GroupState, and the new tree hash.
-	CreateCommit(ctx context.Context, groupState []byte, proposals [][]byte) (commitBytes, welcomeBytes, newGroupState, newTreeHash []byte, err error)
+	// ProcessProposal stores a received standalone MLS Proposal in the pending proposal store.
+	ProcessProposal(ctx context.Context, groupState []byte, proposalBytes []byte) (ProcessProposalResult, error)
+
+	// CreateCommit commits the pending proposal store, optionally asserting the expected refs.
+	CreateCommit(ctx context.Context, groupState []byte, expectedProposalRefs [][]byte) (CreateCommitResult, error)
+
+	// StageCommit validates and summarizes a received Commit without merging it.
+	StageCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) (StageCommitResult, error)
 
 	// ProcessCommit applies a Commit received from the Token Holder.
 	// Returns the new group state and tree hash after applying the commit.
-	ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte) (newGroupState, newTreeHash []byte, err error)
+	ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) (newGroupState, newTreeHash []byte, err error)
 
 	// ProcessWelcome processes a Welcome message to join an existing group.
 	// keyPackageBundlePrivate must be the opaque blob from GenerateKeyPackage (never shared OOB).
@@ -135,6 +139,33 @@ type MLSEngine interface {
 	// Exporter mechanism (RFC 9420 §8). Used for file transfer key derivation.
 	// Context binds the derived secret (e.g. SHA-256 of file plaintext).
 	ExportSecret(ctx context.Context, groupState []byte, label string, context []byte, length int) (secret []byte, err error)
+}
+
+type CreateProposalResult struct {
+	ProposalBytes []byte
+	ProposalRef   []byte
+	NewGroupState []byte
+}
+
+type ProcessProposalResult struct {
+	ProposalRef   []byte
+	ProposalType  string
+	NewGroupState []byte
+}
+
+type CreateCommitResult struct {
+	CommitBytes           []byte
+	WelcomeBytes          []byte
+	GroupInfo             []byte
+	CommittedProposalRefs [][]byte
+	NewGroupState         []byte
+	NewTreeHash           []byte
+}
+
+type StageCommitResult struct {
+	Epoch         uint64
+	ProposalRefs  [][]byte
+	ProposalTypes []string
 }
 
 // ─── CoordinationStorage ─────────────────────────────────────────────────────

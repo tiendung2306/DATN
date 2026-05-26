@@ -73,6 +73,17 @@ func bizMockTreeHash(epoch uint64) []byte {
 	return h[:]
 }
 
+func cloneBytesListForService(in [][]byte) [][]byte {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = append([]byte(nil), in[i]...)
+	}
+	return out
+}
+
 var _ coordination.MLSEngine = (*businessIntegrationMLSMock)(nil)
 
 func (m *businessIntegrationMLSMock) CreateGroup(_ context.Context, groupID string, _ []byte) ([]byte, []byte, error) {
@@ -85,22 +96,38 @@ func (m *businessIntegrationMLSMock) CreateGroup(_ context.Context, groupID stri
 	return stateBytes, th, nil
 }
 
-func (m *businessIntegrationMLSMock) CreateProposal(_ context.Context, _ []byte, _ coordination.ProposalType, data []byte) ([]byte, error) {
+func (m *businessIntegrationMLSMock) CreateProposal(_ context.Context, groupState []byte, _ coordination.ProposalType, data []byte) (coordination.CreateProposalResult, error) {
 	if err := m.popError(); err != nil {
-		return nil, err
+		return coordination.CreateProposalResult{}, err
 	}
-	cp := make([]byte, len(data))
-	copy(cp, data)
-	return cp, nil
+	cp := append([]byte(nil), data...)
+	sum := sha256.Sum256(cp)
+	return coordination.CreateProposalResult{
+		ProposalBytes: cp,
+		ProposalRef:   sum[:],
+		NewGroupState: append([]byte(nil), groupState...),
+	}, nil
 }
 
-func (m *businessIntegrationMLSMock) CreateCommit(_ context.Context, groupState []byte, _ [][]byte) ([]byte, []byte, []byte, []byte, error) {
+func (m *businessIntegrationMLSMock) ProcessProposal(_ context.Context, groupState []byte, proposalBytes []byte) (coordination.ProcessProposalResult, error) {
 	if err := m.popError(); err != nil {
-		return nil, nil, nil, nil, err
+		return coordination.ProcessProposalResult{}, err
+	}
+	sum := sha256.Sum256(proposalBytes)
+	return coordination.ProcessProposalResult{
+		ProposalRef:   sum[:],
+		ProposalType:  "Mock",
+		NewGroupState: append([]byte(nil), groupState...),
+	}, nil
+}
+
+func (m *businessIntegrationMLSMock) CreateCommit(_ context.Context, groupState []byte, expectedProposalRefs [][]byte) (coordination.CreateCommitResult, error) {
+	if err := m.popError(); err != nil {
+		return coordination.CreateCommitResult{}, err
 	}
 	var state bizMockGroupState
 	if err := json.Unmarshal(groupState, &state); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("mock: bad state: %w", err)
+		return coordination.CreateCommitResult{}, fmt.Errorf("mock: bad state: %w", err)
 	}
 	state.Epoch++
 	newTH := bizMockTreeHash(state.Epoch)
@@ -109,10 +136,26 @@ func (m *businessIntegrationMLSMock) CreateCommit(_ context.Context, groupState 
 	newStateBytes, _ := json.Marshal(state)
 	commitInfo := bizMockCommitData{NewEpoch: state.Epoch, NewTreeHash: state.TreeHash}
 	commitBytes, _ := json.Marshal(commitInfo)
-	return commitBytes, nil, newStateBytes, newTH, nil
+	return coordination.CreateCommitResult{
+		CommitBytes:           commitBytes,
+		CommittedProposalRefs: cloneBytesListForService(expectedProposalRefs),
+		NewGroupState:         newStateBytes,
+		NewTreeHash:           newTH,
+	}, nil
 }
 
-func (m *businessIntegrationMLSMock) ProcessCommit(_ context.Context, groupState, commitBytes []byte) ([]byte, []byte, error) {
+func (m *businessIntegrationMLSMock) StageCommit(_ context.Context, _ []byte, commitBytes []byte, _ [][]byte) (coordination.StageCommitResult, error) {
+	if err := m.popError(); err != nil {
+		return coordination.StageCommitResult{}, err
+	}
+	var commit bizMockCommitData
+	if err := json.Unmarshal(commitBytes, &commit); err != nil {
+		return coordination.StageCommitResult{}, fmt.Errorf("mock: bad commit: %w", err)
+	}
+	return coordination.StageCommitResult{Epoch: commit.NewEpoch}, nil
+}
+
+func (m *businessIntegrationMLSMock) ProcessCommit(_ context.Context, groupState, commitBytes []byte, _ [][]byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}

@@ -14,7 +14,9 @@ service MLSCryptoService {
   // ── Phase 4: Group Operations ──
   rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
   rpc CreateProposal(CreateProposalRequest) returns (CreateProposalResponse);
+  rpc ProcessProposal(ProcessProposalRequest) returns (ProcessProposalResponse);
   rpc CreateCommit(CreateCommitRequest) returns (CreateCommitResponse);
+  rpc StageCommit(StageCommitRequest) returns (StageCommitResponse);
   rpc ProcessCommit(ProcessCommitRequest) returns (ProcessCommitResponse);
   rpc ProcessWelcome(ProcessWelcomeRequest) returns (ProcessWelcomeResponse);
   rpc EncryptMessage(EncryptMessageRequest) returns (EncryptMessageResponse);
@@ -124,11 +126,14 @@ message CreateProposalRequest {
 
 message CreateProposalResponse {
   bytes proposal_bytes = 1;
+  bytes proposal_ref = 2;
+  bytes new_group_state = 3;
 }
 
 message CreateCommitRequest {
   bytes group_state = 1;
-  repeated bytes proposals = 2;
+  repeated bytes proposals = 2 [deprecated = true];
+  repeated bytes expected_proposal_refs = 3;
 }
 
 message CreateCommitResponse {
@@ -136,11 +141,37 @@ message CreateCommitResponse {
   bytes welcome_bytes = 2;
   bytes new_group_state = 3;
   bytes new_tree_hash = 4;
+  bytes group_info = 5;
+  repeated bytes committed_proposal_refs = 6;
+}
+
+message ProcessProposalRequest {
+  bytes group_state = 1;
+  bytes proposal_bytes = 2;
+}
+
+message ProcessProposalResponse {
+  bytes proposal_ref = 1;
+  string proposal_type = 2;
+  bytes new_group_state = 3;
+}
+
+message StageCommitRequest {
+  bytes group_state = 1;
+  bytes commit_bytes = 2;
+  repeated bytes included_proposals = 3;
+}
+
+message StageCommitResponse {
+  uint64 epoch = 1;
+  repeated bytes proposal_refs = 2;
+  repeated string proposal_types = 3;
 }
 
 message ProcessCommitRequest {
   bytes group_state = 1;
   bytes commit_bytes = 2;
+  repeated bytes included_proposals = 3;
 }
 
 message ProcessCommitResponse {

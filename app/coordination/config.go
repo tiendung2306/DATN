@@ -64,6 +64,13 @@ type CoordinatorConfig struct {
 	// proposal before executing a commit, allowing concurrent proposals to collect.
 	BatchingDelay time.Duration
 
+	// ViewBootstrapGrace is a short safety window after a coordinator starts.
+	// During this window a singleton ActiveView (local-only) is not allowed to
+	// issue a Commit if application policy says there are other authorized
+	// committers in the group. This prevents discovery-delay forks immediately
+	// after startup/join while preserving liveness after the grace expires.
+	ViewBootstrapGrace time.Duration
+
 	// MLSOperationTimeout bounds a single Rust sidecar MLS RPC that sits on a
 	// user-facing or protocol-critical path (AddMembers, CreateCommit,
 	// Encrypt/Decrypt, ProcessCommit, ...). Without a per-call deadline, a stalled
@@ -98,6 +105,7 @@ func DefaultConfig() *CoordinatorConfig {
 		EnvelopeLogTTL:              7 * 24 * time.Hour,
 		EnvelopeLogMaxPerGroup:      10000,
 		BatchingDelay:               1 * time.Second,
+		ViewBootstrapGrace:          2 * time.Second,
 		MLSOperationTimeout:         20 * time.Second,
 		ApplicationAckTimeout:       10 * time.Second,
 		ApplicationDirectRetryLimit: 2,
@@ -121,6 +129,7 @@ func TestConfig() *CoordinatorConfig {
 		EnvelopeLogTTL:              7 * 24 * time.Hour,
 		EnvelopeLogMaxPerGroup:      10000,
 		BatchingDelay:               0,
+		ViewBootstrapGrace:          0,
 		MLSOperationTimeout:         250 * time.Millisecond,
 		ApplicationAckTimeout:       50 * time.Millisecond,
 		ApplicationDirectRetryLimit: 2,
@@ -169,6 +178,10 @@ func (c *CoordinatorConfig) Validate() error {
 	if c.BatchingDelay < 0 {
 		return fmt.Errorf("%w: BatchingDelay must be >= 0, got %v",
 			ErrInvalidConfig, c.BatchingDelay)
+	}
+	if c.ViewBootstrapGrace < 0 {
+		return fmt.Errorf("%w: ViewBootstrapGrace must be >= 0, got %v",
+			ErrInvalidConfig, c.ViewBootstrapGrace)
 	}
 	if c.MLSOperationTimeout <= 0 {
 		return fmt.Errorf("%w: MLSOperationTimeout must be positive, got %v",

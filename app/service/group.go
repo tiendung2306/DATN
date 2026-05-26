@@ -186,6 +186,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		SigningKey:           identity.SigningKeyPrivate,
 		GroupInfoFetcher:     r.fetchGroupInfoForHeal,
 		AuthorizedCommitters: r.authorizedCommittersProvider(db),
+		InitialActiveView:    []peer.ID{r.node.Host.ID()},
 		OnMessage:            r.makeMessageHandler(groupID),
 		OnEpochChange:        r.makeEpochHandler(groupID),
 		OnAccessLost:         r.makeAccessLostHandler(groupID),
@@ -774,6 +775,20 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	}); err != nil {
 		return fmt.Errorf("save group record: %w", err)
 	}
+	if err := r.db.UpsertGroupMember(store.GroupMemberRecord{
+		GroupID:     groupID,
+		PeerID:      r.node.Host.ID().String(),
+		DisplayName: strings.TrimSpace(identity.DisplayName),
+		Role:        "member",
+		Status:      store.GroupMemberStatusActive,
+		Source:      "welcome",
+		UpdatedAt:   time.Now().Unix(),
+	}); err != nil {
+		slog.Warn("Failed to persist local group member before coordinator start", "group", groupID, "error", err)
+	}
+	if _, err := r.reconcileGroupRosterWithMLS(groupID); err != nil {
+		slog.Warn("Failed to backfill MLS roster before coordinator start", "group", groupID, "error", err)
+	}
 
 	coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
 		Config:               coordination.DefaultConfig(),
@@ -786,6 +801,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		SigningKey:           identity.SigningKeyPrivate,
 		GroupInfoFetcher:     r.fetchGroupInfoForHeal,
 		AuthorizedCommitters: r.authorizedCommittersProvider(r.db),
+		InitialActiveView:    r.initialActiveViewForGroupLocked(groupID),
 		OnMessage:            r.makeMessageHandler(groupID),
 		OnEpochChange:        r.makeEpochHandler(groupID),
 		OnAccessLost:         r.makeAccessLostHandler(groupID),
@@ -1023,6 +1039,7 @@ func (r *Runtime) loadExistingGroupsLocked() {
 	}
 
 	for _, rec := range groups {
+		r.ensureGroupRosterBackfilled(rec.GroupID)
 		coord, err := coordination.NewCoordinator(coordination.CoordinatorOpts{
 			Config:               coordination.DefaultConfig(),
 			Transport:            r.transport,
@@ -1034,6 +1051,7 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			SigningKey:           identity.SigningKeyPrivate,
 			GroupInfoFetcher:     r.fetchGroupInfoForHeal,
 			AuthorizedCommitters: r.authorizedCommittersProvider(r.db),
+			InitialActiveView:    r.initialActiveViewForGroupLocked(rec.GroupID),
 			OnMessage:            r.makeMessageHandler(rec.GroupID),
 			OnEpochChange:        r.makeEpochHandler(rec.GroupID),
 			OnAccessLost:         r.makeAccessLostHandler(rec.GroupID),
@@ -1061,6 +1079,84 @@ func (r *Runtime) loadExistingGroupsLocked() {
 	}
 
 	r.recoverStaleAddOperationsLocked()
+}
+
+// initialActiveViewForGroupLocked seeds a coordinator with peers that are both
+// transport-authenticated and active members of the MLS group. This avoids a
+// misleading local-only ActiveView immediately after startup/join, before the
+// first group heartbeat arrives.
+//
+// Must be called with r.mu held.
+func (r *Runtime) initialActiveViewForGroupLocked(groupID string) []peer.ID {
+	if r.db == nil || r.node == nil {
+		return nil
+	}
+
+	verified := make(map[string]struct{})
+	if r.node.AuthProtocol != nil {
+		for _, pid := range r.node.AuthProtocol.VerifiedPeerIDs() {
+			verified[pid.String()] = struct{}{}
+		}
+	}
+	if len(verified) == 0 && r.transport != nil {
+		for _, pid := range r.transport.ConnectedPeers() {
+			if r.node.AuthProtocol != nil && !r.node.AuthProtocol.IsVerified(pid) {
+				continue
+			}
+			verified[pid.String()] = struct{}{}
+		}
+	}
+
+	local := r.node.Host.ID()
+	out := []peer.ID{local}
+	seen := map[peer.ID]struct{}{local: struct{}{}}
+	members, err := r.db.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+	if err != nil {
+		return out
+	}
+	for _, rec := range members {
+		if _, ok := verified[rec.PeerID]; !ok {
+			continue
+		}
+		pid, err := peer.Decode(rec.PeerID)
+		if err != nil || pid == "" {
+			continue
+		}
+		if _, exists := seen[pid]; exists {
+			continue
+		}
+		seen[pid] = struct{}{}
+		out = append(out, pid)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func (r *Runtime) observeVerifiedPeerForGroups(pid peer.ID) {
+	r.mu.RLock()
+	database := r.db
+	coords := make(map[string]*coordination.Coordinator, len(r.coordinators))
+	for groupID, coord := range r.coordinators {
+		coords[groupID] = coord
+	}
+	r.mu.RUnlock()
+
+	if database == nil || pid == "" || len(coords) == 0 {
+		return
+	}
+	for groupID, coord := range coords {
+		r.ensureGroupRosterBackfilled(groupID)
+		members, err := database.ListGroupMembers(groupID, store.GroupMemberStatusActive)
+		if err != nil {
+			continue
+		}
+		for _, rec := range members {
+			if rec.PeerID == pid.String() {
+				coord.ObservePeerAlive(pid)
+				break
+			}
+		}
+	}
 }
 
 // recoverStaleAddOperationsLocked surfaces any Add operation that was

@@ -234,19 +234,63 @@ func TestSingleWriter_PeekNextBatchDoesNotDrain(t *testing.T) {
 	av := NewActiveView(clk, cfg, peerID("alice"), nil)
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
-	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("proposal-1")})
-	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("proposal-2")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("proposal-1"), ProposalRef: []byte{0x10}})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("proposal-2"), ProposalRef: []byte{0x20}})
 
 	batch := sw.PeekNextBatch()
-	if len(batch) != 1 || string(batch[0].Data) != "proposal-1" {
-		t.Fatalf("peek batch=%+v, want first proposal only", batch)
+	if len(batch) != 2 || string(batch[0].Data) != "proposal-1" {
+		t.Fatalf("peek batch=%+v, want deterministic full batch", batch)
 	}
 	batch[0].Data[0] = 'X'
 	if sw.ProposalCount() != 2 {
 		t.Fatalf("PeekNextBatch drained buffer, count=%d", sw.ProposalCount())
 	}
-	drained := sw.DrainNextBatch()
+	drained := sw.DrainBatchByRefs([][]byte{{0x10}})
 	if len(drained) != 1 || string(drained[0].Data) != "proposal-1" {
-		t.Fatalf("drained=%+v, want original first proposal", drained)
+		t.Fatalf("drained=%+v, want original proposal-1", drained)
+	}
+}
+
+func TestSingleWriter_BufferProposal_DeduplicatesByProposalRef(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
+
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("proposal-a"), ProposalRef: []byte{0xAA}})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("proposal-a-duplicate"), ProposalRef: []byte{0xAA}})
+
+	if got := sw.ProposalCount(); got != 1 {
+		t.Fatalf("ProposalCount=%d, want 1 duplicate ref deduped", got)
+	}
+	batch := sw.SnapshotNextBatch()
+	if len(batch) != 1 || batch[0].Type != ProposalAdd || string(batch[0].Data) != "proposal-a" {
+		t.Fatalf("dedupe kept wrong proposal: %+v", batch)
+	}
+}
+
+func TestSingleWriter_SnapshotNextBatch_SortsByProposalRefAcrossTypes(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
+
+	sw.BufferProposal(BufferedProposal{Type: ProposalUpdate, Data: []byte("update"), ProposalRef: []byte{0x30}})
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("add"), ProposalRef: []byte{0x10}})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("remove"), ProposalRef: []byte{0x20}})
+
+	batch := sw.SnapshotNextBatch()
+	if len(batch) != 3 {
+		t.Fatalf("batch len=%d, want 3", len(batch))
+	}
+	got := []ProposalType{batch[0].Type, batch[1].Type, batch[2].Type}
+	want := []ProposalType{ProposalAdd, ProposalRemove, ProposalUpdate}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("batch order=%v, want %v", got, want)
+		}
+	}
+	if sw.ProposalCount() != 3 {
+		t.Fatalf("SnapshotNextBatch drained buffer")
 	}
 }

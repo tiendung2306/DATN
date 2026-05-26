@@ -26,7 +26,8 @@ use mls_service::{
     ListMemberIdentitiesRequest, ListMemberIdentitiesResponse, LoadGroupRequest, LoadGroupResponse,
     OperationContext, PingRequest, PingResponse, ProcessCommitCachedRequest,
     ProcessCommitCachedResponse, ProcessCommitRequest, ProcessCommitResponse,
-    ProcessWelcomeRequest, ProcessWelcomeResponse, RemoveMembersRequest, RemoveMembersResponse,
+    ProcessProposalRequest, ProcessProposalResponse, ProcessWelcomeRequest, ProcessWelcomeResponse,
+    RemoveMembersRequest, RemoveMembersResponse, StageCommitRequest, StageCommitResponse,
     UnloadGroupRequest, UnloadGroupResponse,
 };
 
@@ -124,9 +125,31 @@ impl MlsCryptoService for MyMlsService {
     ) -> Result<Response<CreateProposalResponse>, Status> {
         let req = request.into_inner();
         match mls::create_proposal(&req.group_state, req.proposal_type, &req.data) {
-            Ok(proposal_bytes) => Ok(Response::new(CreateProposalResponse { proposal_bytes })),
+            Ok(result) => Ok(Response::new(CreateProposalResponse {
+                proposal_bytes: result.proposal_bytes,
+                proposal_ref: result.proposal_ref,
+                new_group_state: result.new_group_state,
+            })),
             Err(e) => {
                 eprintln!("create_proposal error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn process_proposal(
+        &self,
+        request: Request<ProcessProposalRequest>,
+    ) -> Result<Response<ProcessProposalResponse>, Status> {
+        let req = request.into_inner();
+        match mls::process_proposal(&req.group_state, &req.proposal_bytes) {
+            Ok(result) => Ok(Response::new(ProcessProposalResponse {
+                proposal_ref: result.proposal_ref,
+                proposal_type: result.proposal_type,
+                new_group_state: result.new_group_state,
+            })),
+            Err(e) => {
+                eprintln!("process_proposal error: {e}");
                 Err(Status::internal(e))
             }
         }
@@ -137,15 +160,40 @@ impl MlsCryptoService for MyMlsService {
         request: Request<CreateCommitRequest>,
     ) -> Result<Response<CreateCommitResponse>, Status> {
         let req = request.into_inner();
-        match mls::create_commit(&req.group_state, &req.proposals) {
+        #[allow(deprecated)]
+        match mls::create_commit(
+            &req.group_state,
+            &req.proposals,
+            &req.expected_proposal_refs,
+        ) {
             Ok(result) => Ok(Response::new(CreateCommitResponse {
                 commit_bytes: result.commit_bytes,
                 welcome_bytes: result.welcome_bytes,
                 new_group_state: result.new_group_state,
                 new_tree_hash: result.new_tree_hash,
+                group_info: result.group_info,
+                committed_proposal_refs: result.committed_proposal_refs,
             })),
             Err(e) => {
                 eprintln!("create_commit error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn stage_commit(
+        &self,
+        request: Request<StageCommitRequest>,
+    ) -> Result<Response<StageCommitResponse>, Status> {
+        let req = request.into_inner();
+        match mls::stage_commit(&req.group_state, &req.commit_bytes, &req.included_proposals) {
+            Ok(result) => Ok(Response::new(StageCommitResponse {
+                epoch: result.epoch,
+                proposal_refs: result.proposal_refs,
+                proposal_types: result.proposal_types,
+            })),
+            Err(e) => {
+                eprintln!("stage_commit error: {e}");
                 Err(Status::internal(e))
             }
         }
@@ -156,7 +204,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ProcessCommitRequest>,
     ) -> Result<Response<ProcessCommitResponse>, Status> {
         let req = request.into_inner();
-        match mls::process_commit(&req.group_state, &req.commit_bytes) {
+        match mls::process_commit(&req.group_state, &req.commit_bytes, &req.included_proposals) {
             Ok(result) => Ok(Response::new(ProcessCommitResponse {
                 new_group_state: result.new_group_state,
                 new_tree_hash: result.new_tree_hash,

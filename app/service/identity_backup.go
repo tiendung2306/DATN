@@ -56,6 +56,8 @@ type BackupPayload struct {
 	KPBundles       []store.BackupKPBundle       `json:"kp_bundles,omitempty"`
 	PendingWelcomes []store.BackupPendingWelcome `json:"pending_welcomes,omitempty"`
 	PendingInvites  []store.BackupPendingInvite  `json:"pending_invites,omitempty"`
+
+	AdminRootPrivateKey []byte `json:"admin_root_private_key,omitempty"`
 }
 
 // ExportIdentityBackup reads local identity material from DB and encrypts it
@@ -80,6 +82,11 @@ func ExportIdentityBackup(database *store.Database, privKey p2pCrypto.PrivKey, p
 	bundle, err := database.GetAuthBundle()
 	if err != nil {
 		return nil, fmt.Errorf("load auth bundle: %w", err)
+	}
+
+	adminRootPriv, err := database.GetConfig("admin_root_private_key")
+	if err != nil && !store.IsNotFound(err) {
+		return nil, fmt.Errorf("load admin root private key: %w", err)
 	}
 
 	rawPriv, err := p2pCrypto.MarshalPrivateKey(privKey)
@@ -126,8 +133,9 @@ func ExportIdentityBackup(database *store.Database, privKey p2pCrypto.PrivKey, p
 		Groups:            groups,
 		StoredMessages:    messages,
 		KPBundles:         kpBundles,
-		PendingWelcomes:   pendingWelcomes,
-		PendingInvites:    pendingInvites,
+		PendingWelcomes:     pendingWelcomes,
+		PendingInvites:      pendingInvites,
+		AdminRootPrivateKey: adminRootPriv,
 	}
 
 	plaintext, err := json.Marshal(payload)
@@ -185,6 +193,13 @@ func ImportIdentityBackup(database *store.Database, encrypted []byte, passphrase
 	}); err != nil {
 		return nil, fmt.Errorf("restore auth bundle: %w", err)
 	}
+
+	if len(payload.AdminRootPrivateKey) > 0 {
+		if err := database.SetConfig("admin_root_private_key", payload.AdminRootPrivateKey); err != nil {
+			return nil, fmt.Errorf("restore admin root private key: %w", err)
+		}
+	}
+
 	// Full content migration is supported from backup format v2+.
 	if payload.Version >= backupFormatVersionV2 {
 		if err := database.ClearApplicationDataForIdentityImport(); err != nil {

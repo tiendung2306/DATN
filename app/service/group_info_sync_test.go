@@ -16,13 +16,19 @@ type groupInfoTestMLSEngine struct {
 func (m *groupInfoTestMLSEngine) CreateGroup(context.Context, string, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
-func (m *groupInfoTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) ([]byte, error) {
-	return nil, errors.New("not implemented")
+func (m *groupInfoTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) (coordination.CreateProposalResult, error) {
+	return coordination.CreateProposalResult{}, errors.New("not implemented")
 }
-func (m *groupInfoTestMLSEngine) CreateCommit(context.Context, []byte, [][]byte) ([]byte, []byte, []byte, []byte, error) {
-	return nil, nil, nil, nil, errors.New("not implemented")
+func (m *groupInfoTestMLSEngine) ProcessProposal(context.Context, []byte, []byte) (coordination.ProcessProposalResult, error) {
+	return coordination.ProcessProposalResult{}, errors.New("not implemented")
 }
-func (m *groupInfoTestMLSEngine) ProcessCommit(context.Context, []byte, []byte) ([]byte, []byte, error) {
+func (m *groupInfoTestMLSEngine) CreateCommit(context.Context, []byte, [][]byte) (coordination.CreateCommitResult, error) {
+	return coordination.CreateCommitResult{}, errors.New("not implemented")
+}
+func (m *groupInfoTestMLSEngine) StageCommit(context.Context, []byte, []byte, [][]byte) (coordination.StageCommitResult, error) {
+	return coordination.StageCommitResult{}, errors.New("not implemented")
+}
+func (m *groupInfoTestMLSEngine) ProcessCommit(context.Context, []byte, []byte, [][]byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
 func (m *groupInfoTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte) ([]byte, []byte, uint64, error) {

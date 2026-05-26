@@ -1,8 +1,10 @@
 package coordination
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
+	"sort"
 	"sync"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -128,12 +130,13 @@ func (sw *SingleWriter) CurrentTokenHolder() (peer.ID, error) {
 
 // BufferProposal adds an MLS Proposal to the internal buffer. The proposal's
 // raw MLS bytes are defensively copied; routing metadata fields are stored as
-// provided. These are collected by the Token Holder via DrainNextBatch /
+// provided. These are collected by the Token Holder via SnapshotNextBatch /
 // DrainProposals.
 func (sw *SingleWriter) BufferProposal(p BufferedProposal) {
 	cp := BufferedProposal{
 		Type:         p.Type,
 		Data:         append([]byte(nil), p.Data...),
+		ProposalRef:  append([]byte(nil), p.ProposalRef...),
 		OperationID:  p.OperationID,
 		TargetPeerID: p.TargetPeerID,
 		RequestID:    p.RequestID,
@@ -147,64 +150,82 @@ func (sw *SingleWriter) BufferProposal(p BufferedProposal) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
-	if len(sw.proposals) < sw.cfg.MaxBatchedProposals {
-		sw.proposals = append(sw.proposals, cp)
+	if len(cp.ProposalRef) > 0 {
+		for _, existing := range sw.proposals {
+			if bytes.Equal(existing.ProposalRef, cp.ProposalRef) {
+				return
+			}
+		}
 	}
+	if len(sw.proposals) >= sw.cfg.MaxBatchedProposals {
+		return
+	}
+	sw.proposals = append(sw.proposals, cp)
 }
 
-// DrainNextBatch returns the next homogeneous batch of buffered proposals
-// (all of the same ProposalType, preserving insertion order) and removes
-// them from the buffer. Any remaining proposals of other types stay buffered
-// for future epochs.
-//
-// Homogeneous batching is a deliberate trade-off: RFC 9420 permits mixed
-// proposal commits, but crypto-engine/src/mls.rs currently funnels Add /
-// Remove / Update through dedicated paths. Splitting the batch in Go avoids
-// silent proposal drops while keeping the Rust commit path simple.
-//
-// Returns nil when no proposals are buffered.
-func (sw *SingleWriter) DrainNextBatch() []BufferedProposal {
+// SnapshotNextBatch returns the deterministic candidate batch for this epoch.
+// The batch is proposal-ref ordered so all nodes with the same pending set
+// compute the same Token Holder without relying on local arrival order.
+func (sw *SingleWriter) SnapshotNextBatch() []BufferedProposal {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
+	return cloneProposalBatch(sw.snapshotNextBatchLocked())
+}
 
+func (sw *SingleWriter) snapshotNextBatchLocked() []BufferedProposal {
 	if len(sw.proposals) == 0 {
 		return nil
 	}
-
-	headType := sw.proposals[0].Type
-	cutoff := 0
-	for cutoff < len(sw.proposals) && sw.proposals[cutoff].Type == headType {
-		cutoff++
+	batch := cloneProposalBatch(sw.proposals)
+	sort.SliceStable(batch, func(i, j int) bool {
+		return proposalRefLess(batch[i], batch[j])
+	})
+	if len(batch) > sw.cfg.MaxBatchedProposals {
+		batch = batch[:sw.cfg.MaxBatchedProposals]
 	}
-
-	batch := sw.proposals[:cutoff]
-	sw.proposals = append([]BufferedProposal(nil), sw.proposals[cutoff:]...)
 	return batch
 }
 
 func (sw *SingleWriter) PeekNextBatch() []BufferedProposal {
-	sw.mu.Lock()
-	defer sw.mu.Unlock()
-	return cloneProposalBatch(sw.peekNextBatchLocked())
+	return sw.SnapshotNextBatch()
 }
 
 func (sw *SingleWriter) peekNextBatchLocked() []BufferedProposal {
-	if len(sw.proposals) == 0 {
+	return sw.snapshotNextBatchLocked()
+}
+
+// DrainBatchByRefs removes exactly the proposals committed by a successful MLS
+// Commit. Proposals are only drained after Rust returns a valid commit.
+func (sw *SingleWriter) DrainBatchByRefs(refs [][]byte) []BufferedProposal {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if len(refs) == 0 || len(sw.proposals) == 0 {
 		return nil
 	}
-	headType := sw.proposals[0].Type
-	cutoff := 0
-	for cutoff < len(sw.proposals) && sw.proposals[cutoff].Type == headType {
-		cutoff++
+	wanted := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		wanted[string(ref)] = struct{}{}
 	}
-	return sw.proposals[:cutoff]
+	drained := make([]BufferedProposal, 0, len(refs))
+	remaining := make([]BufferedProposal, 0, len(sw.proposals))
+	for _, proposal := range sw.proposals {
+		if _, ok := wanted[string(proposal.ProposalRef)]; ok {
+			drained = append(drained, proposal)
+			continue
+		}
+		remaining = append(remaining, proposal)
+	}
+	sw.proposals = remaining
+	sort.SliceStable(drained, func(i, j int) bool {
+		return proposalRefLess(drained[i], drained[j])
+	})
+	return cloneProposalBatch(drained)
 }
 
 // DrainProposals returns every buffered proposal and clears the buffer.
 //
-// Prefer DrainNextBatch when calling into mls.CreateCommit so the Token
-// Holder commits homogeneous batches per epoch. DrainProposals remains
-// available for callers that need to inspect or migrate the full buffer.
+// Prefer SnapshotNextBatch + DrainBatchByRefs when calling into mls.CreateCommit.
+// DrainProposals remains available for callers that need to inspect or migrate the full buffer.
 func (sw *SingleWriter) DrainProposals() []BufferedProposal {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
@@ -336,7 +357,21 @@ func cloneProposalBatch(in []BufferedProposal) []BufferedProposal {
 	for i := range in {
 		out[i] = in[i]
 		out[i].Data = append([]byte(nil), in[i].Data...)
+		out[i].ProposalRef = append([]byte(nil), in[i].ProposalRef...)
 		out[i].KeyPackageHash = append([]byte(nil), in[i].KeyPackageHash...)
 	}
 	return out
+}
+
+func proposalRefLess(a, b BufferedProposal) bool {
+	if len(a.ProposalRef) == 0 || len(b.ProposalRef) == 0 {
+		if len(a.ProposalRef) != len(b.ProposalRef) {
+			return len(a.ProposalRef) > len(b.ProposalRef)
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		return bytes.Compare(a.Data, b.Data) < 0
+	}
+	return bytes.Compare(a.ProposalRef, b.ProposalRef) < 0
 }

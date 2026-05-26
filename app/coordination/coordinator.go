@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,10 @@ type CoordinatorOpts struct {
 	// that do not exercise healing.
 	GroupInfoFetcher     GroupInfoFetchFunc
 	AuthorizedCommitters AuthorizedCommittersProvider
+	// InitialActiveView seeds known-online, authenticated group members at
+	// startup/join so token-holder election does not begin from a misleading
+	// local-only view while heartbeat discovery catches up.
+	InitialActiveView []peer.ID
 
 	OnMessage     func(*StoredMessage) // called when an application message is decrypted
 	OnEpochChange func(uint64)         // called when the group advances to a new epoch
@@ -114,6 +119,7 @@ type Coordinator struct {
 	mu                sync.Mutex
 	groupState        []byte
 	treeHash          []byte
+	lastCommitHash    []byte
 	epoch             uint64
 	activeView        *ActiveView
 	singleWriter      *SingleWriter
@@ -121,6 +127,7 @@ type Coordinator struct {
 	forkDetector      *ForkDetector
 	proposalTimerChan <-chan time.Time
 	lastTokenHolder   peer.ID
+	startedAt         time.Time
 	started           bool
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -194,6 +201,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, func(members []peer.ID) {
 		go c.handleActiveViewChange(members)
 	})
+	c.activeView.Seed(opts.InitialActiveView)
 	c.forkDetector = NewForkDetector()
 	return c, nil
 }
@@ -219,6 +227,9 @@ func (c *Coordinator) handleActiveViewChange(_ []peer.ID) {
 	wasTokenHolder := c.lastTokenHolder == c.localID
 	isTokenHolder := newHolder == c.localID
 	c.lastTokenHolder = newHolder
+	if err := c.persistCoordStateLocked(); err != nil {
+		slog.Warn("Failed to persist coordination state after active-view change", "group", c.groupID, "error", err)
+	}
 
 	// Only flash-commit if the local node has just been PROMOTED (was NOT Token Holder, now IS)
 	// and there are pending proposals in the buffer.
@@ -255,7 +266,7 @@ func (c *Coordinator) CreateGroup() error {
 	c.epoch = 0
 	c.treeHash = treeHash
 
-	return c.storage.SaveGroupRecord(&GroupRecord{
+	if err := c.storage.SaveGroupRecord(&GroupRecord{
 		GroupID:    c.groupID,
 		GroupState: state,
 		Epoch:      0,
@@ -263,7 +274,10 @@ func (c *Coordinator) CreateGroup() error {
 		MyRole:     RoleCreator,
 		CreatedAt:  c.clock.Now(),
 		UpdatedAt:  c.clock.Now(),
-	})
+	}); err != nil {
+		return err
+	}
+	return c.persistCoordStateLocked()
 }
 
 // InitializeGroup sets up the coordinator with a known group state.
@@ -296,6 +310,11 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		c.epoch = rec.Epoch
 		c.treeHash = rec.TreeHash
 	}
+	if cs, err := c.storage.GetCoordState(c.groupID); err == nil {
+		c.lastCommitHash = copyBytes(cs.LastCommitHash)
+	} else if !errors.Is(err, ErrGroupNotFound) {
+		return fmt.Errorf("load coordination state: %w", err)
+	}
 
 	c.epochTracker = NewEpochTracker(c.epoch, c.treeHash)
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, c.epoch, c.cfg)
@@ -307,6 +326,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
 		Epoch:       c.epoch,
+		CommitHash:  c.lastCommitHash,
 	})
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -317,6 +337,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	}
 
 	c.started = true
+	c.startedAt = c.clock.Now()
 
 	c.wg.Add(1)
 	go func() { defer c.wg.Done(); c.heartbeatLoop(c.ctx) }()
@@ -394,6 +415,13 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 }
 
 func (c *Coordinator) handleHeartbeatLocked(from peer.ID) {
+	c.observePeerAliveLocked(from)
+}
+
+func (c *Coordinator) observePeerAliveLocked(from peer.ID) {
+	if from == "" || from == c.localID {
+		return
+	}
 	fresh := c.activeView.RecordHeartbeat(from)
 	if !fresh || c.onPeerObserved == nil {
 		return
@@ -406,6 +434,17 @@ func (c *Coordinator) handleHeartbeatLocked(from peer.ID) {
 	groupID := c.groupID
 	observedAt := c.clock.Now()
 	go cb(groupID, from, observedAt)
+}
+
+// ObservePeerAlive lets the runtime feed already-authenticated transport
+// observations into this group's ActiveView without waiting for the next
+// group heartbeat. The runtime must only call this for peers that are both
+// verified by the auth protocol and active members of this group.
+func (c *Coordinator) ObservePeerAlive(from peer.ID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.observePeerAliveLocked(from)
 }
 
 func (c *Coordinator) handleAnnounceLocked(from peer.ID, env *Envelope) {
@@ -440,9 +479,30 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 		return
 	}
 
+	opCtx, cancel := c.mlsOperationContext()
+	processed, err := c.mls.ProcessProposal(opCtx, c.groupState, proposal.Data)
+	cancel()
+	if err != nil {
+		slog.Warn("Rejected proposal that failed MLS processing", "group", c.groupID, "epoch", env.Epoch, "from", from, "error", err)
+		return
+	}
+	if len(proposal.ProposalRef) == 0 {
+		proposal.ProposalRef = processed.ProposalRef
+	}
+	if !bytes.Equal(proposal.ProposalRef, processed.ProposalRef) {
+		slog.Warn("Rejected proposal with mismatched ProposalRef", "group", c.groupID, "epoch", env.Epoch, "from", from)
+		return
+	}
+	if err := c.persistCurrentEpochStateLocked(processed.NewGroupState); err != nil {
+		slog.Error("Failed to persist pending proposal state", "group", c.groupID, "error", err)
+		return
+	}
+	c.groupState = processed.NewGroupState
+
 	c.singleWriter.BufferProposal(BufferedProposal{
 		Type:           proposal.ProposalType,
 		Data:           proposal.Data,
+		ProposalRef:    proposal.ProposalRef,
 		OperationID:    proposal.OperationID,
 		TargetPeerID:   proposal.TargetPeerID,
 		RequestID:      proposal.RequestID,
@@ -487,6 +547,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	if err := json.Unmarshal(env.Payload, &commit); err != nil {
 		return false
 	}
+	commitHash := hashCommitData(commit.CommitData)
 
 	_, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
 	if alreadyApplied {
@@ -496,9 +557,46 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	start := c.clock.Now()
 
 	opCtx, cancel := c.mlsOperationContext()
-	newState, newTreeHash, err := c.mls.ProcessCommit(opCtx, c.groupState, commit.CommitData)
+	batch := bufferedBatchFromProposalMsgs(commit.IncludedProposals)
+	includedProposalBytes := proposalBytesFromMsgs(commit.IncludedProposals)
+	staged, err := c.mls.StageCommit(opCtx, c.groupState, commit.CommitData, includedProposalBytes)
 	cancel()
 	if err != nil {
+		c.markInvalidCommitLocked(commitHash)
+		return false
+	}
+	if len(commit.CommittedProposalRefs) > 0 && !proposalRefSetsEqual(staged.ProposalRefs, commit.CommittedProposalRefs) {
+		c.markInvalidCommitLocked(commitHash)
+		return false
+	}
+	if len(batch) > 0 {
+		sender := decodeEnvelopePeerID(env.From, "")
+		if sender == "" {
+			slog.Warn("Commit envelope missing sender; skipping token-holder metadata validation for compatibility", "group", c.groupID, "epoch", c.epoch)
+		} else {
+			holder, err := c.singleWriter.computeHolder(c.activeView.Members(), c.epoch, c.groupID, batch, c.authorizedCommitters)
+			if err != nil {
+				c.markInvalidCommitLocked(commitHash)
+				return false
+			}
+			if sender != holder {
+				slog.Warn("Rejected commit from non-token-holder", "group", c.groupID, "epoch", c.epoch, "sender", sender, "holder", holder)
+				c.markInvalidCommitLocked(commitHash)
+				return false
+			}
+			if removesPeer(batch, sender) {
+				slog.Warn("Rejected commit whose batch removes the committer", "group", c.groupID, "epoch", c.epoch, "sender", sender)
+				c.markInvalidCommitLocked(commitHash)
+				return false
+			}
+		}
+	}
+
+	opCtx, cancel = c.mlsOperationContext()
+	newState, newTreeHash, err := c.mls.ProcessCommit(opCtx, c.groupState, commit.CommitData, includedProposalBytes)
+	cancel()
+	if err != nil {
+		c.markInvalidCommitLocked(commitHash)
 		return false
 	}
 	nextEpoch := c.epoch + 1
@@ -623,6 +721,89 @@ func (c *Coordinator) handleDeliveryAckLocked(from peer.ID, env *Envelope) {
 
 // ─── Commit Logic ────────────────────────────────────────────────────────────
 
+func (c *Coordinator) bootstrapGraceRemainingLocked() time.Duration {
+	grace := c.cfg.ViewBootstrapGrace
+	if grace <= 0 || c.startedAt.IsZero() {
+		return 0
+	}
+	elapsed := c.clock.Now().Sub(c.startedAt)
+	if elapsed >= grace {
+		return 0
+	}
+	return grace - elapsed
+}
+
+func (c *Coordinator) commitViewReadyLocked(batch []BufferedProposal) bool {
+	if c.bootstrapGraceRemainingLocked() <= 0 {
+		return true
+	}
+	if c.activeView.Size() > 1 {
+		return true
+	}
+	if c.authorizedCommitters == nil {
+		return true
+	}
+	authorized, err := c.authorizedCommitters(c.groupID, c.epoch, batch)
+	if err != nil {
+		slog.Warn("Bootstrap view guard skipped: failed to load authorized committers",
+			"group", c.groupID,
+			"epoch", c.epoch,
+			"error", err)
+		return true
+	}
+	removed := make(map[peer.ID]struct{}, len(batch))
+	for _, p := range batch {
+		if p.Type != ProposalRemove || p.TargetPeerID == "" {
+			continue
+		}
+		if target, err := peer.Decode(p.TargetPeerID); err == nil {
+			removed[target] = struct{}{}
+		}
+	}
+	for _, id := range authorized {
+		if id != "" && id != c.localID {
+			if _, willBeRemoved := removed[id]; willBeRemoved {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Coordinator) deferCommitUntilViewReadyLocked() {
+	if c.proposalTimerChan != nil {
+		return
+	}
+	delay := c.bootstrapGraceRemainingLocked()
+	if delay <= 0 {
+		delay = c.cfg.BatchingDelay
+	}
+	if delay <= 0 {
+		delay = 10 * time.Millisecond
+	}
+	slog.Info("Deferring token-holder commit while group ActiveView bootstraps",
+		"group", c.groupID,
+		"epoch", c.epoch,
+		"delay", delay,
+		"active_view_size", c.activeView.Size())
+	ch := c.clock.After(delay)
+	c.proposalTimerChan = ch
+	go func(timerChan <-chan time.Time) {
+		<-timerChan
+
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if c.proposalTimerChan == timerChan {
+			c.proposalTimerChan = nil
+			if c.singleWriter != nil && c.singleWriter.IsTokenHolder() && c.singleWriter.ProposalCount() > 0 {
+				c.tryCommitLocked()
+			}
+		}
+	}(ch)
+}
+
 // scheduleBatchCommitLocked schedules a commit execution after a short batching delay
 // to allow multiple concurrent proposals to be gathered into a single commit.
 // If a commit is already scheduled, this is a no-op (letting the current window collect proposals).
@@ -663,40 +844,46 @@ func (c *Coordinator) scheduleBatchCommitLocked() {
 	}(ch)
 }
 
-// tryCommitLocked drains a single homogeneous proposal batch and commits it.
-// Mixed-type batching is rejected by the Rust engine; here we let
-// SingleWriter return the next homogeneous run (Add / Remove / Update) so
-// proposals never get silently dropped — remaining proposal types are wiped
-// alongside the epoch advance because their underlying MLS proposal bytes
-// were authored against the pre-commit epoch and can no longer be applied.
+// tryCommitLocked commits the deterministic proposal-ref snapshot for this epoch.
 func (c *Coordinator) tryCommitLocked() {
-	batch := c.singleWriter.DrainNextBatch()
+	batch := c.singleWriter.SnapshotNextBatch()
 	if len(batch) == 0 {
+		return
+	}
+	if !c.commitViewReadyLocked(batch) {
+		c.deferCommitUntilViewReadyLocked()
 		return
 	}
 	prevEpoch := c.epoch
 
-	rawProposals := make([][]byte, 0, len(batch))
+	expectedRefs := make([][]byte, 0, len(batch))
 	for i := range batch {
-		rawProposals = append(rawProposals, batch[i].Data)
+		expectedRefs = append(expectedRefs, append([]byte(nil), batch[i].ProposalRef...))
 	}
 
 	opCtx, cancel := c.mlsOperationContext()
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.CreateCommit(opCtx, c.groupState, rawProposals)
+	commitResult, err := c.mls.CreateCommit(opCtx, c.groupState, expectedRefs)
 	cancel()
 	if err != nil {
+		slog.Warn("CreateCommit failed for pending proposal batch", "group", c.groupID, "epoch", c.epoch, "error", err)
 		return
 	}
 
+	committedRefs := commitResult.CommittedProposalRefs
+	if len(committedRefs) == 0 {
+		committedRefs = expectedRefs
+	}
 	commitMsg := CommitMsg{
-		CommitData:  commitBytes,
-		NewTreeHash: newTreeHash,
+		CommitData:            commitResult.CommitBytes,
+		NewTreeHash:           commitResult.NewTreeHash,
+		IncludedProposals:     proposalMsgsFromBatch(batch),
+		CommittedProposalRefs: cloneBytesList(committedRefs),
 	}
 
 	// Surface routing metadata for ProposalAdd commits so observer nodes can
 	// correlate the commit with their local group_add_operations rows.
-	if batch[0].Type == ProposalAdd {
-		commitMsg.AddDeliveries = buildAddDeliveriesFromBatch(batch, welcomeBytes)
+	if batchContainsType(batch, ProposalAdd) {
+		commitMsg.AddDeliveries = buildAddDeliveriesFromBatch(batch, commitResult.WelcomeBytes)
 	}
 
 	ts := c.hlc.Now()
@@ -708,28 +895,32 @@ func (c *Coordinator) tryCommitLocked() {
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
 		GroupID:    c.groupID,
-		GroupState: newState,
+		GroupState: commitResult.NewGroupState,
 		Epoch:      nextEpoch,
-		TreeHash:   newTreeHash,
+		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
 	}, MsgCommit, envBytes, ts)
 	if err != nil || !applied {
 		return
 	}
+	drained := c.singleWriter.DrainBatchByRefs(committedRefs)
+	if len(drained) > 0 {
+		batch = drained
+	}
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
-	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
-	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
+	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
-	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, batch)
 
 	// Hand off Welcome dispatch to the runtime. This local node is the Token
 	// Holder that just ran CreateCommit, so it is the only node holding the
 	// ephemeral key material required to deliver Welcome to each invitee.
-	if batch[0].Type == ProposalAdd && c.onAddCommitted != nil && len(commitMsg.AddDeliveries) > 0 {
+	if batchContainsType(batch, ProposalAdd) && c.onAddCommitted != nil && len(commitMsg.AddDeliveries) > 0 {
 		deliveries := append([]AddCommitDelivery(nil), commitMsg.AddDeliveries...)
-		welcome := append([]byte(nil), welcomeBytes...)
+		welcome := append([]byte(nil), commitResult.WelcomeBytes...)
 		epoch := nextEpoch
 		cb := c.onAddCommitted
 		go func() {
@@ -768,10 +959,68 @@ func (c *Coordinator) emitCommitIssuedLocked(prevEpoch, newEpoch uint64, batch [
 	})
 }
 
-// buildAddDeliveriesFromBatch projects routing metadata from a homogeneous
-// ProposalAdd batch into AddCommitDelivery entries. The same Welcome bytes
-// are referenced by WelcomeHash across deliveries because OpenMLS emits a
-// single combined Welcome per commit batch.
+func (c *Coordinator) createAndStoreLocalProposalLocked(pType ProposalType, data []byte, meta BufferedProposal) (ProposalMsg, BufferedProposal, error) {
+	opCtx, cancel := c.mlsOperationContext()
+	result, err := c.mls.CreateProposal(opCtx, c.groupState, pType, data)
+	cancel()
+	if err != nil {
+		return ProposalMsg{}, BufferedProposal{}, err
+	}
+	if err := c.persistCurrentEpochStateLocked(result.NewGroupState); err != nil {
+		return ProposalMsg{}, BufferedProposal{}, err
+	}
+	c.groupState = result.NewGroupState
+
+	msg := ProposalMsg{
+		ProposalType:   pType,
+		Data:           append([]byte(nil), result.ProposalBytes...),
+		ProposalRef:    append([]byte(nil), result.ProposalRef...),
+		OperationID:    meta.OperationID,
+		TargetPeerID:   meta.TargetPeerID,
+		RequestID:      meta.RequestID,
+		GroupType:      meta.GroupType,
+		CategoryID:     meta.CategoryID,
+		KeyPackageHash: append([]byte(nil), meta.KeyPackageHash...),
+	}
+	buffered := BufferedProposal{
+		Type:           pType,
+		Data:           append([]byte(nil), result.ProposalBytes...),
+		ProposalRef:    append([]byte(nil), result.ProposalRef...),
+		OperationID:    meta.OperationID,
+		TargetPeerID:   meta.TargetPeerID,
+		RequestID:      meta.RequestID,
+		GroupType:      meta.GroupType,
+		CategoryID:     meta.CategoryID,
+		KeyPackageHash: append([]byte(nil), meta.KeyPackageHash...),
+	}
+	return msg, buffered, nil
+}
+
+func (c *Coordinator) persistCurrentEpochStateLocked(newState []byte) error {
+	now := c.clock.Now()
+	rec := &GroupRecord{
+		GroupID:    c.groupID,
+		GroupState: append([]byte(nil), newState...),
+		Epoch:      c.epoch,
+		TreeHash:   append([]byte(nil), c.treeHash...),
+		UpdatedAt:  now,
+	}
+	if prev, err := c.storage.GetGroupRecord(c.groupID); err == nil && prev != nil {
+		rec.MyRole = prev.MyRole
+		rec.GroupType = prev.GroupType
+		rec.CategoryID = prev.CategoryID
+		rec.DMCounterpartyPeerID = prev.DMCounterpartyPeerID
+		rec.CreatedAt = prev.CreatedAt
+	}
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = now
+	}
+	return c.storage.SaveGroupRecord(rec)
+}
+
+// buildAddDeliveriesFromBatch projects routing metadata for Add proposals in a
+// mixed commit batch. The same Welcome bytes are referenced by WelcomeHash
+// across deliveries because OpenMLS emits a single combined Welcome per commit.
 func buildAddDeliveriesFromBatch(batch []BufferedProposal, welcomeBytes []byte) []AddCommitDelivery {
 	if len(batch) == 0 {
 		return nil
@@ -783,6 +1032,9 @@ func buildAddDeliveriesFromBatch(batch []BufferedProposal, welcomeBytes []byte) 
 	}
 	out := make([]AddCommitDelivery, 0, len(batch))
 	for _, p := range batch {
+		if p.Type != ProposalAdd {
+			continue
+		}
 		out = append(out, AddCommitDelivery{
 			OperationID:    p.OperationID,
 			TargetPeerID:   p.TargetPeerID,
@@ -794,6 +1046,113 @@ func buildAddDeliveriesFromBatch(batch []BufferedProposal, welcomeBytes []byte) 
 		})
 	}
 	return out
+}
+
+func proposalMsgsFromBatch(batch []BufferedProposal) []ProposalMsg {
+	if len(batch) == 0 {
+		return nil
+	}
+	out := make([]ProposalMsg, 0, len(batch))
+	for _, p := range batch {
+		out = append(out, ProposalMsg{
+			ProposalType:   p.Type,
+			Data:           append([]byte(nil), p.Data...),
+			ProposalRef:    append([]byte(nil), p.ProposalRef...),
+			OperationID:    p.OperationID,
+			TargetPeerID:   p.TargetPeerID,
+			RequestID:      p.RequestID,
+			GroupType:      p.GroupType,
+			CategoryID:     p.CategoryID,
+			KeyPackageHash: append([]byte(nil), p.KeyPackageHash...),
+		})
+	}
+	return out
+}
+
+func bufferedBatchFromProposalMsgs(proposals []ProposalMsg) []BufferedProposal {
+	if len(proposals) == 0 {
+		return nil
+	}
+	out := make([]BufferedProposal, 0, len(proposals))
+	for _, p := range proposals {
+		out = append(out, BufferedProposal{
+			Type:           p.ProposalType,
+			Data:           append([]byte(nil), p.Data...),
+			ProposalRef:    append([]byte(nil), p.ProposalRef...),
+			OperationID:    p.OperationID,
+			TargetPeerID:   p.TargetPeerID,
+			RequestID:      p.RequestID,
+			GroupType:      p.GroupType,
+			CategoryID:     p.CategoryID,
+			KeyPackageHash: append([]byte(nil), p.KeyPackageHash...),
+		})
+	}
+	return out
+}
+
+func proposalBytesFromMsgs(proposals []ProposalMsg) [][]byte {
+	if len(proposals) == 0 {
+		return nil
+	}
+	out := make([][]byte, 0, len(proposals))
+	for _, p := range proposals {
+		out = append(out, append([]byte(nil), p.Data...))
+	}
+	return out
+}
+
+func cloneBytesList(in [][]byte) [][]byte {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = append([]byte(nil), in[i]...)
+	}
+	return out
+}
+
+func proposalRefSetsEqual(a, b [][]byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aa := cloneBytesList(a)
+	bb := cloneBytesList(b)
+	sortBytesList(aa)
+	sortBytesList(bb)
+	for i := range aa {
+		if !bytes.Equal(aa[i], bb[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func sortBytesList(items [][]byte) {
+	sort.SliceStable(items, func(i, j int) bool {
+		return bytes.Compare(items[i], items[j]) < 0
+	})
+}
+
+func removesPeer(batch []BufferedProposal, pid peer.ID) bool {
+	if pid == "" {
+		return false
+	}
+	for _, p := range batch {
+		if p.Type == ProposalRemove && p.TargetPeerID == pid.String() {
+			return true
+		}
+	}
+	return false
+}
+
+func batchContainsType(batch []BufferedProposal, pType ProposalType) bool {
+	for _, p := range batch {
+		if p.Type == pType {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTreeHash, commitData []byte) {
@@ -809,17 +1168,17 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 	}
 	c.proposalTimerChan = nil // Reset active timer on epoch transition
 
-	var commitHash []byte
-	if len(commitData) > 0 {
-		h := sha256.Sum256(commitData)
-		commitHash = h[:]
-	}
+	commitHash := hashCommitData(commitData)
+	c.lastCommitHash = copyBytes(commitHash)
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
 		MemberCount: c.activeView.Size(),
 		Epoch:       newEpoch,
 		CommitHash:  commitHash,
 	})
+	if err := c.persistCoordStateLocked(); err != nil {
+		slog.Warn("Failed to persist coordination state after epoch advance", "group", c.groupID, "error", err)
+	}
 
 	if c.onEpochChange != nil {
 		c.onEpochChange(newEpoch)
@@ -861,9 +1220,10 @@ type AddMemberRequest struct {
 // AddMember performs an MLS Add for a new member following the Single-Writer
 // Protocol:
 //
-//   - If the local node is the current Token Holder, the MLS commit is
-//     created synchronously via mls.AddMembers and the result includes the
-//     Welcome bytes for out-of-band delivery to the invitee.
+//   - If the local node is the current Token Holder and the startup ActiveView
+//     is sufficiently initialized, the MLS commit is created synchronously and
+//     the result includes the Welcome bytes for out-of-band delivery to the
+//     invitee.
 //   - Otherwise the local node creates a ProposalAdd carrying req's routing
 //     metadata, broadcasts it to the group topic, buffers it locally (in
 //     case the local node becomes the holder for the next epoch), and
@@ -902,54 +1262,47 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
 	}
 
-	// Non-holder path: broadcast ProposalAdd and let whichever node holds
-	// the token at the committing epoch author the Welcome.
-	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
-		opCtx, cancel := c.mlsOperationContext()
-		proposalBytes, err := c.mls.CreateProposal(opCtx, c.groupState, ProposalAdd, req.KeyPackageBytes)
-		cancel()
-		if err != nil {
-			return AddMemberResult{}, fmt.Errorf("CreateProposal: %w", err)
-		}
-
-		msg := ProposalMsg{
+	msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalAdd, req.KeyPackageBytes, BufferedProposal{
+		OperationID:    req.OperationID,
+		TargetPeerID:   req.TargetPeerID.String(),
+		RequestID:      req.RequestID,
+		GroupType:      req.GroupType,
+		CategoryID:     req.CategoryID,
+		KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
+	})
+	if err != nil {
+		return AddMemberResult{}, fmt.Errorf("CreateProposal: %w", err)
+	}
+	c.singleWriter.BufferProposal(buffered)
+	c.metrics.IncrProposalsReceived()
+	if c.onProposalObserved != nil {
+		c.onProposalObserved(ProposalAuditSummary{
+			GroupID:        c.groupID,
+			Epoch:          c.epoch,
+			ActorPeerID:    c.localID.String(),
 			ProposalType:   ProposalAdd,
-			Data:           proposalBytes,
 			OperationID:    req.OperationID,
 			TargetPeerID:   req.TargetPeerID.String(),
 			RequestID:      req.RequestID,
 			GroupType:      req.GroupType,
 			CategoryID:     req.CategoryID,
 			KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
-		}
-		c.broadcastLocked(MsgProposal, msg)
-
-		c.singleWriter.BufferProposal(BufferedProposal{
-			Type:           ProposalAdd,
-			Data:           proposalBytes,
-			OperationID:    req.OperationID,
-			TargetPeerID:   req.TargetPeerID.String(),
-			RequestID:      req.RequestID,
-			GroupType:      req.GroupType,
-			CategoryID:     req.CategoryID,
-			KeyPackageHash: msg.KeyPackageHash,
 		})
-		c.metrics.IncrProposalsReceived()
-		if c.onProposalObserved != nil {
-			c.onProposalObserved(ProposalAuditSummary{
-				GroupID:        c.groupID,
-				Epoch:          c.epoch,
-				ActorPeerID:    c.localID.String(),
-				ProposalType:   ProposalAdd,
-				OperationID:    req.OperationID,
-				TargetPeerID:   req.TargetPeerID.String(),
-				RequestID:      req.RequestID,
-				GroupType:      req.GroupType,
-				CategoryID:     req.CategoryID,
-				KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
-			})
-		}
+	}
 
+	// Non-holder path: broadcast ProposalAdd and let whichever node holds
+	// the token at the committing epoch author the Welcome.
+	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
+		c.broadcastLocked(MsgProposal, msg)
+		return AddMemberResult{
+			OperationID: req.OperationID,
+			Deferred:    true,
+			Delivery:    delivery,
+		}, nil
+	}
+	if !c.commitViewReadyLocked([]BufferedProposal{buffered}) {
+		c.broadcastLocked(MsgProposal, msg)
+		c.deferCommitUntilViewReadyLocked()
 		return AddMemberResult{
 			OperationID: req.OperationID,
 			Deferred:    true,
@@ -965,30 +1318,36 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		"operation_id", req.OperationID,
 		"timeout", c.cfg.MLSOperationTimeout,
 	)
+	expectedRefs := [][]byte{buffered.ProposalRef}
 	opCtx, cancel := c.mlsOperationContext()
-	commitBytes, welcomeBytes, newState, newTreeHash, err := c.mls.AddMembers(opCtx, c.groupState, [][]byte{req.KeyPackageBytes})
+	commitResult, err := c.mls.CreateCommit(opCtx, c.groupState, expectedRefs)
 	cancel()
 	if err != nil {
-		return AddMemberResult{}, fmt.Errorf("AddMembers: %w", err)
+		return AddMemberResult{}, fmt.Errorf("CreateCommit: %w", err)
 	}
-	slog.Info("Coordinator AddMember: sidecar AddMembers completed",
+	slog.Info("Coordinator AddMember: sidecar CreateCommit completed",
 		"group", c.groupID,
 		"next_epoch", c.epoch+1,
 		"target", req.TargetPeerID.String(),
 		"operation_id", req.OperationID,
-		"commit_bytes", len(commitBytes),
-		"welcome_bytes", len(welcomeBytes),
+		"commit_bytes", len(commitResult.CommitBytes),
+		"welcome_bytes", len(commitResult.WelcomeBytes),
 	)
 
-	if len(welcomeBytes) > 0 {
-		sum := sha256.Sum256(welcomeBytes)
+	if len(commitResult.WelcomeBytes) > 0 {
+		sum := sha256.Sum256(commitResult.WelcomeBytes)
 		delivery.WelcomeHash = sum[:]
 	}
 
 	commitMsg := CommitMsg{
-		CommitData:    commitBytes,
-		NewTreeHash:   newTreeHash,
-		AddDeliveries: []AddCommitDelivery{delivery},
+		CommitData:            commitResult.CommitBytes,
+		NewTreeHash:           commitResult.NewTreeHash,
+		AddDeliveries:         []AddCommitDelivery{delivery},
+		IncludedProposals:     []ProposalMsg{msg},
+		CommittedProposalRefs: cloneBytesList(commitResult.CommittedProposalRefs),
+	}
+	if len(commitMsg.CommittedProposalRefs) == 0 {
+		commitMsg.CommittedProposalRefs = cloneBytesList(expectedRefs)
 	}
 	ts := c.hlc.Now()
 	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
@@ -1000,9 +1359,9 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
 		GroupID:    c.groupID,
-		GroupState: newState,
+		GroupState: commitResult.NewGroupState,
 		Epoch:      nextEpoch,
-		TreeHash:   newTreeHash,
+		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
 	}, MsgCommit, envBytes, ts)
 	if err != nil {
@@ -1011,6 +1370,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	if !applied {
 		return AddMemberResult{}, fmt.Errorf("commit envelope already applied")
 	}
+	c.singleWriter.DrainBatchByRefs(commitMsg.CommittedProposalRefs)
 	slog.Info("Coordinator AddMember: commit persisted",
 		"group", c.groupID,
 		"next_epoch", nextEpoch,
@@ -1019,10 +1379,10 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	)
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
-	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
-	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
+	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
-	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
 		Type:           ProposalAdd,
 		OperationID:    req.OperationID,
@@ -1037,8 +1397,8 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	// callback so the same outbox-style code path (pending_welcomes_out +
 	// store replication + direct delivery) handles both this synchronous
 	// commit and the asynchronous proposal-commit case in tryCommitLocked.
-	if c.onAddCommitted != nil && len(welcomeBytes) > 0 {
-		welcome := append([]byte(nil), welcomeBytes...)
+	if c.onAddCommitted != nil && len(commitResult.WelcomeBytes) > 0 {
+		welcome := append([]byte(nil), commitResult.WelcomeBytes...)
 		cb := c.onAddCommitted
 		epoch := nextEpoch
 		go cb(delivery, epoch, welcome)
@@ -1046,7 +1406,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 
 	return AddMemberResult{
 		OperationID: req.OperationID,
-		Welcome:     welcomeBytes,
+		Welcome:     commitResult.WelcomeBytes,
 		CommitEpoch: nextEpoch,
 		Delivery:    delivery,
 	}, nil
@@ -1088,16 +1448,32 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 		return c.proposeLockedWithMetadata(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String()})
 	}
 
+	msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String()})
+	if err != nil {
+		return fmt.Errorf("CreateProposal: %w", err)
+	}
+	c.singleWriter.BufferProposal(buffered)
+	if !c.commitViewReadyLocked([]BufferedProposal{buffered}) {
+		c.broadcastLocked(MsgProposal, msg)
+		c.deferCommitUntilViewReadyLocked()
+		return nil
+	}
+	expectedRefs := [][]byte{buffered.ProposalRef}
 	opCtx, cancel := c.mlsOperationContext()
-	commitBytes, newState, newTreeHash, err := c.mls.RemoveMembers(opCtx, c.groupState, [][]byte{req.TargetIdentity})
+	commitResult, err := c.mls.CreateCommit(opCtx, c.groupState, expectedRefs)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("RemoveMembers: %w", err)
+		return fmt.Errorf("CreateCommit: %w", err)
 	}
 
 	commitMsg := CommitMsg{
-		CommitData:  commitBytes,
-		NewTreeHash: newTreeHash,
+		CommitData:            commitResult.CommitBytes,
+		NewTreeHash:           commitResult.NewTreeHash,
+		IncludedProposals:     []ProposalMsg{msg},
+		CommittedProposalRefs: cloneBytesList(commitResult.CommittedProposalRefs),
+	}
+	if len(commitMsg.CommittedProposalRefs) == 0 {
+		commitMsg.CommittedProposalRefs = cloneBytesList(expectedRefs)
 	}
 	ts := c.hlc.Now()
 	envBytes := c.buildEnvelopeWithTimestampLocked(MsgCommit, commitMsg, ts)
@@ -1109,9 +1485,9 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyCommit(&GroupRecord{
 		GroupID:    c.groupID,
-		GroupState: newState,
+		GroupState: commitResult.NewGroupState,
 		Epoch:      nextEpoch,
-		TreeHash:   newTreeHash,
+		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
 	}, MsgCommit, envBytes, ts)
 	if err != nil {
@@ -1120,12 +1496,13 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 	if !applied {
 		return fmt.Errorf("commit envelope already applied")
 	}
+	c.singleWriter.DrainBatchByRefs(commitMsg.CommittedProposalRefs)
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
-	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commitBytes)
-	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
+	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
-	c.metrics.AddCommitBytes(int64(len(commitBytes)))
+	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
 		Type:         ProposalRemove,
 		TargetPeerID: req.TargetPeerID.String(),
@@ -1395,20 +1772,14 @@ func (c *Coordinator) proposeLockedWithMetadata(pType ProposalType, data []byte,
 		return ErrAccessRevoked
 	}
 
-	opCtx, cancel := c.mlsOperationContext()
-	proposalBytes, err := c.mls.CreateProposal(opCtx, c.groupState, pType, data)
-	cancel()
+	msg, buffered, err := c.createAndStoreLocalProposalLocked(pType, data, meta)
 	if err != nil {
 		return fmt.Errorf("CreateProposal: %w", err)
 	}
 
-	c.broadcastLocked(MsgProposal, ProposalMsg{
-		ProposalType: pType,
-		Data:         proposalBytes,
-		TargetPeerID: meta.TargetPeerID,
-	})
+	c.broadcastLocked(MsgProposal, msg)
 
-	c.singleWriter.BufferProposal(BufferedProposal{Type: pType, Data: proposalBytes, TargetPeerID: meta.TargetPeerID})
+	c.singleWriter.BufferProposal(buffered)
 	c.metrics.IncrProposalsReceived()
 	if c.onProposalObserved != nil {
 		c.onProposalObserved(ProposalAuditSummary{
@@ -1595,6 +1966,39 @@ func hashEnvelope(wire []byte) []byte {
 	return sum[:]
 }
 
+func hashCommitData(commitData []byte) []byte {
+	if len(commitData) == 0 {
+		return nil
+	}
+	sum := sha256.Sum256(commitData)
+	return sum[:]
+}
+
+func (c *Coordinator) markInvalidCommitLocked(commitHash []byte) {
+	if len(commitHash) == 0 || c.forkDetector == nil {
+		return
+	}
+	c.forkDetector.MarkInvalidCommit(commitHash)
+}
+
+func (c *Coordinator) persistCoordStateLocked() error {
+	if c.storage == nil {
+		return nil
+	}
+	var holder peer.ID
+	if c.singleWriter != nil {
+		if h, err := c.singleWriter.CurrentTokenHolder(); err == nil {
+			holder = h
+		}
+	}
+	return c.storage.SaveCoordState(&CoordState{
+		GroupID:        c.groupID,
+		ActiveView:     c.activeView.Members(),
+		TokenHolder:    holder,
+		LastCommitHash: copyBytes(c.lastCommitHash),
+	})
+}
+
 func decodeEnvelopePeerID(raw string, fallback peer.ID) peer.ID {
 	if raw == "" {
 		return fallback
@@ -1649,6 +2053,7 @@ func (c *Coordinator) broadcastAnnounceLocked() {
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
 		Epoch:       c.epoch,
+		CommitHash:  copyBytes(c.lastCommitHash),
 	}
 	c.broadcastLocked(MsgAnnounce, ann)
 }
@@ -2132,11 +2537,8 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, newEpoch, c.cfg)
 	c.singleWriter.SetAuthorizedCommitters(c.groupID, c.authorizedCommitters)
 
-	var commitHash []byte
-	if len(externalCommit) > 0 {
-		sum := sha256.Sum256(externalCommit)
-		commitHash = sum[:]
-	}
+	commitHash := hashCommitData(externalCommit)
+	c.lastCommitHash = copyBytes(commitHash)
 	c.forkDetector.Reset()
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
@@ -2144,6 +2546,9 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 		Epoch:       newEpoch,
 		CommitHash:  commitHash,
 	})
+	if err := c.persistCoordStateLocked(); err != nil {
+		return fmt.Errorf("persist healed coordination state: %w", err)
+	}
 	if c.onEpochChange != nil {
 		c.onEpochChange(newEpoch)
 	}

@@ -86,6 +86,7 @@ type Envelope struct {
 type ProposalMsg struct {
 	ProposalType ProposalType `json:"proposal_type"`
 	Data         []byte       `json:"data"` // MLS Proposal bytes (opaque)
+	ProposalRef  []byte       `json:"proposal_ref,omitempty"`
 
 	// Application-layer correlation fields. Populated for ProposalAdd and for
 	// ProposalRemove.TargetPeerID so Token Holder election can exclude members
@@ -134,6 +135,10 @@ type CommitMsg struct {
 	WelcomeData   []byte              `json:"welcome_data,omitempty"`
 	NewTreeHash   []byte              `json:"new_tree_hash"`
 	AddDeliveries []AddCommitDelivery `json:"add_deliveries,omitempty"`
+	// IncludedProposals carries the raw standalone MLS proposal messages that
+	// the Commit references, plus Go metadata needed for deterministic policy checks.
+	IncludedProposals     []ProposalMsg `json:"included_proposals,omitempty"`
+	CommittedProposalRefs [][]byte      `json:"committed_proposal_refs,omitempty"`
 }
 
 // BufferedProposal is one entry in the SingleWriter buffer. It preserves both
@@ -144,6 +149,7 @@ type CommitMsg struct {
 type BufferedProposal struct {
 	Type           ProposalType
 	Data           []byte
+	ProposalRef    []byte
 	OperationID    string
 	TargetPeerID   string
 	RequestID      string

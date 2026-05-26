@@ -1,7 +1,9 @@
 package coordination
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -49,6 +51,16 @@ func (b *blockingAddMembersEngine) AddMembers(ctx context.Context, _ []byte, _ [
 	}
 	<-ctx.Done()
 	return nil, nil, nil, nil, ctx.Err()
+}
+
+func (b *blockingAddMembersEngine) CreateCommit(ctx context.Context, _ []byte, _ [][]byte) (CreateCommitResult, error) {
+	select {
+	case <-b.started:
+	default:
+		close(b.started)
+	}
+	<-ctx.Done()
+	return CreateCommitResult{}, ctx.Err()
 }
 
 func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwork, *FakeClock) {
@@ -127,6 +139,18 @@ func waitForCondition(t *testing.T, timeout time.Duration, cond func() bool, des
 	t.Fatalf("condition not met within %v: %s", timeout, description)
 }
 
+func expectPeerMembers(t *testing.T, got, want []peer.ID) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("members length = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("members[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 // exchangeHeartbeats makes each node broadcast a heartbeat and delivers them.
 func exchangeHeartbeats(nodes []*testNode, network *FakeNetwork) {
 	for _, n := range nodes {
@@ -198,6 +222,73 @@ func TestCoordinator_CreateGroupAndStart(t *testing.T) {
 	}
 }
 
+func TestCoordinator_InitialActiveViewSeedsKnownPeers(t *testing.T) {
+	network := NewFakeNetwork()
+	clk := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	local := peerID("local")
+	remote := peerID("remote")
+	coord, err := NewCoordinator(CoordinatorOpts{
+		Config:            TestConfig(),
+		Transport:         network.AddNode(local),
+		Clock:             clk,
+		MLS:               NewMockMLSEngine(),
+		Storage:           NewMockStorage(),
+		LocalID:           local,
+		GroupID:           "grp-initial-view",
+		InitialActiveView: []peer.ID{remote},
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+	if err := coord.CreateGroup(); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	if err := coord.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer coord.Stop()
+
+	expectPeerMembers(t, coord.ActiveMembers(), []peer.ID{local, remote})
+}
+
+func TestCoordinator_BootstrapGuardDefersSingletonCommit(t *testing.T) {
+	nodes, _, clk := setupCluster(t, 1, "grp-bootstrap-guard")
+	coord := nodes[0].coord
+	coord.cfg.ViewBootstrapGrace = 200 * time.Millisecond
+	remote := peerID("remote-authorized")
+	provider := func(string, uint64, []BufferedProposal) ([]peer.ID, error) {
+		return []peer.ID{nodes[0].id, remote}, nil
+	}
+	coord.authorizedCommitters = provider
+
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	coord.singleWriter.SetAuthorizedCommitters(coord.groupID, provider)
+
+	res, err := coord.AddMember(AddMemberRequest{
+		KeyPackageBytes: []byte("kp-new-member"),
+		TargetPeerID:    peerID("new-member"),
+		OperationID:     "op-bootstrap-guard",
+	})
+	if err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if !res.Deferred {
+		t.Fatalf("AddMember should be deferred during bootstrap singleton view")
+	}
+	if got := coord.CurrentEpoch(); got != 0 {
+		t.Fatalf("epoch after deferred AddMember = %d, want 0", got)
+	}
+	if got := coord.singleWriter.ProposalCount(); got != 1 {
+		t.Fatalf("buffered proposals = %d, want 1", got)
+	}
+
+	clk.Advance(200 * time.Millisecond)
+	waitForCondition(t, time.Second, func() bool {
+		return coord.CurrentEpoch() == 1
+	}, "bootstrap grace expiry commits deferred proposal")
+}
+
 func TestCoordinator_TokenHolderDeterministic(t *testing.T) {
 	nodes, network, _ := setupCluster(t, 3, "grp-1")
 	createAndShareGroup(t, nodes)
@@ -248,11 +339,10 @@ func TestCoordinator_SendAndReceiveMessage(t *testing.T) {
 }
 
 func TestCoordinator_SendMessage_DirectRetryRepairsDelayedGossip(t *testing.T) {
-	nodes, network, clk := setupCluster(t, 2, "grp-direct-repair")
+	nodes, network, _ := setupCluster(t, 2, "grp-direct-repair")
 	createAndShareGroup(t, nodes)
 	startAll(t, nodes)
 	exchangeHeartbeats(nodes, network)
-	baseWaiters := clk.WaitersCount()
 
 	alice := nodes[0]
 	bob := nodes[1]
@@ -270,13 +360,9 @@ func TestCoordinator_SendMessage_DirectRetryRepairsDelayedGossip(t *testing.T) {
 		return len(alice.coord.pendingAppDeliveries) == 1
 	}, "sender should track pending delivery")
 
-	waitForCondition(t, 200*time.Millisecond, func() bool {
-		return clk.WaitersCount() >= baseWaiters+1
-	}, "ack retry timer should register")
+	alice.coord.RetryOutstandingDeliveriesTo(bob.id)
 
-	clk.Advance(alice.coord.cfg.ApplicationAckTimeout)
-
-	waitForCondition(t, 200*time.Millisecond, func() bool {
+	waitForCondition(t, time.Second, func() bool {
 		return len(bob.storage.Messages()) == 1
 	}, "direct retry should deliver message")
 
@@ -1159,36 +1245,230 @@ func TestCoordinator_OnPeerObserved_FiresOnceOnFirstHeartbeat(t *testing.T) {
 	}
 }
 
-// TestSingleWriter_DrainNextBatch_HomogeneousGrouping verifies that mixed
-// proposal types are split into homogeneous batches (and the second-type
-// run remains buffered for the next epoch).
-func TestSingleWriter_DrainNextBatch_HomogeneousGrouping(t *testing.T) {
+func TestSingleWriter_SnapshotNextBatch_MixedDeterministicRefs(t *testing.T) {
 	clk := NewFakeClock(time.Now())
 	cfg := TestConfig()
 	av := NewActiveView(clk, cfg, peerID("alice"), nil)
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
 
-	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-1"), OperationID: "op-1"})
-	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-2"), OperationID: "op-2"})
-	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("identity-3")})
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-1"), ProposalRef: []byte{0x20}, OperationID: "op-1"})
+	sw.BufferProposal(BufferedProposal{Type: ProposalRemove, Data: []byte("identity-3"), ProposalRef: []byte{0x10}})
+	sw.BufferProposal(BufferedProposal{Type: ProposalAdd, Data: []byte("kp-2"), ProposalRef: []byte{0x30}, OperationID: "op-2"})
 
-	first := sw.DrainNextBatch()
-	if len(first) != 2 {
-		t.Fatalf("first batch len=%d, want 2 Add proposals", len(first))
+	batch := sw.SnapshotNextBatch()
+	if len(batch) != 3 {
+		t.Fatalf("batch len=%d, want 3 mixed proposals", len(batch))
 	}
-	for _, p := range first {
-		if p.Type != ProposalAdd {
-			t.Fatalf("first batch must be all Add, got %d", p.Type)
+	if batch[0].Type != ProposalRemove || batch[1].OperationID != "op-1" || batch[2].OperationID != "op-2" {
+		t.Fatalf("batch not sorted by ProposalRef: %+v", batch)
+	}
+
+	drained := sw.DrainBatchByRefs([][]byte{{0x10}, {0x20}, {0x30}})
+	if len(drained) != 3 {
+		t.Fatalf("drained len=%d, want 3", len(drained))
+	}
+	if sw.ProposalCount() != 0 {
+		t.Fatalf("proposal count=%d, want 0", sw.ProposalCount())
+	}
+}
+
+func TestCoordinator_TokenHolderCommitEnvelopeIncludesProposalsAndRefs(t *testing.T) {
+	nodes, _, _ := setupCluster(t, 1, "grp-commit-envelope-proposals")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+
+	result, err := nodes[0].coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("invitee-envelope"),
+		KeyPackageBytes: []byte("mock-key-package-envelope"),
+		OperationID:     "ga_envelope_1",
+		RequestID:       "req_envelope_1",
+		KeyPackageHash:  []byte("kphash-envelope"),
+	})
+	if err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if result.Deferred {
+		t.Fatal("single-node holder path must commit synchronously")
+	}
+
+	recs, err := nodes[0].storage.GetEnvelopesSince("grp-commit-envelope-proposals", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEnvelopesSince: %v", err)
+	}
+	if len(recs) == 0 {
+		t.Fatal("expected local commit envelope")
+	}
+	var env Envelope
+	if err := json.Unmarshal(recs[0].Envelope, &env); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	var commit CommitMsg
+	if err := json.Unmarshal(env.Payload, &commit); err != nil {
+		t.Fatalf("decode commit: %v", err)
+	}
+	if len(commit.IncludedProposals) != 1 {
+		t.Fatalf("IncludedProposals len=%d, want 1", len(commit.IncludedProposals))
+	}
+	if len(commit.CommittedProposalRefs) != 1 {
+		t.Fatalf("CommittedProposalRefs len=%d, want 1", len(commit.CommittedProposalRefs))
+	}
+	if !bytes.Equal(commit.IncludedProposals[0].ProposalRef, commit.CommittedProposalRefs[0]) {
+		t.Fatalf("included proposal ref does not match committed ref")
+	}
+	if commit.IncludedProposals[0].OperationID != "ga_envelope_1" {
+		t.Fatalf("operation metadata not preserved: %+v", commit.IncludedProposals[0])
+	}
+}
+
+func TestCoordinator_AnnounceIncludesLastCommitHash(t *testing.T) {
+	nodes, network, _ := setupCluster(t, 2, "grp-announce-commit-hash")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holder *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+			break
 		}
 	}
-
-	second := sw.DrainNextBatch()
-	if len(second) != 1 || second[0].Type != ProposalRemove {
-		t.Fatalf("second batch must be the single Remove proposal, got %+v", second)
+	if holder == nil {
+		t.Fatal("failed to elect token holder")
 	}
 
-	if next := sw.DrainNextBatch(); next != nil {
-		t.Fatalf("third drain expected nil, got %+v", next)
+	if _, err := holder.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("invitee-announce"),
+		KeyPackageBytes: []byte("mock-key-package-announce"),
+		OperationID:     "ga_announce_commit_hash",
+		KeyPackageHash:  []byte("kphash-announce"),
+	}); err != nil {
+		t.Fatalf("AddMember(holder): %v", err)
+	}
+	network.DrainAll()
+
+	recs, err := holder.storage.GetEnvelopesSince("grp-announce-commit-hash", 0, 10)
+	if err != nil {
+		t.Fatalf("GetEnvelopesSince: %v", err)
+	}
+	var expectedCommitHash []byte
+	for _, rec := range recs {
+		if rec.MsgType != MsgCommit {
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal(rec.Envelope, &env); err != nil {
+			t.Fatalf("decode commit envelope: %v", err)
+		}
+		var commit CommitMsg
+		if err := json.Unmarshal(env.Payload, &commit); err != nil {
+			t.Fatalf("decode commit payload: %v", err)
+		}
+		sum := sha256.Sum256(commit.CommitData)
+		expectedCommitHash = sum[:]
+		break
+	}
+	if len(expectedCommitHash) == 0 {
+		t.Fatal("expected at least one persisted commit envelope")
+	}
+
+	holder.coord.BroadcastAnnounce()
+
+	network.mu.Lock()
+	defer network.mu.Unlock()
+	for _, pending := range network.inbox {
+		if pending.from != holder.id {
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal(pending.data, &env); err != nil || env.Type != MsgAnnounce {
+			continue
+		}
+		var ann GroupStateAnnouncement
+		if err := json.Unmarshal(env.Payload, &ann); err != nil {
+			t.Fatalf("decode announce payload: %v", err)
+		}
+		if !bytes.Equal(ann.CommitHash, expectedCommitHash) {
+			t.Fatalf("announce CommitHash=%x want %x", ann.CommitHash, expectedCommitHash)
+		}
+		return
+	}
+	t.Fatal("expected a pending announce envelope from holder")
+}
+
+func TestCoordinator_StartLoadsPersistedLastCommitHashForAnnounce(t *testing.T) {
+	id := peerID("alice")
+	groupID := "grp-load-last-commit-hash"
+	storage := NewMockStorage()
+	treeHash := []byte("tree-after-restart")
+	lastCommitHash := []byte("last-commit-hash")
+	if err := storage.SaveGroupRecord(&GroupRecord{
+		GroupID:    groupID,
+		GroupState: []byte("persisted-state"),
+		Epoch:      7,
+		TreeHash:   treeHash,
+	}); err != nil {
+		t.Fatalf("SaveGroupRecord: %v", err)
+	}
+	if err := storage.SaveCoordState(&CoordState{
+		GroupID:        groupID,
+		ActiveView:     []peer.ID{id},
+		TokenHolder:    id,
+		LastCommitHash: lastCommitHash,
+	}); err != nil {
+		t.Fatalf("SaveCoordState: %v", err)
+	}
+
+	network := NewFakeNetwork()
+	coord, err := NewCoordinator(CoordinatorOpts{
+		Config:    TestConfig(),
+		Transport: network.AddNode(id),
+		Clock:     NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+		MLS:       NewMockMLSEngine(),
+		Storage:   storage,
+		LocalID:   id,
+		GroupID:   groupID,
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+	if err := coord.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer coord.Stop()
+
+	if !bytes.Equal(coord.lastCommitHash, lastCommitHash) {
+		t.Fatalf("loaded lastCommitHash=%x want %x", coord.lastCommitHash, lastCommitHash)
+	}
+}
+
+func TestBuildAddDeliveriesFromBatch_FiltersMixedBatch(t *testing.T) {
+	deliveries := buildAddDeliveriesFromBatch([]BufferedProposal{
+		{
+			Type:           ProposalRemove,
+			TargetPeerID:   "peer-remove",
+			OperationID:    "remove-op",
+			KeyPackageHash: []byte("remove-hash"),
+		},
+		{
+			Type:           ProposalAdd,
+			TargetPeerID:   "peer-add",
+			OperationID:    "add-op",
+			RequestID:      "request-add",
+			GroupType:      "dm",
+			CategoryID:     "cat",
+			KeyPackageHash: []byte("add-hash"),
+		},
+	}, []byte("welcome-for-adds"))
+
+	if len(deliveries) != 1 {
+		t.Fatalf("deliveries len=%d, want only the ProposalAdd delivery", len(deliveries))
+	}
+	if deliveries[0].TargetPeerID != "peer-add" || deliveries[0].OperationID != "add-op" {
+		t.Fatalf("unexpected add delivery metadata: %+v", deliveries[0])
+	}
+	if len(deliveries[0].WelcomeHash) == 0 {
+		t.Fatalf("welcome hash should be populated for add delivery")
 	}
 }
 
