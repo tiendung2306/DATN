@@ -79,6 +79,12 @@ type CoordinatorOpts struct {
 	OnCommitIssued func(CommitAuditSummary)
 	// OnForkHealEvent fires for high-level fork-heal lifecycle stages.
 	OnForkHealEvent func(ForkHealAuditSummary)
+	// OnSyncRequired fires when the coordinator detects that it is lagging behind
+	// a remote branch and requires a catch-up sync before attempting healing.
+	OnSyncRequired func(remote peer.ID, groupID string)
+	// HLC provides an optional shared Hybrid Logical Clock singleton.
+	// If nil, NewCoordinator instantiates a dedicated clock.
+	HLC *HLC
 }
 
 // Coordinator orchestrates the Decentralized Coordination Protocol for a
@@ -111,6 +117,7 @@ type Coordinator struct {
 	onProposalObserved   func(ProposalAuditSummary)
 	onCommitIssued       func(CommitAuditSummary)
 	onForkHealEvent      func(ForkHealAuditSummary)
+	onSyncRequired       func(peer.ID, string)
 	groupInfoFetch       GroupInfoFetchFunc
 	authorizedCommitters AuthorizedCommittersProvider
 	localIdentity        []byte
@@ -145,6 +152,11 @@ type Coordinator struct {
 	// direct receipt ACK from each intended recipient. Key format:
 	// "<peer-id>|<envelope-hash-hex>".
 	pendingAppDeliveries map[string]*pendingAppDelivery
+
+	// syncRetryAttempts tracks the number of consecutive failed sync attempts.
+	syncRetryAttempts int
+	// deferredForkEvent is a fork event saved during lagging/catch-up sync retry phase.
+	deferredForkEvent *ForkEvent
 }
 
 type pendingAppDelivery struct {
@@ -181,7 +193,6 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		localID:              opts.LocalID,
 		groupID:              opts.GroupID,
 		signingKey:           opts.SigningKey,
-		hlc:                  NewHLC(opts.Clock, opts.LocalID.String()),
 		metrics:              NewMetrics(),
 		onMessage:            opts.OnMessage,
 		onEpochChange:        opts.OnEpochChange,
@@ -192,10 +203,17 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		onProposalObserved:   opts.OnProposalObserved,
 		onCommitIssued:       opts.OnCommitIssued,
 		onForkHealEvent:      opts.OnForkHealEvent,
+		onSyncRequired:       opts.OnSyncRequired,
 		groupInfoFetch:       opts.GroupInfoFetcher,
 		authorizedCommitters: opts.AuthorizedCommitters,
 		localIdentity:        deriveIdentityFromSigningKey(opts.SigningKey),
 		pendingAppDeliveries: make(map[string]*pendingAppDelivery),
+	}
+
+	if opts.HLC != nil {
+		c.hlc = opts.HLC
+	} else {
+		c.hlc = NewHLC(opts.Clock, opts.LocalID.String())
 	}
 
 	c.activeView = NewActiveView(opts.Clock, opts.Config, opts.LocalID, func(members []peer.ID) {
@@ -679,7 +697,15 @@ func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelop
 		return result
 	}
 
-	localTs := c.hlc.Update(env.Timestamp)
+	localTs, err := c.hlc.Update(env.Timestamp)
+	if err != nil {
+		slog.Error("HLC update failed (clock drift limit exceeded)", "group", c.groupID, "from", env.From, "error", err)
+		result.State = ReplayStateInvalid
+		result.Error = "hlc: " + err.Error()
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
+	}
 	if localTs.NodeID == "" {
 		localTs.NodeID = c.localID.String()
 	}
@@ -2319,8 +2345,31 @@ func (c *Coordinator) scheduleHeal(event *ForkEvent) {
 	// goroutine never reads from c without re-locking.
 	traceID := newTraceID()
 	localEpoch := c.epoch
-	localTreeHash := append([]byte(nil), c.treeHash...)
 	scheduledAt := c.clock.Now()
+
+	// Catch-up sync retry guard: if we are lagging behind, try sequential sync first.
+	if event.RemoteEpoch > localEpoch && c.onSyncRequired != nil {
+		if c.syncRetryAttempts < 3 {
+			c.deferredForkEvent = event
+			slog.Info("fork_heal/deferred_for_sync",
+				"group", event.GroupID,
+				"local_epoch", localEpoch,
+				"winner_epoch", event.RemoteEpoch,
+				"winner_peer", event.RemotePeer.String(),
+				"attempt", c.syncRetryAttempts+1,
+			)
+			cb := c.onSyncRequired
+			peerID := event.RemotePeer
+			groupID := event.GroupID
+			go cb(peerID, groupID) // Fire asynchronously to avoid holding c.mu
+			return
+		}
+	}
+
+	// Retry limit exhausted or not lagging. Proceed with immediate destructive healing.
+	c.deferredForkEvent = nil
+
+	localTreeHash := append([]byte(nil), c.treeHash...)
 	partitionWindowMs := int64(0)
 	if !event.PartitionStartedAt.IsZero() {
 		partitionWindowMs = scheduledAt.Sub(event.PartitionStartedAt).Milliseconds()
@@ -2363,6 +2412,79 @@ func (c *Coordinator) scheduleHeal(event *ForkEvent) {
 			NewEpoch:     localEpoch,
 		})
 	}
+
+	go c.runHeal(c.ctx, traceID, event, scheduledAt)
+}
+
+// ResetSyncRetryAttempts resets the catch-up sync retry counter to 0.
+func (c *Coordinator) ResetSyncRetryAttempts() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.syncRetryAttempts = 0
+	c.deferredForkEvent = nil
+}
+
+// IncrementSyncRetryAttempts increments the retry counter and returns the new value.
+func (c *Coordinator) IncrementSyncRetryAttempts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.syncRetryAttempts++
+	return c.syncRetryAttempts
+}
+
+// GetSyncRetryAttempts returns the current retry counter value.
+func (c *Coordinator) GetSyncRetryAttempts() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.syncRetryAttempts
+}
+
+// TriggerDeferredHeal triggers the deferred fork heal event if present, bypassing retry checks.
+func (c *Coordinator) TriggerDeferredHeal() {
+	c.mu.Lock()
+	if c.deferredForkEvent == nil {
+		c.mu.Unlock()
+		return
+	}
+	event := c.deferredForkEvent
+	c.deferredForkEvent = nil
+
+	traceID := newTraceID()
+	localEpoch := c.epoch
+	scheduledAt := c.clock.Now()
+
+	if !c.healing.CompareAndSwap(false, true) {
+		c.mu.Unlock()
+		slog.Info("fork_heal/skipped_already_running",
+			"trace_id", traceID,
+			"group", event.GroupID,
+			"local_epoch", localEpoch,
+			"winner_peer", event.RemotePeer.String(),
+			"winner_epoch", event.RemoteEpoch,
+		)
+		return
+	}
+
+	c.metrics.IncrForkHealingsAttempted()
+
+	slog.Info("fork_heal/scheduled_deferred_after_retry",
+		"trace_id", traceID,
+		"group", event.GroupID,
+		"local_epoch", localEpoch,
+		"winner_peer", event.RemotePeer.String(),
+		"winner_epoch", event.RemoteEpoch,
+	)
+	if c.onForkHealEvent != nil {
+		c.onForkHealEvent(ForkHealAuditSummary{
+			GroupID:      event.GroupID,
+			TraceID:      traceID,
+			Stage:        "fork_heal_started",
+			WinnerPeerID: event.RemotePeer.String(),
+			WinnerEpoch:  event.RemoteEpoch,
+			NewEpoch:     localEpoch,
+		})
+	}
+	c.mu.Unlock()
 
 	go c.runHeal(c.ctx, traceID, event, scheduledAt)
 }

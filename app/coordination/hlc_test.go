@@ -1,6 +1,7 @@
 package coordination
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -50,7 +51,10 @@ func TestHLC_Update_CausalOrder_ClockBehind(t *testing.T) {
 	hlcB := NewHLC(clkB, "node-B")
 
 	tsA := hlcA.Now()
-	tsB := hlcB.Update(tsA) // B receives A's message
+	tsB, err := hlcB.Update(tsA) // B receives A's message
+	if err != nil {
+		t.Fatalf("unexpected update error: %v", err)
+	}
 
 	if !tsA.Before(tsB) {
 		t.Errorf("B's receive ts must be after A's send ts:\n  A=%+v\n  B=%+v", tsA, tsB)
@@ -69,7 +73,10 @@ func TestHLC_Update_CausalOrder_ClockAhead(t *testing.T) {
 	hlcB := NewHLC(clkB, "node-B")
 
 	tsA := hlcA.Now()
-	tsB := hlcB.Update(tsA) // B receives A's message
+	tsB, err := hlcB.Update(tsA) // B receives A's message
+	if err != nil {
+		t.Fatalf("unexpected update error: %v", err)
+	}
 
 	if !tsA.Before(tsB) {
 		t.Errorf("B's receive ts must be after A's send ts:\n  A=%+v\n  B=%+v", tsA, tsB)
@@ -88,10 +95,16 @@ func TestHLC_Update_ThreeNodeCausalChain(t *testing.T) {
 	hlcB := NewHLC(clkB, "B")
 	hlcC := NewHLC(clkC, "C")
 
-	ts1 := hlcA.Now()       // A sends
-	ts2 := hlcB.Update(ts1) // B receives from A, then replies
-	ts3 := hlcB.Now()       // B sends reply
-	ts4 := hlcC.Update(ts3) // C receives from B
+	ts1 := hlcA.Now() // A sends
+	ts2, err := hlcB.Update(ts1)
+	if err != nil {
+		t.Fatalf("B update failed: %v", err)
+	} // B receives from A, then replies
+	ts3 := hlcB.Now() // B sends reply
+	ts4, err := hlcC.Update(ts3)
+	if err != nil {
+		t.Fatalf("C update failed: %v", err)
+	} // C receives from B
 
 	if !ts1.Before(ts2) {
 		t.Error("ts2 should be after ts1")
@@ -101,6 +114,40 @@ func TestHLC_Update_ThreeNodeCausalChain(t *testing.T) {
 	}
 	if !ts3.Before(ts4) {
 		t.Error("ts4 should be after ts3")
+	}
+}
+
+func TestHLC_Update_ClockDriftRejection(t *testing.T) {
+	clkA := NewFakeClock(time.UnixMilli(7000)) // A's physical clock is 7s ahead
+	clkB := NewFakeClock(time.UnixMilli(1000)) // B's clock is standard (1s)
+
+	hlcA := NewHLC(clkA, "node-A")
+	hlcB := NewHLC(clkB, "node-B")
+
+	tsA := hlcA.Now()
+	_, err := hlcB.Update(tsA) // B receives from A (clock drift is 6s)
+	if err == nil {
+		t.Error("expected error due to clock drift boundary violation, got nil")
+	}
+	if !errors.Is(err, ErrClockDrift) {
+		t.Errorf("expected ErrClockDrift, got %v", err)
+	}
+}
+
+func TestHLC_CounterOverflowSleep(t *testing.T) {
+	clk := NewFakeClock(time.UnixMilli(1000))
+	h := NewHLC(clk, "node-A")
+
+	_ = h.Now() // Initialize clock: h.l = 1000, h.c = 0
+	h.c = 0xFFFFFFFE // Set counter to the overflow threshold
+
+	ts1 := h.Now() // This call sees h.c = 0xFFFFFFFE, triggers sleep/reset, and advances h.l to 1001, h.c = 0
+	
+	if ts1.Counter != 0 {
+		t.Errorf("counter should reset to 0 after overflow sleep recovery, got %d", ts1.Counter)
+	}
+	if ts1.WallTimeMs != 1001 {
+		t.Errorf("wall time should advance to 1001 after overflow sleep recovery, got %d", ts1.WallTimeMs)
 	}
 }
 

@@ -739,7 +739,7 @@ func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount
 		   FROM envelope_log
 		  WHERE group_id = ?
 		    AND apply_state IN ('pending', 'future_epoch', 'persist_failed')
-		  ORDER BY seq ASC
+		  ORDER BY epoch ASC, (CASE WHEN msg_type = 'commit' THEN 1 ELSE 0 END) ASC, hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
 		  LIMIT ?`,
 		groupID, maxCount,
 	)

@@ -1,8 +1,18 @@
 package coordination
 
 import (
+	"errors"
+	"fmt"
 	"sync"
+	"time"
 )
+
+// MaxClockDriftMs defines the maximum tolerable physical clock drift in milliseconds (5 seconds).
+const MaxClockDriftMs = 5000
+
+// ErrClockDrift is returned when the physical component of a received HLC timestamp
+// exceeds the local physical time by more than MaxClockDriftMs, indicating clock poisoning.
+var ErrClockDrift = errors.New("hlc: clock drift limit exceeded")
 
 // HLC implements a Hybrid Logical Clock as described by Kulkarni et al. (2014).
 //
@@ -33,13 +43,6 @@ func NewHLC(clock Clock, nodeID string) *HLC {
 }
 
 // Now generates an HLC timestamp for a local event (e.g., sending a message).
-//
-// Algorithm:
-//
-//	l' = max(l, physical_time)
-//	if l' == l:  c = c + 1      (same wall time — advance logical counter)
-//	else:        c = 0           (wall time advanced — reset counter)
-//	l = l'
 func (h *HLC) Now() HLCTimestamp {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -50,7 +53,16 @@ func (h *HLC) Now() HLCTimestamp {
 		h.l = pt
 		h.c = 0
 	} else {
-		h.c++
+		// Enforce Logical Counter Overflow Protection
+		if h.c >= 0xFFFFFFFE { // Counter close to max
+			// Sleep for 1ms to let physical time tick forward
+			time.Sleep(1 * time.Millisecond)
+			pt = h.clock.Now().UnixMilli()
+			h.l = max2(h.l+1, pt) // guarantee l increases
+			h.c = 0
+		} else {
+			h.c++
+		}
 	}
 
 	return HLCTimestamp{
@@ -62,21 +74,26 @@ func (h *HLC) Now() HLCTimestamp {
 
 // Update merges a received HLC timestamp into the local clock state and
 // returns the resulting timestamp for the receive event.
-//
-// Algorithm:
-//
-//	l' = max(l, received.l, physical_time)
-//	if l' == l == received.l:  c = max(c, received.c) + 1
-//	elif l' == l:              c = c + 1
-//	elif l' == received.l:     c = received.c + 1
-//	else:                      c = 0
-//	l = l'
-func (h *HLC) Update(received HLCTimestamp) HLCTimestamp {
+func (h *HLC) Update(received HLCTimestamp) (HLCTimestamp, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	pt := h.clock.Now().UnixMilli()
 	msgL := received.WallTimeMs
+
+	// Enforce Clock Drift Boundary Check to prevent clock poisoning
+	if msgL-pt > MaxClockDriftMs {
+		return HLCTimestamp{}, fmt.Errorf("%w: received %d is %dms ahead of physical %d",
+			ErrClockDrift, msgL, msgL-pt, pt)
+	}
+
+	// Enforce Logical Counter Overflow Protection in Update
+	if h.c >= 0xFFFFFFFE {
+		time.Sleep(1 * time.Millisecond)
+		pt = h.clock.Now().UnixMilli()
+		h.l = max2(h.l+1, pt)
+		h.c = 0
+	}
 
 	newL := max3(h.l, msgL, pt)
 
@@ -97,7 +114,14 @@ func (h *HLC) Update(received HLCTimestamp) HLCTimestamp {
 		WallTimeMs: h.l,
 		Counter:    h.c,
 		NodeID:     h.id,
+	}, nil
+}
+
+func max2(a, b int64) int64 {
+	if b > a {
+		return b
 	}
+	return a
 }
 
 func max3(a, b, c int64) int64 {

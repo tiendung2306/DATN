@@ -199,6 +199,10 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		OnProposalObserved: r.makeProposalAuditHandler(groupID),
 		OnCommitIssued:     r.makeCommitAuditHandler(groupID),
 		OnForkHealEvent:    r.makeForkHealAuditHandler(groupID),
+		OnSyncRequired: func(remote peer.ID, gid string) {
+			go r.scheduleOfflineSyncPull(remote)
+		},
+		HLC: r.hlc,
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -830,6 +834,10 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		OnProposalObserved: r.makeProposalAuditHandler(groupID),
 		OnCommitIssued:     r.makeCommitAuditHandler(groupID),
 		OnForkHealEvent:    r.makeForkHealAuditHandler(groupID),
+		OnSyncRequired: func(remote peer.ID, gid string) {
+			go r.scheduleOfflineSyncPull(remote)
+		},
+		HLC: r.hlc,
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
@@ -1081,6 +1089,10 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			OnProposalObserved: r.makeProposalAuditHandler(rec.GroupID),
 			OnCommitIssued:     r.makeCommitAuditHandler(rec.GroupID),
 			OnForkHealEvent:    r.makeForkHealAuditHandler(rec.GroupID),
+			OnSyncRequired: func(remote peer.ID, gid string) {
+				go r.scheduleOfflineSyncPull(remote)
+			},
+			HLC: r.hlc,
 		})
 		if err != nil {
 			slog.Warn("Failed to create coordinator for existing group",

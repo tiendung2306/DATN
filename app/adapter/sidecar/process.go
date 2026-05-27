@@ -88,6 +88,7 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 	pm.cancelFunc = cancel
 
 	cmd := exec.CommandContext(ctx, binPath, "--port", fmt.Sprintf("%d", port))
+	setSysProcAttr(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -104,6 +105,8 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 		cancel()
 		return 0, fmt.Errorf("failed to start crypto-engine: %w", err)
 	}
+
+	trackProcess(cmd.Process.Pid)
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)

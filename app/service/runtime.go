@@ -45,6 +45,7 @@ type Runtime struct {
 	coordinators map[string]*coordination.Coordinator
 	blindStore   *blindStoreLayer
 	replayLocks  map[string]*sync.Mutex
+	hlc          *coordination.HLC
 
 	health        RuntimeHealth
 	controlServer *http.Server
@@ -340,6 +341,8 @@ func (r *Runtime) launchP2PNode() error {
 	}
 
 	slog.Info("P2P node started via GUI", "peerID", node.Host.ID().String())
+
+	r.hlc = coordination.NewHLC(coordination.RealClock{}, node.Host.ID().String())
 
 	r.initCoordinationStackLocked()
 	if err := r.initBlindStoreLocked(nodeCtx); err != nil {

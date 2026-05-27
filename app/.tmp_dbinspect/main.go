@@ -33,14 +33,11 @@ func inspect(path string) {
 			queryRows(db, `PRAGMA table_info(`+t+`)`)
 		}
 	}
-	groupIDs := queryStrings(db, `SELECT group_id FROM mls_groups WHERE group_id LIKE '%6%' OR group_id LIKE '%chat 6%' OR group_id LIKE '%nhóm%' ORDER BY updated_at DESC, created_at DESC LIMIT 20`)
+	groupIDs := queryStrings(db, `SELECT group_id FROM mls_groups WHERE group_id LIKE '%Nhóm chat 1%' ORDER BY updated_at DESC, created_at DESC LIMIT 20`)
 	if len(groupIDs) == 0 {
-		groupIDs = []string{"nhóm chat 6"}
+		groupIDs = []string{"Nhóm chat 1"}
 	}
 	for _, gid := range groupIDs {
-		if !strings.Contains(strings.ToLower(gid), "6") && gid != "nhóm chat 6" {
-			continue
-		}
 		fmt.Printf("\n-- group %q --\n", gid)
 		queryRows(db, `SELECT group_id, group_type, epoch, my_role, group_creator_peer_id, lifecycle_status, left_at, length(group_state), updated_at FROM mls_groups WHERE group_id = ?`, gid)
 		queryRows(db, `SELECT peer_id, display_name, role, status, source, joined_at, left_at, updated_at FROM group_members WHERE group_id = ? ORDER BY peer_id`, gid)
@@ -48,7 +45,7 @@ func inspect(path string) {
 		queryRows(db, `SELECT id, group_id, group_type, inviter_peer_id, source_peer_id, status, length(welcome_bytes), received_at, updated_at FROM pending_invites WHERE group_id = ? ORDER BY received_at`, gid)
 		queryRows(db, `SELECT invitee_peer_id, group_id, group_type, source_peer_id, length(welcome_bytes), created_at FROM stored_welcomes WHERE group_id = ? ORDER BY created_at`, gid)
 		queryRows(db, `SELECT operation_id, group_id, target_peer_id, status, commit_epoch, welcome_hash, updated_at FROM group_add_operations WHERE group_id = ? ORDER BY updated_at`, gid)
-		queryRows(db, `SELECT id, group_id, sender_id, substr(CAST(content AS TEXT),1,60), hlc_wall_time_ms, length(envelope_hash) FROM stored_messages WHERE group_id = ? ORDER BY hlc_wall_time_ms`, gid)
+		queryRows(db, `SELECT id, group_id, sender_id, hex(substr(content, 1, 10)) as content_hex, hlc_wall_time_ms, length(envelope_hash) FROM stored_messages WHERE group_id = ? ORDER BY hlc_wall_time_ms`, gid)
 		queryRows(db, `SELECT seq, group_id, msg_type, epoch, length(envelope), hlc_wall_ms, created_at FROM envelope_log WHERE group_id = ? ORDER BY seq`, gid)
 		queryRows(db, `SELECT object_id, record_type, target_peer_id, group_id, length(payload), created_at FROM replicated_records WHERE group_id = ? OR target_peer_id IN (SELECT peer_id FROM group_members WHERE group_id = ?) ORDER BY created_at`, gid, gid)
 		queryRows(db, `SELECT group_id, remote_peer_id, last_remote_seq, updated_at FROM offline_sync_pull_state WHERE group_id = ? ORDER BY remote_peer_id`, gid)
