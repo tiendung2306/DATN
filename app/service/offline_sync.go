@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sort"
@@ -264,17 +266,60 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 
 		lastSuccessSeq := int64(0)
 		for _, e := range entries {
-			_, err := coord.ReplayEnvelopes([][]byte{e.Envelope})
-			if err != nil {
-				slog.Error("offline-sync: ReplayEnvelopes failed with system error", "group", gid, "seq", e.Seq, "err", err)
+			var env coordination.Envelope
+			if err := json.Unmarshal(e.Envelope, &env); err != nil {
+				slog.Warn("offline-sync: invalid envelope", "group", gid, "seq", e.Seq, "err", err)
 				break
 			}
-			lastSuccessSeq = e.Seq
+			if env.GroupID != gid || (env.Type != coordination.MsgCommit && env.Type != coordination.MsgApplication) {
+				slog.Warn("offline-sync: unsupported envelope", "group", gid, "seq", e.Seq, "env_group", env.GroupID, "type", env.Type)
+				break
+			}
+			if _, err := cs.AppendEnvelopeWithSource(env.GroupID, env.Type, env.Epoch, env.Timestamp, e.Envelope, "offline_sync"); err != nil {
+				slog.Warn("offline-sync: append envelope failed", "group", gid, "seq", e.Seq, "err", err)
+				break
+			}
+
+			results, err := coord.ReplayEnvelopesDetailed([][]byte{e.Envelope})
+			if err != nil {
+				slog.Error("offline-sync: ReplayEnvelopesDetailed failed with system error", "group", gid, "seq", e.Seq, "err", err)
+				break
+			}
+			if len(results) == 0 {
+				break
+			}
+			result := results[0]
+			switch result.State {
+			case coordination.ReplayStateApplied, coordination.ReplayStateDuplicateApplied:
+				lastSuccessSeq = e.Seq
+			case coordination.ReplayStateFutureEpoch:
+				slog.Info("offline-sync: stopped at future epoch envelope",
+					"group", gid,
+					"seq", e.Seq,
+					"envelope_hash", hex.EncodeToString(result.EnvelopeHash),
+					"msg_epoch", result.MsgEpoch,
+					"local_epoch", result.LocalEpoch,
+				)
+				goto doneGroup
+			default:
+				slog.Error("offline-sync: stopped at unapplied envelope",
+					"group", gid,
+					"seq", e.Seq,
+					"state", result.State,
+					"envelope_hash", hex.EncodeToString(result.EnvelopeHash),
+					"msg_epoch", result.MsgEpoch,
+					"local_epoch", result.LocalEpoch,
+					"err", result.Error,
+				)
+				goto doneGroup
+			}
 		}
 
+	doneGroup:
 		if lastSuccessSeq > 0 {
 			maxByGroup[gid] = lastSuccessSeq
 			_ = cs.SetOfflinePullCursor(gid, remote.String(), lastSuccessSeq)
+			go r.replayPendingEnvelopesForGroup(gid, "offline_sync")
 		}
 	}
 

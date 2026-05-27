@@ -260,6 +260,12 @@ func (d *Database) createTables() error {
 			msg_type     TEXT    NOT NULL,
 			epoch        INTEGER NOT NULL,
 			envelope     BLOB    NOT NULL,
+			envelope_hash BLOB,
+			source_path  TEXT    NOT NULL DEFAULT 'local',
+			apply_state  TEXT    NOT NULL DEFAULT 'pending',
+			last_apply_error TEXT NOT NULL DEFAULT '',
+			last_apply_attempt_at INTEGER NOT NULL DEFAULT 0,
+			applied_at   INTEGER NOT NULL DEFAULT 0,
 			hlc_wall_ms  INTEGER NOT NULL,
 			hlc_counter  INTEGER NOT NULL,
 			hlc_node_id  TEXT    NOT NULL,
@@ -597,6 +603,24 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("stored_messages", "replayed_at", "INTEGER"); err != nil {
 		return err
 	}
+	for _, col := range []struct {
+		name string
+		typ  string
+	}{
+		{"envelope_hash", "BLOB"},
+		{"source_path", "TEXT NOT NULL DEFAULT 'local'"},
+		{"apply_state", "TEXT NOT NULL DEFAULT 'pending'"},
+		{"last_apply_error", "TEXT NOT NULL DEFAULT ''"},
+		{"last_apply_attempt_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"applied_at", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if err := d.ensureColumnExists("envelope_log", col.name, col.typ); err != nil {
+			return err
+		}
+	}
+	if err := d.backfillEnvelopeLogHashes(); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("mls_groups", "lifecycle_status", "TEXT NOT NULL DEFAULT 'active'"); err != nil {
 		return err
 	}
@@ -694,11 +718,54 @@ func (d *Database) createTables() error {
 		return fmt.Errorf("create stored_messages sender_window index: %w", err)
 	}
 	if _, err := d.Conn.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_envelope_log_group_apply_seq
+		 ON envelope_log(group_id, apply_state, seq)`,
+	); err != nil {
+		return fmt.Errorf("create envelope_log apply index: %w", err)
+	}
+	if _, err := d.Conn.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_envelope_log_group_hash
+		 ON envelope_log(group_id, envelope_hash)`,
+	); err != nil {
+		return fmt.Errorf("create envelope_log hash index: %w", err)
+	}
+	if _, err := d.Conn.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_mls_groups_type_category
 		 ON mls_groups(group_type, category_id)
 		 WHERE lifecycle_status = 'active'`,
 	); err != nil {
 		return fmt.Errorf("create mls_groups type_category index: %w", err)
+	}
+	return nil
+}
+
+func (d *Database) backfillEnvelopeLogHashes() error {
+	rows, err := d.Conn.Query(`SELECT id, envelope FROM envelope_log WHERE envelope_hash IS NULL OR length(envelope_hash) = 0`)
+	if err != nil {
+		return fmt.Errorf("select envelope hashes: %w", err)
+	}
+	defer rows.Close()
+
+	type row struct {
+		id       int64
+		envelope []byte
+	}
+	var missing []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.envelope); err != nil {
+			return fmt.Errorf("scan envelope hash row: %w", err)
+		}
+		missing = append(missing, r)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate envelope hash rows: %w", err)
+	}
+	for _, r := range missing {
+		sum := sha256.Sum256(r.envelope)
+		if _, err := d.Conn.Exec(`UPDATE envelope_log SET envelope_hash = ? WHERE id = ?`, sum[:], r.id); err != nil {
+			return fmt.Errorf("backfill envelope hash: %w", err)
+		}
 	}
 	return nil
 }

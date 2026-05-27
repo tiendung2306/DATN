@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"app/adapter/p2p"
@@ -234,6 +235,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 	}
 
 	r.coordinators[groupID] = coord
+	go r.replayPendingEnvelopesForGroup(groupID, "coordinator_start")
 	_ = r.db.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID:     groupID,
 		PeerID:      localPeerID,
@@ -1004,6 +1006,7 @@ func (r *Runtime) initCoordinationStackLocked() {
 	}
 
 	r.coordinators = make(map[string]*coordination.Coordinator)
+	r.replayLocks = make(map[string]*sync.Mutex)
 	r.seedSelfPeerDirectoryRowLocked()
 	r.loadExistingGroupsLocked()
 }
@@ -1091,6 +1094,7 @@ func (r *Runtime) loadExistingGroupsLocked() {
 		}
 		r.coordinators[rec.GroupID] = coord
 		restoredGroupIDs = append(restoredGroupIDs, rec.GroupID)
+		go r.replayPendingEnvelopesForGroup(rec.GroupID, "coordinator_start")
 		slog.Info("Restored group from DB", "group_id", rec.GroupID, "epoch", rec.Epoch)
 	}
 
@@ -1282,6 +1286,7 @@ func (r *Runtime) makeEpochHandler(groupID string) func(uint64) {
 			"group_id": groupID,
 			"epoch":    epoch,
 		})
+		go r.replayPendingEnvelopesForGroup(groupID, "epoch_advance")
 	}
 }
 

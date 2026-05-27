@@ -467,6 +467,56 @@ func TestCoordinator_ReplayEnvelopes_DeduplicatesDuplicateApplication(t *testing
 	if string(msgs[0].Content) != "offline hello" {
 		t.Fatalf("recipient content=%q, want %q", msgs[0].Content, "offline hello")
 	}
+
+	results, err := nodes[1].coord.ReplayEnvelopesDetailed([][]byte{recs[0].Envelope})
+	if err != nil {
+		t.Fatalf("ReplayEnvelopesDetailed duplicate: %v", err)
+	}
+	if len(results) != 1 || results[0].State != ReplayStateDuplicateApplied || !results[0].CursorSafe {
+		t.Fatalf("duplicate result = %+v, want duplicate_applied cursor-safe", results)
+	}
+}
+
+func TestCoordinator_ReplayEnvelopesDetailed_FutureEpochApplication(t *testing.T) {
+	nodes, _, _ := setupCluster(t, 2, "grp-future-replay")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+
+	payload, err := json.Marshal(ApplicationMsg{Ciphertext: []byte("future-ciphertext")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := json.Marshal(Envelope{
+		Type:    MsgApplication,
+		GroupID: "grp-future-replay",
+		Epoch:   nodes[1].coord.CurrentEpoch() + 1,
+		From:    nodes[0].id.String(),
+		Timestamp: HLCTimestamp{
+			WallTimeMs: time.Now().UnixMilli(),
+			NodeID:     nodes[0].id.String(),
+		},
+		Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := nodes[1].coord.ReplayEnvelopesDetailed([][]byte{wire})
+	if err != nil {
+		t.Fatalf("ReplayEnvelopesDetailed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if results[0].State != ReplayStateFutureEpoch {
+		t.Fatalf("state = %q, want %q", results[0].State, ReplayStateFutureEpoch)
+	}
+	if results[0].Applied || results[0].CursorSafe {
+		t.Fatalf("future result should not be applied/cursor-safe: %+v", results[0])
+	}
+	if len(nodes[1].storage.Messages()) != 0 {
+		t.Fatalf("future envelope should not store messages")
+	}
 }
 
 func TestCoordinator_ProposalCommitFlow(t *testing.T) {

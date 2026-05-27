@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"strings"
 	"testing"
 	"time"
@@ -385,6 +386,30 @@ func TestSQLiteCoordinationStorage_EnvelopeLog_AppendAndSince(t *testing.T) {
 	recs, err := s.GetEnvelopesSince("g1", 0, 10)
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("GetEnvelopesSince after 0: %d recs err=%v", len(recs), err)
+	}
+	sum := sha256.Sum256(wire)
+	if string(recs[0].EnvelopeHash) != string(sum[:]) {
+		t.Fatalf("EnvelopeHash not persisted")
+	}
+	if recs[0].SourcePath != "local" || recs[0].ApplyState != "pending" {
+		t.Fatalf("source/state = %q/%q, want local/pending", recs[0].SourcePath, recs[0].ApplyState)
+	}
+	if err := s.MarkEnvelopeReplayState("g1", recs[0].EnvelopeHash, coordination.ReplayStateFutureEpoch, "waiting for commit", time.Now()); err != nil {
+		t.Fatalf("MarkEnvelopeReplayState: %v", err)
+	}
+	pending, err := s.GetPendingEnvelopes("g1", 10)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("GetPendingEnvelopes: len=%d err=%v", len(pending), err)
+	}
+	if pending[0].Seq != 1 || pending[0].ApplyState != string(coordination.ReplayStateFutureEpoch) {
+		t.Fatalf("pending[0] = %+v, want seq 1 future_epoch", pending[0])
+	}
+	if err := s.MarkEnvelopeReplayState("g1", recs[0].EnvelopeHash, coordination.ReplayStateApplied, "", time.Now()); err != nil {
+		t.Fatalf("MarkEnvelopeReplayState applied: %v", err)
+	}
+	pending, err = s.GetPendingEnvelopes("g1", 10)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("GetPendingEnvelopes after applied: len=%d err=%v", len(pending), err)
 	}
 	recs, err = s.GetEnvelopesSince("g1", 1, 10)
 	if err != nil || len(recs) != 0 {

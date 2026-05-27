@@ -188,26 +188,13 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 		if env.Type != coordination.MsgApplication && env.Type != coordination.MsgCommit {
 			return
 		}
-		seq, err := cs.AppendEnvelope(env.GroupID, env.Type, env.Epoch, env.Timestamp, msg.Envelope)
+		seq, err := cs.AppendEnvelopeWithSource(env.GroupID, env.Type, env.Epoch, env.Timestamp, msg.Envelope, "blind_store")
 		if err != nil {
 			slog.Debug("blind-store: append envelope failed", "err", err)
 			return
 		}
-		if seq == 0 {
-			// Duplicate envelope bytes already seen in this group.
-			return
-		}
-		// Best-effort immediate replay for the just-appended envelope only.
-		// Full backlog recovery is handled by offline-sync, which replays ordered
-		// batches and avoids repeated whole-window attempts that can trigger
-		// SecretReuseError on already-consumed message keys.
-		rt.mu.RLock()
-		coord := rt.coordinators[msg.GroupID]
-		rt.mu.RUnlock()
-		if coord != nil {
-			if _, err := coord.ReplayEnvelopes([][]byte{msg.Envelope}); err != nil {
-				slog.Debug("blind-store: replay envelope failed", "group", msg.GroupID, "seq", seq, "err", err)
-			}
+		if seq > 0 {
+			go rt.replayPendingEnvelopesForGroup(msg.GroupID, "blind_store")
 		}
 	case blindStoreObjectKeyPackage:
 		if msg.PeerID == "" || len(msg.PublicKP) == 0 || msg.PublishedAt <= 0 {

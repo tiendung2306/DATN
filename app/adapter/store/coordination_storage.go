@@ -333,15 +333,47 @@ func (s *SQLiteCoordinationStorage) MarkEnvelopeApplied(groupID string, msgType 
 	if len(envelopeHash) == 0 {
 		return nil
 	}
+	tx, err := s.db.Conn.Begin()
+	if err != nil {
+		return fmt.Errorf("MarkEnvelopeApplied begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := markEnvelopeAppliedTx(tx, groupID, msgType, epoch, envelopeHash); err != nil {
+		return fmt.Errorf("MarkEnvelopeApplied: %w", err)
+	}
+	return tx.Commit()
+}
+
+func (s *SQLiteCoordinationStorage) MarkEnvelopeReplayState(groupID string, envelopeHash []byte, state coordination.ReplayEnvelopeState, lastErr string, now time.Time) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
 	_, err := s.db.Conn.Exec(
+		`UPDATE envelope_log
+		    SET apply_state = ?,
+		        last_apply_error = ?,
+		        last_apply_attempt_at = ?,
+		        applied_at = CASE WHEN ? IN (?, ?) THEN ? ELSE applied_at END
+		  WHERE group_id = ? AND envelope_hash = ?`,
+		string(state), lastErr, now.Unix(),
+		string(state), string(coordination.ReplayStateApplied), string(coordination.ReplayStateDuplicateApplied), now.Unix(),
+		groupID, envelopeHash,
+	)
+	if err != nil {
+		return fmt.Errorf("MarkEnvelopeReplayState: %w", err)
+	}
+	return nil
+}
+
+func markEnvelopeAppliedSQL(db interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}, groupID string, msgType coordination.MessageType, epoch uint64, envelopeHash []byte) error {
+	_, err := db.Exec(
 		`INSERT OR IGNORE INTO applied_envelopes (group_id, envelope_hash, msg_type, epoch, applied_at)
 		 VALUES (?, ?, ?, ?, strftime('%s','now'))`,
 		groupID, envelopeHash, string(msgType), epoch,
 	)
-	if err != nil {
-		return fmt.Errorf("MarkEnvelopeApplied: %w", err)
-	}
-	return nil
+	return err
 }
 
 func (s *SQLiteCoordinationStorage) MarkMessageReplayed(groupID string, envelopeHash []byte, now time.Time) error {
@@ -488,6 +520,10 @@ func scanMessages(rows *sql.Rows, groupID string) ([]*coordination.StoredMessage
 // ── Offline envelope log + ACKs ─────────────────────────────────────────────
 
 func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coordination.MessageType, epoch uint64, ts coordination.HLCTimestamp, envelope []byte) (int64, error) {
+	return s.AppendEnvelopeWithSource(groupID, msgType, epoch, ts, envelope, "local")
+}
+
+func (s *SQLiteCoordinationStorage) AppendEnvelopeWithSource(groupID string, msgType coordination.MessageType, epoch uint64, ts coordination.HLCTimestamp, envelope []byte, sourcePath string) (int64, error) {
 	tx, err := s.db.Conn.Begin()
 	if err != nil {
 		return 0, fmt.Errorf("AppendEnvelope begin: %w", err)
@@ -507,6 +543,9 @@ func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coord
 		// Duplicate envelope (same bytes) already stored for this group.
 		return 0, nil
 	}
+	if strings.TrimSpace(sourcePath) == "" {
+		sourcePath = "local"
+	}
 
 	var next int64
 	err = tx.QueryRow(
@@ -517,9 +556,12 @@ func (s *SQLiteCoordinationStorage) AppendEnvelope(groupID string, msgType coord
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO envelope_log (group_id, seq, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		groupID, next, string(msgType), epoch, envelope,
+		`INSERT INTO envelope_log (
+			group_id, seq, msg_type, epoch, envelope, envelope_hash, source_path, apply_state,
+			hlc_wall_ms, hlc_counter, hlc_node_id
+		 )
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		groupID, next, string(msgType), epoch, envelope, hash[:], sourcePath,
 		ts.WallTimeMs, ts.Counter, ts.NodeID,
 	)
 	if err != nil {
@@ -597,12 +639,10 @@ func saveMessageTx(tx *sql.Tx, msg *coordination.StoredMessage) error {
 }
 
 func markEnvelopeAppliedTx(tx *sql.Tx, groupID string, msgType coordination.MessageType, epoch uint64, envelopeHash []byte) error {
-	_, err := tx.Exec(
-		`INSERT OR IGNORE INTO applied_envelopes (group_id, envelope_hash, msg_type, epoch, applied_at)
-		 VALUES (?, ?, ?, ?, strftime('%s','now'))`,
-		groupID, envelopeHash, string(msgType), epoch,
-	)
-	return err
+	if err := markEnvelopeAppliedSQL(tx, groupID, msgType, epoch, envelopeHash); err != nil {
+		return err
+	}
+	return markEnvelopeReplayStateTx(tx, groupID, envelopeHash, coordination.ReplayStateApplied, "", time.Now())
 }
 
 func appendEnvelopeTx(tx *sql.Tx, groupID string, msgType coordination.MessageType, epoch uint64, ts coordination.HLCTimestamp, envelope []byte) (int64, error) {
@@ -626,13 +666,34 @@ func appendEnvelopeTx(tx *sql.Tx, groupID string, msgType coordination.MessageTy
 		return 0, err
 	}
 	if _, err := tx.Exec(
-		`INSERT INTO envelope_log (group_id, seq, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		groupID, next, string(msgType), epoch, envelope, ts.WallTimeMs, ts.Counter, ts.NodeID,
+		`INSERT INTO envelope_log (
+			group_id, seq, msg_type, epoch, envelope, envelope_hash, source_path, apply_state, applied_at,
+			hlc_wall_ms, hlc_counter, hlc_node_id
+		 )
+		 VALUES (?, ?, ?, ?, ?, ?, 'local', 'applied', strftime('%s','now'), ?, ?, ?)`,
+		groupID, next, string(msgType), epoch, envelope, hash[:], ts.WallTimeMs, ts.Counter, ts.NodeID,
 	); err != nil {
 		return 0, err
 	}
 	return next, nil
+}
+
+func markEnvelopeReplayStateTx(tx *sql.Tx, groupID string, envelopeHash []byte, state coordination.ReplayEnvelopeState, lastErr string, now time.Time) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(
+		`UPDATE envelope_log
+		    SET apply_state = ?,
+		        last_apply_error = ?,
+		        last_apply_attempt_at = ?,
+		        applied_at = CASE WHEN ? IN (?, ?) THEN ? ELSE applied_at END
+		  WHERE group_id = ? AND envelope_hash = ?`,
+		string(state), lastErr, now.Unix(),
+		string(state), string(coordination.ReplayStateApplied), string(coordination.ReplayStateDuplicateApplied), now.Unix(),
+		groupID, envelopeHash,
+	)
+	return err
 }
 
 func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*coordination.EnvelopeRecord, error) {
@@ -640,7 +701,8 @@ func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq i
 		maxCount = 50
 	}
 	rows, err := s.db.Conn.Query(
-		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id
+		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id,
+		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at
 		 FROM envelope_log
 		 WHERE group_id = ? AND seq > ?
 		 ORDER BY seq ASC
@@ -657,8 +719,43 @@ func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq i
 		var r coordination.EnvelopeRecord
 		var mt string
 		if err := rows.Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
-			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID); err != nil {
+			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID,
+			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt); err != nil {
 			return nil, fmt.Errorf("GetEnvelopesSince scan: %w", err)
+		}
+		r.MsgType = coordination.MessageType(mt)
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount int) ([]*coordination.EnvelopeRecord, error) {
+	if maxCount < 1 {
+		maxCount = 100
+	}
+	rows, err := s.db.Conn.Query(
+		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id,
+		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at
+		   FROM envelope_log
+		  WHERE group_id = ?
+		    AND apply_state IN ('pending', 'future_epoch', 'persist_failed')
+		  ORDER BY seq ASC
+		  LIMIT ?`,
+		groupID, maxCount,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetPendingEnvelopes: %w", err)
+	}
+	defer rows.Close()
+
+	var out []*coordination.EnvelopeRecord
+	for rows.Next() {
+		var r coordination.EnvelopeRecord
+		var mt string
+		if err := rows.Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
+			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID,
+			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt); err != nil {
+			return nil, fmt.Errorf("GetPendingEnvelopes scan: %w", err)
 		}
 		r.MsgType = coordination.MessageType(mt)
 		out = append(out, &r)

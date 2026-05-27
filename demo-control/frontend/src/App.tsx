@@ -21,6 +21,30 @@ import type { ControlSnapshot, InstanceStatus, PreflightResult, ScenarioRunState
 
 type Tab = 'instances' | 'topology' | 'scenarios'
 
+function normalizeSnapshot(raw: ControlSnapshot): ControlSnapshot {
+  return {
+    ...raw,
+    workspace: {
+      ...raw.workspace,
+      instances: raw.workspace?.instances ?? [],
+    },
+    instances: (raw.instances ?? []).map((inst) => ({
+      ...inst,
+      groups: inst.groups ?? [],
+    })),
+    firewall: raw.firewall ?? [],
+    scenarios: raw.scenarios ?? [],
+  }
+}
+
+function normalizePreflight(raw: PreflightResult): PreflightResult {
+  return {
+    ...raw,
+    warnings: raw.warnings ?? [],
+    errors: raw.errors ?? [],
+  }
+}
+
 export default function App() {
   const [snapshot, setSnapshot] = useState<ControlSnapshot | null>(null)
   const [scenario, setScenario] = useState<ScenarioRunState | null>(null)
@@ -33,7 +57,7 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const [snap, sc] = await Promise.all([runtimeClient.getSnapshot(), runtimeClient.getScenarioState()])
-      setSnapshot(snap as ControlSnapshot)
+      setSnapshot(normalizeSnapshot(snap as ControlSnapshot))
       setScenario(sc as ScenarioRunState)
       setError('')
     } catch (err) {
@@ -48,7 +72,7 @@ export default function App() {
   }, [refresh])
 
   useEffect(() => {
-    void runtimeClient.preflight().then((result) => setPreflight(result as PreflightResult)).catch((err) => setError(String(err)))
+    void runtimeClient.preflight().then((result) => setPreflight(normalizePreflight(result as PreflightResult))).catch((err) => setError(String(err)))
   }, [])
 
   const run = useCallback(

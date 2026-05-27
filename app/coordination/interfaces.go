@@ -230,6 +230,11 @@ type CoordinationStorage interface {
 	// AppendEnvelope stores a raw JSON Envelope for offline replay (MsgCommit / MsgApplication only).
 	AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (seq int64, err error)
 
+	// MarkEnvelopeReplayState records the outcome of a replay attempt for a raw
+	// envelope row. It is best-effort for in-memory tests, but production uses it
+	// for ordered recovery diagnostics and cursor safety.
+	MarkEnvelopeReplayState(groupID string, envelopeHash []byte, state ReplayEnvelopeState, lastErr string, now time.Time) error
+
 	// GetEnvelopesSince returns envelopes with seq > afterSeq from this node's log, ordered by seq ASC.
 	GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*EnvelopeRecord, error)
 

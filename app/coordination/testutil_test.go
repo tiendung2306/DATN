@@ -812,6 +812,31 @@ func (s *MockStorage) MarkEnvelopeApplied(groupID string, msgType MessageType, e
 		s.appliedEnv[groupID] = make(map[string]struct{})
 	}
 	s.appliedEnv[groupID][string(envelopeHash)] = struct{}{}
+	for _, rec := range s.envByGroup[groupID] {
+		if bytes.Equal(rec.EnvelopeHash, envelopeHash) {
+			rec.ApplyState = string(ReplayStateApplied)
+			rec.AppliedAt = time.Now().Unix()
+		}
+	}
+	return nil
+}
+
+func (s *MockStorage) MarkEnvelopeReplayState(groupID string, envelopeHash []byte, state ReplayEnvelopeState, lastErr string, now time.Time) error {
+	if len(envelopeHash) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, rec := range s.envByGroup[groupID] {
+		if bytes.Equal(rec.EnvelopeHash, envelopeHash) {
+			rec.ApplyState = string(state)
+			rec.LastApplyError = lastErr
+			rec.LastApplyAttemptAt = now.Unix()
+			if state == ReplayStateApplied || state == ReplayStateDuplicateApplied {
+				rec.AppliedAt = now.Unix()
+			}
+		}
+	}
 	return nil
 }
 
@@ -836,6 +861,7 @@ func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelop
 	seq := s.nextEnvID[rec.GroupID]
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
 		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
 	})
 	return true, seq, nil
 }
@@ -862,6 +888,7 @@ func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msg
 	seq := s.nextEnvID[rec.GroupID]
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
 		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
 	})
 	return true, seq, nil
 }
@@ -974,11 +1001,18 @@ func (s *MockStorage) Messages() []*StoredMessage {
 func (s *MockStorage) AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	hash := sha256.Sum256(envelope)
+	for _, rec := range s.envByGroup[groupID] {
+		if bytes.Equal(rec.EnvelopeHash, hash[:]) {
+			return 0, nil
+		}
+	}
 	s.nextEnvID[groupID]++
 	seq := s.nextEnvID[groupID]
 	rec := &EnvelopeRecord{
 		Seq: seq, GroupID: groupID, MsgType: msgType, Epoch: epoch,
-		Envelope: envelope, Timestamp: ts,
+		Envelope: envelope, Timestamp: ts, EnvelopeHash: hash[:],
+		SourcePath: "local", ApplyState: "pending",
 	}
 	s.envByGroup[groupID] = append(s.envByGroup[groupID], rec)
 	return seq, nil

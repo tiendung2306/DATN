@@ -538,8 +538,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 		c.metrics.IncrDuplicateEpochDetected()
 		return false
 	case ActionBufferFuture:
-		raw, _ := json.Marshal(env)
-		c.epochTracker.BufferFuture(env.Epoch, raw)
+		c.epochTracker.BufferFuture(env.Epoch, wire)
 		return false
 	}
 
@@ -638,26 +637,46 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 }
 
 func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire []byte) bool {
+	return c.handleApplicationDetailedLocked(from, env, wire).Applied
+}
+
+func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelope, wire []byte) ReplayEnvelopeResult {
+	result := c.newReplayResultLocked(env, wire)
+	envelopeHash, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
+	result.EnvelopeHash = envelopeHash
+	if alreadyApplied {
+		result.State = ReplayStateDuplicateApplied
+		result.AlreadyApplied = true
+		result.CursorSafe = true
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
+	}
+
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
 		slog.Warn("Rejected stale message", "group", c.groupID, "msgEpoch", env.Epoch, "currentEpoch", c.epoch)
-		return false
+		result.State = ReplayStateStaleEpoch
+		result.Terminal = true
+		result.CursorSafe = true
+		c.markReplayResultLocked(result)
+		return result
 	case ActionBufferFuture:
 		slog.Info("Buffered future-epoch message", "group", c.groupID, "msgEpoch", env.Epoch)
-		raw, _ := json.Marshal(env)
-		c.epochTracker.BufferFuture(env.Epoch, raw)
-		return false
+		c.epochTracker.BufferFuture(env.Epoch, wire)
+		result.State = ReplayStateFutureEpoch
+		c.markReplayResultLocked(result)
+		return result
 	}
 
 	var appMsg ApplicationMsg
 	if err := json.Unmarshal(env.Payload, &appMsg); err != nil {
-		return false
-	}
-
-	envelopeHash, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
-	if alreadyApplied {
-		return false
+		result.State = ReplayStateInvalid
+		result.Error = err.Error()
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
 	}
 
 	localTs := c.hlc.Update(env.Timestamp)
@@ -670,7 +689,11 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 	cancel()
 	if err != nil {
 		slog.Error("Failed to decrypt message", "group", c.groupID, "from", env.From, "error", err)
-		return false
+		result.State = ReplayStateDecryptFailed
+		result.Error = err.Error()
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
 	}
 
 	sender := decodeEnvelopePeerID(env.From, from)
@@ -693,10 +716,18 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 	}, msg, env.Type, wire, env.Timestamp)
 	if err != nil {
 		slog.Error("Failed to persist decrypted message", "group", c.groupID, "from", env.From, "error", err)
-		return false
+		result.State = ReplayStatePersistFailed
+		result.Error = err.Error()
+		c.markReplayResultLocked(result)
+		return result
 	}
 	if !applied {
-		return false
+		result.State = ReplayStateDuplicateApplied
+		result.AlreadyApplied = true
+		result.CursorSafe = true
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
 	}
 	c.groupState = newState
 	slog.Info("Message received", "group", c.groupID, "epoch", env.Epoch, "from", env.From, "ts", localTs.WallTimeMs)
@@ -705,7 +736,12 @@ func (c *Coordinator) handleApplicationLocked(from peer.ID, env *Envelope, wire 
 		c.onMessage(msg)
 	}
 	c.sendDeliveryAckLocked(sender, envelopeHash)
-	return true
+	result.State = ReplayStateApplied
+	result.Applied = true
+	result.CursorSafe = true
+	result.Terminal = true
+	c.markReplayResultLocked(result)
+	return result
 }
 
 func (c *Coordinator) handleDeliveryAckLocked(from peer.ID, env *Envelope) {
@@ -1908,41 +1944,161 @@ func (c *Coordinator) appendOfflineEnvelopeLocked(wire []byte) {
 	_, _ = c.storage.AppendEnvelope(c.groupID, env.Type, env.Epoch, env.Timestamp, wire)
 }
 
-// ReplayEnvelopes applies ciphertext envelopes from offline sync / DHT in order.
+// ReplayEnvelopesDetailed applies ciphertext envelopes from offline sync / DHT
+// in order and reports whether each envelope was only seen, actually applied,
+// or blocked behind a future epoch.
 // Caller must hold no Coordinator lock; this method is fully synchronized.
-func (c *Coordinator) ReplayEnvelopes(blobs [][]byte) (applied int, err error) {
+func (c *Coordinator) ReplayEnvelopesDetailed(blobs [][]byte) ([]ReplayEnvelopeResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.started {
-		return 0, fmt.Errorf("coordinator not started")
+		return nil, fmt.Errorf("coordinator not started")
 	}
 
+	results := make([]ReplayEnvelopeResult, 0, len(blobs))
 	for _, raw := range blobs {
 		if len(raw) == 0 {
 			continue
 		}
 		var env Envelope
 		if jerr := json.Unmarshal(raw, &env); jerr != nil {
+			results = append(results, ReplayEnvelopeResult{
+				EnvelopeHash: hashEnvelope(raw),
+				State:        ReplayStateInvalid,
+				Error:        jerr.Error(),
+				Terminal:     true,
+			})
 			continue
 		}
 		if env.GroupID != c.groupID {
+			results = append(results, ReplayEnvelopeResult{
+				GroupID:      env.GroupID,
+				MsgType:      env.Type,
+				EnvelopeHash: hashEnvelope(raw),
+				State:        ReplayStateInvalid,
+				MsgEpoch:     env.Epoch,
+				LocalEpoch:   c.epoch,
+				Error:        fmt.Sprintf("envelope group %q does not match coordinator group %q", env.GroupID, c.groupID),
+				Terminal:     true,
+			})
 			continue
 		}
 		switch env.Type {
 		case MsgCommit:
-			if c.handleCommitLocked(&env, raw) {
-				applied++
-			}
+			results = append(results, c.handleCommitDetailedLocked(&env, raw))
 		case MsgApplication:
-			if c.handleApplicationLocked(decodeEnvelopePeerID(env.From, ""), &env, raw) {
-				applied++
-			}
+			results = append(results, c.handleApplicationDetailedLocked(decodeEnvelopePeerID(env.From, ""), &env, raw))
 		default:
+			results = append(results, ReplayEnvelopeResult{
+				GroupID:      env.GroupID,
+				MsgType:      env.Type,
+				EnvelopeHash: hashEnvelope(raw),
+				State:        ReplayStateInvalid,
+				MsgEpoch:     env.Epoch,
+				LocalEpoch:   c.epoch,
+				Error:        fmt.Sprintf("unsupported envelope type %q", env.Type),
+				Terminal:     true,
+			})
 			continue
 		}
 	}
+	return results, nil
+}
+
+// ReplayEnvelopes applies ciphertext envelopes from offline sync / DHT in order.
+// It is kept as a compatibility wrapper for older callers/tests.
+func (c *Coordinator) ReplayEnvelopes(blobs [][]byte) (applied int, err error) {
+	results, err := c.ReplayEnvelopesDetailed(blobs)
+	if err != nil {
+		return 0, err
+	}
+	for _, result := range results {
+		if result.State == ReplayStateApplied {
+			applied++
+		}
+	}
 	return applied, nil
+}
+
+func (c *Coordinator) handleCommitDetailedLocked(env *Envelope, wire []byte) ReplayEnvelopeResult {
+	result := c.newReplayResultLocked(env, wire)
+	envelopeHash, alreadyApplied := c.checkAppliedEnvelopeLocked(env, wire)
+	result.EnvelopeHash = envelopeHash
+	if alreadyApplied {
+		result.State = ReplayStateDuplicateApplied
+		result.AlreadyApplied = true
+		result.CursorSafe = true
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
+	}
+
+	action := c.epochTracker.Validate(env.Epoch)
+	switch action {
+	case ActionRejectStale:
+		result.State = ReplayStateStaleEpoch
+		result.Terminal = true
+		result.CursorSafe = true
+		c.markReplayResultLocked(result)
+		return result
+	case ActionBufferFuture:
+		c.epochTracker.BufferFuture(env.Epoch, wire)
+		result.State = ReplayStateFutureEpoch
+		c.markReplayResultLocked(result)
+		return result
+	}
+
+	if c.handleCommitLocked(env, wire) {
+		result.State = ReplayStateApplied
+		result.Applied = true
+		result.CursorSafe = true
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
+	}
+
+	if applied, err := c.storage.HasAppliedEnvelope(c.groupID, envelopeHash); err != nil {
+		result.State = ReplayStatePersistFailed
+		result.Error = err.Error()
+	} else if applied {
+		result.State = ReplayStateDuplicateApplied
+		result.AlreadyApplied = true
+		result.CursorSafe = true
+		result.Terminal = true
+	} else {
+		result.State = ReplayStateInvalid
+		result.Error = "commit replay did not apply"
+		result.Terminal = true
+	}
+	c.markReplayResultLocked(result)
+	return result
+}
+
+func (c *Coordinator) newReplayResultLocked(env *Envelope, wire []byte) ReplayEnvelopeResult {
+	if env == nil {
+		return ReplayEnvelopeResult{
+			EnvelopeHash: hashEnvelope(wire),
+			State:        ReplayStateInvalid,
+			LocalEpoch:   c.epoch,
+		}
+	}
+	return ReplayEnvelopeResult{
+		GroupID:      env.GroupID,
+		MsgType:      env.Type,
+		EnvelopeHash: hashEnvelope(wire),
+		MsgEpoch:     env.Epoch,
+		LocalEpoch:   c.epoch,
+	}
+}
+
+func (c *Coordinator) markReplayResultLocked(result ReplayEnvelopeResult) {
+	if len(result.EnvelopeHash) == 0 || result.State == "" {
+		return
+	}
+	if err := c.storage.MarkEnvelopeReplayState(c.groupID, result.EnvelopeHash, result.State, result.Error, c.clock.Now()); err != nil {
+		slog.Warn("Failed to mark envelope replay state", "group", c.groupID, "state", result.State, "err", err)
+	}
 }
 
 func (c *Coordinator) checkAppliedEnvelopeLocked(env *Envelope, wire []byte) ([]byte, bool) {

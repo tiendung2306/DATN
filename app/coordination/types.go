@@ -323,12 +323,47 @@ type StoredMessage struct {
 
 // EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).
 type EnvelopeRecord struct {
-	Seq       int64
-	GroupID   string
-	MsgType   MessageType
-	Epoch     uint64
-	Envelope  []byte
-	Timestamp HLCTimestamp
+	Seq                int64
+	GroupID            string
+	MsgType            MessageType
+	Epoch              uint64
+	Envelope           []byte
+	Timestamp          HLCTimestamp
+	EnvelopeHash       []byte
+	SourcePath         string
+	ApplyState         string
+	LastApplyError     string
+	LastApplyAttemptAt int64
+	AppliedAt          int64
+}
+
+// ReplayEnvelopeState is the durable processing state for a raw envelope.
+type ReplayEnvelopeState string
+
+const (
+	ReplayStateApplied          ReplayEnvelopeState = "applied"
+	ReplayStateDuplicateApplied ReplayEnvelopeState = "duplicate_applied"
+	ReplayStateFutureEpoch      ReplayEnvelopeState = "future_epoch"
+	ReplayStateStaleEpoch       ReplayEnvelopeState = "stale_epoch"
+	ReplayStateDecryptFailed    ReplayEnvelopeState = "decrypt_failed"
+	ReplayStatePersistFailed    ReplayEnvelopeState = "persist_failed"
+	ReplayStateInvalid          ReplayEnvelopeState = "invalid"
+)
+
+// ReplayEnvelopeResult describes one replay attempt.
+type ReplayEnvelopeResult struct {
+	GroupID        string
+	MsgType        MessageType
+	EnvelopeHash   []byte
+	State          ReplayEnvelopeState
+	Seq            int64
+	MsgEpoch       uint64
+	LocalEpoch     uint64
+	Error          string
+	Terminal       bool
+	CursorSafe     bool
+	Applied        bool
+	AlreadyApplied bool
 }
 
 // PendingDeliveryAckRow is a queued delivery ACK to send to target_peer_id.

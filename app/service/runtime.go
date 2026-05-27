@@ -44,6 +44,7 @@ type Runtime struct {
 	mlsEngine    coordination.MLSEngine
 	coordinators map[string]*coordination.Coordinator
 	blindStore   *blindStoreLayer
+	replayLocks  map[string]*sync.Mutex
 
 	health        RuntimeHealth
 	controlServer *http.Server
