@@ -46,7 +46,7 @@ func inspect(path string) {
 		queryRows(db, `SELECT invitee_peer_id, group_id, group_type, source_peer_id, length(welcome_bytes), created_at FROM stored_welcomes WHERE group_id = ? ORDER BY created_at`, gid)
 		queryRows(db, `SELECT operation_id, group_id, target_peer_id, status, commit_epoch, welcome_hash, updated_at FROM group_add_operations WHERE group_id = ? ORDER BY updated_at`, gid)
 		queryRows(db, `SELECT id, group_id, sender_id, hex(substr(content, 1, 10)) as content_hex, hlc_wall_time_ms, length(envelope_hash) FROM stored_messages WHERE group_id = ? ORDER BY hlc_wall_time_ms`, gid)
-		queryRows(db, `SELECT seq, group_id, msg_type, epoch, length(envelope), hlc_wall_ms, created_at FROM envelope_log WHERE group_id = ? ORDER BY seq`, gid)
+		queryRows(db, `SELECT seq, msg_type, epoch, apply_state, last_apply_error, hlc_wall_ms FROM envelope_log WHERE group_id = ? ORDER BY seq`, gid)
 		queryRows(db, `SELECT object_id, record_type, target_peer_id, group_id, length(payload), created_at FROM replicated_records WHERE group_id = ? OR target_peer_id IN (SELECT peer_id FROM group_members WHERE group_id = ?) ORDER BY created_at`, gid, gid)
 		queryRows(db, `SELECT group_id, remote_peer_id, last_remote_seq, updated_at FROM offline_sync_pull_state WHERE group_id = ? ORDER BY remote_peer_id`, gid)
 	}

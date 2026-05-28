@@ -624,7 +624,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 		Epoch:      nextEpoch,
 		TreeHash:   newTreeHash,
 		UpdatedAt:  now,
-	}, env.Type, wire, env.Timestamp)
+	}, env.Type, wire, env.Timestamp, env.Epoch)
 	if err != nil {
 		slog.Error("Failed to persist commit apply", "group", c.groupID, "error", err)
 		return false
@@ -672,6 +672,12 @@ func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelop
 	}
 
 	action := c.epochTracker.Validate(env.Epoch)
+	if action == ActionRejectStale && env.Type == MsgApplication && env.Epoch+3 >= c.epoch {
+		// Allow slightly stale application messages to be processed, as MLS supports
+		// decrypting messages from a window of previous epochs using retained keys.
+		action = ActionProcess
+	}
+
 	switch action {
 	case ActionRejectStale:
 		slog.Warn("Rejected stale message", "group", c.groupID, "msgEpoch", env.Epoch, "currentEpoch", c.epoch)
@@ -739,7 +745,7 @@ func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelop
 		Epoch:      c.epoch,
 		TreeHash:   c.treeHash,
 		UpdatedAt:  now,
-	}, msg, env.Type, wire, env.Timestamp)
+	}, msg, env.Type, wire, env.Timestamp, env.Epoch)
 	if err != nil {
 		slog.Error("Failed to persist decrypted message", "group", c.groupID, "from", env.From, "error", err)
 		result.State = ReplayStatePersistFailed
@@ -961,7 +967,7 @@ func (c *Coordinator) tryCommitLocked() {
 		Epoch:      nextEpoch,
 		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
-	}, MsgCommit, envBytes, ts)
+	}, MsgCommit, envBytes, ts, c.epoch)
 	if err != nil || !applied {
 		return
 	}
@@ -1425,7 +1431,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		Epoch:      nextEpoch,
 		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
-	}, MsgCommit, envBytes, ts)
+	}, MsgCommit, envBytes, ts, c.epoch)
 	if err != nil {
 		return AddMemberResult{}, fmt.Errorf("persist commit: %w", err)
 	}
@@ -1551,7 +1557,7 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 		Epoch:      nextEpoch,
 		TreeHash:   commitResult.NewTreeHash,
 		UpdatedAt:  now,
-	}, MsgCommit, envBytes, ts)
+	}, MsgCommit, envBytes, ts, c.epoch)
 	if err != nil {
 		return fmt.Errorf("persist commit: %w", err)
 	}
@@ -1630,7 +1636,7 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 		Epoch:      c.epoch,
 		TreeHash:   c.treeHash,
 		UpdatedAt:  now,
-	}, msg, MsgApplication, envBytes, ts)
+	}, msg, MsgApplication, envBytes, ts, c.epoch)
 	if err != nil {
 		return nil, fmt.Errorf("persist application: %w", err)
 	}

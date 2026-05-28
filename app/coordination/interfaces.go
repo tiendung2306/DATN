@@ -210,12 +210,12 @@ type CoordinationStorage interface {
 	// ApplyCommit atomically persists a processed commit outcome:
 	// group state advance + applied marker + optional envelope log append.
 	// Returns applied=false when the envelope was already applied.
-	ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp) (applied bool, seq int64, err error)
+	ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (applied bool, seq int64, err error)
 
 	// ApplyApplication atomically persists a processed application outcome:
 	// group state advance + stored message + applied marker + optional envelope log append.
 	// Returns applied=false when the envelope was already applied.
-	ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp) (applied bool, seq int64, err error)
+	ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (applied bool, seq int64, err error)
 
 	// GetMessagesSince retrieves messages for a group with HLC timestamps
 	// after the given lower bound, sorted by HLC ascending.

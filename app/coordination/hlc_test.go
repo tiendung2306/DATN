@@ -118,14 +118,14 @@ func TestHLC_Update_ThreeNodeCausalChain(t *testing.T) {
 }
 
 func TestHLC_Update_ClockDriftRejection(t *testing.T) {
-	clkA := NewFakeClock(time.UnixMilli(7000)) // A's physical clock is 7s ahead
-	clkB := NewFakeClock(time.UnixMilli(1000)) // B's clock is standard (1s)
+	clkA := NewFakeClock(time.UnixMilli(12000)) // A's physical clock is 12s ahead
+	clkB := NewFakeClock(time.UnixMilli(1000))  // B's clock is standard (1s)
 
 	hlcA := NewHLC(clkA, "node-A")
 	hlcB := NewHLC(clkB, "node-B")
 
 	tsA := hlcA.Now()
-	_, err := hlcB.Update(tsA) // B receives from A (clock drift is 6s)
+	_, err := hlcB.Update(tsA) // B receives from A (clock drift is 11s)
 	if err == nil {
 		t.Error("expected error due to clock drift boundary violation, got nil")
 	}

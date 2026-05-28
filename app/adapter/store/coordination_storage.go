@@ -229,7 +229,7 @@ func (s *SQLiteCoordinationStorage) SaveMessage(msg *coordination.StoredMessage)
 	return nil
 }
 
-func (s *SQLiteCoordinationStorage) ApplyCommit(rec *coordination.GroupRecord, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp) (bool, int64, error) {
+func (s *SQLiteCoordinationStorage) ApplyCommit(rec *coordination.GroupRecord, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp, envEpoch uint64) (bool, int64, error) {
 	if rec == nil || rec.GroupID == "" || len(envelope) == 0 {
 		return false, 0, fmt.Errorf("ApplyCommit: invalid input")
 	}
@@ -257,7 +257,7 @@ func (s *SQLiteCoordinationStorage) ApplyCommit(rec *coordination.GroupRecord, m
 	if err := markEnvelopeAppliedTx(tx, rec.GroupID, msgType, rec.Epoch, hash[:]); err != nil {
 		return false, 0, fmt.Errorf("ApplyCommit mark-applied: %w", err)
 	}
-	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, rec.Epoch, ts, envelope)
+	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, envEpoch, ts, envelope)
 	if err != nil {
 		return false, 0, fmt.Errorf("ApplyCommit append-envelope: %w", err)
 	}
@@ -267,7 +267,7 @@ func (s *SQLiteCoordinationStorage) ApplyCommit(rec *coordination.GroupRecord, m
 	return true, seq, nil
 }
 
-func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupRecord, msg *coordination.StoredMessage, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp) (bool, int64, error) {
+func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupRecord, msg *coordination.StoredMessage, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp, envEpoch uint64) (bool, int64, error) {
 	if rec == nil || msg == nil || rec.GroupID == "" || msg.GroupID == "" || len(envelope) == 0 {
 		return false, 0, fmt.Errorf("ApplyApplication: invalid input")
 	}
@@ -301,7 +301,7 @@ func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupReco
 	if err := markEnvelopeAppliedTx(tx, rec.GroupID, msgType, rec.Epoch, hash[:]); err != nil {
 		return false, 0, fmt.Errorf("ApplyApplication mark-applied: %w", err)
 	}
-	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, rec.Epoch, ts, envelope)
+	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, envEpoch, ts, envelope)
 	if err != nil {
 		return false, 0, fmt.Errorf("ApplyApplication append-envelope: %w", err)
 	}
@@ -739,7 +739,7 @@ func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount
 		   FROM envelope_log
 		  WHERE group_id = ?
 		    AND apply_state IN ('pending', 'future_epoch', 'persist_failed')
-		  ORDER BY epoch ASC, (CASE WHEN msg_type = 'commit' THEN 1 ELSE 0 END) ASC, hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
+		  ORDER BY hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
 		  LIMIT ?`,
 		groupID, maxCount,
 	)

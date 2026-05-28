@@ -840,7 +840,7 @@ func (s *MockStorage) MarkEnvelopeReplayState(groupID string, envelopeHash []byt
 	return nil
 }
 
-func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp) (bool, int64, error) {
+func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (bool, int64, error) {
 	hash := sha256.Sum256(envelope)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -860,13 +860,13 @@ func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelop
 	s.nextEnvID[rec.GroupID]++
 	seq := s.nextEnvID[rec.GroupID]
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
-		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: envEpoch, Envelope: envelope, Timestamp: ts,
 		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
 	})
 	return true, seq, nil
 }
 
-func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp) (bool, int64, error) {
+func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (bool, int64, error) {
 	hash := sha256.Sum256(envelope)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -887,7 +887,7 @@ func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msg
 	s.nextEnvID[rec.GroupID]++
 	seq := s.nextEnvID[rec.GroupID]
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
-		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: rec.Epoch, Envelope: envelope, Timestamp: ts,
+		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: envEpoch, Envelope: envelope, Timestamp: ts,
 		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
 	})
 	return true, seq, nil

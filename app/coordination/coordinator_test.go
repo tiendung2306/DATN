@@ -599,8 +599,7 @@ func TestCoordinator_EpochConsistency_StaleRejected(t *testing.T) {
 	startAll(t, nodes)
 	exchangeHeartbeats(nodes, network)
 
-	// Advance alice to epoch 1 by self-proposal (if she's holder)
-	// or have the holder advance
+	// Find the token holder to propose updates
 	var holder *testNode
 	for _, n := range nodes {
 		if n.coord.IsTokenHolder() {
@@ -608,13 +607,20 @@ func TestCoordinator_EpochConsistency_StaleRejected(t *testing.T) {
 			break
 		}
 	}
-	_ = holder.coord.ProposeUpdate([]byte("advance"))
-	network.DrainAll()
+	if holder == nil {
+		t.Fatal("no token holder found")
+	}
 
-	// Both at epoch 1
+	// Advance the group epoch by 4 to place epoch 0 outside the +3 grace window.
+	for i := 0; i < 4; i++ {
+		_ = holder.coord.ProposeUpdate([]byte("advance"))
+		network.DrainAll()
+	}
+
+	// Both at epoch 4
 	for _, n := range nodes {
-		if n.coord.CurrentEpoch() != 1 {
-			t.Fatalf("node %s: expected epoch 1, got %d", n.id, n.coord.CurrentEpoch())
+		if n.coord.CurrentEpoch() != 4 {
+			t.Fatalf("node %s: expected epoch 4, got %d", n.id, n.coord.CurrentEpoch())
 		}
 	}
 

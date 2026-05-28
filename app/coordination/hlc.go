@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// MaxClockDriftMs defines the maximum tolerable physical clock drift in milliseconds (5 seconds).
-const MaxClockDriftMs = 5000
+// MaxClockDriftMs defines the maximum tolerable physical clock drift in milliseconds (10 seconds).
+const MaxClockDriftMs = 10000
 
 // ErrClockDrift is returned when the physical component of a received HLC timestamp
 // exceeds the local physical time by more than MaxClockDriftMs, indicating clock poisoning.

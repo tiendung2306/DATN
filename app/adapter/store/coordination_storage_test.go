@@ -463,11 +463,11 @@ func TestSQLiteCoordinationStorage_ApplyApplication_IsAtomicAndIdempotent(t *tes
 		EnvelopeHash: []byte("h1"),
 	}
 	wire := []byte(`{"type":"application","group_id":"g-atomic-app","epoch":1}`)
-	applied, seq, err := s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp)
+	applied, seq, err := s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp, 1)
 	if err != nil || !applied || seq != 1 {
 		t.Fatalf("ApplyApplication first: applied=%v seq=%d err=%v", applied, seq, err)
 	}
-	applied, seq, err = s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp)
+	applied, seq, err = s.ApplyApplication(rec, msg, coordination.MsgApplication, wire, msg.Timestamp, 1)
 	if err != nil || applied || seq != 0 {
 		t.Fatalf("ApplyApplication duplicate: applied=%v seq=%d err=%v", applied, seq, err)
 	}
@@ -494,7 +494,7 @@ func TestSQLiteCoordinationStorage_ApplyCommit_PersistsGroupState(t *testing.T) 
 	}
 	wire := []byte(`{"type":"commit","group_id":"g-atomic-commit","epoch":1}`)
 	ts := coordination.HLCTimestamp{WallTimeMs: now.UnixMilli(), Counter: 0, NodeID: "n1"}
-	applied, seq, err := s.ApplyCommit(rec, coordination.MsgCommit, wire, ts)
+	applied, seq, err := s.ApplyCommit(rec, coordination.MsgCommit, wire, ts, 1)
 	if err != nil || !applied || seq != 1 {
 		t.Fatalf("ApplyCommit: applied=%v seq=%d err=%v", applied, seq, err)
 	}

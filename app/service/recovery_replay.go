@@ -70,7 +70,7 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				progressed = true
 				continue
 			}
-			if result.State == coordination.ReplayStateDuplicateApplied {
+			if result.State == coordination.ReplayStateDuplicateApplied || result.State == coordination.ReplayStateStaleEpoch {
 				progressed = true
 				continue
 			}
