@@ -14,6 +14,7 @@ export interface DemoInstanceProfile {
   runtime_dir: string
   template_dir?: string
   db_path: string
+  bind_ip: string
   p2p_port: number
   control_port: number
   bootstrap?: string

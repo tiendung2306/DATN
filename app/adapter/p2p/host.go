@@ -55,12 +55,16 @@ func (m *mdnsNotifee) HandlePeerFound(pi peer.AddrInfo) {
 func NewP2PNode(
 	ctx context.Context,
 	privKey crypto.PrivKey,
+	listenIP string,
 	listenPort int,
 	localToken *admin.InvitationToken,
 	rootPubKey []byte,
 	localHandshake *AuthHandshakeMsg,
 ) (*P2PNode, error) {
-	bestIP := GetBestLocalIP()
+	bestIP := listenIP
+	if bestIP == "" {
+		bestIP = GetBestLocalIP()
+	}
 	slog.Info("Selected best network interface for P2P", "ip", bestIP)
 
 	// 1. Initialize AuthGater (always present; blacklist is empty at start)

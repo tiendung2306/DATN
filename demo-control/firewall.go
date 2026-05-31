@@ -79,10 +79,17 @@ func applyFirewallPartition(instances []DemoInstanceProfile, spec PartitionSpec)
 func blockPair(partitionID string, a DemoInstanceProfile, b DemoInstanceProfile) error {
 	nameBase := fmt.Sprintf("%s-%s-%s-%s", firewallPrefix, sanitizeRule(partitionID), a.ID, b.ID)
 	rules := [][]string{
-		{"dir=out", fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=TCP"},
-		{"dir=out", fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=TCP"},
-		{"dir=out", fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=UDP"},
-		{"dir=out", fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=UDP"},
+		// Outbound TCP/UDP blocks
+		{"dir=out", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=TCP"},
+		{"dir=out", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=TCP"},
+		{"dir=out", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=UDP"},
+		{"dir=out", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=UDP"},
+
+		// Inbound TCP/UDP blocks
+		{"dir=in", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteip=%s", b.BindIP), "protocol=TCP"},
+		{"dir=in", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteip=%s", a.BindIP), "protocol=TCP"},
+		{"dir=in", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteip=%s", b.BindIP), "protocol=UDP"},
+		{"dir=in", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteip=%s", a.BindIP), "protocol=UDP"},
 	}
 	for i, parts := range rules {
 		args := []string{"advfirewall", "firewall", "add", "rule", "name=" + fmt.Sprintf("%s-%d", nameBase, i+1), "action=block"}

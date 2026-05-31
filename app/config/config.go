@@ -6,6 +6,7 @@ import "flag"
 type Config struct {
 	DBPath         string
 	RuntimeDir     string
+	BindIP         string
 	P2PPort        int
 	BootstrapAddr  string
 	WriteBootstrap string
@@ -43,6 +44,7 @@ func Parse() *Config {
 
 	flag.StringVar(&cfg.DBPath, "db", ".local/app.db", "Path to SQLite database file")
 	flag.StringVar(&cfg.RuntimeDir, "runtime-dir", "", "Directory for demo/runtime artifacts")
+	flag.StringVar(&cfg.BindIP, "bind-ip", "", "IP address to bind P2P host (default is auto-detect)")
 	flag.IntVar(&cfg.P2PPort, "p2p-port", 4001, "Port for P2P connections")
 	flag.StringVar(&cfg.BootstrapAddr, "bootstrap", "", "Multiaddr of bootstrap peer (overrides stored bundle)")
 	flag.StringVar(&cfg.WriteBootstrap, "write-bootstrap", "", "Write this node's multiaddress to a file after startup")

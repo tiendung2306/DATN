@@ -303,7 +303,7 @@ func (r *Runtime) launchP2PNode() error {
 	}
 	hs.Token = localToken
 	r.fillAuthHandshakeProfileAnnexLocked(hs)
-	node, err := p2p.NewP2PNode(nodeCtx, r.privKey, r.cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
+	node, err := p2p.NewP2PNode(nodeCtx, r.privKey, r.cfg.BindIP, r.cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
 	if err != nil {
 		cancel()
 		return fmt.Errorf("init P2P node: %w", err)
@@ -334,7 +334,7 @@ func (r *Runtime) launchP2PNode() error {
 	r.node = node
 	r.nodeCancel = cancel
 
-	go connectBootstrap(nodeCtx, node, r.cfg.BootstrapAddr, bundle.BootstrapAddr)
+	go connectBootstrap(nodeCtx, node, r.cfg.BootstrapAddr, bundle.BootstrapAddr, r.cfg.BindIP)
 
 	if err := joinChatRoom(nodeCtx, node); err != nil {
 		slog.Warn("Could not join global chat room", "error", err)

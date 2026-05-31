@@ -17,6 +17,7 @@ type DemoInstanceProfile struct {
 	RuntimeDir  string `json:"runtime_dir"`
 	TemplateDir string `json:"template_dir,omitempty"`
 	DBPath      string `json:"db_path"`
+	BindIP      string `json:"bind_ip"`
 	P2PPort     int    `json:"p2p_port"`
 	ControlPort int    `json:"control_port"`
 	Bootstrap   string `json:"bootstrap,omitempty"`

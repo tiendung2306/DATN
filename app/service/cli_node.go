@@ -64,7 +64,7 @@ func runP2PNodeCLI(
 		return fmt.Errorf("build auth handshake: %w", err)
 	}
 	hs.Token = localToken
-	node, err := p2p.NewP2PNode(ctx, privKey, cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
+	node, err := p2p.NewP2PNode(ctx, privKey, cfg.BindIP, cfg.P2PPort, localToken, bundle.RootPublicKey, hs)
 	if err != nil {
 		return fmt.Errorf("initialize P2P node: %w", err)
 	}
@@ -77,7 +77,7 @@ func runP2PNodeCLI(
 		go writeBootstrapFile(node, cfg.WriteBootstrap)
 	}
 
-	connectBootstrap(ctx, node, cfg.BootstrapAddr, bundle.BootstrapAddr)
+	connectBootstrap(ctx, node, cfg.BootstrapAddr, bundle.BootstrapAddr, cfg.BindIP)
 
 	if err := joinChatRoom(ctx, node); err != nil {
 		slog.Warn("Could not join global chat room", "error", err)
@@ -92,10 +92,25 @@ func runP2PNodeCLI(
 	return nil
 }
 
-func connectBootstrap(ctx context.Context, node *p2p.P2PNode, flagAddr, bundleAddr string) {
+func rewriteBootstrapIPToLoopback(addr string) string {
+	if !strings.HasPrefix(addr, "/ip4/") {
+		return addr
+	}
+	parts := strings.Split(addr, "/")
+	if len(parts) >= 3 && parts[1] == "ip4" {
+		parts[2] = "127.0.0.1" // Bootstrap node always binds to 127.0.0.1 (node-01)
+		return strings.Join(parts, "/")
+	}
+	return addr
+}
+
+func connectBootstrap(ctx context.Context, node *p2p.P2PNode, flagAddr, bundleAddr string, bindIP string) {
 	addr := flagAddr
 	if addr == "" {
 		addr = bundleAddr
+	}
+	if bindIP != "" && addr != "" {
+		addr = rewriteBootstrapIPToLoopback(addr)
 	}
 	if addr == "" {
 		return

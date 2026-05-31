@@ -136,6 +136,9 @@ func (a *App) StartInstance(id string) error {
 		"-control-token", a.workspace.Token,
 		"-instance-label", profile.Label,
 	}
+	if profile.BindIP != "" {
+		args = append(args, "-bind-ip", profile.BindIP)
+	}
 	if profile.Bootstrap != "" {
 		args = append(args, "-bootstrap", profile.Bootstrap)
 	}
@@ -580,6 +583,7 @@ func defaultWorkspace(repoRoot string) DemoWorkspace {
 			RuntimeDir:  runtimeDir,
 			TemplateDir: filepath.Join(repoRoot, ".demo-control", "templates", id),
 			DBPath:      filepath.Join(runtimeDir, "app.db"),
+			BindIP:      fmt.Sprintf("127.0.0.%d", i),
 			P2PPort:     4100 + i,
 			ControlPort: 5100 + i,
 			Headless:    false,
@@ -604,6 +608,9 @@ func normalizeWorkspace(ws *DemoWorkspace, repoRoot string) {
 	for i := range ws.Instances {
 		if ws.Instances[i].DBPath == "" {
 			ws.Instances[i].DBPath = filepath.Join(ws.Instances[i].RuntimeDir, "app.db")
+		}
+		if ws.Instances[i].BindIP == "" {
+			ws.Instances[i].BindIP = fmt.Sprintf("127.0.0.%d", i+1)
 		}
 	}
 }
