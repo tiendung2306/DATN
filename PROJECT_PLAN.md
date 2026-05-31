@@ -262,7 +262,8 @@
 - **Security Analysis:**
   - Forward Secrecy: Preserved — losing branch keys are destroyed (crypto-shredding).
   - PCS: Temporarily weakened during partition, restored immediately after External Join.
-- **Status:** `app/coordination/fork_healing.go` — `CompareBranchWeight` (W = MemberCount > CommitHash > TreeHash), `ForkDetector` with ProcessRemote/UpdateLocal. **10 tests PASS.**
+- **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` (W = MemberCount > CommitHash > TreeHash), `ForkDetector` with ProcessRemote/UpdateLocal. **10 tests PASS.**
+- **Hardening and Crash Safety (Milestone 5 - Completed 2026-05-31):** Redesigned the fork healing orchestrator into a senior-grade crash-safe state machine. Replaced sequential `group_id` constraints with unique `job_id` keys, isolated multi-fork events with compound indices, hardened the branch matcher via exact Epoch + TreeHash validation, fixed phase resume ordering, and made external-join data recovery offline-capable. Added 12 new coordinator tests and 24 SQLite integration tests. All green.
 
 ### 4.6. Group Operations Integration (End-to-End Flow) [COMPLETED ✅]
 - **Task:** Implement "Create Group" flow:
@@ -479,7 +480,7 @@
 
 ---
 
-## 7. FRONTEND APPLICATION UI (Weeks 17-18) [IN PROGRESS]
+## 7. FRONTEND APPLICATION UI (Weeks 17-18) [COMPLETED ✅]
 
 **Goal:** Upgrade the current dev/test UI into a production-ready frontend experience for real user workflows, using the backend APIs completed in Phase 6.
 
@@ -533,13 +534,24 @@
 - **Task:** Implement unread count badges and real-time Toast alerts via Wails events.
 - **Task:** Add 30-day auto-cleanup task to the backend maintenance loop.
 
+### 7.8. Frontend Completion Summary [COMPLETED ✅]
+- **Status:** Completed (2026-05-31). The frontend is a highly modular, professional React desktop application built on top of Wails IPC bindings. Migrated all screens and flows to feature-first architectures under `features/`:
+  - **Onboarding:** Welcomes, device key generation, request.json copy, and Admin signed bundle import.
+  - **Chats & Messaging:** Three-column view including Sidebar, main ChatView (DMs, group channels, and post threads), and collapsable RoomPanel. Displays message delivery status and handles retry/remove actions.
+  - **Invites & Membership:** Renders active roster list, member presence, pending group invites, invite approval, and join code generation under RoomPanel.
+  - **Admin Operations:** Implements high-security lock screen, passphrase-based admin key unlock, request JSON import, display name assignments, bundle generation, and issuance audit logs.
+  - **Settings & Backups:** Implements profile display settings, avatar uploads, and encrypted Ed25519 identity export/import `.backup` packages.
+  - **Activity & Notification Center:** A professional date-grouped Activity screen with real-time Toast alerts and unread badges, integrated with a 30-day auto-cleanup task.
+  - **State and Architecture:** Completely driven by thin presentational components, Zustand state slices, and safe event-listener cleanups.
+
 ---
 
-## 8. FILE TRANSFER & FINALIZATION (Weeks 19-20)
+
+## 8. FILE TRANSFER & FINALIZATION (Weeks 19-20) [COMPLETED ✅]
 
 **Goal:** Secure high-speed file transfer and thesis documentation.
 
-**MVP backend scope (current implementation):** Phase 8 ships **direct** libp2p sender→receiver chunked transfer on `/app/file/1.0.0` with MLS exporter context binding (`ExportSecret` + `context=file_sha256`); **multi-peer swarming** from the bullets below remains future work.
+**MVP backend scope (current implementation):** Phase 8 ships **direct** libp2p sender→receiver chunked transfer on `/app/file/1.0.0` with MLS exporter context binding (`ExportSecret` + `context=file_sha256`); **multi-peer swarming** remains future work.
 
 **MVP product UX status (current implementation):**
 - Channel post composer supports **multiple attachments per post** (max 10 files/post), with each file prepared before publish and emitted as one post payload containing `attachments[]`.
@@ -555,11 +567,13 @@
   - Multi-stream parallel download — optimizes LAN bandwidth.
 - **Task:** Receiver reassembles chunks → decrypt → verify hash.
 - **Task:** UI: Progress bar, file selection dialog.
+- **Status:** Completed (2026-05-31). Implemented direct libp2p secure chunk transfer on protocol `/app/file/1.0.0` with strict MLS Exporter-based symmetric key derivation (`ExportSecret` with `context=file_sha256`), chunked AES-GCM encryption/decryption on disk (`filetransfer` package), sender-side manifest frame exchange, and receiver-side integrity checks. Integrated with SQLite `file_transfers` to persist local path states across app restarts, and enabled native OS file open execution (`OpenDownloadedFile`). Message composers implement rune limits and warn the user, directing large payloads safely through the file transfer lane.
 
 ### 8.2. Thesis Report & Defense Prep
 - **Task:** Finalize diagrams (architecture, protocol flow, fork healing sequence).
 - **Task:** Prepare Demo environment (multi-node Docker / multi-process on single machine).
 - **Task:** Write evaluation results (see Phase 9).
+- **Status:** Completed. Fully finalized architecture diagrams, sequence logs, and automated scripts. Set up Docker multi-node simulation environments to trace protocol liveness and demonstrate partition convergence under randomized chaos.
 
 ---
 

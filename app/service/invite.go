@@ -859,7 +859,7 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 	// row is only persisted as a fallback when applyWelcome cannot run yet
 	// (sidecar not ready, KP rotated, MLS rejection); processPendingWelcomes
 	// retries those rows on the next startup or refresh tick.
-	if applyErr := r.applyWelcome(groupID, normalizedGroupType, hex.EncodeToString(welcome), categoryID); applyErr == nil {
+	if applyErr := r.applyWelcome(groupID, normalizedGroupType, hex.EncodeToString(welcome), categoryID, sourcePeerID); applyErr == nil {
 		if strings.TrimSpace(sourcePeerID) != "" {
 			_ = database.SetGroupCreatorPeerID(groupID, strings.TrimSpace(sourcePeerID))
 		}
@@ -1013,7 +1013,7 @@ func (r *Runtime) processPendingWelcomesOnStartup(ctx context.Context) {
 		if inv.Status != store.PendingInviteStatusPending {
 			continue
 		}
-		if applyErr := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes), inv.CategoryID); applyErr != nil {
+		if applyErr := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes), inv.CategoryID, inv.SourcePeerID); applyErr != nil {
 			slog.Debug("auto-join pending welcome deferred to next retry",
 				"group", inv.GroupID, "type", inv.GroupType, "err", applyErr)
 			continue
@@ -1619,7 +1619,7 @@ func (r *Runtime) checkStoredWelcomes(groupIDs []string) {
 // stored in SQLite (generated during advertisement). categoryID is the
 // inviter-side channel category when known (wire / pending / stored_welcomes);
 // pass "" when unknown.
-func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID string) error {
+func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID string, inviterPeerID string) error {
 	r.mu.Lock()
 	node := r.node
 	database := r.db
@@ -1642,10 +1642,10 @@ func (r *Runtime) applyWelcome(groupID, groupType, welcomeHex string, categoryID
 		return fmt.Errorf("decode welcome hex: %w", err)
 	}
 
-	if err := r.joinGroupWithWelcome(groupID, welcomeHex, hex.EncodeToString(privateBundle), groupType, strings.TrimSpace(categoryID)); err != nil {
+	if err := r.joinGroupWithWelcome(groupID, welcomeHex, hex.EncodeToString(privateBundle), groupType, strings.TrimSpace(categoryID), inviterPeerID); err != nil {
 		return err
 	}
-	r.finalizeJoinedWelcome(groupID, groupType, strings.TrimSpace(categoryID), welcomeRaw, "", false)
+	r.finalizeJoinedWelcome(groupID, groupType, strings.TrimSpace(categoryID), welcomeRaw, inviterPeerID, false)
 	slog.Info("Joined group via Welcome", "group", groupID)
 	return nil
 }
@@ -1867,11 +1867,11 @@ func (r *Runtime) CheckDHTWelcome(groupID string) error {
 		return fmt.Errorf("P2P node not running")
 	}
 
-	wb, groupType, categoryID, _, err := r.fetchWelcomeFromStorePeers(groupID)
+	wb, groupType, categoryID, source, err := r.fetchWelcomeFromStorePeers(groupID)
 	if err != nil {
 		return fmt.Errorf("no pending invite found for group %q from connected peers", groupID)
 	}
-	if err := r.applyWelcome(groupID, groupType, hex.EncodeToString(wb), categoryID); err != nil {
+	if err := r.applyWelcome(groupID, groupType, hex.EncodeToString(wb), categoryID, source); err != nil {
 		return err
 	}
 	r.mu.RLock()

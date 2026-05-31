@@ -651,7 +651,7 @@ func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	if err != nil {
 		return fmt.Errorf("decode welcome hex: %w", err)
 	}
-	if err := r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", ""); err != nil {
+	if err := r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", "", ""); err != nil {
 		return err
 	}
 
@@ -701,7 +701,7 @@ func (r *Runtime) resolveChannelCategoryForWelcomeJoin(groupID string, welcomeRa
 	return strings.TrimSpace(cat)
 }
 
-func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType, categoryIDHint string) error {
+func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType, categoryIDHint, inviterPeerID string) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
@@ -799,6 +799,19 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		UpdatedAt:  now,
 	}); err != nil {
 		return fmt.Errorf("save group record: %w", err)
+	}
+
+	// Authoritatively resolve and persist group creator peer ID before coordinator starts
+	inviter := strings.TrimSpace(inviterPeerID)
+	if inviter == "" {
+		if localID, err := r.localPeerID(); err == nil {
+			if _, _, _, src, err := r.db.GetStoredWelcome(localID, groupID); err == nil && src != "" {
+				inviter = src
+			}
+		}
+	}
+	if inviter != "" {
+		_ = r.db.SetGroupCreatorPeerID(groupID, inviter)
 	}
 	if err := r.db.UpsertGroupMember(store.GroupMemberRecord{
 		GroupID:     groupID,

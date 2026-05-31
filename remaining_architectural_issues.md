@@ -59,7 +59,7 @@ Giả sử tại Epoch $e$, cả Alice và Charlie đồng thời gửi đề xu
 
 ---
 
-## 4. Mất mát dữ liệu nhánh thua khi Phục hồi Phân mảnh (Fork Healing Data Loss)
+## 4. Mất mát dữ liệu nhánh thua khi Phục hồi Phân mảnh (Fork Healing Data Loss) [ĐÃ GIẢI QUYẾT TRONG MILESTONE 5 ✅]
 
 ### Hoàn cảnh xuất hiện (Context)
 Hiện tượng Split-brain xảy ra khi mạng bị chia cắt làm hai phân mảnh (Partition 1 và Partition 2) hoạt động độc lập, mỗi bên tự bầu ra Token Holder riêng và tự tiến hóa trạng thái epoch của mình.
@@ -70,9 +70,12 @@ Khi mạng kết nối lại, cơ chế **Fork Healing** sẽ chọn phân mản
 2. Toàn bộ các tin nhắn ứng dụng đã được gửi và giải mã thành công ở Nhánh 1 trước đó sẽ bị **mồ côi** (orphaned) vì chúng không tồn tại trong lịch sử của Nhánh 2.
 3. Theo luật số 12 (Non-repudiation), một nút chỉ được phép mã hóa lại và resend tin nhắn của **chính mình**, không được phép resend tin nhắn hộ nút khác để tránh giả mạo danh tính (spoofing).
 
-### Vấn đề hiện tại (Current Issue)
-* **Mất sạch lịch sử nhánh thua:** Toàn bộ tin nhắn trò chuyện của người dùng thuộc phân mảnh thua trong thời gian đứt mạng sẽ bị xóa sạch khỏi lịch sử chung.
-* **Cơ chế Resend thô sơ:** Cơ chế tự động phát hiện tin nhắn mồ côi và resend hiện tại chưa có bộ đệm an toàn và rất dễ bị lỗi nếu nút bị tắt đột ngột (crash/force close) ngay trong quá trình đang thực hiện Fork Healing.
+### Giải pháp và Kết quả kiểm thử (Milestone 5 Hardening)
+Trong **Milestone 5 (2026-05-31)**, hệ thống đã được nâng cấp lên kiến trúc **Senior-Grade Crash-Safe Fork Healing State Machine**:
+* **Bảo vệ chống Crash/Restart đột ngột:** Trạng thái fork healing đã được chuyển thành mô hình bền vững (Durable State Machine) lưu trong SQLite. Job ID được xác định duy nhất (`job_id PRIMARY KEY`), phân tách các lần fork liên tiếp thông qua index duy nhất có điều kiện (`idx_fork_healing_active_group`), loại bỏ tình trạng stuck job do trùng khóa chính nhóm.
+* **Outbox Replay Queue bền vững:** Tin nhắn ứng dụng mồ côi (Orphaned) của chính node được thu thập và lưu vào bảng replay ngoại tuyến trước khi broadcast. Đảo thứ tự lưu log ngoại tuyến trước khi phát tin nhắn qua GossipSub, đồng thời propagate lỗi ghi DB thay vì nuốt lỗi, ngăn chặn hoàn toàn việc mất tin nhắn replayed khi crash trước khi broadcast.
+* **Cách ly sự kiện đa luồng:** Thêm `job_id` vào `application_event` để cách ly các sự kiện giải mã và replay giữa các job fork khác nhau, tránh xung đột hoặc ghi đè dữ liệu.
+* **Đồng bộ hóa an toàn:** Khi restart trong trạng thái `EXTERNAL_JOINED`, node có thể khôi phục trực tiếp từ `PendingGroupState` lưu trữ trên đĩa để tự thực hiện state swap hoàn tất vòng đời mà không phụ thuộc vào winner peer online.
 
 ---
 

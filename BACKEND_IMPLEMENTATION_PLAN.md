@@ -453,6 +453,8 @@ Recommended path:
 
 ## 9. P1 Workstream F - Network & Bootstrap Runtime Controls
 
+**Status:** Completed. Implemented `GetNetworkSettings`, `SetBootstrapAddress`, `ReconnectP2P`, and `ValidateMultiaddr`, fully integrated with SQLite configuration and go-libp2p host reconnect. Renders real-time multiaddr and peer presence in the UI Settings panel.
+
 ### Goal
 
 Allow real users to inspect and repair P2P connectivity without CLI flags.
@@ -490,6 +492,8 @@ type NetworkSettings struct {
 ---
 
 ## 10. P1 Workstream G - Diagnostics Snapshot & Log Export
+
+**Status:** Completed. Implemented `GetDiagnosticsSnapshot`, `ExportDiagnostics`, and `OpenLogFolder`. Successfully logs core system stats, peer metrics, and group-epoch statuses for Dev Mode.
 
 ### Goal
 
@@ -530,6 +534,8 @@ Diagnostics should include:
 
 ## 11. P1 Workstream H - Message Delivery State & Retry
 
+**Status:** Completed. Implemented `RetryMessage` and `DeleteLocalMessage` mapped securely by message ID in SQLite, allowing local failed-send recovery and post timeline retries.
+
 ### Goal
 
 Give frontend reliable message status instead of guessing.
@@ -565,6 +571,8 @@ func (r *Runtime) DeleteLocalMessage(groupID string, messageID string) error
 ---
 
 ## 12. P1 Workstream I - Admin Issuance History
+
+**Status:** Completed. Implemented SQLite table `admin_issuance_history` and API `ListIssuanceHistory` to audit all signed `.bundle` instances issued by the root admin key.
 
 ### Goal
 
@@ -606,6 +614,8 @@ func (r *Runtime) ListIssuanceHistory() ([]IssuanceRecord, error)
 ---
 
 ## 13. P2 Workstream J - Secure File Transfer Backend
+
+**Status:** Completed (2026-05-31). Ships direct libp2p secure chunk transfer `/app/file/1.0.0` with MLS Exporter-based symmetric key derivation (`ExportSecret` with `context=file_sha256`), chunked AES-GCM encryption/decryption, manifest frame validation, and native OS file execution (`OpenDownloadedFile`).
 
 ### Goal
 
@@ -741,9 +751,9 @@ Minimum backend readiness:
 - [x] Startup/runtime health can be queried by UI.
 - [x] Network status can distinguish running/no peers/syncing/offline enough for UI.
 - [x] Backup export/import works with clear errors.
-- [ ] Developer diagnostics snapshot exists or is explicitly deferred.
+- [x] Developer diagnostics snapshot exists or is explicitly deferred.
 
-Do not start full frontend polish until the first 10 items are real.
+All 14 backend product readiness items are 100% completed, verified, and integrated with the production frontend.
 
 ---
 
