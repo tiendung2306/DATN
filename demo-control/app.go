@@ -105,6 +105,12 @@ func (a *App) Preflight() (PreflightResult, error) {
 	}
 	if runtime.GOOS != "windows" {
 		out.Warnings = append(out.Warnings, "firewall partition controls are Windows-only")
+	} else {
+		// Check if running as administrator on Windows
+		cmd := exec.Command("net", "session")
+		if err := cmd.Run(); err != nil {
+			out.Warnings = append(out.Warnings, "Administrator privileges not detected. Firewall partitions will fail. Please run Demo Control as Administrator.")
+		}
 	}
 	return out, nil
 }
@@ -148,9 +154,18 @@ func (a *App) StartInstance(id string) error {
 		cmd = exec.Command(a.workspace.AppExe, args...)
 		cmd.Dir = a.workspace.AppDir
 	}
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	
+	logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		a.errors[id] = "log file: " + err.Error()
+		return err
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
 		a.errors[id] = err.Error()
 		return err
 	}
@@ -158,6 +173,7 @@ func (a *App) StartInstance(id string) error {
 	a.errors[id] = ""
 	go func() {
 		err := cmd.Wait()
+		logFile.Close()
 		a.mu.Lock()
 		if err != nil {
 			a.errors[id] = err.Error()
@@ -313,9 +329,6 @@ func (a *App) ResetAll() error {
 	return nil
 }
 
-func (a *App) DisconnectP2P(id string) error      { return a.controlAction(id, "disconnect-p2p") }
-func (a *App) ResumeP2P(id string) error          { return a.controlAction(id, "resume-p2p") }
-func (a *App) ReconnectP2P(id string) error       { return a.controlAction(id, "reconnect-p2p") }
 func (a *App) TriggerOfflineSync(id string) error { return a.controlAction(id, "trigger-offline-sync") }
 func (a *App) ExportDiagnostics(id string) error  { return a.controlAction(id, "export-diagnostics") }
 func (a *App) IsolateNode(id string) error {
@@ -323,6 +336,41 @@ func (a *App) IsolateNode(id string) error {
 }
 func (a *App) HealAll() error                    { return healAllFirewallRules() }
 func (a *App) OpenRuntimeFolder(id string) error { return a.openInstancePath(id, "runtime") }
+func (a *App) OpenInstanceLog(id string) error {
+	a.mu.Lock()
+	profile, ok := a.profileLocked(id)
+	a.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown instance %s", id)
+	}
+	logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
+	if !fileExists(logPath) {
+		return fmt.Errorf("no logs generated yet. please start the node first.")
+	}
+	return openPath(logPath)
+}
+
+func (a *App) ReadInstanceLogTail(id string, limit int) (string, error) {
+	a.mu.Lock()
+	profile, ok := a.profileLocked(id)
+	a.mu.Unlock()
+	if !ok {
+		return "", fmt.Errorf("unknown instance %s", id)
+	}
+	logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
+	if !fileExists(logPath) {
+		return "No logs generated yet. Please start the node first.", nil
+	}
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(content), "\n")
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return strings.Join(lines, "\n"), nil
+}
 
 func (a *App) ApplyPartition(spec PartitionSpec) error {
 	a.mu.Lock()
@@ -439,7 +487,7 @@ func (a *App) fillRemoteStatus(st *InstanceStatus, token string) {
 	}
 	if health, _ := raw["health"].(map[string]interface{}); health != nil {
 		st.StartupStage, _ = health["startup_stage"].(string)
-		st.P2PReady, _ = health["p2p_ready"].(bool)
+		st.P2PReady, _ = health["p2p_running"].(bool)
 		st.CryptoReady, _ = health["crypto_ready"].(bool)
 	}
 	if network, _ := raw["network"].(map[string]interface{}); network != nil {
