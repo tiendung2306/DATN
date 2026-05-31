@@ -1009,7 +1009,7 @@ pub fn add_members(
     })
 }
 
-pub fn create_group(group_id: &str, signing_key: &[u8]) -> Result<CreateGroupResult, String> {
+pub fn create_group(group_id: &str, signing_key: &[u8], max_past_epochs: u32) -> Result<CreateGroupResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let signer = reconstruct_signer(&provider, signing_key)?;
 
@@ -1026,6 +1026,7 @@ pub fn create_group(group_id: &str, signing_key: &[u8]) -> Result<CreateGroupRes
     let config = MlsGroupCreateConfig::builder()
         .use_ratchet_tree_extension(true)
         .ciphersuite(CIPHERSUITE)
+        .max_past_epochs(max_past_epochs as usize)
         .build();
 
     let group = MlsGroup::new_with_group_id(
@@ -1301,6 +1302,7 @@ pub fn process_welcome(
     welcome_bytes: &[u8],
     signing_key: &[u8],
     key_package_bundle_private: &[u8],
+    max_past_epochs: u32,
 ) -> Result<WelcomeResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let _signer = reconstruct_signer(&provider, signing_key)?;
@@ -1326,6 +1328,7 @@ pub fn process_welcome(
 
     let join_config = MlsGroupJoinConfig::builder()
         .use_ratchet_tree_extension(true)
+        .max_past_epochs(max_past_epochs as usize)
         .build();
 
     let staged = StagedWelcome::new_from_welcome(&provider, &join_config, welcome, None)
@@ -1380,7 +1383,7 @@ pub fn export_group_info(group_state: &[u8], with_ratchet_tree: bool) -> Result<
 /// preserved automatically: OpenMLS's `ExternalCommitBuilder` injects a
 /// `Remove` proposal for any existing leaf that shares the new joiner's
 /// signature key (see openmls 0.8.0 `external_commits.rs:249-255`).
-pub fn external_join(group_info: &[u8], signing_key: &[u8]) -> Result<ExternalJoinResult, String> {
+pub fn external_join(group_info: &[u8], signing_key: &[u8], max_past_epochs: u32) -> Result<ExternalJoinResult, String> {
     let provider = OpenMlsRustCrypto::default();
     let signer = reconstruct_signer(&provider, signing_key)?;
 
@@ -1401,6 +1404,7 @@ pub fn external_join(group_info: &[u8], signing_key: &[u8]) -> Result<ExternalJo
         .with_config(
             MlsGroupJoinConfig::builder()
                 .use_ratchet_tree_extension(true)
+                .max_past_epochs(max_past_epochs as usize)
                 .build(),
         )
         .build_group(&provider, verifiable_group_info, credential_with_key)
@@ -1459,7 +1463,7 @@ mod tests {
     #[test]
     fn test_create_group() {
         let sk = test_signing_key();
-        let result = create_group("test-group-1", &sk).expect("create_group failed");
+        let result = create_group("test-group-1", &sk, 3).expect("create_group failed");
 
         assert!(!result.group_state.is_empty());
         assert!(!result.tree_hash.is_empty());
@@ -1474,7 +1478,7 @@ mod tests {
     #[test]
     fn test_create_group_local_identity_is_member() {
         let sk = test_signing_key();
-        let group = create_group("test-group-local-member", &sk).expect("create_group");
+        let group = create_group("test-group-local-member", &sk, 3).expect("create_group");
         let id = invitee_identity_bytes(&sk);
         let is_member = has_member(&group.group_state, &id).expect("has_member");
         assert!(
@@ -1486,7 +1490,7 @@ mod tests {
     #[test]
     fn test_encrypt_message() {
         let sk = test_signing_key();
-        let cr = create_group("test-encrypt", &sk).expect("create_group");
+        let cr = create_group("test-encrypt", &sk, 3).expect("create_group");
 
         let enc = encrypt_message(&cr.group_state, b"Hello, MLS!").expect("encrypt_message");
         assert!(!enc.ciphertext.is_empty());
@@ -1496,7 +1500,7 @@ mod tests {
     #[test]
     fn test_encrypt_survives_reimport() {
         let sk = test_signing_key();
-        let cr = create_group("test-reimport", &sk).expect("create_group");
+        let cr = create_group("test-reimport", &sk, 3).expect("create_group");
 
         let enc1 = encrypt_message(&cr.group_state, b"msg-1").expect("encrypt 1");
 
@@ -1510,7 +1514,7 @@ mod tests {
     fn test_create_proposal_add_returns_real_mls_message() {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
-        let cr = create_group("proposal-real-message", &sk_a).expect("create_group");
+        let cr = create_group("proposal-real-message", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("kp B");
         let prop =
             create_proposal(&cr.group_state, 0, &kp_b.key_package_bytes).expect("create_proposal");
@@ -1526,7 +1530,7 @@ mod tests {
     #[test]
     fn test_export_secret() {
         let sk = test_signing_key();
-        let cr = create_group("test-export", &sk).expect("create_group");
+        let cr = create_group("test-export", &sk, 3).expect("create_group");
 
         let secret = export_secret(&cr.group_state, "test-label", &[], 32).expect("export_secret");
         assert_eq!(secret.len(), 32);
@@ -1554,7 +1558,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let cr = create_group("add-member-group", &sk_a).expect("create_group");
+        let cr = create_group("add-member-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
 
         let commit =
@@ -1564,6 +1568,7 @@ mod tests {
             &commit.welcome_bytes,
             &sk_b,
             &kp_b.key_package_bundle_private,
+            3,
         )
         .expect("process_welcome B");
 
@@ -1582,7 +1587,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let cr = create_group("proposal-add-group", &sk_a).expect("create_group");
+        let cr = create_group("proposal-add-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package for B");
 
         // Create the same standalone MLS Proposal bytes any non-holder would
@@ -1610,6 +1615,7 @@ mod tests {
             &commit.welcome_bytes,
             &sk_b,
             &kp_b.key_package_bundle_private,
+            3,
         )
         .expect("process_welcome B");
 
@@ -1625,7 +1631,7 @@ mod tests {
         let sk_b = test_signing_key();
         let sk_c = test_signing_key();
 
-        let cr = create_group("same-epoch-fork-tree-hash", &sk_a).expect("create_group");
+        let cr = create_group("same-epoch-fork-tree-hash", &sk_a, 3).expect("create_group");
 
         let kp_b = generate_key_package(&sk_b).expect("kp B");
         let prop_b =
@@ -1653,7 +1659,7 @@ mod tests {
         let sk_b = test_signing_key();
         let sk_c = test_signing_key();
 
-        let cr = create_group("mixed-batch-group", &sk_a).expect("create_group");
+        let cr = create_group("mixed-batch-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("kp B");
         let kp_c = generate_key_package(&sk_c).expect("kp C");
         let commit_ab =
@@ -1675,7 +1681,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("remote-proposal-group", &sk_a).expect("create_group");
+        let group_a = create_group("remote-proposal-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let commit_add =
             add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()]).expect("add B");
@@ -1683,6 +1689,7 @@ mod tests {
             &commit_add.welcome_bytes,
             &sk_b,
             &kp_b.key_package_bundle_private,
+            3,
         )
         .expect("B process_welcome");
 
@@ -1710,7 +1717,7 @@ mod tests {
         let sk_b = test_signing_key();
         let sk_c = test_signing_key();
 
-        let group_a = create_group("stage-included-group", &sk_a).expect("create_group");
+        let group_a = create_group("stage-included-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
         let commit_ab =
@@ -1719,6 +1726,7 @@ mod tests {
             &commit_ab.welcome_bytes,
             &sk_b,
             &kp_b.key_package_bundle_private,
+            3,
         )
         .expect("B process_welcome");
         let commit_abc = add_members(
@@ -1732,6 +1740,7 @@ mod tests {
             &commit_abc.welcome_bytes,
             &sk_c,
             &kp_c.key_package_bundle_private,
+            3,
         )
         .expect("C process_welcome");
 
@@ -1775,7 +1784,7 @@ mod tests {
         let sk_b = test_signing_key();
         let sk_c = test_signing_key();
 
-        let group_a = create_group("direct-guard-group", &sk_a).expect("create_group");
+        let group_a = create_group("direct-guard-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
         let proposal =
@@ -1791,7 +1800,7 @@ mod tests {
     #[test]
     fn test_export_group_info_roundtrip() {
         let sk = test_signing_key();
-        let cr = create_group("export-info-group", &sk).expect("create_group");
+        let cr = create_group("export-info-group", &sk, 3).expect("create_group");
 
         let group_info = export_group_info(&cr.group_state, true).expect("export_group_info");
         assert!(
@@ -1813,7 +1822,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("fork-heal-group", &sk_a).expect("A create_group");
+        let group_a = create_group("fork-heal-group", &sk_a, 3).expect("A create_group");
 
         // A exports a GroupInfo at the current epoch (winning branch perspective).
         let group_info =
@@ -1821,7 +1830,7 @@ mod tests {
         assert!(!group_info.is_empty());
 
         // B (losing branch) external-joins A's branch using the GroupInfo.
-        let join_b = external_join(&group_info, &sk_b).expect("B external_join");
+        let join_b = external_join(&group_info, &sk_b, 3).expect("B external_join");
         assert!(
             !join_b.group_state.is_empty(),
             "B group_state must be non-empty"
@@ -1852,7 +1861,7 @@ mod tests {
     fn test_external_join_rejects_invalid_group_info() {
         let sk = test_signing_key();
         // Random bytes are not a valid TLS-encoded MlsMessage.
-        let result = external_join(&[0xDE, 0xAD, 0xBE, 0xEF], &sk);
+        let result = external_join(&[0xDE, 0xAD, 0xBE, 0xEF], &sk, 3);
         assert!(
             result.is_err(),
             "external_join must reject malformed group_info"
@@ -1875,7 +1884,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("rm-happy-group", &sk_a).expect("create_group");
+        let group_a = create_group("rm-happy-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
 
         let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
@@ -1913,7 +1922,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("rm-fs-group", &sk_a).expect("create_group");
+        let group_a = create_group("rm-fs-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
 
         let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
@@ -1922,6 +1931,7 @@ mod tests {
             &commit_add.welcome_bytes,
             &sk_b,
             &kp_b.key_package_bundle_private,
+            3,
         )
         .expect("process_welcome B");
 
@@ -1949,7 +1959,7 @@ mod tests {
     #[test]
     fn test_remove_members_unknown_identity() {
         let sk_a = test_signing_key();
-        let group_a = create_group("rm-unknown-group", &sk_a).expect("create_group");
+        let group_a = create_group("rm-unknown-group", &sk_a, 3).expect("create_group");
 
         // 32-byte identity that no member ever advertised.
         let bogus = vec![0xAB; 32];
@@ -1971,7 +1981,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("rm-commit-group", &sk_a).expect("create_group");
+        let group_a = create_group("rm-commit-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
             .expect("add_members");
@@ -1996,7 +2006,7 @@ mod tests {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
 
-        let group_a = create_group("has-member-group", &sk_a).expect("create_group");
+        let group_a = create_group("has-member-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
             .expect("add_members");
@@ -2020,7 +2030,7 @@ mod tests {
         let sk_b = test_signing_key();
         let sk_c = test_signing_key();
 
-        let group_a = create_group("list-leaves-group", &sk_a).expect("create_group");
+        let group_a = create_group("list-leaves-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let kp_c = generate_key_package(&sk_c).expect("generate_key_package C");
         let commit_ab = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
@@ -2058,7 +2068,7 @@ mod tests {
     fn test_list_member_identities_after_remove() {
         let sk_a = test_signing_key();
         let sk_b = test_signing_key();
-        let group_a = create_group("list-leaves-remove-group", &sk_a).expect("create_group");
+        let group_a = create_group("list-leaves-remove-group", &sk_a, 3).expect("create_group");
         let kp_b = generate_key_package(&sk_b).expect("generate_key_package B");
         let commit_add = add_members(&group_a.group_state, &[kp_b.key_package_bytes.clone()])
             .expect("add_members");
@@ -2091,7 +2101,7 @@ mod tests {
     #[test]
     fn test_cached_load_encrypt_checkpoint_roundtrip() {
         let sk = test_signing_key();
-        let created = create_group("cached-roundtrip", &sk).expect("create_group");
+        let created = create_group("cached-roundtrip", &sk, 3).expect("create_group");
         let cache = RuntimeCache::default();
         let meta = cache
             .load_group("cached-roundtrip", &created.group_state, 0)
@@ -2127,7 +2137,7 @@ mod tests {
     #[test]
     fn test_cached_rejects_stale_state_version() {
         let sk = test_signing_key();
-        let created = create_group("cached-version-fence", &sk).expect("create_group");
+        let created = create_group("cached-version-fence", &sk, 3).expect("create_group");
         let cache = RuntimeCache::default();
         cache
             .load_group("cached-version-fence", &created.group_state, 7)
@@ -2150,7 +2160,7 @@ mod tests {
     #[test]
     fn test_cached_unload_group() {
         let sk = test_signing_key();
-        let created = create_group("cached-unload", &sk).expect("create_group");
+        let created = create_group("cached-unload", &sk, 3).expect("create_group");
         let cache = RuntimeCache::default();
         cache
             .load_group("cached-unload", &created.group_state, 0)

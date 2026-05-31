@@ -583,3 +583,310 @@ func TestSQLiteCoordinationStorage_ForkHealHistory_PruneCap(t *testing.T) {
 		t.Fatalf("events after cap prune = %d, want 2", len(events))
 	}
 }
+
+func TestSQLiteCoordinationStorage_ForkHealingJob_LifecycleAndUniqueConstraint(t *testing.T) {
+	s := setupTestStorage(t)
+
+	// 1. Verify Save and GetActiveForkHealingJob
+	job1 := &coordination.ForkHealingJob{
+		JobID:             "job-active-1",
+		GroupID:           "g-test-unique",
+		TraceID:           "trace-1",
+		Status:            "INITIATED",
+		LosingBranchID:    "lose-1",
+		WinningBranchID:   "win-1",
+		ForkBaseEpoch:       2,
+		LosingEpoch:         2,
+		WinningEpoch:        5,
+		LosingTreeHash:      []byte("lose-tree"),
+		WinningTreeHash:     []byte("win-tree"),
+		WinningCommitHash:   []byte("win-commit"),
+		WinnerPeerID:        "carol",
+		CreatedAtMs:         1000,
+		UpdatedAtMs:         1000,
+	}
+
+	if err := s.SaveForkHealingJob(job1); err != nil {
+		t.Fatalf("SaveForkHealingJob: %v", err)
+	}
+
+	active, err := s.GetActiveForkHealingJob("g-test-unique")
+	if err != nil || active == nil {
+		t.Fatalf("GetActiveForkHealingJob failed: %v", err)
+	}
+	if active.JobID != "job-active-1" || active.Status != "INITIATED" {
+		t.Errorf("Unexpected active job field values: %+v", active)
+	}
+
+	byID, err := s.GetForkHealingJobByID("job-active-1")
+	if err != nil || byID == nil {
+		t.Fatalf("GetForkHealingJobByID failed: %v", err)
+	}
+	if byID.LosingEpoch != 2 || string(byID.LosingTreeHash) != "lose-tree" {
+		t.Errorf("GetForkHealingJobByID fields mismatch: %+v", byID)
+	}
+
+	// 2. Verify UNIQUE active job constraint: cannot insert second active job for same group
+	job2 := &coordination.ForkHealingJob{
+		JobID:             "job-active-2",
+		GroupID:           "g-test-unique",
+		TraceID:           "trace-2",
+		Status:            "SNAPSHOT_CREATED", // Also active
+		WinningTreeHash:   []byte("win-tree-2"),
+		WinningCommitHash: []byte("win-commit-2"),
+		CreatedAtMs:         2000,
+		UpdatedAtMs:         2000,
+	}
+	err = s.SaveForkHealingJob(job2)
+	if err == nil {
+		t.Fatal("expected UNIQUE constraint error for multiple active jobs on same group, got nil")
+	}
+
+	// 3. Mark first job as CLEANED (inactive) and verify we can now insert/activate another job
+	job1.Status = "CLEANED"
+	job1.UpdatedAtMs = 3000
+	if err := s.SaveForkHealingJob(job1); err != nil {
+		t.Fatalf("SaveForkHealingJob transition to CLEANED failed: %v", err)
+	}
+
+	// Check active job is now nil
+	active, err = s.GetActiveForkHealingJob("g-test-unique")
+	if err != nil {
+		t.Fatalf("GetActiveForkHealingJob: %v", err)
+	}
+	if active != nil {
+		t.Errorf("expected no active job, got %+v", active)
+	}
+
+	// Now we can successfully save the new active job
+	if err := s.SaveForkHealingJob(job2); err != nil {
+		t.Fatalf("Failed to save second active job after first was cleaned: %v", err)
+	}
+
+	active, _ = s.GetActiveForkHealingJob("g-test-unique")
+	if active == nil || active.JobID != "job-active-2" {
+		t.Errorf("expected active job to be job-active-2, got %+v", active)
+	}
+
+	// Clean up second job by deleting it
+	if err := s.DeleteForkHealingJob("job-active-2"); err != nil {
+		t.Fatalf("DeleteForkHealingJob: %v", err)
+	}
+	byID, _ = s.GetForkHealingJobByID("job-active-2")
+	if byID != nil {
+		t.Errorf("expected job to be deleted, found: %+v", byID)
+	}
+}
+
+func TestSQLiteCoordinationStorage_ApplicationEventsAndPayloadShredding(t *testing.T) {
+	s := setupTestStorage(t)
+
+	// Persist job first
+	job := &coordination.ForkHealingJob{
+		JobID:       "job-ev-1",
+		GroupID:     "g-ev",
+		Status:      "STATE_SWAPPED",
+		CreatedAtMs: 1000,
+		UpdatedAtMs: 1000,
+	}
+	_ = s.SaveForkHealingJob(job)
+
+	// Save application events
+	ev1 := &coordination.ApplicationEvent{
+		EventID:          "ev-1",
+		JobID:            "job-ev-1",
+		GroupID:          "g-ev",
+		OriginalBranchID: "lose-branch",
+		OriginalEpoch:    2,
+		AuthorID:         "alice",
+		EnvelopeHash:     []byte{1, 2, 3},
+		PayloadSealed:    []byte("super-secret-encrypted-payload"),
+		PayloadHash:      []byte{9, 9},
+		SealKeyID:        "key-1",
+		SealNonce:        []byte{5, 5, 5},
+		HlcWallTimeMs:    2000,
+		HlcCounter:       1,
+		HlcNodeID:        "alice",
+		Status:           "ORPHANED_OWN",
+		CreatedAtMs:      1000,
+		UpdatedAtMs:      1000,
+	}
+
+	ev2 := &coordination.ApplicationEvent{
+		EventID:          "ev-2",
+		JobID:            "job-ev-1",
+		GroupID:          "g-ev",
+		OriginalBranchID: "lose-branch",
+		OriginalEpoch:    2,
+		AuthorID:         "bob",
+		EnvelopeHash:     []byte{4, 5, 6},
+		PayloadSealed:    []byte("bob-sealed-stuff"),
+		PayloadHash:      []byte{8, 8},
+		Status:           "WAITING_AUTHOR_REPLAY",
+		CreatedAtMs:      1000,
+		UpdatedAtMs:      1000,
+	}
+
+	if err := s.SaveApplicationEvent(ev1); err != nil {
+		t.Fatalf("SaveApplicationEvent 1: %v", err)
+	}
+	if err := s.SaveApplicationEvent(ev2); err != nil {
+		t.Fatalf("SaveApplicationEvent 2: %v", err)
+	}
+
+	// List events
+	list, err := s.ListApplicationEvents("job-ev-1")
+	if err != nil {
+		t.Fatalf("ListApplicationEvents: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(list))
+	}
+
+	// Verify order is HLC ascending (ev1 is 2000 HlcWallTimeMs, ev2 has 0)
+	if list[0].EventID != "ev-2" || list[1].EventID != "ev-1" {
+		t.Errorf("ordering is incorrect, got: %s then %s", list[0].EventID, list[1].EventID)
+	}
+
+	// Update status
+	if err := s.UpdateApplicationEventStatus("ev-1", "REPLAYED"); err != nil {
+		t.Fatalf("UpdateApplicationEventStatus: %v", err)
+	}
+
+	// ClearSealedPayloads (Shredding)
+	if err := s.ClearSealedPayloads("job-ev-1"); err != nil {
+		t.Fatalf("ClearSealedPayloads: %v", err)
+	}
+
+	// Fetch again to verify shredded fields are NULL while other metadata is intact
+	list, _ = s.ListApplicationEvents("job-ev-1")
+	for _, ev := range list {
+		if ev.EventID == "ev-1" {
+			if ev.PayloadSealed != nil || ev.SealNonce != nil || ev.SealKeyID != "" {
+				t.Errorf("payload fields not shredded for REPLAYED event: %+v", ev)
+			}
+			if ev.AuthorID != "alice" || ev.Status != "REPLAYED" {
+				t.Errorf("metadata corrupted during shredding: %+v", ev)
+			}
+		} else if ev.EventID == "ev-2" {
+			if ev.PayloadSealed != nil {
+				t.Errorf("payload fields not shredded for WAITING_AUTHOR_REPLAY event: %+v", ev)
+			}
+		}
+	}
+}
+
+func TestSQLiteCoordinationStorage_OutboundReplayQueue(t *testing.T) {
+	s := setupTestStorage(t)
+
+	req1 := &coordination.OutboundReplay{
+		ReplayOperationID:    "op-1",
+		EventID:              "ev-1",
+		JobID:                "job-out-1",
+		GroupID:              "g-out",
+		ReplayEnvelope:       []byte("envelope-data-1"),
+		ReplayedEnvelopeHash: []byte{1, 1},
+		Status:               "ENQUEUED",
+		AttemptCount:         1,
+		CreatedAtMs:          1000,
+		UpdatedAtMs:          1000,
+	}
+
+	req2 := &coordination.OutboundReplay{
+		ReplayOperationID:    "op-2",
+		EventID:              "ev-2",
+		JobID:                "job-out-1",
+		GroupID:              "g-out",
+		ReplayEnvelope:       []byte("envelope-data-2"),
+		ReplayedEnvelopeHash: []byte{2, 2},
+		Status:               "BROADCASTED",
+		AttemptCount:         2,
+		CreatedAtMs:          2000,
+		UpdatedAtMs:          2000,
+	}
+
+	if err := s.SaveOutboundReplay(req1); err != nil {
+		t.Fatalf("SaveOutboundReplay 1: %v", err)
+	}
+	if err := s.SaveOutboundReplay(req2); err != nil {
+		t.Fatalf("SaveOutboundReplay 2: %v", err)
+	}
+
+	list, err := s.ListOutboundReplays("job-out-1")
+	if err != nil || len(list) != 2 {
+		t.Fatalf("ListOutboundReplays failed: %v (len=%d)", err, len(list))
+	}
+
+	var found1, found2 bool
+	for _, r := range list {
+		if r.ReplayOperationID == "op-1" {
+			found1 = true
+			if r.Status != "ENQUEUED" || string(r.ReplayEnvelope) != "envelope-data-1" {
+				t.Errorf("field mismatch for op-1: %+v", r)
+			}
+		} else if r.ReplayOperationID == "op-2" {
+			found2 = true
+			if r.Status != "BROADCASTED" || r.AttemptCount != 2 {
+				t.Errorf("field mismatch for op-2: %+v", r)
+			}
+		}
+	}
+	if !found1 || !found2 {
+		t.Errorf("not all outbound records retrieved")
+	}
+
+	// Delete
+	if err := s.DeleteOutboundReplaysForJob("job-out-1"); err != nil {
+		t.Fatalf("DeleteOutboundReplaysForJob: %v", err)
+	}
+
+	list, _ = s.ListOutboundReplays("job-out-1")
+	if len(list) != 0 {
+		t.Errorf("expected outbox queue to be empty, got: %d records", len(list))
+	}
+}
+
+func TestSQLiteCoordinationStorage_GetActiveForkHealingJob_ExcludesNewerCleaned(t *testing.T) {
+	s := setupTestStorage(t)
+	groupID := "g-cleaned-filter"
+
+	// 1. Save an older active job
+	jobActive := &coordination.ForkHealingJob{
+		JobID:             "job-active-old",
+		GroupID:           groupID,
+		Status:            "INITIATED",
+		WinningTreeHash:   []byte("win-tree-1"),
+		WinningCommitHash: []byte("win-commit-1"),
+		CreatedAtMs:       1000,
+		UpdatedAtMs:       1000,
+	}
+	if err := s.SaveForkHealingJob(jobActive); err != nil {
+		t.Fatalf("SaveForkHealingJob: %v", err)
+	}
+
+	// 2. Save a newer CLEANED (inactive) job
+	jobCleaned := &coordination.ForkHealingJob{
+		JobID:             "job-cleaned-new",
+		GroupID:           groupID,
+		Status:            "CLEANED",
+		WinningTreeHash:   []byte("win-tree-2"),
+		WinningCommitHash: []byte("win-commit-2"),
+		CreatedAtMs:       5000, // Newer
+		UpdatedAtMs:       5000,
+	}
+	if err := s.SaveForkHealingJob(jobCleaned); err != nil {
+		t.Fatalf("SaveForkHealingJob: %v", err)
+	}
+
+	// 3. GetActiveForkHealingJob must return jobActive ("job-active-old"), NOT jobCleaned ("job-cleaned-new")
+	active, err := s.GetActiveForkHealingJob(groupID)
+	if err != nil {
+		t.Fatalf("GetActiveForkHealingJob: %v", err)
+	}
+	if active == nil {
+		t.Fatalf("expected to retrieve active job, got nil")
+	}
+	if active.JobID != "job-active-old" {
+		t.Errorf("GetActiveForkHealingJob returned incorrect job: got %s, want job-active-old", active.JobID)
+	}
+}

@@ -270,6 +270,8 @@ func (d *Database) createTables() error {
 			hlc_counter  INTEGER NOT NULL,
 			hlc_node_id  TEXT    NOT NULL,
 			created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+			first_seen_at_ms INTEGER NOT NULL DEFAULT 0,
+			received_at_ms INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(group_id, seq)
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_envelope_log_group_seq
@@ -590,6 +592,99 @@ func (d *Database) createTables() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);`,
 		`CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS pending_operation (
+			operation_id            TEXT PRIMARY KEY,
+			group_id                TEXT NOT NULL,
+			op_type                 TEXT NOT NULL,
+			idempotency_key         TEXT,
+			operation_hash          BLOB,
+			precondition_epoch      INTEGER,
+			precondition_state_hash  BLOB,
+			target_member_id        TEXT,
+			semantic_payload        BLOB NOT NULL,
+			latest_proposal_hash    BLOB,
+			status                  TEXT NOT NULL,
+			retry_count             INTEGER DEFAULT 0,
+			expires_at              INTEGER,
+			last_error              TEXT,
+			created_at              INTEGER NOT NULL,
+			updated_at              INTEGER NOT NULL
+		);`,
+		// Partial unique index: only enforce idempotency for active (non-terminal) operations.
+		// This allows a new ADD_MEMBER for the same peer after a previous one is COMMITTED,
+		// SATISFIED_BY_OTHER, FAILED_*, etc — e.g. add Dave, remove Dave, add Dave again.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_op_idempotency_active ON pending_operation(group_id, idempotency_key)
+		 WHERE idempotency_key IS NOT NULL AND status IN ('PENDING','PROPOSED');`,
+
+		// Milestone 5: Crash-safe fork healing state machine tracking.
+		`CREATE TABLE IF NOT EXISTS fork_healing_job (
+			job_id                   TEXT PRIMARY KEY,
+			group_id                 TEXT NOT NULL,
+			trace_id                 TEXT NOT NULL,
+			status                   TEXT NOT NULL,
+			losing_branch_id         TEXT NOT NULL,
+			winning_branch_id        TEXT NOT NULL,
+			fork_base_epoch          INTEGER,
+			losing_epoch             INTEGER NOT NULL,
+			winning_epoch            INTEGER NOT NULL,
+			losing_tree_hash         BLOB,
+			winning_tree_hash        BLOB NOT NULL,
+			winning_commit_hash      BLOB,
+			winning_group_info_hash  BLOB,
+			winner_peer_id           TEXT NOT NULL,
+			winner_group_info        BLOB,
+			branch_weight_json       TEXT,
+			pending_group_state      BLOB,
+			pending_epoch            INTEGER,
+			pending_tree_hash        BLOB,
+			error_message            TEXT,
+			retry_count              INTEGER DEFAULT 0,
+			created_at_ms            INTEGER NOT NULL,
+			updated_at_ms            INTEGER NOT NULL,
+			completed_at_ms          INTEGER
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_fork_healing_active_group ON fork_healing_job(group_id)
+		 WHERE status NOT IN ('CLEANED', 'FAILED_TERMINAL');`,
+
+		// Milestone 5: Losing branch envelope snapshots and plaintexts prior to key shredding.
+		`CREATE TABLE IF NOT EXISTS application_event (
+			event_id               TEXT PRIMARY KEY,
+			job_id                 TEXT NOT NULL,
+			group_id               TEXT NOT NULL,
+			original_branch_id     TEXT NOT NULL,
+			original_epoch         INTEGER NOT NULL,
+			author_id              TEXT NOT NULL,
+			envelope_hash          BLOB NOT NULL,
+			payload_sealed         BLOB,
+			payload_hash           BLOB NOT NULL,
+			seal_key_id            TEXT,
+			seal_nonce             BLOB,
+			hlc_wall_time_ms       INTEGER NOT NULL,
+			hlc_counter            INTEGER NOT NULL,
+			hlc_node_id            TEXT NOT NULL,
+			status                 TEXT NOT NULL,
+			replay_operation_id    TEXT,
+			replayed_envelope_hash BLOB,
+			replayed_at_ms         INTEGER,
+			replay_attempt_count   INTEGER DEFAULT 0,
+			last_error             TEXT,
+			created_at_ms          INTEGER NOT NULL,
+			updated_at_ms          INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS outbound_replay_queue (
+			replay_operation_id     TEXT PRIMARY KEY,
+			event_id                TEXT NOT NULL,
+			job_id                  TEXT NOT NULL,
+			group_id                TEXT NOT NULL,
+			replay_envelope         BLOB NOT NULL,
+			replayed_envelope_hash  BLOB NOT NULL,
+			status                  TEXT NOT NULL,
+			attempt_count           INTEGER DEFAULT 0,
+			created_at_ms           INTEGER NOT NULL,
+			updated_at_ms           INTEGER NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_application_event_group ON application_event(group_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_application_event_job_status ON application_event(job_id, status);`,
 	}
 
 	for _, q := range queries {
@@ -613,6 +708,8 @@ func (d *Database) createTables() error {
 		{"last_apply_error", "TEXT NOT NULL DEFAULT ''"},
 		{"last_apply_attempt_at", "INTEGER NOT NULL DEFAULT 0"},
 		{"applied_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"first_seen_at_ms", "INTEGER NOT NULL DEFAULT 0"},
+		{"received_at_ms", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := d.ensureColumnExists("envelope_log", col.name, col.typ); err != nil {
 			return err
@@ -735,6 +832,11 @@ func (d *Database) createTables() error {
 		 WHERE lifecycle_status = 'active'`,
 	); err != nil {
 		return fmt.Errorf("create mls_groups type_category index: %w", err)
+	}
+	// Migration: drop the old broad idempotency index (covers all statuses) if it exists,
+	// replaced by the narrower idx_op_idempotency_active covering only PENDING/PROPOSED.
+	if _, err := d.Conn.Exec(`DROP INDEX IF EXISTS idx_op_idempotency`); err != nil {
+		return fmt.Errorf("drop legacy idx_op_idempotency: %w", err)
 	}
 	return nil
 }

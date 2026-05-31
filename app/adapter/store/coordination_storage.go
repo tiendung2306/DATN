@@ -541,6 +541,11 @@ func (s *SQLiteCoordinationStorage) AppendEnvelopeWithSource(groupID string, msg
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		// Duplicate envelope (same bytes) already stored for this group.
+		// Update received_at_ms in database:
+		_, _ = tx.Exec(
+			`UPDATE envelope_log SET received_at_ms = ? WHERE group_id = ? AND envelope_hash = ?`,
+			time.Now().UnixMilli(), groupID, hash[:],
+		)
 		return 0, nil
 	}
 	if strings.TrimSpace(sourcePath) == "" {
@@ -558,11 +563,11 @@ func (s *SQLiteCoordinationStorage) AppendEnvelopeWithSource(groupID string, msg
 	_, err = tx.Exec(
 		`INSERT INTO envelope_log (
 			group_id, seq, msg_type, epoch, envelope, envelope_hash, source_path, apply_state,
-			hlc_wall_ms, hlc_counter, hlc_node_id
+			hlc_wall_ms, hlc_counter, hlc_node_id, first_seen_at_ms, received_at_ms
 		 )
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
 		groupID, next, string(msgType), epoch, envelope, hash[:], sourcePath,
-		ts.WallTimeMs, ts.Counter, ts.NodeID,
+		ts.WallTimeMs, ts.Counter, ts.NodeID, time.Now().UnixMilli(), time.Now().UnixMilli(),
 	)
 	if err != nil {
 		return 0, fmt.Errorf("AppendEnvelope insert: %w", err)
@@ -656,6 +661,11 @@ func appendEnvelopeTx(tx *sql.Tx, groupID string, msgType coordination.MessageTy
 		return 0, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		// Update received_at_ms in database:
+		_, _ = tx.Exec(
+			`UPDATE envelope_log SET received_at_ms = ? WHERE group_id = ? AND envelope_hash = ?`,
+			time.Now().UnixMilli(), groupID, hash[:],
+		)
 		return 0, nil
 	}
 
@@ -668,10 +678,11 @@ func appendEnvelopeTx(tx *sql.Tx, groupID string, msgType coordination.MessageTy
 	if _, err := tx.Exec(
 		`INSERT INTO envelope_log (
 			group_id, seq, msg_type, epoch, envelope, envelope_hash, source_path, apply_state, applied_at,
-			hlc_wall_ms, hlc_counter, hlc_node_id
+			hlc_wall_ms, hlc_counter, hlc_node_id, first_seen_at_ms, received_at_ms
 		 )
-		 VALUES (?, ?, ?, ?, ?, ?, 'local', 'applied', strftime('%s','now'), ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, 'local', 'applied', strftime('%s','now'), ?, ?, ?, ?, ?)`,
 		groupID, next, string(msgType), epoch, envelope, hash[:], ts.WallTimeMs, ts.Counter, ts.NodeID,
+		time.Now().UnixMilli(), time.Now().UnixMilli(),
 	); err != nil {
 		return 0, err
 	}
@@ -702,7 +713,8 @@ func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq i
 	}
 	rows, err := s.db.Conn.Query(
 		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id,
-		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at
+		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at,
+		        first_seen_at_ms, received_at_ms
 		 FROM envelope_log
 		 WHERE group_id = ? AND seq > ?
 		 ORDER BY seq ASC
@@ -720,7 +732,8 @@ func (s *SQLiteCoordinationStorage) GetEnvelopesSince(groupID string, afterSeq i
 		var mt string
 		if err := rows.Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
 			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID,
-			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt); err != nil {
+			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt,
+			&r.FirstSeenAtMs, &r.ReceivedAtMs); err != nil {
 			return nil, fmt.Errorf("GetEnvelopesSince scan: %w", err)
 		}
 		r.MsgType = coordination.MessageType(mt)
@@ -735,11 +748,15 @@ func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount
 	}
 	rows, err := s.db.Conn.Query(
 		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id,
-		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at
+		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at,
+		        first_seen_at_ms, received_at_ms
 		   FROM envelope_log
 		  WHERE group_id = ?
-		    AND apply_state IN ('pending', 'future_epoch', 'persist_failed')
-		  ORDER BY hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
+		    AND apply_state IN ('pending', 'RECEIVED', 'READY', 'FUTURE_EPOCH', 'PERSIST_FAILED',
+		                        'BLOCKED_MISSING_PRIOR_EPOCH', 'BLOCKED_MISSING_COMMIT',
+		                        'BLOCKED_STALE_REQUIRES_SNAPSHOT', 'BLOCKED_DECRYPT_FAILED',
+		                        'FORK_CONFLICT', 'WAITING_SYNC', 'future_epoch', 'persist_failed')
+		  ORDER BY epoch ASC, hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
 		  LIMIT ?`,
 		groupID, maxCount,
 	)
@@ -754,13 +771,38 @@ func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount
 		var mt string
 		if err := rows.Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
 			&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID,
-			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt); err != nil {
+			&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt,
+			&r.FirstSeenAtMs, &r.ReceivedAtMs); err != nil {
 			return nil, fmt.Errorf("GetPendingEnvelopes scan: %w", err)
 		}
 		r.MsgType = coordination.MessageType(mt)
 		out = append(out, &r)
 	}
 	return out, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) GetEnvelope(envelopeHash []byte) (*coordination.EnvelopeRecord, error) {
+	var r coordination.EnvelopeRecord
+	var mt string
+	err := s.db.Conn.QueryRow(
+		`SELECT seq, group_id, msg_type, epoch, envelope, hlc_wall_ms, hlc_counter, hlc_node_id,
+		        envelope_hash, source_path, apply_state, last_apply_error, last_apply_attempt_at, applied_at,
+		        first_seen_at_ms, received_at_ms
+		   FROM envelope_log
+		  WHERE envelope_hash = ? LIMIT 1`,
+		envelopeHash,
+	).Scan(&r.Seq, &r.GroupID, &mt, &r.Epoch, &r.Envelope,
+		&r.Timestamp.WallTimeMs, &r.Timestamp.Counter, &r.Timestamp.NodeID,
+		&r.EnvelopeHash, &r.SourcePath, &r.ApplyState, &r.LastApplyError, &r.LastApplyAttemptAt, &r.AppliedAt,
+		&r.FirstSeenAtMs, &r.ReceivedAtMs)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetEnvelope: %w", err)
+	}
+	r.MsgType = coordination.MessageType(mt)
+	return &r, nil
 }
 
 func (s *SQLiteCoordinationStorage) GetLatestSeq(groupID string) (int64, error) {
@@ -1175,3 +1217,539 @@ func (s *SQLiteCoordinationStorage) PruneForkHealHistory(cutoffUnix int64, maxPe
 	}
 	return removed, nil
 }
+
+func (s *SQLiteCoordinationStorage) SavePendingOperation(op *coordination.PendingOperation) error {
+	var expiresAt *int64
+	if op.ExpiresAt != nil {
+		expiresAt = op.ExpiresAt
+	}
+	var lastError *string
+	if op.LastError != nil {
+		lastError = op.LastError
+	}
+	var idKey *string
+	if op.IdempotencyKey != nil && *op.IdempotencyKey != "" {
+		idKey = op.IdempotencyKey
+	}
+
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO pending_operation (
+			operation_id, group_id, op_type, idempotency_key, operation_hash,
+			precondition_epoch, precondition_state_hash, target_member_id,
+			semantic_payload, latest_proposal_hash, status, retry_count,
+			expires_at, last_error, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(operation_id) DO UPDATE SET
+			group_id = excluded.group_id,
+			op_type = excluded.op_type,
+			idempotency_key = excluded.idempotency_key,
+			operation_hash = excluded.operation_hash,
+			precondition_epoch = excluded.precondition_epoch,
+			precondition_state_hash = excluded.precondition_state_hash,
+			target_member_id = excluded.target_member_id,
+			semantic_payload = excluded.semantic_payload,
+			latest_proposal_hash = excluded.latest_proposal_hash,
+			status = excluded.status,
+			retry_count = excluded.retry_count,
+			expires_at = excluded.expires_at,
+			last_error = excluded.last_error,
+			updated_at = excluded.updated_at`,
+		op.OperationID, op.GroupID, op.OpType, idKey, op.OperationHash,
+		op.PreconditionEpoch, op.PreconditionStateHash, op.TargetMemberID,
+		op.SemanticPayload, op.LatestProposalHash, op.Status, op.RetryCount,
+		expiresAt, lastError, op.CreatedAt.Unix(), op.UpdatedAt.Unix(),
+	)
+	if err != nil {
+		return fmt.Errorf("SavePendingOperation(%q): %w", op.OperationID, err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) GetPendingOperation(opID string) (*coordination.PendingOperation, error) {
+	var op coordination.PendingOperation
+	var created, updated int64
+	var idKey, targetMember, lastErr sql.NullString
+	var expiresAt sql.NullInt64
+	var preconditionEpoch sql.NullInt64
+
+	err := s.db.Conn.QueryRow(
+		`SELECT operation_id, group_id, op_type, idempotency_key, operation_hash,
+		        precondition_epoch, precondition_state_hash, target_member_id,
+		        semantic_payload, latest_proposal_hash, status, retry_count,
+		        expires_at, last_error, created_at, updated_at
+		   FROM pending_operation WHERE operation_id = ?`,
+		opID,
+	).Scan(
+		&op.OperationID, &op.GroupID, &op.OpType, &idKey, &op.OperationHash,
+		&preconditionEpoch, &op.PreconditionStateHash, &targetMember,
+		&op.SemanticPayload, &op.LatestProposalHash, &op.Status, &op.RetryCount,
+		&expiresAt, &lastErr, &created, &updated,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("GetPendingOperation(%q): %w", opID, err)
+	}
+
+	if idKey.Valid {
+		op.IdempotencyKey = &idKey.String
+	}
+	if preconditionEpoch.Valid {
+		v := uint64(preconditionEpoch.Int64)
+		op.PreconditionEpoch = &v
+	}
+	if targetMember.Valid {
+		op.TargetMemberID = &targetMember.String
+	}
+	if expiresAt.Valid {
+		op.ExpiresAt = &expiresAt.Int64
+	}
+	if lastErr.Valid {
+		op.LastError = &lastErr.String
+	}
+	op.CreatedAt = time.Unix(created, 0)
+	op.UpdatedAt = time.Unix(updated, 0)
+
+	return &op, nil
+}
+
+func (s *SQLiteCoordinationStorage) ListPendingOperations(groupID string) ([]*coordination.PendingOperation, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT operation_id, group_id, op_type, idempotency_key, operation_hash,
+		        precondition_epoch, precondition_state_hash, target_member_id,
+		        semantic_payload, latest_proposal_hash, status, retry_count,
+		        expires_at, last_error, created_at, updated_at
+		   FROM pending_operation
+		  WHERE group_id = ?
+		  ORDER BY created_at ASC`,
+		groupID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListPendingOperations(%q): %w", groupID, err)
+	}
+	defer rows.Close()
+
+	var list []*coordination.PendingOperation
+	for rows.Next() {
+		var op coordination.PendingOperation
+		var created, updated int64
+		var idKey, targetMember, lastErr sql.NullString
+		var expiresAt sql.NullInt64
+		var preconditionEpoch sql.NullInt64
+
+		err := rows.Scan(
+			&op.OperationID, &op.GroupID, &op.OpType, &idKey, &op.OperationHash,
+			&preconditionEpoch, &op.PreconditionStateHash, &targetMember,
+			&op.SemanticPayload, &op.LatestProposalHash, &op.Status, &op.RetryCount,
+			&expiresAt, &lastErr, &created, &updated,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ListPendingOperations scan: %w", err)
+		}
+
+		if idKey.Valid {
+			op.IdempotencyKey = &idKey.String
+		}
+		if preconditionEpoch.Valid {
+			v := uint64(preconditionEpoch.Int64)
+			op.PreconditionEpoch = &v
+		}
+		if targetMember.Valid {
+			op.TargetMemberID = &targetMember.String
+		}
+		if expiresAt.Valid {
+			op.ExpiresAt = &expiresAt.Int64
+		}
+		if lastErr.Valid {
+			op.LastError = &lastErr.String
+		}
+		op.CreatedAt = time.Unix(created, 0)
+		op.UpdatedAt = time.Unix(updated, 0)
+
+		list = append(list, &op)
+	}
+	return list, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) GetPendingOperationByIdempotencyKey(groupID string, idempotencyKey string) (*coordination.PendingOperation, error) {
+	var op coordination.PendingOperation
+	var created, updated int64
+	var idKey, targetMember, lastErr sql.NullString
+	var expiresAt sql.NullInt64
+	var preconditionEpoch sql.NullInt64
+
+	err := s.db.Conn.QueryRow(
+		`SELECT operation_id, group_id, op_type, idempotency_key, operation_hash,
+		        precondition_epoch, precondition_state_hash, target_member_id,
+		        semantic_payload, latest_proposal_hash, status, retry_count,
+		        expires_at, last_error, created_at, updated_at
+		   FROM pending_operation
+		  WHERE group_id = ? AND idempotency_key = ?`,
+		groupID, idempotencyKey,
+	).Scan(
+		&op.OperationID, &op.GroupID, &op.OpType, &idKey, &op.OperationHash,
+		&preconditionEpoch, &op.PreconditionStateHash, &targetMember,
+		&op.SemanticPayload, &op.LatestProposalHash, &op.Status, &op.RetryCount,
+		&expiresAt, &lastErr, &created, &updated,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, sql.ErrNoRows
+		}
+		return nil, fmt.Errorf("GetPendingOperationByIdempotencyKey: %w", err)
+	}
+
+	if idKey.Valid {
+		op.IdempotencyKey = &idKey.String
+	}
+	if preconditionEpoch.Valid {
+		v := uint64(preconditionEpoch.Int64)
+		op.PreconditionEpoch = &v
+	}
+	if targetMember.Valid {
+		op.TargetMemberID = &targetMember.String
+	}
+	if expiresAt.Valid {
+		op.ExpiresAt = &expiresAt.Int64
+	}
+	if lastErr.Valid {
+		op.LastError = &lastErr.String
+	}
+	op.CreatedAt = time.Unix(created, 0)
+	op.UpdatedAt = time.Unix(updated, 0)
+
+	return &op, nil
+}
+
+func (s *SQLiteCoordinationStorage) DeletePendingOperation(opID string) error {
+	_, err := s.db.Conn.Exec(`DELETE FROM pending_operation WHERE operation_id = ?`, opID)
+	if err != nil {
+		return fmt.Errorf("DeletePendingOperation(%q): %w", opID, err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) SaveForkHealingJob(job *coordination.ForkHealingJob) error {
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO fork_healing_job (
+			job_id, group_id, trace_id, status, losing_branch_id, winning_branch_id, fork_base_epoch,
+			losing_epoch, winning_epoch, losing_tree_hash, winning_tree_hash, winning_commit_hash,
+			winning_group_info_hash, winner_peer_id, winner_group_info, branch_weight_json,
+			pending_group_state, pending_epoch, pending_tree_hash, error_message, retry_count,
+			created_at_ms, updated_at_ms, completed_at_ms
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(job_id) DO UPDATE SET
+		 	group_id = excluded.group_id,
+		 	trace_id = excluded.trace_id,
+		 	status = excluded.status,
+		 	losing_branch_id = excluded.losing_branch_id,
+		 	winning_branch_id = excluded.winning_branch_id,
+		 	fork_base_epoch = excluded.fork_base_epoch,
+		 	losing_epoch = excluded.losing_epoch,
+		 	winning_epoch = excluded.winning_epoch,
+		 	losing_tree_hash = excluded.losing_tree_hash,
+		 	winning_tree_hash = excluded.winning_tree_hash,
+		 	winning_commit_hash = excluded.winning_commit_hash,
+		 	winning_group_info_hash = excluded.winning_group_info_hash,
+		 	winner_peer_id = excluded.winner_peer_id,
+		 	winner_group_info = excluded.winner_group_info,
+		 	branch_weight_json = excluded.branch_weight_json,
+		 	pending_group_state = excluded.pending_group_state,
+		 	pending_epoch = excluded.pending_epoch,
+		 	pending_tree_hash = excluded.pending_tree_hash,
+		 	error_message = excluded.error_message,
+		 	retry_count = excluded.retry_count,
+		 	updated_at_ms = excluded.updated_at_ms,
+		 	completed_at_ms = excluded.completed_at_ms`,
+		job.JobID, job.GroupID, job.TraceID, job.Status, job.LosingBranchID, job.WinningBranchID, job.ForkBaseEpoch,
+		job.LosingEpoch, job.WinningEpoch, job.LosingTreeHash, job.WinningTreeHash, job.WinningCommitHash,
+		job.WinningGroupInfoHash, job.WinnerPeerID, job.WinnerGroupInfo, job.BranchWeightJSON,
+		job.PendingGroupState, job.PendingEpoch, job.PendingTreeHash, job.ErrorMessage, job.RetryCount,
+		job.CreatedAtMs, job.UpdatedAtMs, job.CompletedAtMs,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveForkHealingJob: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) GetActiveForkHealingJob(groupID string) (*coordination.ForkHealingJob, error) {
+	var job coordination.ForkHealingJob
+	var baseEpoch, pendingEpoch, completedAt sql.NullInt64
+	var losingTreeHash, winningCommitHash, winningGroupInfoHash, winnerGroupInfo, pendingGroupState, pendingTreeHash []byte
+	var branchWeight, errMsg sql.NullString
+
+	err := s.db.Conn.QueryRow(
+		`SELECT job_id, group_id, trace_id, status, losing_branch_id, winning_branch_id, fork_base_epoch,
+		        losing_epoch, winning_epoch, losing_tree_hash, winning_tree_hash, winning_commit_hash,
+		        winning_group_info_hash, winner_peer_id, winner_group_info, branch_weight_json,
+		        pending_group_state, pending_epoch, pending_tree_hash, error_message, retry_count,
+		        created_at_ms, updated_at_ms, completed_at_ms
+		   FROM fork_healing_job
+		  WHERE group_id = ? AND status NOT IN ('CLEANED', 'FAILED_TERMINAL')
+		  ORDER BY created_at_ms DESC LIMIT 1`,
+		groupID,
+	).Scan(
+		&job.JobID, &job.GroupID, &job.TraceID, &job.Status, &job.LosingBranchID, &job.WinningBranchID, &baseEpoch,
+		&job.LosingEpoch, &job.WinningEpoch, &losingTreeHash, &job.WinningTreeHash, &winningCommitHash,
+		&winningGroupInfoHash, &job.WinnerPeerID, &winnerGroupInfo, &branchWeight,
+		&pendingGroupState, &pendingEpoch, &pendingTreeHash, &errMsg, &job.RetryCount,
+		&job.CreatedAtMs, &job.UpdatedAtMs, &completedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetActiveForkHealingJob: %w", err)
+	}
+
+	if baseEpoch.Valid {
+		job.ForkBaseEpoch = uint64(baseEpoch.Int64)
+	}
+	if pendingEpoch.Valid {
+		job.PendingEpoch = uint64(pendingEpoch.Int64)
+	}
+	if completedAt.Valid {
+		job.CompletedAtMs = completedAt.Int64
+	}
+	job.LosingTreeHash = losingTreeHash
+	job.WinningCommitHash = winningCommitHash
+	job.WinningGroupInfoHash = winningGroupInfoHash
+	job.WinnerGroupInfo = winnerGroupInfo
+	job.PendingGroupState = pendingGroupState
+	job.PendingTreeHash = pendingTreeHash
+	if branchWeight.Valid {
+		job.BranchWeightJSON = branchWeight.String
+	}
+	if errMsg.Valid {
+		job.ErrorMessage = errMsg.String
+	}
+
+	return &job, nil
+}
+
+func (s *SQLiteCoordinationStorage) GetForkHealingJobByID(jobID string) (*coordination.ForkHealingJob, error) {
+	var job coordination.ForkHealingJob
+	var baseEpoch, pendingEpoch, completedAt sql.NullInt64
+	var losingTreeHash, winningCommitHash, winningGroupInfoHash, winnerGroupInfo, pendingGroupState, pendingTreeHash []byte
+	var branchWeight, errMsg sql.NullString
+
+	err := s.db.Conn.QueryRow(
+		`SELECT job_id, group_id, trace_id, status, losing_branch_id, winning_branch_id, fork_base_epoch,
+		        losing_epoch, winning_epoch, losing_tree_hash, winning_tree_hash, winning_commit_hash,
+		        winning_group_info_hash, winner_peer_id, winner_group_info, branch_weight_json,
+		        pending_group_state, pending_epoch, pending_tree_hash, error_message, retry_count,
+		        created_at_ms, updated_at_ms, completed_at_ms
+		   FROM fork_healing_job
+		  WHERE job_id = ? LIMIT 1`,
+		jobID,
+	).Scan(
+		&job.JobID, &job.GroupID, &job.TraceID, &job.Status, &job.LosingBranchID, &job.WinningBranchID, &baseEpoch,
+		&job.LosingEpoch, &job.WinningEpoch, &losingTreeHash, &job.WinningTreeHash, &winningCommitHash,
+		&winningGroupInfoHash, &job.WinnerPeerID, &winnerGroupInfo, &branchWeight,
+		&pendingGroupState, &pendingEpoch, &pendingTreeHash, &errMsg, &job.RetryCount,
+		&job.CreatedAtMs, &job.UpdatedAtMs, &completedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("GetForkHealingJobByID: %w", err)
+	}
+
+	if baseEpoch.Valid {
+		job.ForkBaseEpoch = uint64(baseEpoch.Int64)
+	}
+	if pendingEpoch.Valid {
+		job.PendingEpoch = uint64(pendingEpoch.Int64)
+	}
+	if completedAt.Valid {
+		job.CompletedAtMs = completedAt.Int64
+	}
+	job.LosingTreeHash = losingTreeHash
+	job.WinningCommitHash = winningCommitHash
+	job.WinningGroupInfoHash = winningGroupInfoHash
+	job.WinnerGroupInfo = winnerGroupInfo
+	job.PendingGroupState = pendingGroupState
+	job.PendingTreeHash = pendingTreeHash
+	if branchWeight.Valid {
+		job.BranchWeightJSON = branchWeight.String
+	}
+	if errMsg.Valid {
+		job.ErrorMessage = errMsg.String
+	}
+
+	return &job, nil
+}
+
+func (s *SQLiteCoordinationStorage) DeleteForkHealingJob(jobID string) error {
+	_, err := s.db.Conn.Exec(`DELETE FROM fork_healing_job WHERE job_id = ?`, jobID)
+	if err != nil {
+		return fmt.Errorf("DeleteForkHealingJob: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) SaveApplicationEvent(ev *coordination.ApplicationEvent) error {
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO application_event (
+			event_id, job_id, group_id, original_branch_id, original_epoch, author_id, envelope_hash,
+			payload_sealed, payload_hash, seal_key_id, seal_nonce, hlc_wall_time_ms, hlc_counter,
+			hlc_node_id, status, replay_operation_id, replayed_envelope_hash, replayed_at_ms,
+			replay_attempt_count, last_error, created_at_ms, updated_at_ms
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(event_id) DO UPDATE SET
+		 	payload_sealed = excluded.payload_sealed,
+		 	status = excluded.status,
+		 	replay_operation_id = excluded.replay_operation_id,
+		 	replayed_envelope_hash = excluded.replayed_envelope_hash,
+		 	replayed_at_ms = excluded.replayed_at_ms,
+		 	replay_attempt_count = excluded.replay_attempt_count,
+		 	last_error = excluded.last_error,
+		 	updated_at_ms = excluded.updated_at_ms`,
+		ev.EventID, ev.JobID, ev.GroupID, ev.OriginalBranchID, ev.OriginalEpoch, ev.AuthorID, ev.EnvelopeHash,
+		ev.PayloadSealed, ev.PayloadHash, ev.SealKeyID, ev.SealNonce, ev.HlcWallTimeMs, ev.HlcCounter,
+		ev.HlcNodeID, ev.Status, ev.ReplayOperationID, ev.ReplayedEnvelopeHash, ev.ReplayedAtMs,
+		ev.ReplayAttemptCount, ev.LastError, ev.CreatedAtMs, ev.UpdatedAtMs,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveApplicationEvent: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ListApplicationEvents(jobID string) ([]*coordination.ApplicationEvent, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT event_id, job_id, group_id, original_branch_id, original_epoch, author_id, envelope_hash,
+		        payload_sealed, payload_hash, seal_key_id, seal_nonce, hlc_wall_time_ms, hlc_counter,
+		        hlc_node_id, status, replay_operation_id, replayed_envelope_hash, replayed_at_ms,
+		        replay_attempt_count, last_error, created_at_ms, updated_at_ms
+		   FROM application_event
+		  WHERE job_id = ?
+		  ORDER BY hlc_wall_time_ms ASC, hlc_counter ASC`,
+		jobID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListApplicationEvents: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*coordination.ApplicationEvent
+	for rows.Next() {
+		var ev coordination.ApplicationEvent
+		var keyID, nonce, replayOpID, lastErr sql.NullString
+		var replayedEnvHash []byte
+		var replayedAtMs sql.NullInt64
+		var payloadSealed []byte
+		err := rows.Scan(
+			&ev.EventID, &ev.JobID, &ev.GroupID, &ev.OriginalBranchID, &ev.OriginalEpoch, &ev.AuthorID, &ev.EnvelopeHash,
+			&payloadSealed, &ev.PayloadHash, &keyID, &nonce, &ev.HlcWallTimeMs, &ev.HlcCounter,
+			&ev.HlcNodeID, &ev.Status, &replayOpID, &replayedEnvHash, &replayedAtMs,
+			&ev.ReplayAttemptCount, &lastErr, &ev.CreatedAtMs, &ev.UpdatedAtMs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ListApplicationEvents scan: %w", err)
+		}
+		ev.PayloadSealed = payloadSealed
+		if keyID.Valid {
+			ev.SealKeyID = keyID.String
+		}
+		if nonce.Valid {
+			ev.SealNonce = []byte(nonce.String)
+		}
+		if replayOpID.Valid {
+			ev.ReplayOperationID = replayOpID.String
+		}
+		ev.ReplayedEnvelopeHash = replayedEnvHash
+		if replayedAtMs.Valid {
+			ev.ReplayedAtMs = replayedAtMs.Int64
+		}
+		if lastErr.Valid {
+			ev.LastError = lastErr.String
+		}
+		list = append(list, &ev)
+	}
+	return list, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) UpdateApplicationEventStatus(eventID string, status string) error {
+	_, err := s.db.Conn.Exec(
+		`UPDATE application_event SET status = ?, updated_at_ms = ? WHERE event_id = ?`,
+		status, time.Now().UnixMilli(), eventID,
+	)
+	if err != nil {
+		return fmt.Errorf("UpdateApplicationEventStatus: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ClearSealedPayloads(jobID string) error {
+	_, err := s.db.Conn.Exec(
+		`UPDATE application_event 
+		    SET payload_sealed = NULL, seal_nonce = NULL, seal_key_id = NULL
+		  WHERE job_id = ?
+		    AND status IN ('REPLAYED', 'WAITING_AUTHOR_REPLAY', 'UNRECOVERABLE')`,
+		jobID,
+	)
+	if err != nil {
+		return fmt.Errorf("ClearSealedPayloads: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) SaveOutboundReplay(req *coordination.OutboundReplay) error {
+	_, err := s.db.Conn.Exec(
+		`INSERT INTO outbound_replay_queue (
+			replay_operation_id, event_id, job_id, group_id, replay_envelope,
+			replayed_envelope_hash, status, attempt_count, created_at_ms, updated_at_ms
+		 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(replay_operation_id) DO UPDATE SET
+		 	status = excluded.status,
+		 	attempt_count = excluded.attempt_count,
+		 	updated_at_ms = excluded.updated_at_ms`,
+		req.ReplayOperationID, req.EventID, req.JobID, req.GroupID, req.ReplayEnvelope,
+		req.ReplayedEnvelopeHash, req.Status, req.AttemptCount, req.CreatedAtMs, req.UpdatedAtMs,
+	)
+	if err != nil {
+		return fmt.Errorf("SaveOutboundReplay: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteCoordinationStorage) ListOutboundReplays(jobID string) ([]*coordination.OutboundReplay, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT replay_operation_id, event_id, job_id, group_id, replay_envelope,
+		        replayed_envelope_hash, status, attempt_count, created_at_ms, updated_at_ms
+		   FROM outbound_replay_queue
+		  WHERE job_id = ?`,
+		jobID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListOutboundReplays: %w", err)
+	}
+	defer rows.Close()
+
+	var list []*coordination.OutboundReplay
+	for rows.Next() {
+		var req coordination.OutboundReplay
+		err := rows.Scan(
+			&req.ReplayOperationID, &req.EventID, &req.JobID, &req.GroupID, &req.ReplayEnvelope,
+			&req.ReplayedEnvelopeHash, &req.Status, &req.AttemptCount, &req.CreatedAtMs, &req.UpdatedAtMs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ListOutboundReplays scan: %w", err)
+		}
+		list = append(list, &req)
+	}
+	return list, rows.Err()
+}
+
+func (s *SQLiteCoordinationStorage) DeleteOutboundReplaysForJob(jobID string) error {
+	_, err := s.db.Conn.Exec(`DELETE FROM outbound_replay_queue WHERE job_id = ?`, jobID)
+	if err != nil {
+		return fmt.Errorf("DeleteOutboundReplaysForJob: %w", err)
+	}
+	return nil
+}
+

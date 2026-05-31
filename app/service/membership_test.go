@@ -49,7 +49,7 @@ func (t *membershipTestTransport) ConnectedPeers() []peer.ID { return []peer.ID{
 
 type membershipTestMLSEngine struct{}
 
-func (m *membershipTestMLSEngine) CreateGroup(context.Context, string, []byte) ([]byte, []byte, error) {
+func (m *membershipTestMLSEngine) CreateGroup(context.Context, string, []byte, uint32) ([]byte, []byte, error) {
 	return []byte("state-0"), []byte("tree-0"), nil
 }
 func (m *membershipTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) (coordination.CreateProposalResult, error) {
@@ -84,7 +84,7 @@ func (m *membershipTestMLSEngine) StageCommit(context.Context, []byte, []byte, [
 func (m *membershipTestMLSEngine) ProcessCommit(context.Context, []byte, []byte, [][]byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
-func (m *membershipTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte) ([]byte, []byte, uint64, error) {
+func (m *membershipTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte, uint32) ([]byte, []byte, uint64, error) {
 	return nil, nil, 0, errors.New("not implemented")
 }
 func (m *membershipTestMLSEngine) GenerateKeyPackage(context.Context, []byte) ([]byte, []byte, error) {
@@ -108,7 +108,7 @@ func (m *membershipTestMLSEngine) EncryptMessage(context.Context, []byte, []byte
 func (m *membershipTestMLSEngine) DecryptMessage(context.Context, []byte, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
-func (m *membershipTestMLSEngine) ExternalJoin(context.Context, []byte, []byte) ([]byte, []byte, []byte, error) {
+func (m *membershipTestMLSEngine) ExternalJoin(context.Context, []byte, []byte, uint32) ([]byte, []byte, []byte, error) {
 	return nil, nil, nil, errors.New("not implemented")
 }
 func (m *membershipTestMLSEngine) ExportGroupInfo(context.Context, []byte, bool) ([]byte, error) {

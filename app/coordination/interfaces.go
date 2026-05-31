@@ -66,7 +66,7 @@ type Clock interface {
 type MLSEngine interface {
 	// CreateGroup initializes a new MLS group. The caller becomes the sole member.
 	// Returns the initial group state and tree hash.
-	CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error)
+	CreateGroup(ctx context.Context, groupID string, signingKey []byte, maxPastEpochs uint32) (groupState, treeHash []byte, err error)
 
 	// CreateProposal generates and locally stores an MLS Proposal (Add, Remove, or Update).
 	CreateProposal(ctx context.Context, groupState []byte, pType ProposalType, data []byte) (CreateProposalResult, error)
@@ -87,7 +87,7 @@ type MLSEngine interface {
 	// ProcessWelcome processes a Welcome message to join an existing group.
 	// keyPackageBundlePrivate must be the opaque blob from GenerateKeyPackage (never shared OOB).
 	// Returns the group state, tree hash, and MLS epoch at the joined state.
-	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error)
+	ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte, maxPastEpochs uint32) (groupState, treeHash []byte, epoch uint64, err error)
 
 	// GenerateKeyPackage builds a public KeyPackage and a private bundle blob for the invitee.
 	GenerateKeyPackage(ctx context.Context, signingKey []byte) (keyPackageBytes, keyPackageBundlePrivate []byte, err error)
@@ -124,7 +124,7 @@ type MLSEngine interface {
 
 	// ExternalJoin performs an external join into a group using its GroupInfo.
 	// Used during fork healing when a node on the losing branch joins the winner.
-	ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error)
+	ExternalJoin(ctx context.Context, groupInfo, signingKey []byte, maxPastEpochs uint32) (groupState, commitBytes, treeHash []byte, err error)
 
 	// ExportGroupInfo serializes a verifiable GroupInfo for the current group
 	// state, signed by the caller's signing key. Used by the winning branch
@@ -230,12 +230,19 @@ type CoordinationStorage interface {
 	// AppendEnvelope stores a raw JSON Envelope for offline replay (MsgCommit / MsgApplication only).
 	AppendEnvelope(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte) (seq int64, err error)
 
+	// AppendEnvelopeWithSource stores a raw JSON Envelope with a custom source identifier.
+	AppendEnvelopeWithSource(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte, sourcePath string) (seq int64, err error)
+
 	// MarkEnvelopeReplayState records the outcome of a replay attempt for a raw
 	// envelope row. It is best-effort for in-memory tests, but production uses it
 	// for ordered recovery diagnostics and cursor safety.
 	MarkEnvelopeReplayState(groupID string, envelopeHash []byte, state ReplayEnvelopeState, lastErr string, now time.Time) error
 
 	// GetEnvelopesSince returns envelopes with seq > afterSeq from this node's log, ordered by seq ASC.
+	GetEnvelope(envelopeHash []byte) (*EnvelopeRecord, error)
+
+	GetPendingEnvelopes(groupID string, maxCount int) ([]*EnvelopeRecord, error)
+
 	GetEnvelopesSince(groupID string, afterSeq int64, maxCount int) ([]*EnvelopeRecord, error)
 
 	GetLatestSeq(groupID string) (int64, error)
@@ -282,4 +289,34 @@ type CoordinationStorage interface {
 	ListForkHealAudit(traceID string) ([]*ForkHealAuditRecord, error)
 	// PruneForkHealHistory applies retention policy (age + per-group cap).
 	PruneForkHealHistory(cutoffUnix int64, maxPerGroup int) (removed int, err error)
+
+	// Milestone 5: Crash-safe fork healing state machine persistence
+	SaveForkHealingJob(job *ForkHealingJob) error
+	GetActiveForkHealingJob(groupID string) (*ForkHealingJob, error)
+	GetForkHealingJobByID(jobID string) (*ForkHealingJob, error)
+	DeleteForkHealingJob(jobID string) error
+	SaveApplicationEvent(ev *ApplicationEvent) error
+	ListApplicationEvents(jobID string) ([]*ApplicationEvent, error)
+	UpdateApplicationEventStatus(eventID string, status string) error
+	ClearSealedPayloads(jobID string) error
+
+	// Outbound Replay Durable Queue
+	SaveOutboundReplay(req *OutboundReplay) error
+	ListOutboundReplays(jobID string) ([]*OutboundReplay, error)
+	DeleteOutboundReplaysForJob(jobID string) error
+
+	// SavePendingOperation creates or updates a pending operation.
+	SavePendingOperation(op *PendingOperation) error
+
+	// GetPendingOperation retrieves a pending operation by ID.
+	GetPendingOperation(opID string) (*PendingOperation, error)
+
+	// ListPendingOperations returns all pending/stale operations for a group, sorted by CreatedAt ASC.
+	ListPendingOperations(groupID string) ([]*PendingOperation, error)
+
+	// GetPendingOperationByIdempotencyKey retrieves a pending operation by group ID and idempotency key.
+	GetPendingOperationByIdempotencyKey(groupID string, idempotencyKey string) (*PendingOperation, error)
+
+	// DeletePendingOperation deletes a pending operation.
+	DeletePendingOperation(opID string) error
 }

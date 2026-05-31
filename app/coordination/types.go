@@ -169,6 +169,7 @@ type AuthorizedCommittersProvider func(groupID string, epoch uint64, candidateBa
 type RemoveMemberRequest struct {
 	TargetPeerID   peer.ID
 	TargetIdentity []byte
+	OperationID    string
 }
 
 // AddMemberResult is the structured outcome of Coordinator.AddMember.
@@ -335,19 +336,30 @@ type EnvelopeRecord struct {
 	LastApplyError     string
 	LastApplyAttemptAt int64
 	AppliedAt          int64
+	FirstSeenAtMs      int64
+	ReceivedAtMs       int64
 }
 
 // ReplayEnvelopeState is the durable processing state for a raw envelope.
 type ReplayEnvelopeState string
 
 const (
-	ReplayStateApplied          ReplayEnvelopeState = "applied"
-	ReplayStateDuplicateApplied ReplayEnvelopeState = "duplicate_applied"
-	ReplayStateFutureEpoch      ReplayEnvelopeState = "future_epoch"
-	ReplayStateStaleEpoch       ReplayEnvelopeState = "stale_epoch"
-	ReplayStateDecryptFailed    ReplayEnvelopeState = "decrypt_failed"
-	ReplayStatePersistFailed    ReplayEnvelopeState = "persist_failed"
-	ReplayStateInvalid          ReplayEnvelopeState = "invalid"
+	ReplayStateReceived                     ReplayEnvelopeState = "RECEIVED"
+	ReplayStateReady                        ReplayEnvelopeState = "READY"
+	ReplayStateApplied                      ReplayEnvelopeState = "APPLIED"
+	ReplayStateDuplicateApplied             ReplayEnvelopeState = "DUPLICATE"
+	ReplayStateFutureEpoch                  ReplayEnvelopeState = "FUTURE_EPOCH"
+	ReplayStateStaleEpoch                   ReplayEnvelopeState = "STALE_EPOCH"
+	ReplayStateDecryptFailed                ReplayEnvelopeState = "DECRYPT_FAILED"
+	ReplayStatePersistFailed                ReplayEnvelopeState = "PERSIST_FAILED"
+	ReplayStateInvalid                      ReplayEnvelopeState = "INVALID"
+	ReplayStateBlockedMissingPriorEpoch     ReplayEnvelopeState = "BLOCKED_MISSING_PRIOR_EPOCH"
+	ReplayStateBlockedMissingCommit         ReplayEnvelopeState = "BLOCKED_MISSING_COMMIT"
+	ReplayStateBlockedStaleRequiresSnapshot  ReplayEnvelopeState = "BLOCKED_STALE_REQUIRES_SNAPSHOT"
+	ReplayStateBlockedDecryptFailed         ReplayEnvelopeState = "BLOCKED_DECRYPT_FAILED"
+	ReplayStateForkConflict                 ReplayEnvelopeState = "FORK_CONFLICT"
+	ReplayStateWaitingSync                  ReplayEnvelopeState = "WAITING_SYNC"
+	ReplayStateTerminalDroppedWithReason    ReplayEnvelopeState = "TERMINAL_DROPPED_WITH_REASON"
 )
 
 // ReplayEnvelopeResult describes one replay attempt.
@@ -406,7 +418,15 @@ type ForkHealAuditRecord struct {
 	Error       string
 }
 
-// ─── Enum Types ──────────────────────────────────────────────────────────────
+// GroupOperationalMode is the operation mode for coordination message sync.
+type GroupOperationalMode string
+
+const (
+	ModeLive             GroupOperationalMode = "LIVE"
+	ModeCatchingUp       GroupOperationalMode = "CATCHING_UP"
+	ModeFrozen           GroupOperationalMode = "FROZEN"
+	ModeFrozenForApply   GroupOperationalMode = "FROZEN_FOR_APPLY"
+)
 
 // ProposalType identifies the kind of MLS Proposal.
 type ProposalType int
@@ -455,3 +475,89 @@ var (
 	ErrInvalidConfig  = errors.New("coordination: invalid configuration")
 	ErrAccessRevoked  = errors.New("coordination: local membership revoked")
 )
+
+// PendingOperation represents a durable business-level user intention.
+type PendingOperation struct {
+	OperationID             string
+	GroupID                 string
+	OpType                  string // 'ADD_MEMBER', 'REMOVE_MEMBER', 'ROTATE_KEY', 'METADATA_CHANGE'
+	IdempotencyKey          *string
+	OperationHash           []byte
+	PreconditionEpoch       *uint64
+	PreconditionStateHash   []byte
+	TargetMemberID          *string
+	SemanticPayload         []byte
+	LatestProposalHash      []byte
+	Status                  string // 'PENDING', 'PROPOSED', 'COMMITTED', 'SATISFIED_BY_OTHER', 'SUPERSEDED', etc.
+	RetryCount              int
+	ExpiresAt               *int64
+	LastError               *string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+// Milestone 5: Crash-safe fork healing state machine tracking structures.
+type ForkHealingJob struct {
+	JobID                 string
+	GroupID               string
+	TraceID               string
+	Status                string // 'INITIATED', 'SNAPSHOT_CREATED', 'EXTERNAL_JOINED', 'STATE_SWAPPED', 'LOCAL_COMPLETE', 'CLEANED'
+	LosingBranchID        string
+	WinningBranchID       string
+	ForkBaseEpoch         uint64
+	LosingEpoch           uint64
+	WinningEpoch          uint64
+	LosingTreeHash        []byte
+	WinningTreeHash       []byte
+	WinningCommitHash     []byte
+	WinningGroupInfoHash  []byte
+	WinnerPeerID          string
+	WinnerGroupInfo       []byte
+	BranchWeightJSON      string
+	PendingGroupState     []byte
+	PendingEpoch          uint64
+	PendingTreeHash       []byte
+	ErrorMessage          string
+	RetryCount            int
+	CreatedAtMs           int64
+	UpdatedAtMs           int64
+	CompletedAtMs         int64
+}
+
+type ApplicationEvent struct {
+	EventID              string
+	JobID                string
+	GroupID              string
+	OriginalBranchID     string
+	OriginalEpoch        uint64
+	AuthorID             string
+	EnvelopeHash         []byte
+	PayloadSealed        []byte // local sealed ciphertext (AES-GCM)
+	PayloadHash          []byte // SHA-256 of raw plaintext
+	SealKeyID            string
+	SealNonce            []byte
+	HlcWallTimeMs        int64
+	HlcCounter           uint32
+	HlcNodeID            string
+	Status               string // 'ORPHANED_OWN', 'ORPHANED_OTHER', 'REPLAY_PENDING', 'REPLAYED', 'REPLAY_FAILED', 'WAITING_AUTHOR_REPLAY', 'UNRECOVERABLE'
+	ReplayOperationID    string
+	ReplayedEnvelopeHash []byte
+	ReplayedAtMs         int64
+	ReplayAttemptCount   int
+	LastError            string
+	CreatedAtMs          int64
+	UpdatedAtMs          int64
+}
+
+type OutboundReplay struct {
+	ReplayOperationID    string
+	EventID              string
+	JobID                string
+	GroupID              string
+	ReplayEnvelope       []byte
+	ReplayedEnvelopeHash []byte
+	Status               string // 'ENQUEUED' | 'BROADCASTED' | 'FAILED'
+	AttemptCount         int
+	CreatedAtMs          int64
+	UpdatedAtMs          int64
+}

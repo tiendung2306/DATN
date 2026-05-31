@@ -33,7 +33,7 @@ type blockingCreateGroupEngine struct {
 	started chan struct{}
 }
 
-func (b *blockingCreateGroupEngine) CreateGroup(ctx context.Context, _ string, _ []byte) ([]byte, []byte, error) {
+func (b *blockingCreateGroupEngine) CreateGroup(ctx context.Context, _ string, _ []byte, _ uint32) ([]byte, []byte, error) {
 	select {
 	case <-b.started:
 	default:
@@ -478,7 +478,7 @@ func TestCoordinator_ReplayEnvelopes_DeduplicatesDuplicateApplication(t *testing
 }
 
 func TestCoordinator_ReplayEnvelopesDetailed_FutureEpochApplication(t *testing.T) {
-	nodes, _, _ := setupCluster(t, 2, "grp-future-replay")
+	nodes, _, clk := setupCluster(t, 2, "grp-future-replay")
 	createAndShareGroup(t, nodes)
 	startAll(t, nodes)
 
@@ -492,7 +492,7 @@ func TestCoordinator_ReplayEnvelopesDetailed_FutureEpochApplication(t *testing.T
 		Epoch:   nodes[1].coord.CurrentEpoch() + 1,
 		From:    nodes[0].id.String(),
 		Timestamp: HLCTimestamp{
-			WallTimeMs: time.Now().UnixMilli(),
+			WallTimeMs: clk.Now().UnixMilli(),
 			NodeID:     nodes[0].id.String(),
 		},
 		Payload: payload,
@@ -1828,5 +1828,223 @@ func TestCoordinator_StaleProposal_ResendAndCommit(t *testing.T) {
 		if n.coord.CurrentEpoch() != 2 {
 			t.Errorf("Node %s: expected final epoch 2, got %d", n.id, n.coord.CurrentEpoch())
 		}
+	}
+}
+
+func TestCoordinator_DurablePendingOperationLog(t *testing.T) {
+	// Setup a 3-node cluster
+	nodes, network, _ := setupCluster(t, 3, "grp-pending-ops")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Bob is the Token Holder, Alice is nodeA, Charlie is nodeC
+	var holderB, nodeA, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderB = n
+			break
+		}
+	}
+	if holderB == nil {
+		t.Fatal("no token holder found")
+	}
+
+	var siblings []*testNode
+	for _, n := range nodes {
+		if n.id != holderB.id {
+			siblings = append(siblings, n)
+		}
+	}
+	nodeA = siblings[0]
+	nodeC = siblings[1]
+
+	// 1. Partition Alice from Bob so Alice's proposal doesn't reach Bob yet
+	network.Partition([]peer.ID{nodeA.id}, []peer.ID{holderB.id, nodeC.id})
+
+	// Alice (non-holder) proposes Add Dave
+	davePeerID := peer.ID("dave-peer-id")
+	fakeKeyPackage := []byte("dave-key-package")
+	fakeKpHash := []byte("dave-kp-hash")
+
+	res, err := nodeA.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    davePeerID,
+		KeyPackageBytes: fakeKeyPackage,
+		KeyPackageHash:  fakeKpHash,
+		OperationID:     "op-add-dave",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Deferred {
+		t.Fatal("expected AddMember on non-holder to be deferred")
+	}
+
+	// Verify operation logged as PROPOSED in Alice's storage
+	op, err := nodeA.storage.GetPendingOperation("op-add-dave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Status != "PROPOSED" {
+		t.Fatalf("expected op status PROPOSED, got %s", op.Status)
+	}
+
+	// 2. Charlie concurrently proposes update, which Bob processes and commits
+	if err := nodeC.coord.ProposeUpdate([]byte("charlie-pcs")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drain network between Bob and Charlie to advance them to Epoch 1
+	network.DrainAll()
+
+	// Alice is still at Epoch 0 because she is partitioned
+	if nodeA.coord.CurrentEpoch() != 0 {
+		t.Fatalf("Alice should still be at epoch 0, got %d", nodeA.coord.CurrentEpoch())
+	}
+
+	// Get Bob's commit envelope from Bob's storage to manually deliver it to Alice
+	envs, err := holderB.storage.GetEnvelopesSince(holderB.coord.groupID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var commitEnv *EnvelopeRecord
+	for _, env := range envs {
+		if env.MsgType == MsgCommit && env.Epoch == 0 {
+			commitEnv = env
+			break
+		}
+	}
+	if commitEnv == nil {
+		t.Fatal("expected Bob's commit envelope in storage")
+	}
+
+	// Heal partition
+	network.Heal()
+	exchangeHeartbeats(nodes, network)
+
+	// Manually deliver Bob's commit to Alice so Alice's coordinator receives and processes it,
+	// advancing to Epoch 1 and triggering automatic rebase of Alice's pending Dave-Add proposal!
+	nodeA.coord.ReceiveDirectMessage(holderB.id, commitEnv.Envelope)
+
+	// Drain network: delivers Alice's rebase proposal to Bob, Bob auto-commits it,
+	// and Bob's commit is broadcast.
+	network.DrainAll()
+
+	// Drain network again: Bob's new commit is delivered to all nodes,
+	// advancing the entire group to Epoch 2!
+	network.DrainAll()
+
+	for _, n := range nodes {
+		if n.coord.CurrentEpoch() != 2 {
+			t.Errorf("Node %s: expected final epoch 2, got %d", n.id, n.coord.CurrentEpoch())
+		}
+	}
+
+	// Verify Alice's op was indeed rebased at Epoch 1 and is now COMMITTED!
+	op, err = nodeA.storage.GetPendingOperation("op-add-dave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Status != "COMMITTED" {
+		t.Fatalf("expected op status COMMITTED, got %s", op.Status)
+	}
+	if *op.PreconditionEpoch != 1 {
+		t.Fatalf("expected precondition epoch 1, got %d", *op.PreconditionEpoch)
+	}
+	if op.RetryCount != 1 {
+		t.Fatalf("expected retry count 1, got %d", op.RetryCount)
+	}
+}
+
+func TestCoordinator_DurablePendingOperationLog_SatisfiedByOther(t *testing.T) {
+	// Setup a 3-node cluster
+	nodes, network, _ := setupCluster(t, 3, "grp-satisfied-by-other")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	// Bob is Token Holder, Alice is nodeA, Charlie is nodeC
+	var holderB, nodeA, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderB = n
+			break
+		}
+	}
+	if holderB == nil {
+		t.Fatal("no token holder found")
+	}
+
+	var siblings []*testNode
+	for _, n := range nodes {
+		if n.id != holderB.id {
+			siblings = append(siblings, n)
+		}
+	}
+	nodeA = siblings[0]
+	nodeC = siblings[1]
+
+	// Partition Alice from Bob so Alice's Dave-Add does not reach Bob
+	network.Partition([]peer.ID{nodeA.id}, []peer.ID{holderB.id, nodeC.id})
+
+	// Alice proposes Add Dave
+	davePeerID := peer.ID("dave-peer-id")
+	fakeKeyPackage := []byte("dave-key-package")
+	fakeKpHash := []byte("dave-kp-hash")
+
+	_, err := nodeA.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    davePeerID,
+		KeyPackageBytes: fakeKeyPackage,
+		KeyPackageHash:  fakeKpHash,
+		OperationID:     "op-alice-add-dave",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Charlie concurrently also proposes Add Dave (which does reach Bob)
+	_, err = nodeC.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    davePeerID,
+		KeyPackageBytes: fakeKeyPackage,
+		KeyPackageHash:  fakeKpHash,
+		OperationID:     "op-charlie-add-dave",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bob commits Charlie's proposal first, advancing Bob and Charlie to Epoch 1.
+	network.DrainAll()
+
+	// Get Bob's commit envelope from Bob's storage to manually deliver it to Alice
+	envs, err := holderB.storage.GetEnvelopesSince(holderB.coord.groupID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var commitEnv *EnvelopeRecord
+	for _, env := range envs {
+		if env.MsgType == MsgCommit && env.Epoch == 0 {
+			commitEnv = env
+			break
+		}
+	}
+	if commitEnv == nil {
+		t.Fatal("expected Bob's commit envelope in storage")
+	}
+
+	// Heal partition
+	network.Heal()
+	exchangeHeartbeats(nodes, network)
+
+	// Manually deliver Bob's commit containing Charlie's Dave-Add to Alice.
+	// Since Dave has been added by Charlie, Alice's local pending op should transition to SATISFIED_BY_OTHER!
+	nodeA.coord.ReceiveDirectMessage(holderB.id, commitEnv.Envelope)
+
+	op, err := nodeA.storage.GetPendingOperation("op-alice-add-dave")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Status != "SATISFIED_BY_OTHER" {
+		t.Fatalf("expected status SATISFIED_BY_OTHER, got %s", op.Status)
 	}
 }

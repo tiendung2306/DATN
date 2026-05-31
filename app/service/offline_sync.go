@@ -290,9 +290,10 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 			}
 			result := results[0]
 			switch result.State {
-			case coordination.ReplayStateApplied, coordination.ReplayStateDuplicateApplied:
+			case coordination.ReplayStateApplied, coordination.ReplayStateDuplicateApplied,
+				coordination.ReplayStateBlockedStaleRequiresSnapshot, coordination.ReplayStateBlockedDecryptFailed:
 				lastSuccessSeq = e.Seq
-			case coordination.ReplayStateFutureEpoch:
+			case coordination.ReplayStateBlockedMissingPriorEpoch, coordination.ReplayStateFutureEpoch:
 				slog.Info("offline-sync: stopped at future epoch envelope",
 					"group", gid,
 					"seq", e.Seq,

@@ -13,7 +13,7 @@ type groupInfoTestMLSEngine struct {
 	exportFn func(groupState []byte, withRatchetTree bool) ([]byte, error)
 }
 
-func (m *groupInfoTestMLSEngine) CreateGroup(context.Context, string, []byte) ([]byte, []byte, error) {
+func (m *groupInfoTestMLSEngine) CreateGroup(context.Context, string, []byte, uint32) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
 func (m *groupInfoTestMLSEngine) CreateProposal(context.Context, []byte, coordination.ProposalType, []byte) (coordination.CreateProposalResult, error) {
@@ -31,7 +31,7 @@ func (m *groupInfoTestMLSEngine) StageCommit(context.Context, []byte, []byte, []
 func (m *groupInfoTestMLSEngine) ProcessCommit(context.Context, []byte, []byte, [][]byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
-func (m *groupInfoTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte) ([]byte, []byte, uint64, error) {
+func (m *groupInfoTestMLSEngine) ProcessWelcome(context.Context, []byte, []byte, []byte, uint32) ([]byte, []byte, uint64, error) {
 	return nil, nil, 0, errors.New("not implemented")
 }
 func (m *groupInfoTestMLSEngine) GenerateKeyPackage(context.Context, []byte) ([]byte, []byte, error) {
@@ -55,7 +55,7 @@ func (m *groupInfoTestMLSEngine) EncryptMessage(context.Context, []byte, []byte)
 func (m *groupInfoTestMLSEngine) DecryptMessage(context.Context, []byte, []byte) ([]byte, []byte, error) {
 	return nil, nil, errors.New("not implemented")
 }
-func (m *groupInfoTestMLSEngine) ExternalJoin(context.Context, []byte, []byte) ([]byte, []byte, []byte, error) {
+func (m *groupInfoTestMLSEngine) ExternalJoin(context.Context, []byte, []byte, uint32) ([]byte, []byte, []byte, error) {
 	return nil, nil, nil, errors.New("not implemented")
 }
 func (m *groupInfoTestMLSEngine) ExportGroupInfo(_ context.Context, groupState []byte, withRatchetTree bool) ([]byte, error) {

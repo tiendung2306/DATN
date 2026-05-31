@@ -111,6 +111,7 @@ enum MlsProposalType {
 message CreateGroupRequest {
   string group_id = 1;
   bytes signing_key = 2;
+  uint32 max_past_epochs = 3; // Milestone 2: Past epochs key retention policy
 }
 
 message CreateGroupResponse {
@@ -184,6 +185,7 @@ message ProcessWelcomeRequest {
   bytes signing_key = 2;
   // Same blob returned from GenerateKeyPackage.key_package_bundle_private
   bytes key_package_bundle_private = 3;
+  uint32 max_past_epochs = 4; // Milestone 2: Past epochs key retention policy
 }
 
 message ProcessWelcomeResponse {
@@ -215,6 +217,7 @@ message DecryptMessageResponse {
 message ExternalJoinRequest {
   bytes group_info = 1;
   bytes signing_key = 2;
+  uint32 max_past_epochs = 3; // Milestone 2: Past epochs key retention policy
 }
 
 message ExternalJoinResponse {

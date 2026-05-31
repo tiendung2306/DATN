@@ -775,7 +775,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		return fmt.Errorf("get MLS identity: %w", err)
 	}
 
-	groupState, treeHash, epoch, err := r.mlsEngine.ProcessWelcome(context.Background(), welcomeRaw, identity.SigningKeyPrivate, bundleRaw)
+	groupState, treeHash, epoch, err := r.mlsEngine.ProcessWelcome(context.Background(), welcomeRaw, identity.SigningKeyPrivate, bundleRaw, coordination.DefaultConfig().GetMaxPastEpochs())
 	if err != nil {
 		return err
 	}

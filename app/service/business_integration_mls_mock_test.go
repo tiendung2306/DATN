@@ -86,7 +86,7 @@ func cloneBytesListForService(in [][]byte) [][]byte {
 
 var _ coordination.MLSEngine = (*businessIntegrationMLSMock)(nil)
 
-func (m *businessIntegrationMLSMock) CreateGroup(_ context.Context, groupID string, _ []byte) ([]byte, []byte, error) {
+func (m *businessIntegrationMLSMock) CreateGroup(_ context.Context, groupID string, _ []byte, _ uint32) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
@@ -174,7 +174,7 @@ func (m *businessIntegrationMLSMock) ProcessCommit(_ context.Context, groupState
 	return newStateBytes, newTH, nil
 }
 
-func (m *businessIntegrationMLSMock) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []byte) ([]byte, []byte, uint64, error) {
+func (m *businessIntegrationMLSMock) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []byte, _ uint32) ([]byte, []byte, uint64, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, 0, err
 	}
@@ -275,7 +275,7 @@ func (m *businessIntegrationMLSMock) DecryptMessage(_ context.Context, groupStat
 	return ciphertext, groupState, nil
 }
 
-func (m *businessIntegrationMLSMock) ExternalJoin(_ context.Context, groupInfo, _ []byte) ([]byte, []byte, []byte, error) {
+func (m *businessIntegrationMLSMock) ExternalJoin(_ context.Context, groupInfo, _ []byte, _ uint32) ([]byte, []byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, nil, err
 	}

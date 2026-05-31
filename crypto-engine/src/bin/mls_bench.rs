@@ -208,7 +208,7 @@ fn build_group_state(n: usize) -> Result<Vec<u8>, String> {
     }
     let creator = generate_identity()?;
     let group_id = format!("bench-{n}");
-    let mut state = create_group(&group_id, &creator.signing_key_private)?.group_state;
+    let mut state = create_group(&group_id, &creator.signing_key_private, 3)?.group_state;
     let mut key_packages = Vec::with_capacity(n.saturating_sub(1));
     for _ in 1..n {
         let identity = generate_identity()?;

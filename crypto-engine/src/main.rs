@@ -107,7 +107,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<CreateGroupRequest>,
     ) -> Result<Response<CreateGroupResponse>, Status> {
         let req = request.into_inner();
-        match mls::create_group(&req.group_id, &req.signing_key) {
+        match mls::create_group(&req.group_id, &req.signing_key, req.max_past_epochs) {
             Ok(result) => Ok(Response::new(CreateGroupResponse {
                 group_state: result.group_state,
                 tree_hash: result.tree_hash,
@@ -225,6 +225,7 @@ impl MlsCryptoService for MyMlsService {
             &req.welcome_bytes,
             &req.signing_key,
             &req.key_package_bundle_private,
+            req.max_past_epochs,
         ) {
             Ok(result) => Ok(Response::new(ProcessWelcomeResponse {
                 group_state: result.group_state,
@@ -277,7 +278,7 @@ impl MlsCryptoService for MyMlsService {
         request: Request<ExternalJoinRequest>,
     ) -> Result<Response<ExternalJoinResponse>, Status> {
         let req = request.into_inner();
-        match mls::external_join(&req.group_info, &req.signing_key) {
+        match mls::external_join(&req.group_info, &req.signing_key, req.max_past_epochs) {
             Ok(result) => Ok(Response::new(ExternalJoinResponse {
                 group_state: result.group_state,
                 commit_bytes: result.commit_bytes,

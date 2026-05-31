@@ -1,9 +1,9 @@
 package service
 
 import (
-	"encoding/hex"
 	"log/slog"
 	"sync"
+	"time"
 
 	"app/coordination"
 
@@ -43,6 +43,16 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 	newEnvelopesApplied := 0
 	hasPendingEnvelopes := false
 
+	// 1. Chuyển sang CATCHING_UP mode để cô lập live gossip
+	coord.SetOperationalMode(coordination.ModeCatchingUp)
+	slog.Info("recovery-replay: group operational mode changed to CATCHING_UP", "group", groupID, "reason", reason)
+
+	defer func() {
+		// 4. Chuyển về LIVE khi replay xong hoặc dừng lại
+		coord.SetOperationalMode(coordination.ModeLive)
+		slog.Info("recovery-replay: group operational mode restored to LIVE", "group", groupID, "reason", reason)
+	}()
+
 	for {
 		records, err := cs.GetPendingEnvelopes(groupID, 100)
 		if err != nil {
@@ -65,27 +75,50 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				break
 			}
 			result := results[0]
-			if result.State == coordination.ReplayStateApplied {
+
+			switch result.State {
+			case coordination.ReplayStateApplied:
 				newEnvelopesApplied++
 				progressed = true
-				continue
-			}
-			if result.State == coordination.ReplayStateDuplicateApplied || result.State == coordination.ReplayStateStaleEpoch {
+
+			case coordination.ReplayStateDuplicateApplied:
 				progressed = true
-				continue
+
+			case coordination.ReplayStateStaleEpoch:
+				// Milestone 1.2: Không bao giờ coi stale là success
+				err := cs.MarkEnvelopeReplayState(groupID, rec.EnvelopeHash, coordination.ReplayStateBlockedStaleRequiresSnapshot, "stale_epoch_requires_recovery_snapshot", time.Now())
+				if err != nil {
+					slog.Warn("recovery-replay: failed to mark stale envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
+				}
+				progressed = true
+
+			case coordination.ReplayStateDecryptFailed:
+				err := cs.MarkEnvelopeReplayState(groupID, rec.EnvelopeHash, coordination.ReplayStateBlockedDecryptFailed, "decrypt_failed_or_missing_past_key", time.Now())
+				if err != nil {
+					slog.Warn("recovery-replay: failed to mark decrypt failed envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
+				}
+				progressed = true
+
+			case coordination.ReplayStateFutureEpoch:
+				// Gặp tin nhắn của Epoch tương lai -> bị chặn tạm thời cho đến khi có commit
+				err := cs.MarkEnvelopeReplayState(groupID, rec.EnvelopeHash, coordination.ReplayStateBlockedMissingPriorEpoch, "future_epoch_missing_prior_commit", time.Now())
+				if err != nil {
+					slog.Warn("recovery-replay: failed to mark future envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
+				}
+				// Không tiến thêm được nữa vì missing prior commit
+				progressed = false
+
+			default:
+				err := cs.MarkEnvelopeReplayState(groupID, rec.EnvelopeHash, coordination.ReplayStateBlockedDecryptFailed, string(result.State), time.Now())
+				if err != nil {
+					slog.Warn("recovery-replay: failed to mark envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
+				}
+				progressed = false
 			}
-			slog.Warn("recovery-replay: stopped on unapplied envelope",
-				"group", groupID,
-				"seq", rec.Seq,
-				"source_path", rec.SourcePath,
-				"reason", reason,
-				"state", result.State,
-				"envelope_hash", hex.EncodeToString(result.EnvelopeHash),
-				"msg_epoch", result.MsgEpoch,
-				"local_epoch", result.LocalEpoch,
-				"err", result.Error,
-			)
-			break
+
+			if !progressed {
+				break
+			}
 		}
 		if !progressed {
 			break

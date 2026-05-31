@@ -87,6 +87,48 @@ type CoordinatorConfig struct {
 	// coordinator attempts for one outstanding application envelope before giving
 	// up and waiting for a future reconnect/offline-sync repair.
 	ApplicationDirectRetryLimit int
+
+	// RetentionMode controls the secret key retention policy.
+	// STRICT_SECURITY (max_past_epochs = 0, age = 0)
+	// BALANCED (max_past_epochs = 3, age = 5m) [default]
+	// HIGH_AVAILABILITY (max_past_epochs = 10, age = 1h)
+	RetentionMode MLSRetentionMode
+}
+
+type MLSRetentionMode string
+
+const (
+	RetentionStrictSecurity    MLSRetentionMode = "STRICT_SECURITY"
+	RetentionBalanced          MLSRetentionMode = "BALANCED"
+	RetentionHighAvailability MLSRetentionMode = "HIGH_AVAILABILITY"
+)
+
+// GetMaxPastEpochs returns the OpenMLS past epoch secret tree key retention limit.
+func (c *CoordinatorConfig) GetMaxPastEpochs() uint32 {
+	switch c.RetentionMode {
+	case RetentionStrictSecurity:
+		return 0
+	case RetentionHighAvailability:
+		return 10
+	case RetentionBalanced:
+		fallthrough
+	default:
+		return 3
+	}
+}
+
+// GetMaxPastAgeSeconds returns the maximum causal age allowed for processing old messages in Go.
+func (c *CoordinatorConfig) GetMaxPastAgeSeconds() int64 {
+	switch c.RetentionMode {
+	case RetentionStrictSecurity:
+		return 0
+	case RetentionHighAvailability:
+		return 3600 // 1 hour
+	case RetentionBalanced:
+		fallthrough
+	default:
+		return 300 // 5 minutes
+	}
 }
 
 // DefaultConfig returns production-ready defaults optimized for LAN/intranet
@@ -109,6 +151,7 @@ func DefaultConfig() *CoordinatorConfig {
 		MLSOperationTimeout:         20 * time.Second,
 		ApplicationAckTimeout:       10 * time.Second,
 		ApplicationDirectRetryLimit: 2,
+		RetentionMode:               RetentionBalanced,
 	}
 }
 
@@ -133,6 +176,7 @@ func TestConfig() *CoordinatorConfig {
 		MLSOperationTimeout:         250 * time.Millisecond,
 		ApplicationAckTimeout:       50 * time.Millisecond,
 		ApplicationDirectRetryLimit: 2,
+		RetentionMode:               RetentionBalanced,
 	}
 }
 

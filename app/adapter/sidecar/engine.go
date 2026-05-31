@@ -34,10 +34,11 @@ func requireNonEmptyState(rpcName, fieldName string, value []byte) ([]byte, erro
 	return value, nil
 }
 
-func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signingKey []byte) (groupState, treeHash []byte, err error) {
+func (g *GrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, signingKey []byte, maxPastEpochs uint32) (groupState, treeHash []byte, err error) {
 	resp, err := g.client.CreateGroup(ctx, &mls_service.CreateGroupRequest{
-		GroupId:    groupID,
-		SigningKey: truncateSigningKey(signingKey),
+		GroupId:       groupID,
+		SigningKey:    truncateSigningKey(signingKey),
+		MaxPastEpochs: maxPastEpochs,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("grpc CreateGroup: %w", err)
@@ -142,11 +143,12 @@ func (g *GrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, co
 	return newGroupState, resp.GetNewTreeHash(), nil
 }
 
-func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte) (groupState, treeHash []byte, epoch uint64, err error) {
+func (g *GrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, signingKey, keyPackageBundlePrivate []byte, maxPastEpochs uint32) (groupState, treeHash []byte, epoch uint64, err error) {
 	resp, err := g.client.ProcessWelcome(ctx, &mls_service.ProcessWelcomeRequest{
 		WelcomeBytes:            welcomeBytes,
 		SigningKey:              truncateSigningKey(signingKey),
 		KeyPackageBundlePrivate: keyPackageBundlePrivate,
+		MaxPastEpochs:           maxPastEpochs,
 	})
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("grpc ProcessWelcome: %w", err)
@@ -249,10 +251,11 @@ func (g *GrpcMLSEngine) DecryptMessage(ctx context.Context, groupState []byte, c
 	return resp.GetPlaintext(), newGroupState, nil
 }
 
-func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey []byte) (groupState, commitBytes, treeHash []byte, err error) {
+func (g *GrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signingKey []byte, maxPastEpochs uint32) (groupState, commitBytes, treeHash []byte, err error) {
 	resp, err := g.client.ExternalJoin(ctx, &mls_service.ExternalJoinRequest{
-		GroupInfo:  groupInfo,
-		SigningKey: truncateSigningKey(signingKey),
+		GroupInfo:     groupInfo,
+		SigningKey:    truncateSigningKey(signingKey),
+		MaxPastEpochs: maxPastEpochs,
 	})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("grpc ExternalJoin: %w", err)

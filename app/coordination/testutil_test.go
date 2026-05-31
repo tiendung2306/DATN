@@ -311,7 +311,7 @@ func mockTreeHash(epoch uint64) []byte {
 	return h[:]
 }
 
-func (m *MockMLSEngine) CreateGroup(_ context.Context, groupID string, creatorKey []byte) ([]byte, []byte, error) {
+func (m *MockMLSEngine) CreateGroup(_ context.Context, groupID string, creatorKey []byte, _ uint32) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
@@ -437,7 +437,7 @@ func (m *MockMLSEngine) ProcessCommit(_ context.Context, groupState, commitBytes
 	return newStateBytes, newTH, nil
 }
 
-func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []byte) ([]byte, []byte, uint64, error) {
+func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []byte, _ uint32) ([]byte, []byte, uint64, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, 0, err
 	}
@@ -582,7 +582,7 @@ func (m *MockMLSEngine) DecryptMessage(_ context.Context, groupState, ciphertext
 	return cipher.Plaintext, groupState, nil
 }
 
-func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, creatorKey []byte) ([]byte, []byte, []byte, error) {
+func (m *MockMLSEngine) ExternalJoin(_ context.Context, groupInfo, creatorKey []byte, _ uint32) ([]byte, []byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, nil, err
 	}
@@ -666,6 +666,11 @@ type MockStorage struct {
 	nextEnvID  map[string]int64 // groupID -> next seq
 	healEvents []*ForkHealEventRecord
 	healAudit  []*ForkHealAuditRecord
+	pendingOps map[string]*PendingOperation // opID -> PendingOperation
+
+	forkHealingJobs   map[string]*ForkHealingJob
+	applicationEvents map[string]*ApplicationEvent // eventID -> Event
+	outboundReplays   map[string]*OutboundReplay
 
 	failApplyCommitOnce      bool
 	failApplyApplicationOnce bool
@@ -675,13 +680,17 @@ var _ CoordinationStorage = (*MockStorage)(nil)
 
 func NewMockStorage() *MockStorage {
 	return &MockStorage{
-		groups:     make(map[string]*GroupRecord),
-		coords:     make(map[string]*CoordState),
-		envByGroup: make(map[string][]*EnvelopeRecord),
-		appliedEnv: make(map[string]map[string]struct{}),
-		syncAcks:   make(map[string]map[string]int64),
-		pullCursor: make(map[string]int64),
-		nextEnvID:  make(map[string]int64),
+		groups:            make(map[string]*GroupRecord),
+		coords:            make(map[string]*CoordState),
+		envByGroup:        make(map[string][]*EnvelopeRecord),
+		appliedEnv:        make(map[string]map[string]struct{}),
+		syncAcks:          make(map[string]map[string]int64),
+		pullCursor:        make(map[string]int64),
+		nextEnvID:         make(map[string]int64),
+		pendingOps:        make(map[string]*PendingOperation),
+		forkHealingJobs:   make(map[string]*ForkHealingJob),
+		applicationEvents: make(map[string]*ApplicationEvent),
+		outboundReplays:   make(map[string]*OutboundReplay),
 	}
 }
 
@@ -800,6 +809,15 @@ func (s *MockStorage) HasAppliedEnvelope(groupID string, envelopeHash []byte) (b
 	return ok, nil
 }
 
+func (s *MockStorage) ClearAppliedEnvelope(groupID string, envelopeHash []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(envelopeHash) == 0 || s.appliedEnv[groupID] == nil {
+		return
+	}
+	delete(s.appliedEnv[groupID], string(envelopeHash))
+}
+
 func (s *MockStorage) MarkEnvelopeApplied(groupID string, msgType MessageType, epoch uint64, envelopeHash []byte) error {
 	_ = msgType
 	_ = epoch
@@ -862,6 +880,7 @@ func (s *MockStorage) ApplyCommit(rec *GroupRecord, msgType MessageType, envelop
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
 		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: envEpoch, Envelope: envelope, Timestamp: ts,
 		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
+		FirstSeenAtMs: time.Now().UnixMilli(), ReceivedAtMs: time.Now().UnixMilli(),
 	})
 	return true, seq, nil
 }
@@ -889,6 +908,7 @@ func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msg
 	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
 		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: envEpoch, Envelope: envelope, Timestamp: ts,
 		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
+		FirstSeenAtMs: time.Now().UnixMilli(), ReceivedAtMs: time.Now().UnixMilli(),
 	})
 	return true, seq, nil
 }
@@ -1002,8 +1022,9 @@ func (s *MockStorage) AppendEnvelope(groupID string, msgType MessageType, epoch 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	hash := sha256.Sum256(envelope)
-	for _, rec := range s.envByGroup[groupID] {
-		if bytes.Equal(rec.EnvelopeHash, hash[:]) {
+	for _, r := range s.envByGroup[groupID] {
+		if bytes.Equal(r.EnvelopeHash, hash[:]) {
+			r.ReceivedAtMs = time.Now().UnixMilli()
 			return 0, nil
 		}
 	}
@@ -1013,6 +1034,29 @@ func (s *MockStorage) AppendEnvelope(groupID string, msgType MessageType, epoch 
 		Seq: seq, GroupID: groupID, MsgType: msgType, Epoch: epoch,
 		Envelope: envelope, Timestamp: ts, EnvelopeHash: hash[:],
 		SourcePath: "local", ApplyState: "pending",
+		FirstSeenAtMs: time.Now().UnixMilli(), ReceivedAtMs: time.Now().UnixMilli(),
+	}
+	s.envByGroup[groupID] = append(s.envByGroup[groupID], rec)
+	return seq, nil
+}
+
+func (s *MockStorage) AppendEnvelopeWithSource(groupID string, msgType MessageType, epoch uint64, ts HLCTimestamp, envelope []byte, sourcePath string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	hash := sha256.Sum256(envelope)
+	for _, r := range s.envByGroup[groupID] {
+		if bytes.Equal(r.EnvelopeHash, hash[:]) {
+			r.ReceivedAtMs = time.Now().UnixMilli()
+			return 0, nil
+		}
+	}
+	s.nextEnvID[groupID]++
+	seq := s.nextEnvID[groupID]
+	rec := &EnvelopeRecord{
+		Seq: seq, GroupID: groupID, MsgType: msgType, Epoch: epoch,
+		Envelope: envelope, Timestamp: ts, EnvelopeHash: hash[:],
+		SourcePath: sourcePath, ApplyState: "pending",
+		FirstSeenAtMs: time.Now().UnixMilli(), ReceivedAtMs: time.Now().UnixMilli(),
 	}
 	s.envByGroup[groupID] = append(s.envByGroup[groupID], rec)
 	return seq, nil
@@ -1032,6 +1076,45 @@ func (s *MockStorage) GetEnvelopesSince(groupID string, afterSeq int64, maxCount
 		out = append(out, r)
 		if len(out) >= maxCount {
 			break
+		}
+	}
+	return out, nil
+}
+
+func (s *MockStorage) GetEnvelope(envelopeHash []byte) (*EnvelopeRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, envs := range s.envByGroup {
+		for _, r := range envs {
+			if bytes.Equal(r.EnvelopeHash, envelopeHash) {
+				return r, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func (s *MockStorage) GetPendingEnvelopes(groupID string, maxCount int) ([]*EnvelopeRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if maxCount < 1 {
+		maxCount = 100
+	}
+	var out []*EnvelopeRecord
+	for _, r := range s.envByGroup[groupID] {
+		isPending := false
+		switch r.ApplyState {
+		case "pending", "RECEIVED", "READY", "FUTURE_EPOCH", "PERSIST_FAILED",
+			"BLOCKED_MISSING_PRIOR_EPOCH", "BLOCKED_MISSING_COMMIT",
+			"BLOCKED_STALE_REQUIRES_SNAPSHOT", "BLOCKED_DECRYPT_FAILED",
+			"FORK_CONFLICT", "WAITING_SYNC", "future_epoch", "persist_failed":
+			isPending = true
+		}
+		if isPending {
+			out = append(out, r)
+			if len(out) >= maxCount {
+				break
+			}
 		}
 	}
 	return out, nil
@@ -1217,4 +1300,185 @@ func (s *MockStorage) PruneForkHealHistory(cutoffUnix int64, maxPerGroup int) (i
 	_ = cutoffUnix
 	_ = maxPerGroup
 	return 0, nil
+}
+
+func (s *MockStorage) SavePendingOperation(op *PendingOperation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *op
+	s.pendingOps[op.OperationID] = &cp
+	return nil
+}
+
+func (s *MockStorage) GetPendingOperation(opID string) (*PendingOperation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	op, ok := s.pendingOps[opID]
+	if !ok {
+		return nil, fmt.Errorf("sql: no rows in result set")
+	}
+	cp := *op
+	return &cp, nil
+}
+
+func (s *MockStorage) ListPendingOperations(groupID string) ([]*PendingOperation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var list []*PendingOperation
+	for _, op := range s.pendingOps {
+		if op.GroupID == groupID {
+			cp := *op
+			list = append(list, &cp)
+		}
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].CreatedAt.Before(list[j].CreatedAt)
+	})
+	return list, nil
+}
+
+func (s *MockStorage) GetPendingOperationByIdempotencyKey(groupID string, idempotencyKey string) (*PendingOperation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, op := range s.pendingOps {
+		if op.GroupID == groupID && op.IdempotencyKey != nil && *op.IdempotencyKey == idempotencyKey {
+			cp := *op
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("sql: no rows in result set")
+}
+
+func (s *MockStorage) DeletePendingOperation(opID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.pendingOps, opID)
+	return nil
+}
+
+func (s *MockStorage) SaveForkHealingJob(job *ForkHealingJob) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *job
+	s.forkHealingJobs[job.JobID] = &cp
+	return nil
+}
+
+func (s *MockStorage) GetActiveForkHealingJob(groupID string) (*ForkHealingJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var latest *ForkHealingJob
+	for _, job := range s.forkHealingJobs {
+		if job.GroupID == groupID && job.Status != "CLEANED" && job.Status != "FAILED_TERMINAL" {
+			if latest == nil || job.CreatedAtMs > latest.CreatedAtMs {
+				latest = job
+			}
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	cp := *latest
+	return &cp, nil
+}
+
+func (s *MockStorage) GetForkHealingJobByID(jobID string) (*ForkHealingJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.forkHealingJobs[jobID]
+	if !ok {
+		return nil, nil
+	}
+	cp := *job
+	return &cp, nil
+}
+
+func (s *MockStorage) DeleteForkHealingJob(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.forkHealingJobs, jobID)
+	return nil
+}
+
+func (s *MockStorage) SaveApplicationEvent(ev *ApplicationEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *ev
+	s.applicationEvents[ev.EventID] = &cp
+	return nil
+}
+
+func (s *MockStorage) ListApplicationEvents(jobID string) ([]*ApplicationEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var list []*ApplicationEvent
+	for _, ev := range s.applicationEvents {
+		if ev.JobID == jobID {
+			cp := *ev
+			list = append(list, &cp)
+		}
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].HlcWallTimeMs != list[j].HlcWallTimeMs {
+			return list[i].HlcWallTimeMs < list[j].HlcWallTimeMs
+		}
+		return list[i].HlcCounter < list[j].HlcCounter
+	})
+	return list, nil
+}
+
+func (s *MockStorage) UpdateApplicationEventStatus(eventID string, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ev, ok := s.applicationEvents[eventID]
+	if !ok {
+		return fmt.Errorf("sql: no rows in result set")
+	}
+	ev.Status = status
+	return nil
+}
+
+func (s *MockStorage) ClearSealedPayloads(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ev := range s.applicationEvents {
+		if ev.JobID == jobID && (ev.Status == "REPLAYED" || ev.Status == "WAITING_AUTHOR_REPLAY" || ev.Status == "UNRECOVERABLE") {
+			ev.PayloadSealed = nil
+			ev.SealNonce = nil
+			ev.SealKeyID = ""
+		}
+	}
+	return nil
+}
+
+func (s *MockStorage) SaveOutboundReplay(req *OutboundReplay) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := *req
+	s.outboundReplays[req.ReplayOperationID] = &cp
+	return nil
+}
+
+func (s *MockStorage) ListOutboundReplays(jobID string) ([]*OutboundReplay, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var list []*OutboundReplay
+	for _, req := range s.outboundReplays {
+		if req.JobID == jobID {
+			cp := *req
+			list = append(list, &cp)
+		}
+	}
+	return list, nil
+}
+
+func (s *MockStorage) DeleteOutboundReplaysForJob(jobID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, req := range s.outboundReplays {
+		if req.JobID == jobID {
+			delete(s.outboundReplays, id)
+		}
+	}
+	return nil
 }

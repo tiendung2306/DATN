@@ -3,6 +3,8 @@ package coordination
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 	"sync"
@@ -157,6 +160,8 @@ type Coordinator struct {
 	syncRetryAttempts int
 	// deferredForkEvent is a fork event saved during lagging/catch-up sync retry phase.
 	deferredForkEvent *ForkEvent
+	// operationalMode tracks if the coordinator is in LIVE or CATCHING_UP mode.
+	operationalMode GroupOperationalMode
 }
 
 type pendingAppDelivery struct {
@@ -208,6 +213,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		authorizedCommitters: opts.AuthorizedCommitters,
 		localIdentity:        deriveIdentityFromSigningKey(opts.SigningKey),
 		pendingAppDeliveries: make(map[string]*pendingAppDelivery),
+		operationalMode:      ModeLive,
 	}
 
 	if opts.HLC != nil {
@@ -274,7 +280,7 @@ func (c *Coordinator) CreateGroup() error {
 	}
 
 	opCtx, cancel := c.mlsOperationContext()
-	state, treeHash, err := c.mls.CreateGroup(opCtx, c.groupID, c.signingKey)
+	state, treeHash, err := c.mls.CreateGroup(opCtx, c.groupID, c.signingKey, c.cfg.GetMaxPastEpochs())
 	cancel()
 	if err != nil {
 		return fmt.Errorf("CreateGroup: %w", err)
@@ -365,6 +371,14 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		go func() { defer c.wg.Done(); c.announceLoop(c.ctx) }()
 	}
 
+	// Resume any incomplete fork healing job from database
+	if job, err := c.storage.GetActiveForkHealingJob(c.groupID); err == nil && job != nil {
+		if job.Status != "CLEANED" && job.Status != "FAILED_TERMINAL" {
+			slog.Info("coordination/startup_resume_job", "group", c.groupID, "trace_id", job.TraceID, "status", job.Status)
+			go c.resumeForkHealingJob(job)
+		}
+	}
+
 	return nil
 }
 
@@ -413,8 +427,58 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 		return
 	}
 
+	// P0.2 Clock Skew protection on receive:
+	if env.Type == MsgCommit || env.Type == MsgApplication || env.Type == MsgProposal {
+		nowMs := c.clock.Now().UnixMilli()
+		if err := validateSenderTimestamp(nowMs, env.Timestamp.WallTimeMs); err != nil {
+			slog.Warn("Rejected raw message due to invalid sender timestamp", "group", c.groupID, "from", from, "type", env.Type, "err", err)
+			return // drop envelope entirely
+		}
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Inbox Isolation: Nếu đang trong quá trình Catching Up, cô lập hoàn toàn luồng Gossip live.
+	// Chỉ append MsgCommit và MsgApplication vào SQLite (Envelope Log) ở trạng thái pending,
+	// không mutate groupState (không handle commit/application ngay).
+	if c.operationalMode == ModeCatchingUp {
+		if env.Type == MsgCommit || env.Type == MsgApplication {
+			if c.cfg != nil && c.cfg.OfflineSyncEnabled {
+				_, err := c.storage.AppendEnvelopeWithSource(c.groupID, env.Type, env.Epoch, env.Timestamp, data, "gossip_catchup")
+				if err != nil {
+					slog.Warn("Gossip catchup: append envelope failed", "group", c.groupID, "err", err)
+				} else {
+					slog.Debug("Gossip catchup: buffered live envelope to DB inbox", "group", c.groupID, "type", env.Type, "epoch", env.Epoch)
+				}
+			}
+		} else if env.Type == MsgHeartbeat {
+			c.handleHeartbeatLocked(from)
+		} else if env.Type == MsgAnnounce {
+			c.handleAnnounceLocked(from, &env)
+		} else if env.Type == MsgDeliveryAck {
+			c.handleDeliveryAckLocked(from, &env)
+		}
+		return
+	}
+
+	if c.operationalMode == ModeFrozenForApply {
+		if env.Type == MsgCommit || env.Type == MsgApplication {
+			_, err := c.storage.AppendEnvelope(c.groupID, env.Type, env.Epoch, env.Timestamp, data)
+			if err != nil {
+				slog.Warn("Gossip frozen: append envelope failed", "group", c.groupID, "err", err)
+			} else {
+				slog.Debug("Gossip frozen: buffered live envelope to DB inbox during healing", "group", c.groupID, "type", env.Type, "epoch", env.Epoch)
+			}
+		} else if env.Type == MsgHeartbeat {
+			c.handleHeartbeatLocked(from)
+		} else if env.Type == MsgAnnounce {
+			c.handleAnnounceLocked(from, &env)
+		} else if env.Type == MsgDeliveryAck {
+			c.handleDeliveryAckLocked(from, &env)
+		}
+		return
+	}
 
 	switch env.Type {
 	case MsgHeartbeat:
@@ -634,6 +698,9 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	}
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
+	c.reconcileOperationsAfterCommitLocked(commit)
+	c.reconcileAndRebaseOperationsLocked()
+
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
 
@@ -671,16 +738,41 @@ func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelop
 		return result
 	}
 
+	if c.epochTracker == nil {
+		c.epochTracker = NewEpochTracker(c.epoch, c.treeHash)
+	}
 	action := c.epochTracker.Validate(env.Epoch)
-	if action == ActionRejectStale && env.Type == MsgApplication && env.Epoch+3 >= c.epoch {
-		// Allow slightly stale application messages to be processed, as MLS supports
-		// decrypting messages from a window of previous epochs using retained keys.
-		action = ActionProcess
+	maxPastEpochs := uint64(c.cfg.GetMaxPastEpochs())
+	if action == ActionRejectStale && env.Type == MsgApplication && env.Epoch+maxPastEpochs >= c.epoch {
+		// Enforce time-based retention policy max_past_age_seconds.
+		// SECURITY: physical age validation is measured against local first-seen time, NOT sender-provided HLC.
+		firstSeenMs := c.clock.Now().UnixMilli()
+		if rec, err := c.storage.GetEnvelope(envelopeHash); err == nil && rec != nil && rec.FirstSeenAtMs > 0 {
+			firstSeenMs = rec.FirstSeenAtMs
+		}
+
+		maxPastAgeSeconds := c.cfg.GetMaxPastAgeSeconds()
+		ageSeconds := (c.clock.Now().UnixMilli() - firstSeenMs) / 1000
+		if ageSeconds < 0 {
+			ageSeconds = 0
+		}
+		if maxPastAgeSeconds > 0 && ageSeconds > maxPastAgeSeconds {
+			slog.Warn("Rejected late-arriving stale application message exceeding age boundary",
+				"group", c.groupID, "ageSeconds", ageSeconds, "maxPastAgeSeconds", maxPastAgeSeconds, "firstSeenMs", firstSeenMs)
+			// keep action as ActionRejectStale
+		} else {
+			// Allow slightly stale application messages to be processed, as MLS supports
+			// decrypting messages from a window of previous epochs using retained keys.
+			action = ActionProcess
+		}
 	}
 
 	switch action {
 	case ActionRejectStale:
-		slog.Warn("Rejected stale message", "group", c.groupID, "msgEpoch", env.Epoch, "currentEpoch", c.epoch)
+		epochDiff := int64(c.epoch) - int64(env.Epoch)
+		slog.Warn("Rejected stale message", "group", c.groupID,
+			"msgEpoch", env.Epoch, "currentEpoch", c.epoch,
+			"epochDiff", epochDiff, "maxPastEpochs", c.cfg.GetMaxPastEpochs())
 		result.State = ReplayStateStaleEpoch
 		result.Terminal = true
 		result.CursorSafe = true
@@ -978,6 +1070,9 @@ func (c *Coordinator) tryCommitLocked() {
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.reconcileOperationsAfterCommitLocked(commitMsg)
+	c.reconcileAndRebaseOperationsLocked()
+
 	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
@@ -1321,8 +1416,75 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		return AddMemberResult{}, fmt.Errorf("AddMember: key package is required")
 	}
 
+	// Idempotency check
+	idKey := "add_member_" + req.TargetPeerID.String()
+	if req.OperationID != "" {
+		if existing, err := c.storage.GetPendingOperation(req.OperationID); err == nil && existing != nil {
+			if existing.Status == "COMMITTED" || existing.Status == "SATISFIED_BY_OTHER" {
+				var commitEpoch uint64
+				if existing.PreconditionEpoch != nil {
+					commitEpoch = *existing.PreconditionEpoch
+				}
+				return AddMemberResult{
+					OperationID: existing.OperationID,
+					Deferred:    false,
+					CommitEpoch: commitEpoch,
+				}, nil
+			}
+			if existing.Status == "PROPOSED" {
+				return AddMemberResult{
+					OperationID: existing.OperationID,
+					Deferred:    true,
+				}, nil
+			}
+		}
+	}
+	if existing, err := c.storage.GetPendingOperationByIdempotencyKey(c.groupID, idKey); err == nil && existing != nil {
+		if existing.Status == "COMMITTED" || existing.Status == "SATISFIED_BY_OTHER" {
+			var commitEpoch uint64
+			if existing.PreconditionEpoch != nil {
+				commitEpoch = *existing.PreconditionEpoch
+			}
+			return AddMemberResult{
+				OperationID: existing.OperationID,
+				Deferred:    false,
+				CommitEpoch: commitEpoch,
+			}, nil
+		}
+		if existing.Status == "PROPOSED" {
+			return AddMemberResult{
+				OperationID: existing.OperationID,
+				Deferred:    true,
+			}, nil
+		}
+	}
+
+	opID := req.OperationID
+	if opID == "" {
+		opID = "op_" + newTraceID()
+	}
+
+	epochCopy := c.epoch
+	targetMemberCopy := req.TargetPeerID.String()
+	idKeyCopy := idKey
+
+	op := &PendingOperation{
+		OperationID:       opID,
+		GroupID:           c.groupID,
+		OpType:            "ADD_MEMBER",
+		IdempotencyKey:    &idKeyCopy,
+		OperationHash:     append([]byte(nil), req.KeyPackageHash...),
+		PreconditionEpoch: &epochCopy,
+		TargetMemberID:    &targetMemberCopy,
+		SemanticPayload:   req.KeyPackageBytes,
+		Status:            "PENDING",
+		CreatedAt:         c.clock.Now(),
+		UpdatedAt:         c.clock.Now(),
+	}
+	_ = c.storage.SavePendingOperation(op)
+
 	delivery := AddCommitDelivery{
-		OperationID:    req.OperationID,
+		OperationID:    opID,
 		TargetPeerID:   req.TargetPeerID.String(),
 		RequestID:      req.RequestID,
 		GroupType:      req.GroupType,
@@ -1331,7 +1493,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	}
 
 	msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalAdd, req.KeyPackageBytes, BufferedProposal{
-		OperationID:    req.OperationID,
+		OperationID:    opID,
 		TargetPeerID:   req.TargetPeerID.String(),
 		RequestID:      req.RequestID,
 		GroupType:      req.GroupType,
@@ -1339,17 +1501,31 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		KeyPackageHash: append([]byte(nil), req.KeyPackageHash...),
 	})
 	if err != nil {
+		errStr := err.Error()
+		op.Status = "FAILED_PRECONDITION"
+		op.LastError = &errStr
+		op.UpdatedAt = c.clock.Now()
+		_ = c.storage.SavePendingOperation(op)
 		return AddMemberResult{}, fmt.Errorf("CreateProposal: %w", err)
 	}
+
 	c.singleWriter.BufferProposal(buffered)
 	c.metrics.IncrProposalsReceived()
+
+	// Update op status to proposed
+	h := sha256.Sum256(msg.Data)
+	op.LatestProposalHash = h[:]
+	op.Status = "PROPOSED"
+	op.UpdatedAt = c.clock.Now()
+	_ = c.storage.SavePendingOperation(op)
+
 	if c.onProposalObserved != nil {
 		c.onProposalObserved(ProposalAuditSummary{
 			GroupID:        c.groupID,
 			Epoch:          c.epoch,
 			ActorPeerID:    c.localID.String(),
 			ProposalType:   ProposalAdd,
-			OperationID:    req.OperationID,
+			OperationID:    opID,
 			TargetPeerID:   req.TargetPeerID.String(),
 			RequestID:      req.RequestID,
 			GroupType:      req.GroupType,
@@ -1363,7 +1539,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
 		c.broadcastLocked(MsgProposal, msg)
 		return AddMemberResult{
-			OperationID: req.OperationID,
+			OperationID: opID,
 			Deferred:    true,
 			Delivery:    delivery,
 		}, nil
@@ -1372,7 +1548,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		c.broadcastLocked(MsgProposal, msg)
 		c.deferCommitUntilViewReadyLocked()
 		return AddMemberResult{
-			OperationID: req.OperationID,
+			OperationID: opID,
 			Deferred:    true,
 			Delivery:    delivery,
 		}, nil
@@ -1383,7 +1559,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		"group", c.groupID,
 		"epoch", c.epoch,
 		"target", req.TargetPeerID.String(),
-		"operation_id", req.OperationID,
+		"operation_id", opID,
 		"timeout", c.cfg.MLSOperationTimeout,
 	)
 	expectedRefs := [][]byte{buffered.ProposalRef}
@@ -1397,7 +1573,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		"group", c.groupID,
 		"next_epoch", c.epoch+1,
 		"target", req.TargetPeerID.String(),
-		"operation_id", req.OperationID,
+		"operation_id", opID,
 		"commit_bytes", len(commitResult.CommitBytes),
 		"welcome_bytes", len(commitResult.WelcomeBytes),
 	)
@@ -1443,17 +1619,20 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 		"group", c.groupID,
 		"next_epoch", nextEpoch,
 		"target", req.TargetPeerID.String(),
-		"operation_id", req.OperationID,
+		"operation_id", opID,
 	)
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.reconcileOperationsAfterCommitLocked(commitMsg)
+	c.reconcileAndRebaseOperationsLocked()
+
 	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
 		Type:           ProposalAdd,
-		OperationID:    req.OperationID,
+		OperationID:    opID,
 		TargetPeerID:   req.TargetPeerID.String(),
 		RequestID:      req.RequestID,
 		GroupType:      req.GroupType,
@@ -1473,7 +1652,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	}
 
 	return AddMemberResult{
-		OperationID: req.OperationID,
+		OperationID: opID,
 		Welcome:     commitResult.WelcomeBytes,
 		CommitEpoch: nextEpoch,
 		Delivery:    delivery,
@@ -1512,15 +1691,79 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 		return fmt.Errorf("target identity is required")
 	}
 
-	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
-		return c.proposeLockedWithMetadata(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String()})
+	// Idempotency check
+	idKey := "remove_member_" + req.TargetPeerID.String()
+	if req.OperationID != "" {
+		if existing, err := c.storage.GetPendingOperation(req.OperationID); err == nil && existing != nil {
+			if existing.Status == "COMMITTED" || existing.Status == "SATISFIED_BY_OTHER" {
+				return nil
+			}
+			if existing.Status == "PROPOSED" {
+				return nil
+			}
+		}
+	}
+	if existing, err := c.storage.GetPendingOperationByIdempotencyKey(c.groupID, idKey); err == nil && existing != nil {
+		if existing.Status == "COMMITTED" || existing.Status == "SATISFIED_BY_OTHER" {
+			return nil
+		}
+		if existing.Status == "PROPOSED" {
+			return nil
+		}
 	}
 
-	msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String()})
+	opID := req.OperationID
+	if opID == "" {
+		opID = "op_" + newTraceID()
+	}
+
+	epochCopy := c.epoch
+	targetMemberCopy := req.TargetPeerID.String()
+	idKeyCopy := idKey
+
+	op := &PendingOperation{
+		OperationID:       opID,
+		GroupID:           c.groupID,
+		OpType:            "REMOVE_MEMBER",
+		IdempotencyKey:    &idKeyCopy,
+		OperationHash:     nil,
+		PreconditionEpoch: &epochCopy,
+		TargetMemberID:    &targetMemberCopy,
+		SemanticPayload:   req.TargetIdentity,
+		Status:            "PENDING",
+		CreatedAt:         c.clock.Now(),
+		UpdatedAt:         c.clock.Now(),
+	}
+	_ = c.storage.SavePendingOperation(op)
+
+	if c.singleWriter == nil || !c.singleWriter.IsTokenHolder() {
+		// Update op status to proposed before we exit
+		op.Status = "PROPOSED"
+		op.UpdatedAt = c.clock.Now()
+		_ = c.storage.SavePendingOperation(op)
+
+		return c.proposeLockedWithMetadata(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String(), OperationID: opID})
+	}
+
+	msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalRemove, req.TargetIdentity, BufferedProposal{TargetPeerID: req.TargetPeerID.String(), OperationID: opID})
 	if err != nil {
+		errStr := err.Error()
+		op.Status = "FAILED_PRECONDITION"
+		op.LastError = &errStr
+		op.UpdatedAt = c.clock.Now()
+		_ = c.storage.SavePendingOperation(op)
 		return fmt.Errorf("CreateProposal: %w", err)
 	}
+
 	c.singleWriter.BufferProposal(buffered)
+
+	// Update op status to proposed
+	h := sha256.Sum256(msg.Data)
+	op.LatestProposalHash = h[:]
+	op.Status = "PROPOSED"
+	op.UpdatedAt = c.clock.Now()
+	_ = c.storage.SavePendingOperation(op)
+
 	if !c.commitViewReadyLocked([]BufferedProposal{buffered}) {
 		c.broadcastLocked(MsgProposal, msg)
 		c.deferCommitUntilViewReadyLocked()
@@ -1568,12 +1811,16 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 	c.publishPreparedEnvelopeLocked(MsgCommit, envBytes)
 
 	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
+	c.reconcileOperationsAfterCommitLocked(commitMsg)
+	c.reconcileAndRebaseOperationsLocked()
+
 	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
 	c.metrics.IncrCommitsIssued()
 	c.metrics.AddCommitBytes(int64(len(commitResult.CommitBytes)))
 	c.emitCommitIssuedLocked(prevEpoch, nextEpoch, []BufferedProposal{{
 		Type:         ProposalRemove,
 		TargetPeerID: req.TargetPeerID.String(),
+		OperationID:  opID,
 	}})
 
 	return nil
@@ -2016,6 +2263,23 @@ func (c *Coordinator) ReplayEnvelopesDetailed(blobs [][]byte) ([]ReplayEnvelopeR
 			})
 			continue
 		}
+
+		// P0.2 Clock Skew protection:
+		nowMs := c.clock.Now().UnixMilli()
+		if err := validateSenderTimestamp(nowMs, env.Timestamp.WallTimeMs); err != nil {
+			results = append(results, ReplayEnvelopeResult{
+				GroupID:      env.GroupID,
+				MsgType:      env.Type,
+				EnvelopeHash: hashEnvelope(raw),
+				State:        ReplayStateInvalid,
+				MsgEpoch:     env.Epoch,
+				LocalEpoch:   c.epoch,
+				Error:        err.Error(),
+				Terminal:     true,
+				CursorSafe:   false, // future skewed timestamp should not advance cursor!
+			})
+			continue
+		}
 		switch env.Type {
 		case MsgCommit:
 			results = append(results, c.handleCommitDetailedLocked(&env, raw))
@@ -2105,6 +2369,14 @@ func (c *Coordinator) handleCommitDetailedLocked(env *Envelope, wire []byte) Rep
 	}
 	c.markReplayResultLocked(result)
 	return result
+}
+
+func validateSenderTimestamp(nowMs int64, senderMs int64) error {
+	const maxFutureSkewMs = int64(5 * 60 * 1000) // 5 minutes
+	if senderMs > nowMs+maxFutureSkewMs {
+		return fmt.Errorf("sender timestamp too far in future: received %d is more than %dms ahead of physical %d", senderMs, maxFutureSkewMs, nowMs)
+	}
+	return nil
 }
 
 func (c *Coordinator) newReplayResultLocked(env *Envelope, wire []byte) ReplayEnvelopeResult {
@@ -2322,6 +2594,20 @@ func (c *Coordinator) GetTreeHash() []byte {
 	return cp
 }
 
+// GetOperationalMode returns the current operational mode of the coordinator.
+func (c *Coordinator) GetOperationalMode() GroupOperationalMode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.operationalMode
+}
+
+// SetOperationalMode updates the operational mode of the coordinator.
+func (c *Coordinator) SetOperationalMode(mode GroupOperationalMode) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.operationalMode = mode
+}
+
 // IsHealing reports whether a fork-heal goroutine is currently in flight.
 // Exported for tests and runtime diagnostics.
 func (c *Coordinator) IsHealing() bool {
@@ -2499,6 +2785,9 @@ func (c *Coordinator) TriggerDeferredHeal() {
 // guaranteed to release c.healing on exit.
 func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEvent, scheduledAt time.Time) {
 	defer c.healing.Store(false)
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	startedAt := c.clock.Now()
 	slog.Info("fork_heal/started",
@@ -2518,245 +2807,538 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		return
 	}
 
-	stepStart := c.clock.Now()
-	slog.Info("fork_heal/groupinfo_request_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"winner_peers", len(event.WinnerPeers),
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "started", stepStart, 0, "")
-	// Try each known winner peer in order; the triggering peer is first.
-	peers := event.WinnerPeers
-	if len(peers) == 0 {
-		peers = []peer.ID{event.RemotePeer}
+	// M5: 1. Khởi tạo / Tìm kiếm Job Fork Healing bền vững
+	job, err := c.storage.GetActiveForkHealingJob(event.GroupID)
+	if err != nil {
+		slog.Error("fork_heal/db_get_job_failed", "group", event.GroupID, "err", err)
 	}
-	var gi *GroupInfoFetchResult
-	var lastFetchErr error
-	for _, remotePeer := range peers {
-		gi, lastFetchErr = c.fetchGroupInfoForHeal(ctx, remotePeer, event.GroupID, true)
-		if lastFetchErr == nil {
-			break
+	if job == nil {
+		losingBranchID := hex.EncodeToString(c.lastCommitHash)
+		winningBranchID := hex.EncodeToString(event.RemoteAnnounce.CommitHash)
+		
+		job = &ForkHealingJob{
+			JobID:               fmt.Sprintf("job-%s-%d", event.GroupID, startedAt.UnixMilli()),
+			GroupID:             event.GroupID,
+			TraceID:             traceID,
+			Status:              "INITIATED",
+			LosingBranchID:      losingBranchID,
+			WinningBranchID:     winningBranchID,
+			ForkBaseEpoch:       c.epoch,
+			LosingEpoch:         c.epoch,
+			WinningEpoch:        event.RemoteEpoch,
+			LosingTreeHash:      c.treeHash,
+			WinningTreeHash:     event.RemoteAnnounce.TreeHash,
+			WinningCommitHash:   event.RemoteAnnounce.CommitHash,
+			WinnerPeerID:        event.RemotePeer.String(),
+			CreatedAtMs:         startedAt.UnixMilli(),
+			UpdatedAtMs:         startedAt.UnixMilli(),
 		}
-		slog.Warn("fork_heal/groupinfo_request_peer_failed",
+		if err := c.storage.SaveForkHealingJob(job); err != nil {
+			slog.Error("fork_heal/db_save_job_failed", "group", event.GroupID, "err", err)
+		}
+	}
+
+	storageKey := deriveStorageKey(c.signingKey)
+
+	// M5: 2. Freeze apply & user sends, gossip append-only
+	c.SetOperationalMode(ModeFrozenForApply)
+	slog.Info("fork_heal/frozen_for_apply", "group", event.GroupID)
+	defer func() {
+		c.SetOperationalMode(ModeLive)
+		slog.Info("fork_heal/live_unfrozen", "group", event.GroupID)
+	}()
+
+	// M5: 3. Snapshot các events thuộc partition window & AES-GCM Sealing cục bộ
+	if job.Status == "INITIATED" {
+		stepStart := c.clock.Now()
+		c.recordForkHealAudit(traceID, event.GroupID, "snapshot_orphan", "started", stepStart, 0, "")
+
+		losingBranchID := job.LosingBranchID
+
+		// A. Snapshot các own messages đã apply thành công trong losing branch partition window
+		ownMsgs, err := c.storage.GetMessagesByOwnerInRange(c.groupID, c.localID.String(), event.PartitionStartedAt.UnixMilli(), startedAt.UnixMilli())
+		if err == nil {
+			for _, msg := range ownMsgs {
+				sealedPayload, nonce, sealErr := sealPayload(msg.Content, storageKey)
+				if sealErr == nil {
+					h := sha256.Sum256(msg.Content)
+					appEv := &ApplicationEvent{
+						EventID:          hex.EncodeToString(msg.EnvelopeHash),
+						JobID:            job.JobID,
+						GroupID:          event.GroupID,
+						OriginalBranchID: losingBranchID,
+						OriginalEpoch:    msg.Epoch,
+						AuthorID:         c.localID.String(),
+						EnvelopeHash:     msg.EnvelopeHash,
+						PayloadSealed:    sealedPayload,
+						PayloadHash:      h[:],
+						SealKeyID:        "local_node_key",
+						SealNonce:        nonce,
+						HlcWallTimeMs:    msg.Timestamp.WallTimeMs,
+						HlcCounter:       msg.Timestamp.Counter,
+						HlcNodeID:        msg.Timestamp.NodeID,
+						Status:           "ORPHANED_OWN",
+						CreatedAtMs:      c.clock.Now().UnixMilli(),
+						UpdatedAtMs:      c.clock.Now().UnixMilli(),
+					}
+					_ = c.storage.SaveApplicationEvent(appEv)
+				}
+			}
+		}
+
+		// B. Snapshot các unapplied envelopes trong log
+		pendingEnvs, err := c.storage.GetPendingEnvelopes(event.GroupID, 1000)
+		if err == nil {
+			for _, record := range pendingEnvs {
+				if record.Timestamp.WallTimeMs < event.PartitionStartedAt.UnixMilli() {
+					continue
+				}
+
+				if record.MsgType == MsgApplication {
+					var env Envelope
+					if err := json.Unmarshal(record.Envelope, &env); err == nil {
+						var appMsg ApplicationMsg
+						if err := json.Unmarshal(env.Payload, &appMsg); err == nil {
+							c.mu.Lock()
+							plaintext, _, decErr := c.mls.DecryptMessage(ctx, c.groupState, appMsg.Ciphertext)
+							c.mu.Unlock()
+
+							var status string
+							var sealedPayload, nonce []byte
+							var pHash []byte
+
+							if decErr != nil {
+								status = "UNRECOVERABLE"
+								pHash = record.EnvelopeHash
+							} else {
+								h := sha256.Sum256(plaintext)
+								pHash = h[:]
+								
+								if env.From == c.localID.String() {
+									status = "ORPHANED_OWN"
+									sealedPayload, nonce, _ = sealPayload(plaintext, storageKey)
+								} else {
+									status = "WAITING_AUTHOR_REPLAY"
+								}
+							}
+
+							appEv := &ApplicationEvent{
+								EventID:          hex.EncodeToString(record.EnvelopeHash),
+								JobID:            job.JobID,
+								GroupID:          event.GroupID,
+								OriginalBranchID: losingBranchID,
+								OriginalEpoch:    record.Epoch,
+								AuthorID:         env.From,
+								EnvelopeHash:     record.EnvelopeHash,
+								PayloadSealed:    sealedPayload,
+								PayloadHash:      pHash,
+								SealKeyID:        "local_node_key",
+								SealNonce:        nonce,
+								HlcWallTimeMs:    record.Timestamp.WallTimeMs,
+								HlcCounter:       record.Timestamp.Counter,
+								HlcNodeID:        record.Timestamp.NodeID,
+								Status:           status,
+								CreatedAtMs:      c.clock.Now().UnixMilli(),
+								UpdatedAtMs:      c.clock.Now().UnixMilli(),
+							}
+							_ = c.storage.SaveApplicationEvent(appEv)
+						}
+					}
+				}
+			}
+		}
+
+		job.Status = "SNAPSHOT_CREATED"
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+		c.recordForkHealAudit(traceID, event.GroupID, "snapshot_orphan", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
+	}
+
+	// M5: 4. Fetch GroupInfo & External Join
+	var gi *GroupInfoFetchResult
+	var newEpoch uint64
+	var newState, externalCommit, newTreeHash []byte
+
+	if job.Status == "SNAPSHOT_CREATED" {
+		stepStart := c.clock.Now()
+		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "started", stepStart, 0, "")
+		
+		peers := event.WinnerPeers
+		if len(peers) == 0 {
+			peers = []peer.ID{event.RemotePeer}
+		}
+		var lastFetchErr error
+		for _, remotePeer := range peers {
+			gi, lastFetchErr = c.fetchGroupInfoForHeal(ctx, remotePeer, event.GroupID, true)
+			if lastFetchErr == nil {
+				break
+			}
+		}
+		if lastFetchErr != nil {
+			if len(job.WinnerGroupInfo) > 0 {
+				gi = &GroupInfoFetchResult{
+					Epoch:     job.WinningEpoch,
+					TreeHash:  job.WinningTreeHash,
+					GroupInfo: job.WinnerGroupInfo,
+				}
+				lastFetchErr = nil
+			} else {
+				c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), lastFetchErr.Error())
+				c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_request", lastFetchErr)
+				return
+			}
+		}
+
+		if gi.Epoch < event.RemoteEpoch {
+			err := fmt.Errorf("winner epoch regressed: got %d, expected >= %d", gi.Epoch, event.RemoteEpoch)
+			c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+			c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_received", err)
+			return
+		}
+
+		var joinErr error
+		newState, externalCommit, newTreeHash, joinErr = c.mls.ExternalJoin(ctx, gi.GroupInfo, c.signingKey, c.cfg.GetMaxPastEpochs())
+		if joinErr != nil {
+			c.recordForkHealAudit(traceID, event.GroupID, "external_join", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), joinErr.Error())
+			c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_join", joinErr)
+			return
+		}
+		newEpoch = gi.Epoch + 1
+
+		job.Status = "EXTERNAL_JOINED"
+		job.WinningEpoch = gi.Epoch
+		job.WinningTreeHash = gi.TreeHash
+		job.WinnerGroupInfo = gi.GroupInfo
+		job.PendingGroupState = newState
+		job.PendingEpoch = newEpoch
+		job.PendingTreeHash = newTreeHash
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+		c.recordForkHealAudit(traceID, event.GroupID, "external_join", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
+	}
+
+	// M5: 5. Swap Group State & Crypto-shredding keys (DB Transaction Boundary)
+	if job.Status == "EXTERNAL_JOINED" {
+		stepStart := c.clock.Now()
+		c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "started", stepStart, 0, "")
+
+		if len(newState) == 0 {
+			if len(job.PendingGroupState) == 0 {
+				err := fmt.Errorf("pending_group_state is missing at EXTERNAL_JOINED phase")
+				c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+				c.logHealFailed(traceID, event, startedAt, scheduledAt, "state_swap", err)
+				return
+			}
+			newState = job.PendingGroupState
+			newEpoch = job.PendingEpoch
+			newTreeHash = job.PendingTreeHash
+		}
+
+		if err := c.applyHealedState(newState, newTreeHash, newEpoch, externalCommit); err != nil {
+			c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+			c.logHealFailed(traceID, event, startedAt, scheduledAt, "state_swap", err)
+			return
+		}
+
+		if len(externalCommit) > 0 {
+			if err := c.broadcastExternalCommit(job.WinningEpoch, externalCommit, newTreeHash); err != nil {
+				c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+				slog.Warn("fork_heal/broadcast_external_commit_failed", "err", err)
+			}
+		}
+
+		job.Status = "STATE_SWAPPED"
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+		c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
+	}
+
+	// M5: 6. Autonomous Replay (Idempotent per-event via Outbox)
+	var replayedCount int
+	if job.Status == "STATE_SWAPPED" {
+		stepStart := c.clock.Now()
+		c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "started", stepStart, 0, "")
+
+		// 1. Phục hồi và phát lại bất kỳ envelope nào còn kẹt trong outbound queue trước khi crash
+		outboundList, err := c.storage.ListOutboundReplays(job.JobID)
+		if err == nil {
+			for _, outbound := range outboundList {
+				if outbound.Status == "ENQUEUED" || outbound.Status == "FAILED" {
+					evs, _ := c.storage.ListApplicationEvents(job.JobID)
+					var matchEv *ApplicationEvent
+					for _, ev := range evs {
+						if ev.EventID == outbound.EventID {
+							matchEv = ev
+							break
+						}
+					}
+					if matchEv != nil {
+						if err := c.broadcastOutboundReplay(outbound, matchEv); err == nil {
+							replayedCount++
+						}
+					}
+				}
+			}
+		}
+
+		// 2. Snapshot và enqueued/broadcast các orphan events của mình
+		events, err := c.storage.ListApplicationEvents(job.JobID)
+		if err == nil {
+			for _, ev := range events {
+				if ev.AuthorID != c.localID.String() {
+					// Non-repudiation: tin nhắn của peer khác chuyển WAITING_AUTHOR_REPLAY và xóa payload
+					ev.Status = "WAITING_AUTHOR_REPLAY"
+					ev.PayloadSealed = nil
+					ev.SealNonce = nil
+					ev.SealKeyID = ""
+					_ = c.storage.SaveApplicationEvent(ev)
+					continue
+				}
+
+				if ev.Status == "ORPHANED_OWN" || ev.Status == "REPLAY_PENDING" {
+					ev.Status = "REPLAY_PENDING"
+					ev.ReplayAttemptCount++
+					_ = c.storage.SaveApplicationEvent(ev)
+
+					plaintext, decErr := openPayload(ev.PayloadSealed, ev.SealNonce, storageKey)
+					if decErr == nil {
+						c.mu.Lock()
+						ciphertext, nextGroupState, encErr := c.mls.EncryptMessage(ctx, c.groupState, plaintext)
+						c.mu.Unlock()
+
+						if encErr == nil {
+							ts := c.hlc.Now()
+							wire := c.buildEnvelopeWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
+							
+							c.mu.Lock()
+							c.groupState = nextGroupState
+							_ = c.saveCurrentGroupStateLocked(c.clock.Now())
+							c.mu.Unlock()
+
+							replayedHash := sha256.Sum256(wire)
+							
+							// Sinh replay operation id độc nhất tránh trùng lặp giữa các fork jobs khác nhau
+							hReplay := sha256.Sum256([]byte(ev.EventID + job.JobID))
+							replayOpID := hex.EncodeToString(hReplay[:])
+
+							outbound := &OutboundReplay{
+								ReplayOperationID:    replayOpID,
+								EventID:              ev.EventID,
+								JobID:                job.JobID,
+								GroupID:              job.GroupID,
+								ReplayEnvelope:       wire,
+								ReplayedEnvelopeHash: replayedHash[:],
+								Status:               "ENQUEUED",
+								AttemptCount:         1,
+								CreatedAtMs:          c.clock.Now().UnixMilli(),
+								UpdatedAtMs:          c.clock.Now().UnixMilli(),
+							}
+							_ = c.storage.SaveOutboundReplay(outbound)
+
+							ev.ReplayOperationID = replayOpID
+							ev.ReplayedEnvelopeHash = replayedHash[:]
+							ev.Status = "REPLAY_ENQUEUED"
+							_ = c.storage.SaveApplicationEvent(ev)
+
+							// Thực hiện broadcast
+							if err := c.broadcastOutboundReplay(outbound, ev); err == nil {
+								replayedCount++
+							}
+						} else {
+							ev.Status = "REPLAY_FAILED"
+							ev.LastError = encErr.Error()
+							_ = c.storage.SaveApplicationEvent(ev)
+						}
+					} else {
+						ev.Status = "REPLAY_FAILED"
+						ev.LastError = decErr.Error()
+						_ = c.storage.SaveApplicationEvent(ev)
+					}
+				}
+			}
+		}
+
+		job.Status = "LOCAL_COMPLETE"
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+		c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
+	}
+
+	// M5: 7. Shredding sealed payloads & transition CLEANED
+	if job.Status == "LOCAL_COMPLETE" {
+		_ = c.storage.ClearSealedPayloads(job.JobID)
+		
+		job.Status = "CLEANED"
+		job.CompletedAtMs = c.clock.Now().UnixMilli()
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+
+		completedAt := c.clock.Now()
+		c.metrics.IncrForkHealingsSucceeded()
+		c.metrics.RecordExternalJoin(completedAt.Sub(startedAt))
+		slog.Info("fork_heal/completed",
 			"trace_id", traceID,
 			"group", event.GroupID,
-			"peer", remotePeer.String(),
-			"err", lastFetchErr,
+			"outcome", "success",
+			"new_epoch", job.PendingEpoch,
+			"duration_ms", completedAt.Sub(startedAt).Milliseconds(),
 		)
-	}
-	if lastFetchErr != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), lastFetchErr.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_request", lastFetchErr)
-		return
-	}
-	groupInfoReqDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/groupinfo_request_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"winner_epoch", gi.Epoch,
-		"group_info_bytes", len(gi.GroupInfo),
-		"duration_ms", groupInfoReqDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "completed", c.clock.Now(), groupInfoReqDur, "")
 
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/groupinfo_received_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "started", stepStart, 0, "")
-	// Accept the GroupInfo if the winner's epoch has only advanced (never regressed).
-	// A hard TreeHash equality check would create false positives when the winning
-	// branch commits one or two more epochs between the MsgAnnounce we received and
-	// the GroupInfo we just fetched — a normal condition under any network traffic.
-	if gi.Epoch < event.RemoteEpoch {
-		err := fmt.Errorf("winner epoch regressed: got %d, expected >= %d", gi.Epoch, event.RemoteEpoch)
-		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_received", err)
-		return
-	}
-	if len(gi.TreeHash) > 0 && len(event.RemoteAnnounce.TreeHash) > 0 && !bytes.Equal(gi.TreeHash, event.RemoteAnnounce.TreeHash) {
-		slog.Warn("fork_heal/groupinfo_received_tree_hash_advanced",
-			"trace_id", traceID,
-			"group", event.GroupID,
-			"announce_tree_hash", hex.EncodeToString(event.RemoteAnnounce.TreeHash),
-			"fetched_tree_hash", hex.EncodeToString(gi.TreeHash),
-			"winner_epoch", gi.Epoch,
-		)
-	}
-	groupInfoRecvDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/groupinfo_received_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"winner_tree_hash", hex.EncodeToString(gi.TreeHash),
-		"duration_ms", groupInfoRecvDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "completed", c.clock.Now(), groupInfoRecvDur, "")
-
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/external_join_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "external_join", "started", stepStart, 0, "")
-	newState, externalCommit, newTreeHash, err := c.mls.ExternalJoin(ctx, gi.GroupInfo, c.signingKey)
-	if err != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "external_join", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_join", err)
-		return
-	}
-	newEpoch := gi.Epoch + 1
-	externalJoinDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/external_join_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"new_epoch", newEpoch,
-		"new_tree_hash", hex.EncodeToString(newTreeHash),
-		"external_commit_bytes", len(externalCommit),
-		"duration_ms", externalJoinDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "external_join", "completed", c.clock.Now(), externalJoinDur, "")
-
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/state_swap_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "started", stepStart, 0, "")
-	if err := c.applyHealedState(newState, newTreeHash, newEpoch, externalCommit); err != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "state_swap", err)
-		return
-	}
-	stateSwapDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/state_swap_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"new_epoch", newEpoch,
-		"duration_ms", stateSwapDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "completed", c.clock.Now(), stateSwapDur, "")
-
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/external_commit_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "started", stepStart, 0, "")
-	if err := c.broadcastExternalCommit(gi.Epoch, externalCommit, newTreeHash); err != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_commit", err)
-		return
-	}
-	externalCommitDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/external_commit_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"duration_ms", externalCommitDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "completed", c.clock.Now(), externalCommitDur, "")
-
-	// Replay body lands in Sprint 2E; keep step markers stable now so Phase 9.2
-	// parsers do not need to change when replay logic is added.
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/replay_started_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"partition_started_at_ms", event.PartitionStartedAt.UnixMilli(),
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "started", stepStart, 0, "")
-	replayWindow, err := c.collectReplayWindowMessages(event.PartitionStartedAt, startedAt)
-	if err != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "replay_started", err)
-		return
-	}
-	replayStartDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/replay_started_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"window_message_count", len(replayWindow),
-		"duration_ms", replayStartDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "completed", c.clock.Now(), replayStartDur, "")
-
-	stepStart = c.clock.Now()
-	slog.Info("fork_heal/replay_completed_started",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"window_message_count", len(replayWindow),
-		"replay_throttle_ms", c.cfg.ReplayThrottleMs,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "started", stepStart, 0, "")
-	replayedCount, err := c.replayWindowMessages(ctx, replayWindow)
-	if err != nil {
-		c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-		c.logHealFailed(traceID, event, startedAt, scheduledAt, "replay_completed", err)
-		return
-	}
-	replayCompletedDur := c.clock.Now().Sub(stepStart).Milliseconds()
-	slog.Info("fork_heal/replay_completed_completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"replayed_count", replayedCount,
-		"duration_ms", replayCompletedDur,
-	)
-	c.recordForkHealAudit(traceID, event.GroupID, "replay_completed", "completed", c.clock.Now(), replayCompletedDur, "")
-
-	completedAt := c.clock.Now()
-	c.metrics.IncrForkHealingsSucceeded()
-	c.metrics.RecordExternalJoin(completedAt.Sub(startedAt))
-	slog.Info("fork_heal/completed",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"outcome", "success",
-		"new_epoch", newEpoch,
-		"new_tree_hash", hex.EncodeToString(newTreeHash),
-		"duration_ms", completedAt.Sub(startedAt).Milliseconds(),
-		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
-	)
-	slog.Info("fork_heal/aggregate",
-		"trace_id", traceID,
-		"group", event.GroupID,
-		"winner_peer", event.RemotePeer.String(),
-		"winner_epoch", gi.Epoch,
-		"winner_member_count", event.RemoteAnnounce.MemberCount,
-		"local_member_count_before", event.LocalAnnounce.MemberCount,
-		"new_epoch", newEpoch,
-		"new_tree_hash", hex.EncodeToString(newTreeHash),
-		"replayed_message_count", replayedCount,
-		"partition_window_ms", completedAt.Sub(event.PartitionStartedAt).Milliseconds(),
-		"total_ms", completedAt.Sub(scheduledAt).Milliseconds(),
-	)
-	c.recordForkHealEvent(&ForkHealEventRecord{
-		TraceID:              traceID,
-		GroupID:              event.GroupID,
-		WinnerPeerID:         event.RemotePeer.String(),
-		WinnerEpoch:          gi.Epoch,
-		NewEpoch:             newEpoch,
-		Outcome:              "success",
-		FailedStep:           "",
-		WinnerTreeHash:       append([]byte(nil), gi.TreeHash...),
-		NewTreeHash:          append([]byte(nil), newTreeHash...),
-		PartitionStartedAtMs: event.PartitionStartedAt.UnixMilli(),
-		ScheduledAtMs:        scheduledAt.UnixMilli(),
-		StartedAtMs:          startedAt.UnixMilli(),
-		CompletedAtMs:        completedAt.UnixMilli(),
-		DurationMs:           completedAt.Sub(startedAt).Milliseconds(),
-		TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
-		ReplayedMessageCount: replayedCount,
-	})
-	if c.onForkHealEvent != nil {
-		c.onForkHealEvent(ForkHealAuditSummary{
-			GroupID:              event.GroupID,
+		c.recordForkHealEvent(&ForkHealEventRecord{
 			TraceID:              traceID,
-			Stage:                "fork_heal_completed",
+			GroupID:              event.GroupID,
 			WinnerPeerID:         event.RemotePeer.String(),
-			WinnerEpoch:          gi.Epoch,
-			NewEpoch:             newEpoch,
+			WinnerEpoch:          event.RemoteEpoch,
+			NewEpoch:             job.PendingEpoch,
+			Outcome:              "success",
+			PartitionStartedAtMs: event.PartitionStartedAt.UnixMilli(),
+			ScheduledAtMs:        scheduledAt.UnixMilli(),
+			StartedAtMs:          startedAt.UnixMilli(),
+			CompletedAtMs:        completedAt.UnixMilli(),
+			DurationMs:           completedAt.Sub(startedAt).Milliseconds(),
+			TotalMs:              completedAt.Sub(scheduledAt).Milliseconds(),
 			ReplayedMessageCount: replayedCount,
 		})
+
+		if c.onForkHealEvent != nil {
+			c.onForkHealEvent(ForkHealAuditSummary{
+				GroupID:              event.GroupID,
+				TraceID:              traceID,
+				Stage:                "fork_heal_completed",
+				WinnerPeerID:         event.RemotePeer.String(),
+				WinnerEpoch:          event.RemoteAnnounce.Epoch,
+				NewEpoch:             job.PendingEpoch,
+				ReplayedMessageCount: replayedCount,
+			})
+		}
 	}
+}
+
+func (c *Coordinator) broadcastOutboundReplay(outbound *OutboundReplay, ev *ApplicationEvent) error {
+	c.mu.Lock()
+	c.appendOfflineEnvelopeLocked(outbound.ReplayEnvelope)
+	c.publishPreparedEnvelopeLocked(MsgApplication, outbound.ReplayEnvelope)
+	c.mu.Unlock()
+
+	outbound.Status = "BROADCASTED"
+	outbound.UpdatedAtMs = c.clock.Now().UnixMilli()
+	if err := c.storage.SaveOutboundReplay(outbound); err != nil {
+		return fmt.Errorf("save outbound replay broadcasted: %w", err)
+	}
+
+	ev.Status = "REPLAYED"
+	ev.ReplayedAtMs = c.clock.Now().UnixMilli()
+	if err := c.storage.SaveApplicationEvent(ev); err != nil {
+		return fmt.Errorf("save application event replayed: %w", err)
+	}
+
+	return nil
+}
+
+func phaseBeforeStateSwapped(status string) bool {
+	switch status {
+	case "INITIATED", "FROZEN_FOR_APPLY", "SNAPSHOT_CREATED", "EXTERNAL_JOINED":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Coordinator) isAlreadyOnWinningBranch(job *ForkHealingJob) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// If the job has not even reached EXTERNAL_JOINED state, we cannot be on the winning branch yet
+	if job.Status == "INITIATED" || job.Status == "SNAPSHOT_CREATED" {
+		return false
+	}
+
+	// 1. If local epoch is equal to the expected post-swap epoch, tree hash must match
+	if job.PendingEpoch > 0 && c.epoch == job.PendingEpoch {
+		return bytes.Equal(c.treeHash, job.PendingTreeHash)
+	}
+
+	// 2. If local epoch is equal to the winning branch's epoch, tree hash must match
+	if c.epoch == job.WinningEpoch {
+		return bytes.Equal(c.treeHash, job.WinningTreeHash)
+	}
+
+	return false
+}
+
+func (c *Coordinator) resumeForkHealingJob(job *ForkHealingJob) {
+	slog.Info("fork_heal/resume_triggered", "group", job.GroupID, "status", job.Status)
+	
+	winnerPeer, err := peer.Decode(job.WinnerPeerID)
+	if err != nil {
+		winnerPeer = peer.ID(job.WinnerPeerID)
+	}
+
+	// Self-healing detection: Nếu group state cục bộ thực chất đã swap thành công trước khi crash
+	if c.isAlreadyOnWinningBranch(job) && phaseBeforeStateSwapped(job.Status) {
+		slog.Info("fork_heal/resume_detect_already_swapped", "group", job.GroupID, "epoch", c.epoch)
+		job.Status = "STATE_SWAPPED"
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		_ = c.storage.SaveForkHealingJob(job)
+	}
+
+	if !c.healing.CompareAndSwap(false, true) {
+		slog.Warn("fork_heal/resume_skipped_already_healing", "group", job.GroupID)
+		return
+	}
+
+	event := &ForkEvent{
+		GroupID:            job.GroupID,
+		RemotePeer:         winnerPeer,
+		RemoteEpoch:        job.WinningEpoch,
+		NeedExternalJoin:   true,
+		WinnerPeers:        []peer.ID{winnerPeer},
+		PartitionStartedAt: time.UnixMilli(job.CreatedAtMs),
+		RemoteAnnounce: GroupStateAnnouncement{
+			TreeHash: job.WinningTreeHash,
+			Epoch:    job.WinningEpoch,
+		},
+	}
+
+	go c.runHeal(c.ctx, job.TraceID, event, time.UnixMilli(job.CreatedAtMs))
+}
+
+func deriveStorageKey(signingKey []byte) []byte {
+	h := sha256.Sum256(signingKey)
+	return h[:]
+}
+
+func sealPayload(plaintext, key []byte) (ciphertext, nonce []byte, err error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, nil, err
+	}
+	nonce = make([]byte, aesgcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, nil, err
+	}
+	ciphertext = aesgcm.Seal(nil, nonce, plaintext, nil)
+	return ciphertext, nonce, nil
+}
+
+func openPayload(ciphertext, nonce, key []byte) (plaintext []byte, err error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	plaintext, err = aesgcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, err
+	}
+	return plaintext, nil
 }
 
 func (c *Coordinator) fetchGroupInfoForHeal(ctx context.Context, remote peer.ID, groupID string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
@@ -3040,4 +3622,170 @@ func newTraceID() string {
 		return "00000000"
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func (c *Coordinator) reconcileOperationsAfterCommitLocked(commit CommitMsg) {
+	ops, err := c.storage.ListPendingOperations(c.groupID)
+	if err != nil {
+		slog.Error("Failed to list pending operations for reconcile", "group", c.groupID, "error", err)
+		return
+	}
+
+	for _, op := range ops {
+		if op.Status != "PENDING" && op.Status != "PROPOSED" {
+			continue
+		}
+
+		if op.OpType == "ADD_MEMBER" {
+			for _, d := range commit.AddDeliveries {
+				if d.OperationID == op.OperationID || d.TargetPeerID == *op.TargetMemberID {
+					if d.OperationID == op.OperationID {
+						op.Status = "COMMITTED"
+					} else {
+						op.Status = "SATISFIED_BY_OTHER"
+					}
+					op.UpdatedAt = c.clock.Now()
+					_ = c.storage.SavePendingOperation(op)
+					break
+				}
+			}
+		} else if op.OpType == "REMOVE_MEMBER" {
+			for _, p := range commit.IncludedProposals {
+				if p.ProposalType == ProposalRemove && p.TargetPeerID == *op.TargetMemberID {
+					if p.OperationID == op.OperationID {
+						op.Status = "COMMITTED"
+					} else {
+						op.Status = "SATISFIED_BY_OTHER"
+					}
+					op.UpdatedAt = c.clock.Now()
+					_ = c.storage.SavePendingOperation(op)
+					break
+				}
+			}
+		}
+	}
+}
+
+func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
+	ops, err := c.storage.ListPendingOperations(c.groupID)
+	if err != nil {
+		slog.Error("Failed to list pending operations for reconcile", "group", c.groupID, "error", err)
+		return
+	}
+
+	for _, op := range ops {
+		if op.Status != "PENDING" && op.Status != "PROPOSED" {
+			continue
+		}
+
+		if op.ExpiresAt != nil && *op.ExpiresAt > 0 && c.clock.Now().Unix() > *op.ExpiresAt {
+			op.Status = "FAILED_EXPIRED"
+			errStr := "operation TTL expired"
+			op.LastError = &errStr
+			op.UpdatedAt = c.clock.Now()
+			_ = c.storage.SavePendingOperation(op)
+			continue
+		}
+
+		// P0.1 Fix: use MLS HasMember for membership-based satisfied check.
+		// ActiveView tracks liveness (online/offline), NOT MLS group membership.
+		// An offline peer is still an MLS member; using ActiveView here would
+		// incorrectly mark Remove(offlinePeer) as SATISFIED_BY_OTHER.
+		satisfied := false
+		if op.TargetMemberID != nil && *op.TargetMemberID != "" {
+			opCtx, cancel := c.mlsOperationContext()
+			isMember, err := c.mls.HasMember(opCtx, c.groupState, []byte(*op.TargetMemberID))
+			cancel()
+			if err == nil {
+				if op.OpType == "ADD_MEMBER" && isMember {
+					satisfied = true
+				} else if op.OpType == "REMOVE_MEMBER" && !isMember {
+					satisfied = true
+				}
+			} else {
+				slog.Warn("HasMember check failed during reconcile; skipping satisfied check",
+					"group", c.groupID, "opID", op.OperationID, "error", err)
+			}
+		}
+
+		if satisfied {
+			op.Status = "SATISFIED_BY_OTHER"
+			op.UpdatedAt = c.clock.Now()
+			_ = c.storage.SavePendingOperation(op)
+			continue
+		}
+
+		if op.PreconditionEpoch != nil && *op.PreconditionEpoch < c.epoch {
+			maxRetries := c.cfg.ApplicationDirectRetryLimit
+			if maxRetries <= 0 {
+				maxRetries = 5
+			}
+			if op.RetryCount >= maxRetries {
+				op.Status = "FAILED_RETRY_EXHAUSTED"
+				errStr := "max retries exceeded"
+				op.LastError = &errStr
+				op.UpdatedAt = c.clock.Now()
+				_ = c.storage.SavePendingOperation(op)
+				continue
+			}
+
+			op.RetryCount++
+			epochCopy := c.epoch
+			op.PreconditionEpoch = &epochCopy
+			op.UpdatedAt = c.clock.Now()
+
+			slog.Info("Rebasing pending operation to new epoch",
+				"group", c.groupID, "opID", op.OperationID, "type", op.OpType, "newEpoch", c.epoch, "retry", op.RetryCount)
+
+			var reProposed bool
+			var reProposeErr error
+
+			if op.OpType == "ADD_MEMBER" {
+				msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalAdd, op.SemanticPayload, BufferedProposal{
+					OperationID:    op.OperationID,
+					TargetPeerID:   *op.TargetMemberID,
+					KeyPackageHash: append([]byte(nil), op.OperationHash...),
+				})
+				if err == nil {
+					c.singleWriter.BufferProposal(buffered)
+					c.broadcastLocked(MsgProposal, msg)
+					h := sha256.Sum256(msg.Data)
+					op.LatestProposalHash = h[:]
+					op.Status = "PROPOSED"
+					reProposed = true
+				} else {
+					reProposeErr = err
+				}
+			} else if op.OpType == "REMOVE_MEMBER" {
+				msg, buffered, err := c.createAndStoreLocalProposalLocked(ProposalRemove, op.SemanticPayload, BufferedProposal{
+					TargetPeerID: *op.TargetMemberID,
+					OperationID:  op.OperationID,
+				})
+				if err == nil {
+					c.singleWriter.BufferProposal(buffered)
+					c.broadcastLocked(MsgProposal, msg)
+					h := sha256.Sum256(msg.Data)
+					op.LatestProposalHash = h[:]
+					op.Status = "PROPOSED"
+					reProposed = true
+				} else {
+					reProposeErr = err
+				}
+			}
+
+			if reProposed {
+				op.LastError = nil
+				_ = c.storage.SavePendingOperation(op)
+			} else if reProposeErr != nil {
+				errStr := reProposeErr.Error()
+				op.LastError = &errStr
+				slog.Warn("Failed to re-propose rebased operation", "opID", op.OperationID, "error", reProposeErr)
+				_ = c.storage.SavePendingOperation(op)
+			}
+		}
+	}
+
+	if c.singleWriter.IsTokenHolder() {
+		c.scheduleBatchCommitLocked()
+	}
 }
