@@ -47,6 +47,7 @@ type WelcomeStoreRequestV1 struct {
 	// category mapping deterministically without depending on a separate
 	// snapshot pull (which races with peer verification on first connect).
 	CategoryID string `json:"category_id,omitempty"`
+	SourcePeerID string `json:"source_peer_id,omitempty"`
 	Welcome    []byte `json:"welcome"`
 }
 

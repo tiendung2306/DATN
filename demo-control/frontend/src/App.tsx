@@ -56,9 +56,14 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [snap, sc] = await Promise.all([runtimeClient.getSnapshot(), runtimeClient.getScenarioState()])
+      const [snap, sc, pref] = await Promise.all([
+        runtimeClient.getSnapshot(),
+        runtimeClient.getScenarioState(),
+        runtimeClient.preflight(),
+      ])
       setSnapshot(normalizeSnapshot(snap as ControlSnapshot))
       setScenario(sc as ScenarioRunState)
+      setPreflight(normalizePreflight(pref as PreflightResult))
       setError('')
     } catch (err) {
       setError(String(err))

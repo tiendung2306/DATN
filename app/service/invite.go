@@ -86,6 +86,7 @@ type welcomeDeliveryWire struct {
 	GroupID    string `json:"group_id"`
 	GroupType  string `json:"group_type,omitempty"`
 	CategoryID string `json:"category_id,omitempty"`
+	SourcePeerID string `json:"source_peer_id,omitempty"`
 	WelcomeHex string `json:"welcome_hex"`
 }
 
@@ -643,7 +644,11 @@ func (r *Runtime) replicateWelcomeToStorePeers(inviteeID peer.ID, groupID, group
 	if node == nil || database == nil || localID == "" || len(welcome) == 0 {
 		return
 	}
-	_ = database.SaveStoredWelcome(inviteeID.String(), groupID, groupType, categoryID, welcome, localID.String())
+	creatorID := localID.String()
+	if dbCreator, err := database.GetGroupCreatorPeerID(groupID); err == nil && dbCreator != "" {
+		creatorID = dbCreator
+	}
+	_ = database.SaveStoredWelcome(inviteeID.String(), groupID, groupType, categoryID, welcome, creatorID)
 	go r.publishBlindStoreWelcome(inviteeID.String(), groupID, groupType, categoryID, welcome)
 
 	for _, pid := range peers {
@@ -658,12 +663,22 @@ func (r *Runtime) pushWelcomeStoreRecord(node *p2p.P2PNode, to peer.ID, inviteeP
 	if node == nil || to == "" || inviteePeerID == "" || groupID == "" || len(welcome) == 0 {
 		return nil
 	}
+	creatorID := node.Host.ID().String()
+	r.mu.RLock()
+	database := r.db
+	r.mu.RUnlock()
+	if database != nil {
+		if dbCreator, err := database.GetGroupCreatorPeerID(groupID); err == nil && dbCreator != "" {
+			creatorID = dbCreator
+		}
+	}
 	req := p2p.WelcomeStoreRequestV1{
 		V:             1,
 		InviteePeerID: inviteePeerID,
 		GroupID:       groupID,
 		GroupType:     groupType,
 		CategoryID:    categoryID,
+		SourcePeerID:  creatorID,
 		Welcome:       welcome,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -1180,6 +1195,7 @@ func (r *Runtime) schedulePendingInviteRefresh() {
 func (r *Runtime) deliverWelcome(targetID peer.ID, groupID, groupType, categoryID string, welcomeBytes []byte) {
 	r.mu.Lock()
 	node := r.node
+	database := r.db
 	r.mu.Unlock()
 	if node == nil {
 		return
@@ -1196,12 +1212,20 @@ func (r *Runtime) deliverWelcome(targetID peer.ID, groupID, groupType, categoryI
 	defer s.Close()
 	_ = s.SetDeadline(time.Now().Add(30 * time.Second))
 
+	creatorID := node.Host.ID().String()
+	if database != nil {
+		if dbCreator, err := database.GetGroupCreatorPeerID(groupID); err == nil && dbCreator != "" {
+			creatorID = dbCreator
+		}
+	}
+
 	msg := &welcomeDeliveryWire{
-		V:          1,
-		GroupID:    groupID,
-		GroupType:  groupType,
-		CategoryID: categoryID,
-		WelcomeHex: hex.EncodeToString(welcomeBytes),
+		V:            1,
+		GroupID:      groupID,
+		GroupType:    groupType,
+		CategoryID:   categoryID,
+		SourcePeerID: creatorID,
+		WelcomeHex:   hex.EncodeToString(welcomeBytes),
 	}
 	if err := writeWelcomeFrame(s, msg); err != nil {
 		slog.Warn("deliverWelcome: write failed", "target", targetID, "err", err)
@@ -1423,9 +1447,13 @@ func (r *Runtime) handleWelcomeStoreStream(s network.Stream) {
 		req.V != 1 || req.InviteePeerID == "" || req.GroupID == "" || len(req.Welcome) == 0 {
 		return
 	}
-	_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.GroupType, req.CategoryID, req.Welcome, remote.String())
+	src := remote.String()
+	if strings.TrimSpace(req.SourcePeerID) != "" {
+		src = strings.TrimSpace(req.SourcePeerID)
+	}
+	_ = database.SaveStoredWelcome(req.InviteePeerID, req.GroupID, req.GroupType, req.CategoryID, req.Welcome, src)
 	if localID != "" && req.InviteePeerID == localID.String() {
-		_ = r.savePendingInviteFromWelcome(req.GroupID, req.GroupType, req.CategoryID, req.Welcome, remote.String(), false)
+		_ = r.savePendingInviteFromWelcome(req.GroupID, req.GroupType, req.CategoryID, req.Welcome, src, false)
 	}
 }
 
@@ -1578,6 +1606,9 @@ func (r *Runtime) handleWelcomeDelivery(s network.Stream) {
 		return
 	}
 	sourcePeerID := s.Conn().RemotePeer().String()
+	if strings.TrimSpace(msg.SourcePeerID) != "" {
+		sourcePeerID = strings.TrimSpace(msg.SourcePeerID)
+	}
 	if err := r.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, welcome, sourcePeerID, true); err != nil {
 		slog.Error("handleWelcomeDelivery: save pending invite failed", "group", msg.GroupID, "err", err)
 		return

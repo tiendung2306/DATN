@@ -41,6 +41,7 @@ type blindStoreEnvelopeV1 struct {
 	InviteePeerID  string   `json:"invitee_peer_id,omitempty"`
 	GroupType      string   `json:"group_type,omitempty"`
 	CategoryID     string   `json:"category_id,omitempty"`
+	SourcePeerID   string   `json:"source_peer_id,omitempty"`
 	Welcome        []byte   `json:"welcome,omitempty"`
 	ReplicaTargets []string `json:"replica_targets"`
 
@@ -205,9 +206,13 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 		if msg.InviteePeerID == "" || msg.GroupID == "" || len(msg.Welcome) == 0 || msg.PublishedAt <= 0 {
 			return
 		}
-		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), msg.PublishedAt)
+		src := from.String()
+		if strings.TrimSpace(msg.SourcePeerID) != "" {
+			src = strings.TrimSpace(msg.SourcePeerID)
+		}
+		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, msg.PublishedAt)
 		if msg.InviteePeerID == node.Host.ID().String() {
-			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, from.String(), false)
+			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, false)
 		}
 	case blindStoreObjectReplicatedRecord:
 		ns := strings.TrimSpace(msg.RecordNamespace)
@@ -353,9 +358,16 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, ca
 	r.mu.RLock()
 	layer := r.blindStore
 	node := r.node
+	database := r.db
 	r.mu.RUnlock()
 	if layer == nil || node == nil || inviteePeerID == "" || groupID == "" || len(welcome) == 0 {
 		return
+	}
+	creatorID := node.Host.ID().String()
+	if database != nil {
+		if dbCreator, err := database.GetGroupCreatorPeerID(groupID); err == nil && dbCreator != "" {
+			creatorID = dbCreator
+		}
 	}
 	frame := blindStoreEnvelopeV1{
 		V:              1,
@@ -365,6 +377,7 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, ca
 		InviteePeerID:  inviteePeerID,
 		GroupType:      groupType,
 		CategoryID:     categoryID,
+		SourcePeerID:   creatorID,
 		Welcome:        welcome,
 		ReplicaTargets: layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
 	}

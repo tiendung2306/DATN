@@ -73,7 +73,12 @@ func (a *App) GetSnapshot() (ControlSnapshot, error) {
 func (a *App) Preflight() (PreflightResult, error) {
 	a.mu.Lock()
 	ws := a.workspace
+	procs := make(map[string]*exec.Cmd)
+	for k, v := range a.procs {
+		procs[k] = v
+	}
 	a.mu.Unlock()
+
 	out := PreflightResult{OK: true}
 	if _, err := os.Stat(ws.AppDir); err != nil {
 		out.OK = false
@@ -83,11 +88,19 @@ func (a *App) Preflight() (PreflightResult, error) {
 		out.Warnings = append(out.Warnings, "built exe not found, go_run fallback will be used: "+ws.AppExe)
 	}
 	for _, p := range ws.Instances {
-		if portBusy(p.ControlPort) {
-			out.Warnings = append(out.Warnings, fmt.Sprintf("%s control port %d is already in use", p.ID, p.ControlPort))
+		// Only check for port conflicts if the instance is NOT currently running under this controller!
+		running := false
+		if cmd := procs[p.ID]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
+			running = true
 		}
-		if portBusy(p.P2PPort) {
-			out.Warnings = append(out.Warnings, fmt.Sprintf("%s p2p port %d is already in use", p.ID, p.P2PPort))
+
+		if !running {
+			if portBusy(p.ControlPort) {
+				out.Warnings = append(out.Warnings, fmt.Sprintf("%s control port %d is already in use", p.ID, p.ControlPort))
+			}
+			if portBusy(p.P2PPort) {
+				out.Warnings = append(out.Warnings, fmt.Sprintf("%s p2p port %d is already in use", p.ID, p.P2PPort))
+			}
 		}
 	}
 	if runtime.GOOS != "windows" {
@@ -154,34 +167,70 @@ func (a *App) StartInstance(id string) error {
 	return nil
 }
 
+func killProcessTree(pid int) {
+	if runtime.GOOS == "windows" {
+		// /F forces termination, /T terminates specified process and any child processes
+		_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprint(pid)).Run()
+	} else {
+		// On non-Windows platforms, we send SIGKILL to the process
+		// We can also kill the process group if we set PGID, but usually Process.Kill() is standard.
+	}
+}
+
 func (a *App) StopInstance(id string) error {
+	graceful := false
 	if err := a.controlAction(id, "shutdown"); err == nil {
-		time.Sleep(400 * time.Millisecond)
+		graceful = true
 	}
+
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if cmd := a.procs[id]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
+	cmd := a.procs[id]
+	a.mu.Unlock()
+
+	if cmd != nil && cmd.Process != nil {
+		pid := cmd.Process.Pid
+		if graceful {
+			// Poll for up to 1.5s for graceful exit
+			for i := 0; i < 15; i++ {
+				a.mu.Lock()
+				runningCmd := a.procs[id]
+				a.mu.Unlock()
+				if runningCmd == nil || runningCmd.ProcessState != nil {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+
+		// Forcefully kill process tree (SecureP2P and its crypto-engine sidecar)
+		killProcessTree(pid)
 		_ = cmd.Process.Kill()
+		time.Sleep(300 * time.Millisecond)
 	}
+
+	a.mu.Lock()
 	delete(a.procs, id)
+	a.mu.Unlock()
 	return nil
 }
 
 func (a *App) KillInstance(id string) error {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if cmd := a.procs[id]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
-		if err := cmd.Process.Kill(); err != nil {
-			return err
-		}
-	}
+	cmd := a.procs[id]
 	delete(a.procs, id)
+	a.mu.Unlock()
+
+	if cmd != nil && cmd.Process != nil {
+		killProcessTree(cmd.Process.Pid)
+		_ = cmd.Process.Kill()
+		time.Sleep(300 * time.Millisecond)
+	}
 	return nil
 }
 
 func (a *App) RestartInstance(id string) error {
 	_ = a.StopInstance(id)
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 	return a.StartInstance(id)
 }
 
@@ -196,9 +245,34 @@ func (a *App) StartAll() error {
 }
 
 func (a *App) StopAll() error {
+	// 1. Try to stop all instances gracefully
 	for _, p := range a.workspace.Instances {
-		_ = a.StopInstance(p.ID)
+		_ = a.controlAction(p.ID, "shutdown")
 	}
+
+	// Wait up to 800ms for graceful shutdown
+	time.Sleep(800 * time.Millisecond)
+
+	// 2. Kill remaining managed process trees
+	a.mu.Lock()
+	for id, cmd := range a.procs {
+		if cmd != nil && cmd.Process != nil {
+			killProcessTree(cmd.Process.Pid)
+			_ = cmd.Process.Kill()
+		}
+		delete(a.procs, id)
+	}
+	a.mu.Unlock()
+
+	// 3. System-wide deep sweep: clean up any remaining orphaned SecureP2P or crypto-engine processes
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("taskkill", "/F", "/IM", "SecureP2P.exe").Run()
+		_ = exec.Command("taskkill", "/F", "/IM", "crypto-engine.exe").Run()
+	} else {
+		_ = exec.Command("killall", "-9", "SecureP2P").Run()
+		_ = exec.Command("killall", "-9", "crypto-engine").Run()
+	}
+
 	return nil
 }
 
