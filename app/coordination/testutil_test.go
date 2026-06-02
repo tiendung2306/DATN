@@ -1102,15 +1102,7 @@ func (s *MockStorage) GetPendingEnvelopes(groupID string, maxCount int) ([]*Enve
 	}
 	var out []*EnvelopeRecord
 	for _, r := range s.envByGroup[groupID] {
-		isPending := false
-		switch r.ApplyState {
-		case "pending", "RECEIVED", "READY", "FUTURE_EPOCH", "PERSIST_FAILED",
-			"BLOCKED_MISSING_PRIOR_EPOCH", "BLOCKED_MISSING_COMMIT",
-			"BLOCKED_STALE_REQUIRES_SNAPSHOT", "BLOCKED_DECRYPT_FAILED",
-			"FORK_CONFLICT", "WAITING_SYNC", "future_epoch", "persist_failed":
-			isPending = true
-		}
-		if isPending {
+		if IsPendingApplyState(string(r.ApplyState)) {
 			out = append(out, r)
 			if len(out) >= maxCount {
 				break

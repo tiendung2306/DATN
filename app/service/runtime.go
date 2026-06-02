@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	p2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"google.golang.org/grpc"
 )
 
@@ -318,6 +320,7 @@ func (r *Runtime) launchP2PNode() error {
 		node.AuthProtocol.SetPeerProfileAnnexHandler(r.handleAuthProfileAnnex)
 		node.AuthProtocol.SetOnPeerVerified(func(pid peer.ID) {
 			go r.emitNodeStatusChanged("peer_verified")
+			go r.persistVerifiedPeerInfo(pid)
 			go r.pushLocalUserProfileToPeer(pid)
 			go r.retryOutstandingDeliveriesToPeer(pid)
 			go r.retryPendingWelcomes(pid)
@@ -385,6 +388,34 @@ func (r *Runtime) retryOutstandingDeliveriesToPeer(pid peer.ID) {
 	}
 }
 
+func (r *Runtime) persistVerifiedPeerInfo(pid peer.ID) {
+	r.mu.RLock()
+	node := r.node
+	db := r.db
+	r.mu.RUnlock()
+
+	if node == nil || db == nil || node.AuthProtocol == nil {
+		return
+	}
+
+	tok := node.AuthProtocol.GetVerifiedToken(pid)
+	if tok == nil {
+		return
+	}
+
+	pubHex := ""
+	if len(tok.PublicKey) > 0 {
+		pubHex = hex.EncodeToString(tok.PublicKey)
+	}
+
+	if err := db.UpsertPeerProfileWithKey(pid.String(), tok.DisplayName, pubHex); err != nil {
+		slog.Error("Failed to upsert peer profile during verification", "peer", pid, "err", err)
+	}
+	if err := db.UpdateGroupMemberDisplayNameByPeer(pid.String(), tok.DisplayName); err != nil {
+		slog.Error("Failed to update group member display name during verification", "peer", pid, "err", err)
+	}
+}
+
 // kickInitialOfflineSync proactively schedules offline pulls for peers that may
 // already be connected before Notifee registration (startup race window).
 func (r *Runtime) kickInitialOfflineSync(ctx context.Context) {
@@ -418,12 +449,12 @@ func (r *Runtime) startP2PKeepAliveLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.maintainPeerConnections()
+			r.maintainPeerConnections(ctx)
 		}
 	}
 }
 
-func (r *Runtime) maintainPeerConnections() {
+func (r *Runtime) maintainPeerConnections(ctx context.Context) {
 	r.mu.RLock()
 	node := r.node
 	if node == nil {
@@ -440,23 +471,53 @@ func (r *Runtime) maintainPeerConnections() {
 	}
 	r.mu.RUnlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
 	for pid := range peerIDs {
 		// Protect connection from being pruned by the connection manager
 		node.Host.ConnManager().Protect(pid, "coordination")
 
-		// Reconnect if connection was dropped
+		// Reconnect concurrently if connection was dropped
 		if node.Host.Network().Connectedness(pid) != network.Connected {
-			slog.Debug("P2P keepalive reconnecting", "peer", pid)
-			addrs := node.Host.Peerstore().Addrs(pid)
-			if len(addrs) > 0 {
-				_ = node.Host.Connect(ctx, peer.AddrInfo{
-					ID:    pid,
-					Addrs: addrs,
-				})
-			}
+			go func(pid peer.ID) {
+				slog.Debug("P2P keepalive reconnecting", "peer", pid)
+				addrs := node.Host.Peerstore().Addrs(pid)
+				if len(addrs) > 0 {
+					connectCtx, connectCancel := context.WithTimeout(ctx, 3*time.Second)
+					defer connectCancel()
+					_ = node.Host.Connect(connectCtx, peer.AddrInfo{
+						ID:    pid,
+						Addrs: addrs,
+					})
+				}
+			}(pid)
 		}
 	}
 }
+
+// peerConnectedHook is registered as a libp2p Network Notifee so the creator
+// retries pending Welcome deliveries whenever the invitee reconnects.
+type peerConnectedHook struct {
+	rt *Runtime
+}
+
+func (h *peerConnectedHook) Listen(network.Network, ma.Multiaddr)      {}
+func (h *peerConnectedHook) ListenClose(network.Network, ma.Multiaddr) {}
+func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
+	pid := c.RemotePeer()
+	addr := c.RemoteMultiaddr()
+	h.rt.mu.RLock()
+	node := h.rt.node
+	h.rt.mu.RUnlock()
+	if node != nil {
+		node.Host.Peerstore().AddAddrs(pid, []ma.Multiaddr{addr}, 24*time.Hour)
+	}
+
+	// Keep key package replicas fresh whenever a verified peer connects.
+	go h.rt.advertiseKeyPackage()
+	go h.rt.emitNodeStatusChanged("peer_connected")
+	go h.rt.emitAllGroupsMembersChanged("presence")
+}
+func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {
+	go h.rt.emitNodeStatusChanged("peer_disconnected")
+	go h.rt.emitAllGroupsMembersChanged("presence")
+}
+

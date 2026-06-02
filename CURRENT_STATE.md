@@ -16,7 +16,16 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-06-02) ✅ — Locking Boundaries & Deadlock Elimination (Service Quality Hardening)
+
+- **Deadlock & Locking Boundaries Audit & Fixes [COMPLETED]:**
+  - **Read-Lock Optimization:** Converted multiple state getters and status queries in `app/service/` (`GetKPStatus`, `GetGroupStatus`, `makeMessageHandler`, `mapStoredMessagesToMessageInfo`) from exclusive `r.mu.Lock()` to read-only `r.mu.RLock()`, avoiding write-lock starvation and UI hangs during high P2P synchronization loads.
+  - **Database Close Race Resolution:** Extended the locking scope of `r.mu.RLock()` in `GetOfflineSyncStatus()` using `defer` to encompass the entire function including database read operations. This guarantees connection safety and prevents panics/deadlocks on concurrent teardown.
+  - **Asynchronous DB Isolation:** Added explicit error logging to async peer verification persistence `persistVerifiedPeerInfo(pid)` in `runtime.go` to ensure DB issues never block or silently fail Wails UI loops.
+  - **Verification:** Successfully validated and ran all unit tests (`go test -v ./service/...` passes 100%). Stopped background processes cleanly and executed a successful `wails build` to produce the deadlock-free `SecureP2P.exe` binary.
+
 ### Latest Delta (2026-05-31) ✅ — Senior-Grade Crash-Safe Fork Healing State Machine (Milestone 5)
+
 
 - **Crash-Safe Fork Healing State Machine [COMPLETED]:**
   - **Unified Job Identity:** Shifted `fork_healing_job` from using `group_id` as the primary key to `job_id TEXT PRIMARY KEY` with active job isolation via conditional unique index `idx_fork_healing_active_group` on group ID. This resolves the critical issue where successive splits/heals in the same group were blocked due to key collisions on completed/cleaned jobs.

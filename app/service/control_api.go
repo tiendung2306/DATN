@@ -100,20 +100,30 @@ func (r *Runtime) handleControlStatus(w http.ResponseWriter, _ *http.Request) {
 	diag, _ := r.GetDiagnosticsSnapshot()
 	r.mu.RLock()
 	label := ""
+	db := r.db
+	health := r.health
 	if r.cfg != nil {
 		label = r.cfg.InstanceLabel
 	}
+	r.mu.RUnlock()
+
+	appState := "ERROR"
+	if db != nil {
+		if state, err := DetermineAppState(db); err == nil {
+			appState = state.String()
+		}
+	}
+
 	out := ControlInstanceStatus{
 		InstanceLabel: label,
 		RuntimeDir:    r.localDir(),
 		ProcessID:     os.Getpid(),
-		AppState:      r.getAppStateUnlocked(),
-		Health:        r.health,
+		AppState:      appState,
+		Health:        health,
 		Network:       netSettings,
 		Diagnostics:   diag,
 		TimestampMs:   time.Now().UnixMilli(),
 	}
-	r.mu.RUnlock()
 	writeControlJSON(w, out)
 }
 

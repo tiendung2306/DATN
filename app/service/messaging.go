@@ -60,11 +60,11 @@ func validateOutboundByGroupType(groupType string, text string) error {
 
 func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMessage) []MessageInfo {
 	var localID peer.ID
-	r.mu.Lock()
+	r.mu.RLock()
 	if r.node != nil {
 		localID = r.node.Host.ID()
 	}
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	result := make([]MessageInfo, len(msgs))
 	var localName string

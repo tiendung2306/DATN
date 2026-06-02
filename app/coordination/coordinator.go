@@ -3232,6 +3232,15 @@ func (c *Coordinator) broadcastOutboundReplay(outbound *OutboundReplay, ev *Appl
 		return fmt.Errorf("save application event replayed: %w", err)
 	}
 
+	// Mark the original stored message as replayed so the frontend can
+	// suppress it once the re-broadcast copy is received and stored.
+	if len(ev.EnvelopeHash) > 0 {
+		now := c.clock.Now()
+		if mErr := c.storage.MarkMessageReplayed(c.groupID, ev.EnvelopeHash, now); mErr != nil {
+			slog.Warn("fork_heal/mark_replayed_failed", "group", c.groupID, "err", mErr)
+		}
+	}
+
 	return nil
 }
 

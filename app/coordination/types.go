@@ -362,6 +362,27 @@ const (
 	ReplayStateTerminalDroppedWithReason    ReplayEnvelopeState = "TERMINAL_DROPPED_WITH_REASON"
 )
 
+// IsPendingApplyState returns true if the envelope state represents a pending or
+// non-terminal block that requires coordination or replay.
+func IsPendingApplyState(state string) bool {
+	switch state {
+	case "pending",
+		string(ReplayStateReceived),
+		string(ReplayStateReady),
+		string(ReplayStateFutureEpoch),
+		string(ReplayStatePersistFailed),
+		string(ReplayStateBlockedMissingPriorEpoch),
+		string(ReplayStateBlockedMissingCommit),
+		string(ReplayStateForkConflict),
+		string(ReplayStateWaitingSync),
+		"future_epoch",
+		"persist_failed":
+		return true
+	default:
+		return false
+	}
+}
+
 // ReplayEnvelopeResult describes one replay attempt.
 type ReplayEnvelopeResult struct {
 	GroupID        string

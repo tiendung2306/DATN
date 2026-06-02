@@ -1,8 +1,6 @@
 package service
 
 import (
-	"encoding/hex"
-
 	"app/adapter/p2p"
 )
 
@@ -24,44 +22,40 @@ type NodeStatus struct {
 
 // GetNodeStatus returns the current runtime status of the P2P node.
 func (r *Runtime) GetNodeStatus() *NodeStatus {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	db := r.db
+	privKey := r.privKey
+	node := r.node
+	r.mu.RUnlock()
 
 	status := &NodeStatus{
-		State:          r.getAppStateUnlocked(),
-		IsRunning:      r.node != nil,
+		State:          "ERROR",
+		IsRunning:      node != nil,
 		ConnectedPeers: []PeerInfo{},
 	}
 
-	if r.db != nil && r.privKey != nil {
-		if info, err := p2p.GetOnboardingInfo(r.db, r.privKey); err == nil {
+	if db != nil {
+		if state, err := DetermineAppState(db); err == nil {
+			status.State = state.String()
+		}
+	}
+
+	if db != nil && privKey != nil {
+		if info, err := p2p.GetOnboardingInfo(db, privKey); err == nil {
 			status.PeerID = info.PeerID
 		}
-		if identity, err := r.db.GetMLSIdentity(); err == nil {
+		if identity, err := db.GetMLSIdentity(); err == nil {
 			status.DisplayName = identity.DisplayName
 		}
 	}
 
-	if r.node != nil {
-		for _, pid := range r.node.Host.Network().Peers() {
+	if node != nil {
+		for _, pid := range node.Host.Network().Peers() {
 			peer := PeerInfo{ID: pid.String()}
-			if r.node.AuthProtocol != nil {
-				peer.Verified = r.node.AuthProtocol.IsVerified(pid)
-				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
+			if node.AuthProtocol != nil {
+				peer.Verified = node.AuthProtocol.IsVerified(pid)
+				if tok := node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					peer.DisplayName = tok.DisplayName
-					if r.db != nil {
-						// Stash the verified MLS signing pubkey alongside the
-						// display name so the MLS leaf enumerator can later
-						// resolve BasicCredential identity bytes back to a
-						// peer.ID without TOFU. Empty PublicKey (legacy
-						// tokens) falls back to display-name-only upsert.
-						pubHex := ""
-						if len(tok.PublicKey) > 0 {
-							pubHex = hex.EncodeToString(tok.PublicKey)
-						}
-						_ = r.db.UpsertPeerProfileWithKey(pid.String(), tok.DisplayName, pubHex)
-						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), tok.DisplayName)
-					}
 				}
 			}
 			status.ConnectedPeers = append(status.ConnectedPeers, peer)
@@ -73,14 +67,16 @@ func (r *Runtime) GetNodeStatus() *NodeStatus {
 
 // GetKnownPeers returns a list of all historically encountered and currently connected peers.
 func (r *Runtime) GetKnownPeers() []PeerInfo {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	db := r.db
+	node := r.node
+	r.mu.RUnlock()
 
 	outMap := make(map[string]PeerInfo)
 
 	// 1. Load from DB persistent directory
-	if r.db != nil {
-		profiles, _ := r.db.GetAllPeerProfiles()
+	if db != nil {
+		profiles, _ := db.GetAllPeerProfiles()
 		for pid, name := range profiles {
 			outMap[pid] = PeerInfo{
 				ID:          pid,
@@ -91,22 +87,14 @@ func (r *Runtime) GetKnownPeers() []PeerInfo {
 	}
 
 	// 2. Overlay active connected peers
-	if r.node != nil {
-		for _, pid := range r.node.Host.Network().Peers() {
+	if node != nil {
+		for _, pid := range node.Host.Network().Peers() {
 			verified := false
 			displayName := ""
-			if r.node.AuthProtocol != nil {
-				verified = r.node.AuthProtocol.IsVerified(pid)
-				if tok := r.node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
+			if node.AuthProtocol != nil {
+				verified = node.AuthProtocol.IsVerified(pid)
+				if tok := node.AuthProtocol.GetVerifiedToken(pid); tok != nil {
 					displayName = tok.DisplayName
-					if r.db != nil && displayName != "" {
-						pubHex := ""
-						if len(tok.PublicKey) > 0 {
-							pubHex = hex.EncodeToString(tok.PublicKey)
-						}
-						_ = r.db.UpsertPeerProfileWithKey(pid.String(), displayName, pubHex)
-						_ = r.db.UpdateGroupMemberDisplayNameByPeer(pid.String(), displayName)
-					}
 				}
 			}
 

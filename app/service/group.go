@@ -192,7 +192,7 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		OnEpochChange:        r.makeEpochHandler(groupID),
 		OnAccessLost:         r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
-			r.publishBlindStoreEnvelope(mt, gid, wire)
+			asyncEnvelopeBroadcast(r.publishBlindStoreEnvelope, mt, gid, wire)
 		},
 		OnAddCommitted:     r.makeAddCommittedHandler(groupID),
 		OnPeerObserved:     r.makePeerObservedHandler(groupID),
@@ -840,7 +840,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 		OnEpochChange:        r.makeEpochHandler(groupID),
 		OnAccessLost:         r.makeAccessLostHandler(groupID),
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
-			r.publishBlindStoreEnvelope(mt, gid, wire)
+			asyncEnvelopeBroadcast(r.publishBlindStoreEnvelope, mt, gid, wire)
 		},
 		OnAddCommitted:     r.makeAddCommittedHandler(groupID),
 		OnPeerObserved:     r.makePeerObservedHandler(groupID),
@@ -988,9 +988,9 @@ func (r *Runtime) GetGroupMembers(groupID string) ([]MemberInfo, error) {
 
 // GetGroupStatus returns live status for a specific group.
 func (r *Runtime) GetGroupStatus(groupID string) map[string]interface{} {
-	r.mu.Lock()
+	r.mu.RLock()
 	coord, ok := r.coordinators[groupID]
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if !ok {
 		return map[string]interface{}{"error": "not in group"}
@@ -1007,6 +1007,19 @@ func (r *Runtime) GetGroupStatus(groupID string) map[string]interface{} {
 		"commit_bytes_total":  snap.CommitBytesTotal,
 		"partitions_detected": snap.PartitionsDetected,
 	}
+}
+
+func asyncEnvelopeBroadcast(
+	fn func(coordination.MessageType, string, []byte),
+	mt coordination.MessageType,
+	groupID string,
+	wire []byte,
+) {
+	if fn == nil || len(wire) == 0 {
+		return
+	}
+	wireCopy := append([]byte(nil), wire...)
+	go fn(mt, groupID, wireCopy)
 }
 
 // ─── Coordination stack initialization ───────────────────────────────────────
@@ -1095,7 +1108,7 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			OnEpochChange:        r.makeEpochHandler(rec.GroupID),
 			OnAccessLost:         r.makeAccessLostHandler(rec.GroupID),
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
-				r.publishBlindStoreEnvelope(mt, gid, wire)
+				asyncEnvelopeBroadcast(r.publishBlindStoreEnvelope, mt, gid, wire)
 			},
 			OnAddCommitted:     r.makeAddCommittedHandler(rec.GroupID),
 			OnPeerObserved:     r.makePeerObservedHandler(rec.GroupID),
@@ -1266,11 +1279,11 @@ func (r *Runtime) recoverStaleAddOperationsLocked() {
 func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMessage) {
 	return func(msg *coordination.StoredMessage) {
 		var isMine bool
-		r.mu.Lock()
+		r.mu.RLock()
 		if r.node != nil {
 			isMine = msg.SenderID == r.node.Host.ID()
 		}
-		r.mu.Unlock()
+		r.mu.RUnlock()
 		if !isMine {
 			// Observation only: the sender exists in the group. We have no
 			// authoritative information about their role, so route through

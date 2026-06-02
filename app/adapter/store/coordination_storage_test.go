@@ -890,3 +890,56 @@ func TestSQLiteCoordinationStorage_GetActiveForkHealingJob_ExcludesNewerCleaned(
 		t.Errorf("GetActiveForkHealingJob returned incorrect job: got %s, want job-active-old", active.JobID)
 	}
 }
+
+func TestSQLiteCoordinationStorage_GetPendingEnvelopes_ExcludesTerminalBlockedStates(t *testing.T) {
+	s := setupTestStorage(t)
+	groupID := "g-pending-test"
+
+	// 1. Insert several envelopes with different states
+	ts := coordination.HLCTimestamp{WallTimeMs: 1000, Counter: 0, NodeID: "alice"}
+
+	// Temporary / pending states (should be fetched)
+	_, err := s.AppendEnvelope(groupID, coordination.MsgApplication, 1, ts, []byte("pending-msg"))
+	if err != nil {
+		t.Fatalf("AppendEnvelope: %v", err)
+	}
+
+	futureSeq, _ := s.AppendEnvelope(groupID, coordination.MsgApplication, 2, ts, []byte("future-msg"))
+	futureHash := sha256.Sum256([]byte("future-msg"))
+	_ = s.MarkEnvelopeReplayState(groupID, futureHash[:], coordination.ReplayStateBlockedMissingPriorEpoch, "", time.Now())
+
+	// Terminal blocked states (should be excluded)
+	staleSeq, _ := s.AppendEnvelope(groupID, coordination.MsgApplication, 1, ts, []byte("stale-msg"))
+	staleHash := sha256.Sum256([]byte("stale-msg"))
+	_ = s.MarkEnvelopeReplayState(groupID, staleHash[:], coordination.ReplayStateBlockedStaleRequiresSnapshot, "", time.Now())
+
+	decryptFailSeq, _ := s.AppendEnvelope(groupID, coordination.MsgApplication, 1, ts, []byte("decrypt-fail-msg"))
+	decryptFailHash := sha256.Sum256([]byte("decrypt-fail-msg"))
+	_ = s.MarkEnvelopeReplayState(groupID, decryptFailHash[:], coordination.ReplayStateBlockedDecryptFailed, "", time.Now())
+
+	// 2. Fetch pending envelopes
+	pending, err := s.GetPendingEnvelopes(groupID, 100)
+	if err != nil {
+		t.Fatalf("GetPendingEnvelopes failed: %v", err)
+	}
+
+	// We expect only 2 envelopes: the 'pending' one and the 'BLOCKED_MISSING_PRIOR_EPOCH' one.
+	// The stale and decrypt-failed ones must be completely excluded!
+	if len(pending) != 2 {
+		t.Fatalf("expected exactly 2 pending envelopes, got %d", len(pending))
+	}
+
+	for _, rec := range pending {
+		if rec.Seq == staleSeq {
+			t.Errorf("GetPendingEnvelopes unexpectedly returned stale envelope (seq=%d)", rec.Seq)
+		}
+		if rec.Seq == decryptFailSeq {
+			t.Errorf("GetPendingEnvelopes unexpectedly returned decrypt-failed envelope (seq=%d)", rec.Seq)
+		}
+		if rec.Seq == futureSeq {
+			if rec.ApplyState != string(coordination.ReplayStateBlockedMissingPriorEpoch) {
+				t.Errorf("incorrect apply state for future envelope: got %s", rec.ApplyState)
+			}
+		}
+	}
+}

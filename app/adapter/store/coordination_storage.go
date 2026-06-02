@@ -754,7 +754,6 @@ func (s *SQLiteCoordinationStorage) GetPendingEnvelopes(groupID string, maxCount
 		  WHERE group_id = ?
 		    AND apply_state IN ('pending', 'RECEIVED', 'READY', 'FUTURE_EPOCH', 'PERSIST_FAILED',
 		                        'BLOCKED_MISSING_PRIOR_EPOCH', 'BLOCKED_MISSING_COMMIT',
-		                        'BLOCKED_STALE_REQUIRES_SNAPSHOT', 'BLOCKED_DECRYPT_FAILED',
 		                        'FORK_CONFLICT', 'WAITING_SYNC', 'future_epoch', 'persist_failed')
 		  ORDER BY epoch ASC, hlc_wall_ms ASC, hlc_counter ASC, hlc_node_id ASC
 		  LIMIT ?`,

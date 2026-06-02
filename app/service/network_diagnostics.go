@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"app/coordination"
+
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -47,26 +49,31 @@ func (r *Runtime) ValidateMultiaddr(addr string) error {
 
 func (r *Runtime) GetNetworkSettings() (NetworkSettings, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	bootstrapAddr := ""
+	if r.cfg != nil {
+		bootstrapAddr = strings.TrimSpace(r.cfg.BootstrapAddr)
+	}
+	node := r.node
+	r.mu.RUnlock()
 
 	out := NetworkSettings{
-		BootstrapAddr: strings.TrimSpace(r.cfg.BootstrapAddr),
+		BootstrapAddr: bootstrapAddr,
 	}
-	if r.node == nil {
+	if node == nil {
 		return out, nil
 	}
 
-	out.LocalPeerID = r.node.Host.ID().String()
-	if addrs := r.node.Host.Addrs(); len(addrs) > 0 {
+	out.LocalPeerID = node.Host.ID().String()
+	if addrs := node.Host.Addrs(); len(addrs) > 0 {
 		out.LocalMultiaddr = fmt.Sprintf("%s/p2p/%s", addrs[0].String(), out.LocalPeerID)
 	}
-	peers := r.node.Host.Network().Peers()
+	peers := node.Host.Network().Peers()
 	out.ConnectedPeers = len(peers)
 
-	if r.node.AuthProtocol != nil {
+	if node.AuthProtocol != nil {
 		verified := 0
 		for _, pid := range peers {
-			if r.node.AuthProtocol.IsVerified(pid) {
+			if node.AuthProtocol.IsVerified(pid) {
 				verified++
 			}
 		}
@@ -162,39 +169,57 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 		return DiagnosticsSnapshot{}, err
 	}
 	offline, _ := r.GetOfflineSyncStatus()
+	runtimeHealth := r.GetRuntimeHealth()
 
 	r.mu.RLock()
-	defer r.mu.RUnlock()
+	db := r.db
+	blindStoreActive := r.blindStore != nil
+	replayEnabled := r.cfg != nil && r.cfg.RuntimeEventReplay
+	coords := make(map[string]*coordination.Coordinator, len(r.coordinators))
+	for gid, coord := range r.coordinators {
+		coords[gid] = coord
+	}
+	r.mu.RUnlock()
+
+	appState := "ERROR"
+	if db != nil {
+		if state, err := DetermineAppState(db); err == nil {
+			appState = state.String()
+		}
+	}
 
 	snapshot := DiagnosticsSnapshot{
 		TimestampMs:               time.Now().UnixMilli(),
-		AppState:                  r.getAppStateUnlocked(),
+		AppState:                  appState,
 		LocalPeerID:               settings.LocalPeerID,
 		ConnectedPeers:            settings.ConnectedPeers,
 		VerifiedPeers:             settings.VerifiedPeers,
 		BootstrapAddr:             settings.BootstrapAddr,
 		OfflineSync:               offline,
-		RuntimeHealth:             r.GetRuntimeHealth(),
-		BlindStoreActive:          r.blindStore != nil,
-		RuntimeEventReplayEnabled: r.cfg != nil && r.cfg.RuntimeEventReplay,
+		RuntimeHealth:             runtimeHealth,
+		BlindStoreActive:          blindStoreActive,
+		RuntimeEventReplayEnabled: replayEnabled,
 	}
-	if r.db != nil {
-		if seq, seqErr := r.db.GetLatestRuntimeSeq(); seqErr == nil {
+	if db != nil {
+		if seq, seqErr := db.GetLatestRuntimeSeq(); seqErr == nil {
 			snapshot.RuntimeEventCursor = seq
 		}
 	}
-	if r.coordinators == nil {
+	if len(coords) == 0 {
 		return snapshot, nil
 	}
 
-	groupIDs := make([]string, 0, len(r.coordinators))
-	for gid := range r.coordinators {
+	groupIDs := make([]string, 0, len(coords))
+	for gid := range coords {
 		groupIDs = append(groupIDs, gid)
 	}
 	sort.Strings(groupIDs)
 
 	for _, gid := range groupIDs {
-		coord := r.coordinators[gid]
+		coord := coords[gid]
+		if coord == nil {
+			continue
+		}
 
 		tokenHolderID := ""
 		if holder, err := coord.CurrentTokenHolder(); err == nil {

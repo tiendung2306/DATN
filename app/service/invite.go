@@ -56,7 +56,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	ma "github.com/multiformats/go-multiaddr"
 )
 
 const (
@@ -1920,10 +1919,10 @@ func (r *Runtime) CheckDHTWelcome(groupID string) error {
 
 // GetKPStatus returns whether the local node has a KeyPackage advertised.
 func (r *Runtime) GetKPStatus() map[string]interface{} {
-	r.mu.Lock()
+	r.mu.RLock()
 	node := r.node
 	database := r.db
-	r.mu.Unlock()
+	r.mu.RUnlock()
 
 	if node == nil || database == nil {
 		return map[string]interface{}{"advertised": false}
@@ -1935,23 +1934,4 @@ func (r *Runtime) GetKPStatus() map[string]interface{} {
 	}
 }
 
-// ── Peer connect notification hook ───────────────────────────────────────────
 
-// peerConnectedHook is registered as a libp2p Network Notifee so the creator
-// retries pending Welcome deliveries whenever the invitee reconnects.
-type peerConnectedHook struct {
-	rt *Runtime
-}
-
-func (h *peerConnectedHook) Listen(network.Network, ma.Multiaddr)      {}
-func (h *peerConnectedHook) ListenClose(network.Network, ma.Multiaddr) {}
-func (h *peerConnectedHook) Connected(_ network.Network, c network.Conn) {
-	// Keep key package replicas fresh whenever a verified peer connects.
-	go h.rt.advertiseKeyPackage()
-	go h.rt.emitNodeStatusChanged("peer_connected")
-	go h.rt.emitAllGroupsMembersChanged("presence")
-}
-func (h *peerConnectedHook) Disconnected(network.Network, network.Conn) {
-	go h.rt.emitNodeStatusChanged("peer_disconnected")
-	go h.rt.emitAllGroupsMembersChanged("presence")
-}

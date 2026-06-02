@@ -22,16 +22,24 @@ type RuntimeHealth struct {
 
 func (r *Runtime) GetRuntimeHealth() RuntimeHealth {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	h := r.health
+	db := r.db
+	node := r.node
+	mlsClient := r.mlsClient
+	r.mu.RUnlock()
+
 	if h.StartupStage == "" {
 		h.StartupStage = startupStageNotStarted
 	}
-	if h.AppState == "" && r.db != nil {
-		h.AppState = r.getAppStateUnlocked()
+	if h.AppState == "" && db != nil {
+		if state, err := DetermineAppState(db); err == nil {
+			h.AppState = state.String()
+		} else {
+			h.AppState = "ERROR"
+		}
 	}
-	h.P2PRunning = r.node != nil
-	h.CryptoReady = r.mlsClient != nil
+	h.P2PRunning = node != nil
+	h.CryptoReady = mlsClient != nil
 	return h
 }
 

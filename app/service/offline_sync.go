@@ -435,17 +435,20 @@ type OfflineSyncGroupStatus struct {
 
 // GetOfflineSyncStatus returns envelope log heads (best-effort).
 func (r *Runtime) GetOfflineSyncStatus() ([]OfflineSyncGroupStatus, error) {
-	r.mu.Lock()
+	r.mu.RLock()
 	cs := r.coordStorage
+	if cs == nil {
+		r.mu.RUnlock()
+		return nil, errors.New("storage not ready")
+	}
+
 	var gids []string
 	for gid := range r.coordinators {
 		gids = append(gids, gid)
 	}
-	r.mu.Unlock()
-	if cs == nil {
-		return nil, errors.New("storage not ready")
-	}
+	r.mu.RUnlock()
 	sort.Strings(gids)
+
 	out := make([]OfflineSyncGroupStatus, 0, len(gids))
 	for _, gid := range gids {
 		latest, _ := cs.GetLatestSeq(gid)
