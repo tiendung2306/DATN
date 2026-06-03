@@ -818,6 +818,31 @@ func (s *SQLiteCoordinationStorage) GetLatestSeq(groupID string) (int64, error) 
 	return max.Int64, nil
 }
 
+func (s *SQLiteCoordinationStorage) ListEnvelopeStateCounts(groupID string) (map[string]int, error) {
+	rows, err := s.db.Conn.Query(
+		`SELECT apply_state, COUNT(*)
+		   FROM envelope_log
+		  WHERE group_id = ?
+		  GROUP BY apply_state`,
+		groupID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ListEnvelopeStateCounts(%q): %w", groupID, err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var state string
+		var count int
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, fmt.Errorf("ListEnvelopeStateCounts scan: %w", err)
+		}
+		counts[state] = count
+	}
+	return counts, rows.Err()
+}
+
 func (s *SQLiteCoordinationStorage) PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (removed int, err error) {
 	res, err := s.db.Conn.Exec(
 		`DELETE FROM envelope_log WHERE created_at < ?`, cutoffUnix,
@@ -1751,4 +1776,3 @@ func (s *SQLiteCoordinationStorage) DeleteOutboundReplaysForJob(jobID string) er
 	}
 	return nil
 }
-

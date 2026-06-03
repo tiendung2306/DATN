@@ -1118,6 +1118,16 @@ func (s *MockStorage) GetLatestSeq(groupID string) (int64, error) {
 	return s.nextEnvID[groupID], nil
 }
 
+func (s *MockStorage) ListEnvelopeStateCounts(groupID string) (map[string]int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	counts := make(map[string]int)
+	for _, rec := range s.envByGroup[groupID] {
+		counts[rec.ApplyState]++
+	}
+	return counts, nil
+}
+
 func (s *MockStorage) PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (int, error) {
 	_ = cutoffUnix
 	_ = maxPerGroup

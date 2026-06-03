@@ -137,15 +137,21 @@ func (r *Runtime) ResumeP2P() error {
 }
 
 type DiagnosticsGroupSnapshot struct {
-	GroupID           string   `json:"group_id"`
-	Epoch             uint64   `json:"epoch"`
-	TokenHolder       string   `json:"token_holder"`
-	TokenHolderPeerID string   `json:"token_holder_peer_id,omitempty"`
-	ActiveMembers     int      `json:"active_members"`
-	ActiveView        []string `json:"active_view,omitempty"`
-	TreeHashHex       string   `json:"tree_hash_hex,omitempty"`
-	TreeHashShort     string   `json:"tree_hash_short,omitempty"`
-	IsHealing         bool     `json:"is_healing"`
+	GroupID           string         `json:"group_id"`
+	Epoch             uint64         `json:"epoch"`
+	TokenHolder       string         `json:"token_holder"`
+	TokenHolderPeerID string         `json:"token_holder_peer_id,omitempty"`
+	ActiveMembers     int            `json:"active_members"`
+	ActiveView        []string       `json:"active_view,omitempty"`
+	TreeHashHex       string         `json:"tree_hash_hex,omitempty"`
+	TreeHashShort     string         `json:"tree_hash_short,omitempty"`
+	IsHealing         bool           `json:"is_healing"`
+	OperationalMode   string         `json:"operational_mode,omitempty"`
+	SyncRetryAttempts int            `json:"sync_retry_attempts"`
+	PendingEnvelopes  int            `json:"pending_envelopes"`
+	ReplayStateCounts map[string]int `json:"replay_state_counts,omitempty"`
+	PendingOperations int            `json:"pending_operations"`
+	OperationStatuses map[string]int `json:"operation_statuses,omitempty"`
 }
 
 type DiagnosticsSnapshot struct {
@@ -173,6 +179,7 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 
 	r.mu.RLock()
 	db := r.db
+	coordStorage := r.coordStorage
 	blindStoreActive := r.blindStore != nil
 	replayEnabled := r.cfg != nil && r.cfg.RuntimeEventReplay
 	coords := make(map[string]*coordination.Coordinator, len(r.coordinators))
@@ -239,6 +246,30 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 			treeHashShort = treeHashHex
 		}
 
+		replayStateCounts := map[string]int{}
+		pendingEnvelopes := 0
+		if coordStorage != nil {
+			if counts, countsErr := coordStorage.ListEnvelopeStateCounts(gid); countsErr == nil {
+				replayStateCounts = counts
+				for state, count := range counts {
+					if coordination.IsPendingApplyState(state) {
+						pendingEnvelopes += count
+					}
+				}
+			}
+		}
+
+		operationStatuses := map[string]int{}
+		pendingOperations := 0
+		if coordStorage != nil {
+			if ops, opsErr := coordStorage.ListPendingOperations(gid); opsErr == nil {
+				pendingOperations = len(ops)
+				for _, op := range ops {
+					operationStatuses[op.Status]++
+				}
+			}
+		}
+
 		snapshot.Groups = append(snapshot.Groups, DiagnosticsGroupSnapshot{
 			GroupID:           gid,
 			Epoch:             coord.CurrentEpoch(),
@@ -249,6 +280,12 @@ func (r *Runtime) GetDiagnosticsSnapshot() (DiagnosticsSnapshot, error) {
 			TreeHashHex:       treeHashHex,
 			TreeHashShort:     treeHashShort,
 			IsHealing:         coord.IsHealing(),
+			OperationalMode:   string(coord.GetOperationalMode()),
+			SyncRetryAttempts: coord.GetSyncRetryAttempts(),
+			PendingEnvelopes:  pendingEnvelopes,
+			ReplayStateCounts: replayStateCounts,
+			PendingOperations: pendingOperations,
+			OperationStatuses: operationStatuses,
 		})
 	}
 	return snapshot, nil

@@ -315,6 +315,22 @@ func openPathInOS(path string) error {
 	}
 }
 
+func openFileTransferDestination(destPath string) (*os.File, func(*error, *bool), error) {
+	out, err := os.Create(destPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func(errp *error, completed *bool) {
+		if closeErr := out.Close(); errp != nil && *errp == nil && closeErr != nil {
+			*errp = closeErr
+		}
+		if completed == nil || !*completed {
+			_ = os.Remove(destPath)
+		}
+	}
+	return out, cleanup, nil
+}
+
 // OpenDownloadedFile opens a previously downloaded file by file_id.
 // It first resolves persisted path from DB (works across app restarts), then
 // falls back to a caller-provided path if present.
@@ -607,7 +623,7 @@ func (r *Runtime) handleFileTransferStream(s network.Stream) {
 }
 
 // PullFileTransferFromPeer pulls ciphertext from the sender over /app/file/1.0.0 and writes decrypted plaintext to destPath.
-func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPath string) error {
+func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPath string) (err error) {
 	if err := r.ensureSessionActive(); err != nil {
 		return err
 	}
@@ -716,11 +732,12 @@ func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPa
 		return err
 	}
 
-	out, err := os.Create(destPath)
+	out, cleanupDest, err := openFileTransferDestination(destPath)
 	if err != nil {
 		return fmt.Errorf("create dest: %w", err)
 	}
-	defer out.Close()
+	downloadComplete := false
+	defer cleanupDest(&err, &downloadComplete)
 
 	h := sha256.New()
 	var got int64
@@ -784,6 +801,7 @@ func (r *Runtime) PullFileTransferFromPeer(groupID, fileID, senderPeerID, destPa
 		inRec.State = store.FileTransferStateCompleted
 		_ = r.db.UpsertFileTransfer(inRec)
 	}
+	downloadComplete = true
 
 	r.emit("file:received", map[string]interface{}{
 		"group_id": groupID,

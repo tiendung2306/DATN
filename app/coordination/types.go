@@ -224,6 +224,20 @@ type CommitAuditSummary struct {
 	Proposals         []CommitAuditProposalSummary
 }
 
+// PendingOperationAuditSummary captures lifecycle transitions for durable
+// local operations as they are reconciled across epoch changes.
+type PendingOperationAuditSummary struct {
+	GroupID           string
+	OperationID       string
+	OpType            string
+	TargetPeerID      string
+	Stage             string
+	RetryCount        int
+	CurrentEpoch      uint64
+	PreconditionEpoch uint64
+	LastError         string
+}
+
 // ForkHealAuditSummary captures a high-level fork-heal lifecycle event.
 type ForkHealAuditSummary struct {
 	GroupID              string
@@ -355,7 +369,7 @@ const (
 	ReplayStateInvalid                      ReplayEnvelopeState = "INVALID"
 	ReplayStateBlockedMissingPriorEpoch     ReplayEnvelopeState = "BLOCKED_MISSING_PRIOR_EPOCH"
 	ReplayStateBlockedMissingCommit         ReplayEnvelopeState = "BLOCKED_MISSING_COMMIT"
-	ReplayStateBlockedStaleRequiresSnapshot  ReplayEnvelopeState = "BLOCKED_STALE_REQUIRES_SNAPSHOT"
+	ReplayStateBlockedStaleRequiresSnapshot ReplayEnvelopeState = "BLOCKED_STALE_REQUIRES_SNAPSHOT"
 	ReplayStateBlockedDecryptFailed         ReplayEnvelopeState = "BLOCKED_DECRYPT_FAILED"
 	ReplayStateForkConflict                 ReplayEnvelopeState = "FORK_CONFLICT"
 	ReplayStateWaitingSync                  ReplayEnvelopeState = "WAITING_SYNC"
@@ -443,10 +457,10 @@ type ForkHealAuditRecord struct {
 type GroupOperationalMode string
 
 const (
-	ModeLive             GroupOperationalMode = "LIVE"
-	ModeCatchingUp       GroupOperationalMode = "CATCHING_UP"
-	ModeFrozen           GroupOperationalMode = "FROZEN"
-	ModeFrozenForApply   GroupOperationalMode = "FROZEN_FOR_APPLY"
+	ModeLive           GroupOperationalMode = "LIVE"
+	ModeCatchingUp     GroupOperationalMode = "CATCHING_UP"
+	ModeFrozen         GroupOperationalMode = "FROZEN"
+	ModeFrozenForApply GroupOperationalMode = "FROZEN_FOR_APPLY"
 )
 
 // ProposalType identifies the kind of MLS Proposal.
@@ -499,50 +513,50 @@ var (
 
 // PendingOperation represents a durable business-level user intention.
 type PendingOperation struct {
-	OperationID             string
-	GroupID                 string
-	OpType                  string // 'ADD_MEMBER', 'REMOVE_MEMBER', 'ROTATE_KEY', 'METADATA_CHANGE'
-	IdempotencyKey          *string
-	OperationHash           []byte
-	PreconditionEpoch       *uint64
-	PreconditionStateHash   []byte
-	TargetMemberID          *string
-	SemanticPayload         []byte
-	LatestProposalHash      []byte
-	Status                  string // 'PENDING', 'PROPOSED', 'COMMITTED', 'SATISFIED_BY_OTHER', 'SUPERSEDED', etc.
-	RetryCount              int
-	ExpiresAt               *int64
-	LastError               *string
-	CreatedAt               time.Time
-	UpdatedAt               time.Time
+	OperationID           string
+	GroupID               string
+	OpType                string // 'ADD_MEMBER', 'REMOVE_MEMBER', 'ROTATE_KEY', 'METADATA_CHANGE'
+	IdempotencyKey        *string
+	OperationHash         []byte
+	PreconditionEpoch     *uint64
+	PreconditionStateHash []byte
+	TargetMemberID        *string
+	SemanticPayload       []byte
+	LatestProposalHash    []byte
+	Status                string // 'PENDING', 'PROPOSED', 'COMMITTED', 'SATISFIED_BY_OTHER', 'SUPERSEDED', etc.
+	RetryCount            int
+	ExpiresAt             *int64
+	LastError             *string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 // Milestone 5: Crash-safe fork healing state machine tracking structures.
 type ForkHealingJob struct {
-	JobID                 string
-	GroupID               string
-	TraceID               string
-	Status                string // 'INITIATED', 'SNAPSHOT_CREATED', 'EXTERNAL_JOINED', 'STATE_SWAPPED', 'LOCAL_COMPLETE', 'CLEANED'
-	LosingBranchID        string
-	WinningBranchID       string
-	ForkBaseEpoch         uint64
-	LosingEpoch           uint64
-	WinningEpoch          uint64
-	LosingTreeHash        []byte
-	WinningTreeHash       []byte
-	WinningCommitHash     []byte
-	WinningGroupInfoHash  []byte
-	WinnerPeerID          string
-	WinnerGroupInfo       []byte
-	BranchWeightJSON      string
-	PendingGroupState     []byte
-	PendingEpoch          uint64
-	PendingTreeHash       []byte
-	ErrorMessage          string
-	RetryCount            int
-	CreatedAtMs           int64
-	UpdatedAtMs           int64
-	CompletedAtMs         int64
+	JobID                string
+	GroupID              string
+	TraceID              string
+	Status               string // 'INITIATED', 'SNAPSHOT_CREATED', 'EXTERNAL_JOINED', 'STATE_SWAPPED', 'LOCAL_COMPLETE', 'CLEANED'
+	LosingBranchID       string
+	WinningBranchID      string
+	ForkBaseEpoch        uint64
+	LosingEpoch          uint64
+	WinningEpoch         uint64
+	LosingTreeHash       []byte
+	WinningTreeHash      []byte
+	WinningCommitHash    []byte
+	WinningGroupInfoHash []byte
+	WinnerPeerID         string
+	WinnerGroupInfo      []byte
+	BranchWeightJSON     string
+	PendingGroupState    []byte
+	PendingEpoch         uint64
+	PendingTreeHash      []byte
+	ErrorMessage         string
+	RetryCount           int
+	CreatedAtMs          int64
+	UpdatedAtMs          int64
+	CompletedAtMs        int64
 }
 
 type ApplicationEvent struct {

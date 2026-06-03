@@ -1956,6 +1956,108 @@ func TestCoordinator_DurablePendingOperationLog(t *testing.T) {
 	}
 }
 
+func TestCoordinator_PendingOperationAudit_OnRebase(t *testing.T) {
+	nodes, network, _ := setupCluster(t, 3, "grp-pending-op-audit")
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	var holderB, nodeA, nodeC *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holderB = n
+		} else if nodeA == nil {
+			nodeA = n
+		} else {
+			nodeC = n
+		}
+	}
+	if holderB == nil || nodeA == nil || nodeC == nil {
+		t.Fatal("failed to identify holder/non-holders")
+	}
+
+	auditCh := make(chan PendingOperationAuditSummary, 4)
+	nodeA.coord.onPendingOperation = func(summary PendingOperationAuditSummary) {
+		auditCh <- summary
+	}
+
+	network.Partition([]peer.ID{nodeA.id}, []peer.ID{holderB.id, nodeC.id})
+
+	idem := "idem-audit-add"
+	opID := "op-audit-add-dave"
+	preEpoch := uint64(0)
+	targetMemberID := peerID("dave-audit").String()
+	if err := nodeA.storage.SavePendingOperation(&PendingOperation{
+		OperationID:       opID,
+		GroupID:           nodeA.coord.groupID,
+		OpType:            "ADD_MEMBER",
+		IdempotencyKey:    &idem,
+		OperationHash:     []byte("audit-kphash"),
+		PreconditionEpoch: &preEpoch,
+		TargetMemberID:    &targetMemberID,
+		SemanticPayload:   []byte("kp-dave-audit"),
+		Status:            "PENDING",
+		RetryCount:        0,
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := nodeA.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    peerID("dave-audit"),
+		KeyPackageBytes: []byte("kp-dave-audit"),
+		OperationID:     opID,
+		KeyPackageHash:  []byte("audit-kphash"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := nodeC.coord.ProposeUpdate([]byte("charlie-advance")); err != nil {
+		t.Fatal(err)
+	}
+	network.DrainAll()
+
+	envs, err := holderB.storage.GetEnvelopesSince(holderB.coord.groupID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var commitEnv *EnvelopeRecord
+	for _, env := range envs {
+		if env.MsgType == MsgCommit && env.Epoch == 0 {
+			commitEnv = env
+			break
+		}
+	}
+	if commitEnv == nil {
+		t.Fatal("expected Bob commit envelope in storage")
+	}
+
+	network.Heal()
+	exchangeHeartbeats(nodes, network)
+	nodeA.coord.ReceiveDirectMessage(holderB.id, commitEnv.Envelope)
+	network.DrainAll()
+	network.DrainAll()
+
+	select {
+	case summary := <-auditCh:
+		if summary.Stage != "rebased" {
+			t.Fatalf("summary.Stage=%q want rebased", summary.Stage)
+		}
+		if summary.OperationID != opID {
+			t.Fatalf("summary.OperationID=%q want %q", summary.OperationID, opID)
+		}
+		if summary.RetryCount != 1 {
+			t.Fatalf("summary.RetryCount=%d want 1", summary.RetryCount)
+		}
+		if summary.PreconditionEpoch != 0 {
+			t.Fatalf("summary.PreconditionEpoch=%d want 0", summary.PreconditionEpoch)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected pending operation audit callback")
+	}
+}
+
 func TestCoordinator_DurablePendingOperationLog_SatisfiedByOther(t *testing.T) {
 	// Setup a 3-node cluster
 	nodes, network, _ := setupCluster(t, 3, "grp-satisfied-by-other")

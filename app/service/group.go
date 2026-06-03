@@ -194,11 +194,12 @@ func (r *Runtime) CreateGroupChat(groupID string, groupType string, categoryID s
 		OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 			asyncEnvelopeBroadcast(r.publishBlindStoreEnvelope, mt, gid, wire)
 		},
-		OnAddCommitted:     r.makeAddCommittedHandler(groupID),
-		OnPeerObserved:     r.makePeerObservedHandler(groupID),
-		OnProposalObserved: r.makeProposalAuditHandler(groupID),
-		OnCommitIssued:     r.makeCommitAuditHandler(groupID),
-		OnForkHealEvent:    r.makeForkHealAuditHandler(groupID),
+		OnAddCommitted:          r.makeAddCommittedHandler(groupID),
+		OnPeerObserved:          r.makePeerObservedHandler(groupID),
+		OnProposalObserved:      r.makeProposalAuditHandler(groupID),
+		OnCommitIssued:          r.makeCommitAuditHandler(groupID),
+		OnPendingOperationAudit: r.makePendingOperationAuditHandler(groupID),
+		OnForkHealEvent:         r.makeForkHealAuditHandler(groupID),
 		OnSyncRequired: func(remote peer.ID, gid string) {
 			go r.scheduleOfflineSyncPull(remote)
 		},
@@ -1110,11 +1111,12 @@ func (r *Runtime) loadExistingGroupsLocked() {
 			OnEnvelopeBroadcast: func(mt coordination.MessageType, gid string, wire []byte) {
 				asyncEnvelopeBroadcast(r.publishBlindStoreEnvelope, mt, gid, wire)
 			},
-			OnAddCommitted:     r.makeAddCommittedHandler(rec.GroupID),
-			OnPeerObserved:     r.makePeerObservedHandler(rec.GroupID),
-			OnProposalObserved: r.makeProposalAuditHandler(rec.GroupID),
-			OnCommitIssued:     r.makeCommitAuditHandler(rec.GroupID),
-			OnForkHealEvent:    r.makeForkHealAuditHandler(rec.GroupID),
+			OnAddCommitted:          r.makeAddCommittedHandler(rec.GroupID),
+			OnPeerObserved:          r.makePeerObservedHandler(rec.GroupID),
+			OnProposalObserved:      r.makeProposalAuditHandler(rec.GroupID),
+			OnCommitIssued:          r.makeCommitAuditHandler(rec.GroupID),
+			OnPendingOperationAudit: r.makePendingOperationAuditHandler(rec.GroupID),
+			OnForkHealEvent:         r.makeForkHealAuditHandler(rec.GroupID),
 			OnSyncRequired: func(remote peer.ID, gid string) {
 				go r.scheduleOfflineSyncPull(remote)
 			},

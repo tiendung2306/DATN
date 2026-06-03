@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/hex"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +12,26 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+func (r *Runtime) emitReplayBlocked(groupID, reason string, rec *coordination.EnvelopeRecord, result coordination.ReplayEnvelopeResult) {
+	groupID = strings.TrimSpace(groupID)
+	reason = strings.TrimSpace(reason)
+	if groupID == "" || reason == "" {
+		return
+	}
+	payload := map[string]interface{}{
+		"group_id":      groupID,
+		"reason":        reason,
+		"state":         string(result.State),
+		"seq":           rec.Seq,
+		"msg_epoch":     result.MsgEpoch,
+		"local_epoch":   result.LocalEpoch,
+		"error":         result.Error,
+		"envelope_hash": hex.EncodeToString(result.EnvelopeHash),
+	}
+	r.appendGroupEvent(groupID, groupEventTypeReplayBlocked, "", "", result.LocalEpoch, payload)
+	r.emit("group:replay_blocked", payload)
+}
 
 func (r *Runtime) replayLockForGroup(groupID string) *sync.Mutex {
 	r.mu.Lock()
@@ -90,6 +112,7 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				if err != nil {
 					slog.Warn("recovery-replay: failed to mark stale envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
 				}
+				r.emitReplayBlocked(groupID, "stale_epoch_requires_recovery_snapshot", rec, result)
 				progressed = true
 
 			case coordination.ReplayStateDecryptFailed:
@@ -97,6 +120,7 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				if err != nil {
 					slog.Warn("recovery-replay: failed to mark decrypt failed envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
 				}
+				r.emitReplayBlocked(groupID, "decrypt_failed_or_missing_past_key", rec, result)
 				progressed = true
 
 			case coordination.ReplayStateFutureEpoch:
@@ -105,6 +129,7 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				if err != nil {
 					slog.Warn("recovery-replay: failed to mark future envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
 				}
+				r.emitReplayBlocked(groupID, "future_epoch_missing_prior_commit", rec, result)
 				// Không tiến thêm được nữa vì missing prior commit
 				progressed = false
 
@@ -113,6 +138,7 @@ func (r *Runtime) replayPendingEnvelopesForGroup(groupID, reason string) {
 				if err != nil {
 					slog.Warn("recovery-replay: failed to mark envelope blocked", "group", groupID, "seq", rec.Seq, "err", err)
 				}
+				r.emitReplayBlocked(groupID, string(result.State), rec, result)
 				progressed = false
 			}
 

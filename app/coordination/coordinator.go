@@ -80,6 +80,9 @@ type CoordinatorOpts struct {
 	OnProposalObserved func(ProposalAuditSummary)
 	// OnCommitIssued fires whenever the local node issues a commit as Token Holder.
 	OnCommitIssued func(CommitAuditSummary)
+	// OnPendingOperationAudit fires when a durable pending operation is
+	// rebased, exhausts retries, or fails re-proposal after an epoch change.
+	OnPendingOperationAudit func(PendingOperationAuditSummary)
 	// OnForkHealEvent fires for high-level fork-heal lifecycle stages.
 	OnForkHealEvent func(ForkHealAuditSummary)
 	// OnSyncRequired fires when the coordinator detects that it is lagging behind
@@ -119,6 +122,7 @@ type Coordinator struct {
 	onPeerObserved       func(string, peer.ID, time.Time)
 	onProposalObserved   func(ProposalAuditSummary)
 	onCommitIssued       func(CommitAuditSummary)
+	onPendingOperation   func(PendingOperationAuditSummary)
 	onForkHealEvent      func(ForkHealAuditSummary)
 	onSyncRequired       func(peer.ID, string)
 	groupInfoFetch       GroupInfoFetchFunc
@@ -207,6 +211,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		onPeerObserved:       opts.OnPeerObserved,
 		onProposalObserved:   opts.OnProposalObserved,
 		onCommitIssued:       opts.OnCommitIssued,
+		onPendingOperation:   opts.OnPendingOperationAudit,
 		onForkHealEvent:      opts.OnForkHealEvent,
 		onSyncRequired:       opts.OnSyncRequired,
 		groupInfoFetch:       opts.GroupInfoFetcher,
@@ -2815,23 +2820,23 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 	if job == nil {
 		losingBranchID := hex.EncodeToString(c.lastCommitHash)
 		winningBranchID := hex.EncodeToString(event.RemoteAnnounce.CommitHash)
-		
+
 		job = &ForkHealingJob{
-			JobID:               fmt.Sprintf("job-%s-%d", event.GroupID, startedAt.UnixMilli()),
-			GroupID:             event.GroupID,
-			TraceID:             traceID,
-			Status:              "INITIATED",
-			LosingBranchID:      losingBranchID,
-			WinningBranchID:     winningBranchID,
-			ForkBaseEpoch:       c.epoch,
-			LosingEpoch:         c.epoch,
-			WinningEpoch:        event.RemoteEpoch,
-			LosingTreeHash:      c.treeHash,
-			WinningTreeHash:     event.RemoteAnnounce.TreeHash,
-			WinningCommitHash:   event.RemoteAnnounce.CommitHash,
-			WinnerPeerID:        event.RemotePeer.String(),
-			CreatedAtMs:         startedAt.UnixMilli(),
-			UpdatedAtMs:         startedAt.UnixMilli(),
+			JobID:             fmt.Sprintf("job-%s-%d", event.GroupID, startedAt.UnixMilli()),
+			GroupID:           event.GroupID,
+			TraceID:           traceID,
+			Status:            "INITIATED",
+			LosingBranchID:    losingBranchID,
+			WinningBranchID:   winningBranchID,
+			ForkBaseEpoch:     c.epoch,
+			LosingEpoch:       c.epoch,
+			WinningEpoch:      event.RemoteEpoch,
+			LosingTreeHash:    c.treeHash,
+			WinningTreeHash:   event.RemoteAnnounce.TreeHash,
+			WinningCommitHash: event.RemoteAnnounce.CommitHash,
+			WinnerPeerID:      event.RemotePeer.String(),
+			CreatedAtMs:       startedAt.UnixMilli(),
+			UpdatedAtMs:       startedAt.UnixMilli(),
 		}
 		if err := c.storage.SaveForkHealingJob(job); err != nil {
 			slog.Error("fork_heal/db_save_job_failed", "group", event.GroupID, "err", err)
@@ -2913,7 +2918,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 							} else {
 								h := sha256.Sum256(plaintext)
 								pHash = h[:]
-								
+
 								if env.From == c.localID.String() {
 									status = "ORPHANED_OWN"
 									sealedPayload, nonce, _ = sealPayload(plaintext, storageKey)
@@ -2962,7 +2967,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 	if job.Status == "SNAPSHOT_CREATED" {
 		stepStart := c.clock.Now()
 		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "started", stepStart, 0, "")
-		
+
 		peers := event.WinnerPeers
 		if len(peers) == 0 {
 			peers = []peer.ID{event.RemotePeer}
@@ -3109,14 +3114,14 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 						if encErr == nil {
 							ts := c.hlc.Now()
 							wire := c.buildEnvelopeWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
-							
+
 							c.mu.Lock()
 							c.groupState = nextGroupState
 							_ = c.saveCurrentGroupStateLocked(c.clock.Now())
 							c.mu.Unlock()
 
 							replayedHash := sha256.Sum256(wire)
-							
+
 							// Sinh replay operation id độc nhất tránh trùng lặp giữa các fork jobs khác nhau
 							hReplay := sha256.Sum256([]byte(ev.EventID + job.JobID))
 							replayOpID := hex.EncodeToString(hReplay[:])
@@ -3167,7 +3172,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 	// M5: 7. Shredding sealed payloads & transition CLEANED
 	if job.Status == "LOCAL_COMPLETE" {
 		_ = c.storage.ClearSealedPayloads(job.JobID)
-		
+
 		job.Status = "CLEANED"
 		job.CompletedAtMs = c.clock.Now().UnixMilli()
 		job.UpdatedAtMs = c.clock.Now().UnixMilli()
@@ -3277,7 +3282,7 @@ func (c *Coordinator) isAlreadyOnWinningBranch(job *ForkHealingJob) bool {
 
 func (c *Coordinator) resumeForkHealingJob(job *ForkHealingJob) {
 	slog.Info("fork_heal/resume_triggered", "group", job.GroupID, "status", job.Status)
-	
+
 	winnerPeer, err := peer.Decode(job.WinnerPeerID)
 	if err != nil {
 		winnerPeer = peer.ID(job.WinnerPeerID)
@@ -3523,6 +3528,21 @@ func (c *Coordinator) recordForkHealEvent(event *ForkHealEventRecord) {
 	}
 }
 
+func (c *Coordinator) emitPendingOperationAuditLocked(summary PendingOperationAuditSummary) {
+	if c.onPendingOperation == nil {
+		return
+	}
+	cb := c.onPendingOperation
+	go cb(summary)
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 func (c *Coordinator) collectReplayWindowMessages(partitionStart, healStartedAt time.Time) ([]*StoredMessage, error) {
 	if partitionStart.IsZero() {
 		return nil, nil
@@ -3735,10 +3755,24 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 				op.LastError = &errStr
 				op.UpdatedAt = c.clock.Now()
 				_ = c.storage.SavePendingOperation(op)
+				c.emitPendingOperationAuditLocked(PendingOperationAuditSummary{
+					GroupID:      c.groupID,
+					OperationID:  op.OperationID,
+					OpType:       op.OpType,
+					TargetPeerID: derefString(op.TargetMemberID),
+					Stage:        "retry_exhausted",
+					RetryCount:   op.RetryCount,
+					CurrentEpoch: c.epoch,
+					LastError:    errStr,
+				})
 				continue
 			}
 
 			op.RetryCount++
+			prevPreconditionEpoch := uint64(0)
+			if op.PreconditionEpoch != nil {
+				prevPreconditionEpoch = *op.PreconditionEpoch
+			}
 			epochCopy := c.epoch
 			op.PreconditionEpoch = &epochCopy
 			op.UpdatedAt = c.clock.Now()
@@ -3785,11 +3819,32 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 			if reProposed {
 				op.LastError = nil
 				_ = c.storage.SavePendingOperation(op)
+				c.emitPendingOperationAuditLocked(PendingOperationAuditSummary{
+					GroupID:           c.groupID,
+					OperationID:       op.OperationID,
+					OpType:            op.OpType,
+					TargetPeerID:      derefString(op.TargetMemberID),
+					Stage:             "rebased",
+					RetryCount:        op.RetryCount,
+					CurrentEpoch:      c.epoch,
+					PreconditionEpoch: prevPreconditionEpoch,
+				})
 			} else if reProposeErr != nil {
 				errStr := reProposeErr.Error()
 				op.LastError = &errStr
 				slog.Warn("Failed to re-propose rebased operation", "opID", op.OperationID, "error", reProposeErr)
 				_ = c.storage.SavePendingOperation(op)
+				c.emitPendingOperationAuditLocked(PendingOperationAuditSummary{
+					GroupID:           c.groupID,
+					OperationID:       op.OperationID,
+					OpType:            op.OpType,
+					TargetPeerID:      derefString(op.TargetMemberID),
+					Stage:             "rebase_failed",
+					RetryCount:        op.RetryCount,
+					CurrentEpoch:      c.epoch,
+					PreconditionEpoch: prevPreconditionEpoch,
+					LastError:         errStr,
+				})
 			}
 		}
 	}

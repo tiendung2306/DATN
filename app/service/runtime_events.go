@@ -81,7 +81,9 @@ func clonePayload(in map[string]interface{}) map[string]interface{} {
 
 func classifyRuntimeEvent(topic string, payload map[string]interface{}) (string, string) {
 	switch topic {
-	case "group:message", "group:epoch", "group:joined", "group:left", "group:members_changed":
+	case "group:message", "group:epoch", "group:joined", "group:left", "group:members_changed",
+		"group:replay_blocked", "group:operation_rebased", "group:operation_rebase_failed",
+		"group:operation_retry_exhausted", "group:add_operation_stale", "group:add_committed":
 		if groupID, _ := payload["group_id"].(string); strings.TrimSpace(groupID) != "" {
 			return "group:" + groupID, groupID
 		}

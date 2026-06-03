@@ -247,6 +247,9 @@ type CoordinationStorage interface {
 
 	GetLatestSeq(groupID string) (int64, error)
 
+	// ListEnvelopeStateCounts summarizes envelope_log apply_state values for one group.
+	ListEnvelopeStateCounts(groupID string) (map[string]int, error)
+
 	// PruneEnvelopes deletes rows older than cutoff (created_at unix) and caps rows per group.
 	PruneEnvelopes(cutoffUnix int64, maxPerGroup int) (removed int, err error)
 

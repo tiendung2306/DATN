@@ -23,6 +23,10 @@ const (
 	groupEventTypeInviteRequestCreated  = "invite_request_created"
 	groupEventTypeInviteRequestApproved = "invite_request_approved"
 	groupEventTypeInviteRequestRejected = "invite_request_rejected"
+	groupEventTypeReplayBlocked         = "replay_blocked"
+	groupEventTypeOperationRebased      = "operation_rebased"
+	groupEventTypeOperationRebaseFailed = "operation_rebase_failed"
+	groupEventTypeOperationRetryMaxed   = "operation_retry_exhausted"
 	groupEventTypeForkHealStarted       = "fork_heal_started"
 	groupEventTypeForkHealCompleted     = "fork_heal_completed"
 	groupEventTypeForkHealFailed        = "fork_heal_failed"
@@ -155,6 +159,44 @@ func (r *Runtime) makeCommitAuditHandler(_ string) func(coordination.CommitAudit
 			"previous_epoch":       summary.PrevEpoch,
 			"new_epoch":            summary.NewEpoch,
 			"proposals":            proposals,
+		})
+	}
+}
+
+func (r *Runtime) makePendingOperationAuditHandler(_ string) func(coordination.PendingOperationAuditSummary) {
+	return func(summary coordination.PendingOperationAuditSummary) {
+		eventType := groupEventTypeOperationRebased
+		topic := "group:operation_rebased"
+		switch summary.Stage {
+		case "retry_exhausted":
+			eventType = groupEventTypeOperationRetryMaxed
+			topic = "group:operation_retry_exhausted"
+		case "rebase_failed":
+			eventType = groupEventTypeOperationRebaseFailed
+			topic = "group:operation_rebase_failed"
+		}
+
+		payload := map[string]any{
+			"operation_id":       summary.OperationID,
+			"op_type":            summary.OpType,
+			"target_peer_id":     summary.TargetPeerID,
+			"stage":              summary.Stage,
+			"retry_count":        summary.RetryCount,
+			"current_epoch":      summary.CurrentEpoch,
+			"precondition_epoch": summary.PreconditionEpoch,
+			"last_error":         summary.LastError,
+		}
+		r.appendGroupEvent(summary.GroupID, eventType, "", summary.TargetPeerID, summary.CurrentEpoch, payload)
+		r.emit(topic, map[string]interface{}{
+			"group_id":           summary.GroupID,
+			"operation_id":       summary.OperationID,
+			"op_type":            summary.OpType,
+			"target_peer_id":     summary.TargetPeerID,
+			"stage":              summary.Stage,
+			"retry_count":        summary.RetryCount,
+			"current_epoch":      summary.CurrentEpoch,
+			"precondition_epoch": summary.PreconditionEpoch,
+			"last_error":         summary.LastError,
 		})
 	}
 }

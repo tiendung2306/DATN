@@ -17,12 +17,37 @@ interface InviteAutoJoinedPayload {
 }
 
 interface NotificationNewPayload {
-	id: string
-	type: string
-	group_id: string
-	actor_id: string
-	actor_name: string
-	content: string
+  id: string
+  type: string
+  group_id: string
+  actor_id: string
+  actor_name: string
+  content: string
+}
+
+interface GroupReplayBlockedPayload {
+  group_id?: string
+  reason?: string
+  state?: string
+  seq?: number
+}
+
+interface GroupOperationEventPayload {
+  group_id?: string
+  operation_id?: string
+  op_type?: string
+  target_peer_id?: string
+  stage?: string
+  retry_count?: number
+  current_epoch?: number
+  last_error?: string
+}
+
+interface GroupAddOperationStalePayload {
+  group_id?: string
+  operation_id?: string
+  target?: string
+  status?: string
 }
 
 interface UseChatEventsOptions {
@@ -247,11 +272,95 @@ export function useChatEvents({
     [activeModule],
   )
 
+  const handleReplayBlocked = useCallback(
+    async (payload: GroupReplayBlockedPayload) => {
+      if (!payload?.group_id) return
+      if (payload.group_id === activeGroupId) {
+        await refreshGroups()
+        await refreshGroupMembers(payload.group_id)
+      }
+      const reason = String(payload.reason ?? payload.state ?? 'unknown')
+      const descriptions: Record<string, string> = {
+        stale_epoch_requires_recovery_snapshot:
+          'Some older history could not be replayed because this device is too far behind the current epoch.',
+        decrypt_failed_or_missing_past_key:
+          'Some older history could not be decrypted with the retained MLS key window on this device.',
+        future_epoch_missing_prior_commit:
+          'A newer message is waiting for a missing prior commit before it can be replayed.',
+      }
+      useToastStore.getState().pushToast({
+        title: 'History replay blocked',
+        description: descriptions[reason] ?? `Replay is blocked for ${payload.group_id} (${reason}).`,
+        variant: reason === 'future_epoch_missing_prior_commit' ? 'default' : 'destructive',
+      })
+    },
+    [activeGroupId, refreshGroupMembers, refreshGroups],
+  )
+
+  const handleOperationRebased = useCallback(
+    async (payload: GroupOperationEventPayload) => {
+      if (!payload?.group_id) return
+      await refreshGroups()
+      if (payload.group_id === activeGroupId) {
+        await refreshGroupMembers(payload.group_id)
+      }
+      useToastStore.getState().pushToast({
+        title: 'Operation retried on newer epoch',
+        description:
+          payload.target_peer_id
+            ? `The pending ${String(payload.op_type ?? 'group')} operation for ${shortPeerId(payload.target_peer_id)} was automatically rebased.`
+            : `A pending ${String(payload.op_type ?? 'group')} operation was automatically rebased.`,
+        variant: 'default',
+      })
+    },
+    [activeGroupId, refreshGroupMembers, refreshGroups],
+  )
+
+  const handleOperationFailed = useCallback(
+    async (payload: GroupOperationEventPayload) => {
+      if (!payload?.group_id) return
+      await refreshGroups()
+      const isRetryExhausted = payload.stage === 'retry_exhausted'
+      useToastStore.getState().pushToast({
+        title: isRetryExhausted ? 'Operation needs manual retry' : 'Operation rebase failed',
+        description:
+          payload.last_error && payload.last_error.length > 0
+            ? payload.last_error
+            : isRetryExhausted
+              ? 'The pending group operation exhausted its automatic retries.'
+              : 'The pending group operation could not be re-proposed after an epoch change.',
+        variant: 'destructive',
+      })
+    },
+    [refreshGroups],
+  )
+
+  const handleAddOperationStale = useCallback(
+    async (payload: GroupAddOperationStalePayload) => {
+      if (!payload?.group_id) return
+      await refreshGroups()
+      useToastStore.getState().pushToast({
+        title: 'Invite operation is stale',
+        description:
+          payload.target
+            ? `The pending invite for ${shortPeerId(payload.target)} is stale and should be re-issued.`
+            : 'A pending invite operation is stale and should be re-issued.',
+        variant: 'destructive',
+      })
+    },
+    [refreshGroups],
+  )
+
   useWailsEvent<service.MessageInfo>('group:message', handleGroupMessage)
   useWailsEvent<GroupEpochPayload>('group:epoch', handleGroupEpoch)
   useWailsEvent<{ group_id: string }>('group:joined', handleGroupJoined)
   useWailsEvent<GroupLeftPayload>('group:left', handleGroupLeft)
   useWailsEvent<GroupMembersChangedPayload>('group:members_changed', handleMembersChanged)
+  useWailsEvent<GroupReplayBlockedPayload>('group:replay_blocked', handleReplayBlocked)
+  useWailsEvent<GroupOperationEventPayload>('group:operation_rebased', handleOperationRebased)
+  useWailsEvent<GroupOperationEventPayload>('group:operation_rebase_failed', handleOperationFailed)
+  useWailsEvent<GroupOperationEventPayload>('group:operation_retry_exhausted', handleOperationFailed)
+  useWailsEvent<GroupAddOperationStalePayload>('group:add_operation_stale', handleAddOperationStale)
   useWailsEvent<InviteAutoJoinedPayload>('invite:auto_joined', handleInviteAutoJoined)
   useWailsEvent('node:status', handleNodeStatusChanged)
   useWailsEvent('p2p:status', handleNodeStatusChanged)

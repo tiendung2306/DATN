@@ -17,6 +17,20 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
+func offlineSyncShouldAdvanceCursor(state coordination.ReplayEnvelopeState) bool {
+	switch state {
+	case coordination.ReplayStateApplied,
+		coordination.ReplayStateDuplicateApplied,
+		coordination.ReplayStateStaleEpoch,
+		coordination.ReplayStateDecryptFailed,
+		coordination.ReplayStateBlockedStaleRequiresSnapshot,
+		coordination.ReplayStateBlockedDecryptFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 func (r *Runtime) registerOfflineSyncHandlers() {
 	if r.node == nil {
 		return
@@ -290,10 +304,7 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 			}
 			result := results[0]
 			switch result.State {
-			case coordination.ReplayStateApplied, coordination.ReplayStateDuplicateApplied,
-				coordination.ReplayStateBlockedStaleRequiresSnapshot, coordination.ReplayStateBlockedDecryptFailed:
-				lastSuccessSeq = e.Seq
-			case coordination.ReplayStateBlockedMissingPriorEpoch, coordination.ReplayStateFutureEpoch:
+			case coordination.ReplayStateFutureEpoch, coordination.ReplayStateBlockedMissingPriorEpoch:
 				slog.Info("offline-sync: stopped at future epoch envelope",
 					"group", gid,
 					"seq", e.Seq,
@@ -303,6 +314,10 @@ func (r *Runtime) pullOfflineSyncFromPeerOnce(remote peer.ID) error {
 				)
 				goto doneGroup
 			default:
+				if offlineSyncShouldAdvanceCursor(result.State) {
+					lastSuccessSeq = e.Seq
+					continue
+				}
 				slog.Error("offline-sync: stopped at unapplied envelope",
 					"group", gid,
 					"seq", e.Seq,
