@@ -3,50 +3,77 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"runtime"
 	"strings"
 )
 
 const firewallPrefix = "DATN-DEMO"
 
 func listFirewallRules() ([]FirewallRule, error) {
-	if runtime.GOOS != "windows" {
-		return nil, nil
-	}
-	out, err := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name=all").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(string(out), "\n")
 	var rules []FirewallRule
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "Rule Name:") {
+	for i := 1; i <= 10; i++ {
+		id := fmt.Sprintf("node-%02d", i)
+		if !isContainerRunning(id) {
 			continue
 		}
-		name := strings.TrimSpace(strings.TrimPrefix(line, "Rule Name:"))
-		if strings.HasPrefix(name, firewallPrefix) {
-			rules = append(rules, FirewallRule{Name: name})
+		out, err := exec.Command("docker", "exec", "-u", "root", id, "iptables", "-S").CombinedOutput()
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "-j DROP") {
+				// Format: -A INPUT -s 10.20.30.12 -j DROP
+				parts := strings.Fields(line)
+				srcIP := ""
+				for idx, part := range parts {
+					if part == "-s" && idx+1 < len(parts) {
+						srcIP = parts[idx+1]
+						break
+					}
+				}
+				if srcIP != "" {
+					targetNode := nodeIDFromIP(srcIP)
+					if targetNode != "" {
+						rules = append(rules, FirewallRule{
+							Name: fmt.Sprintf("%s-%s-%s", firewallPrefix, id, targetNode),
+						})
+					} else {
+						rules = append(rules, FirewallRule{
+							Name: fmt.Sprintf("%s-%s-block-%s", firewallPrefix, id, srcIP),
+						})
+					}
+				}
+			}
 		}
 	}
 	return rules, nil
 }
 
-func healAllFirewallRules() error {
-	if runtime.GOOS != "windows" {
-		return nil
+func nodeIDFromIP(ip string) string {
+	parts := strings.Split(ip, ".")
+	if len(parts) == 4 {
+		var lastByte int
+		if _, err := fmt.Sscanf(parts[3], "%d", &lastByte); err == nil {
+			if lastByte >= 11 && lastByte <= 20 {
+				return fmt.Sprintf("node-%02d", lastByte-10)
+			}
+		}
 	}
-	rules, _ := listFirewallRules()
-	for _, rule := range rules {
-		_ = exec.Command("netsh", "advfirewall", "firewall", "delete", "rule", "name="+rule.Name).Run()
+	return ""
+}
+
+func healAllFirewallRules() error {
+	for i := 1; i <= 10; i++ {
+		id := fmt.Sprintf("node-%02d", i)
+		if isContainerRunning(id) {
+			_ = exec.Command("docker", "exec", "-u", "root", id, "iptables", "-F").Run()
+		}
 	}
 	return nil
 }
 
 func applyFirewallPartition(instances []DemoInstanceProfile, spec PartitionSpec) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("Windows firewall partitioning is only available on Windows")
-	}
 	if len(spec.Clusters) < 2 {
 		return fmt.Errorf("partition requires at least two clusters")
 	}
@@ -66,8 +93,10 @@ func applyFirewallPartition(instances []DemoInstanceProfile, spec PartitionSpec)
 					if !okLeft || !okRight {
 						return fmt.Errorf("unknown instance in partition: %s/%s", a, b)
 					}
-					if err := blockPair(spec.ID, left, right); err != nil {
-						return err
+					if isContainerRunning(left.ID) && isContainerRunning(right.ID) {
+						if err := blockPair(spec.ID, left, right); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -77,35 +106,15 @@ func applyFirewallPartition(instances []DemoInstanceProfile, spec PartitionSpec)
 }
 
 func blockPair(partitionID string, a DemoInstanceProfile, b DemoInstanceProfile) error {
-	nameBase := fmt.Sprintf("%s-%s-%s-%s", firewallPrefix, sanitizeRule(partitionID), a.ID, b.ID)
-	rules := [][]string{
-		// Outbound TCP/UDP blocks
-		{"dir=out", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=TCP"},
-		{"dir=out", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=TCP"},
-		{"dir=out", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("remoteport=%d", b.P2PPort), "protocol=UDP"},
-		{"dir=out", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("remoteport=%d", a.P2PPort), "protocol=UDP"},
-
-		// Inbound TCP/UDP blocks
-		{"dir=in", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteip=%s", b.BindIP), "protocol=TCP"},
-		{"dir=in", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteip=%s", a.BindIP), "protocol=TCP"},
-		{"dir=in", fmt.Sprintf("localip=%s", a.BindIP), fmt.Sprintf("localport=%d", a.P2PPort), fmt.Sprintf("remoteip=%s", b.BindIP), "protocol=UDP"},
-		{"dir=in", fmt.Sprintf("localip=%s", b.BindIP), fmt.Sprintf("localport=%d", b.P2PPort), fmt.Sprintf("remoteip=%s", a.BindIP), "protocol=UDP"},
+	// Add DROP rule in container a for packets coming from container b's IP
+	cmd1 := exec.Command("docker", "exec", "-u", "root", a.ID, "iptables", "-A", "INPUT", "-s", b.BindIP, "-j", "DROP")
+	if out, err := cmd1.CombinedOutput(); err != nil {
+		return fmt.Errorf("blockPair node %s -> %s failed: %w: %s", a.ID, b.ID, err, string(out))
 	}
-	for i, parts := range rules {
-		args := []string{"advfirewall", "firewall", "add", "rule", "name=" + fmt.Sprintf("%s-%d", nameBase, i+1), "action=block"}
-		args = append(args, parts...)
-		if out, err := exec.Command("netsh", args...).CombinedOutput(); err != nil {
-			return fmt.Errorf("add firewall rule: %w: %s", err, strings.TrimSpace(string(out)))
-		}
+	// Add DROP rule in container b for packets coming from container a's IP
+	cmd2 := exec.Command("docker", "exec", "-u", "root", b.ID, "iptables", "-A", "INPUT", "-s", a.BindIP, "-j", "DROP")
+	if out, err := cmd2.CombinedOutput(); err != nil {
+		return fmt.Errorf("blockPair node %s -> %s failed: %w: %s", b.ID, a.ID, err, string(out))
 	}
 	return nil
-}
-
-func sanitizeRule(in string) string {
-	in = strings.TrimSpace(in)
-	if in == "" {
-		return "partition"
-	}
-	replacer := strings.NewReplacer(" ", "-", "/", "-", "\\", "-", ":", "-", ".", "-")
-	return replacer.Replace(in)
 }

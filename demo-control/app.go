@@ -71,47 +71,22 @@ func (a *App) GetSnapshot() (ControlSnapshot, error) {
 }
 
 func (a *App) Preflight() (PreflightResult, error) {
-	a.mu.Lock()
-	ws := a.workspace
-	procs := make(map[string]*exec.Cmd)
-	for k, v := range a.procs {
-		procs[k] = v
-	}
-	a.mu.Unlock()
-
 	out := PreflightResult{OK: true}
-	if _, err := os.Stat(ws.AppDir); err != nil {
+	
+	// Check if docker daemon is running
+	cmd := exec.Command("docker", "info")
+	if err := cmd.Run(); err != nil {
 		out.OK = false
-		out.Errors = append(out.Errors, "app dir not found: "+ws.AppDir)
+		out.Errors = append(out.Errors, "Docker Daemon is not running or Docker CLI is not installed. Please start Docker.")
+		return out, nil
 	}
-	if _, err := os.Stat(ws.AppExe); err != nil {
-		out.Warnings = append(out.Warnings, "built exe not found, go_run fallback will be used: "+ws.AppExe)
-	}
-	for _, p := range ws.Instances {
-		// Only check for port conflicts if the instance is NOT currently running under this controller!
-		running := false
-		if cmd := procs[p.ID]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
-			running = true
-		}
 
-		if !running {
-			if portBusy(p.ControlPort) {
-				out.Warnings = append(out.Warnings, fmt.Sprintf("%s control port %d is already in use", p.ID, p.ControlPort))
-			}
-			if portBusy(p.P2PPort) {
-				out.Warnings = append(out.Warnings, fmt.Sprintf("%s p2p port %d is already in use", p.ID, p.P2PPort))
-			}
-		}
+	// Check if docker image secure-p2p:latest exists
+	imageCheck := exec.Command("docker", "image", "inspect", "secure-p2p:latest")
+	if err := imageCheck.Run(); err != nil {
+		out.Warnings = append(out.Warnings, "Docker image 'secure-p2p:latest' not found. Please build it first: docker build -t secure-p2p:latest .")
 	}
-	if runtime.GOOS != "windows" {
-		out.Warnings = append(out.Warnings, "firewall partition controls are Windows-only")
-	} else {
-		// Check if running as administrator on Windows
-		cmd := exec.Command("net", "session")
-		if err := cmd.Run(); err != nil {
-			out.Warnings = append(out.Warnings, "Administrator privileges not detected. Firewall partitions will fail. Please run Demo Control as Administrator.")
-		}
-	}
+
 	return out, nil
 }
 
@@ -122,41 +97,42 @@ func (a *App) StartInstance(id string) error {
 	if !ok {
 		return fmt.Errorf("unknown instance %s", id)
 	}
-	if cmd := a.procs[id]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
-		return nil
-	}
+
+	// Ensure Docker bridge network exists
+	_ = exec.Command("docker", "network", "create", "--subnet=10.20.30.0/24", "datn_p2p_net").Run()
+
+	// Clean up any existing container of the same name
+	_ = exec.Command("docker", "rm", "-f", id).Run()
+
 	if err := os.MkdirAll(profile.RuntimeDir, 0o700); err != nil {
 		return err
 	}
-	args := []string{
-		"-runtime-dir", profile.RuntimeDir,
-		"-db", profile.DBPath,
+
+	// Docker run arguments (run attached in foreground with --rm)
+	dockerArgs := []string{
+		"run", "--rm",
+		"--name", id,
+		"--network", "datn_p2p_net",
+		"--ip", profile.BindIP,
+		"-p", fmt.Sprintf("127.0.0.1:%d:%d", profile.ControlPort, profile.ControlPort),
+		"-v", fmt.Sprintf("%s:/data", profile.RuntimeDir),
+		"--cap-add", "NET_ADMIN",
+		"secure-p2p:latest",
+		"-db", "/data/app.db",
 		"-p2p-port", fmt.Sprint(profile.P2PPort),
 		"-control-port", fmt.Sprint(profile.ControlPort),
 		"-control-token", a.workspace.Token,
 		"-instance-label", profile.Label,
-	}
-	if profile.BindIP != "" {
-		args = append(args, "-bind-ip", profile.BindIP)
-	}
-	if profile.Bootstrap != "" {
-		args = append(args, "-bootstrap", profile.Bootstrap)
-	}
-	if profile.Headless {
-		args = append(args, "-headless")
+		"-headless",
 	}
 	if profile.StoreNode {
-		args = append(args, "-store-node")
+		dockerArgs = append(dockerArgs, "-store-node")
+	}
+	if profile.Bootstrap != "" {
+		dockerArgs = append(dockerArgs, "-bootstrap", profile.Bootstrap)
 	}
 
-	var cmd *exec.Cmd
-	if profile.LaunchMode == "go_run" || !fileExists(a.workspace.AppExe) {
-		cmd = exec.Command("go", append([]string{"run", "."}, args...)...)
-		cmd.Dir = a.workspace.AppDir
-	} else {
-		cmd = exec.Command(a.workspace.AppExe, args...)
-		cmd.Dir = a.workspace.AppDir
-	}
+	cmd := exec.Command("docker", dockerArgs...)
 	
 	logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -164,6 +140,7 @@ func (a *App) StartInstance(id string) error {
 		a.errors[id] = "log file: " + err.Error()
 		return err
 	}
+
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 
@@ -172,60 +149,32 @@ func (a *App) StartInstance(id string) error {
 		a.errors[id] = err.Error()
 		return err
 	}
+	
 	a.procs[id] = cmd
 	a.errors[id] = ""
+
 	go func() {
-		err := cmd.Wait()
+		_ = cmd.Wait()
 		logFile.Close()
-		a.mu.Lock()
-		if err != nil {
-			a.errors[id] = err.Error()
-		}
-		a.mu.Unlock()
 	}()
+
 	return nil
 }
 
-func killProcessTree(pid int) {
-	if runtime.GOOS == "windows" {
-		// /F forces termination, /T terminates specified process and any child processes
-		_ = exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprint(pid)).Run()
-	} else {
-		// On non-Windows platforms, we send SIGKILL to the process
-		// We can also kill the process group if we set PGID, but usually Process.Kill() is standard.
-	}
-}
-
 func (a *App) StopInstance(id string) error {
-	graceful := false
-	if err := a.controlAction(id, "shutdown"); err == nil {
-		graceful = true
-	}
+	_ = a.controlAction(id, "shutdown")
 
-	a.mu.Lock()
-	cmd := a.procs[id]
-	a.mu.Unlock()
-
-	if cmd != nil && cmd.Process != nil {
-		pid := cmd.Process.Pid
-		if graceful {
-			// Poll for up to 1.5s for graceful exit
-			for i := 0; i < 15; i++ {
-				a.mu.Lock()
-				runningCmd := a.procs[id]
-				a.mu.Unlock()
-				if runningCmd == nil || runningCmd.ProcessState != nil {
-					break
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
+	// Poll for up to 1.5s for graceful exit
+	for i := 0; i < 15; i++ {
+		if !isContainerRunning(id) {
+			break
 		}
-
-		// Forcefully kill process tree (SecureP2P and its crypto-engine sidecar)
-		killProcessTree(pid)
-		_ = cmd.Process.Kill()
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
+
+	// Force stop and remove container
+	_ = exec.Command("docker", "stop", id).Run()
+	_ = exec.Command("docker", "rm", "-f", id).Run()
 
 	a.mu.Lock()
 	delete(a.procs, id)
@@ -234,16 +183,10 @@ func (a *App) StopInstance(id string) error {
 }
 
 func (a *App) KillInstance(id string) error {
+	_ = exec.Command("docker", "rm", "-f", id).Run()
 	a.mu.Lock()
-	cmd := a.procs[id]
 	delete(a.procs, id)
 	a.mu.Unlock()
-
-	if cmd != nil && cmd.Process != nil {
-		killProcessTree(cmd.Process.Pid)
-		_ = cmd.Process.Kill()
-		time.Sleep(300 * time.Millisecond)
-	}
 	return nil
 }
 
@@ -264,7 +207,7 @@ func (a *App) StartAll() error {
 }
 
 func (a *App) StopAll() error {
-	// 1. Try to stop all instances gracefully
+	// 1. Try to stop all instances gracefully via HTTP
 	for _, p := range a.workspace.Instances {
 		_ = a.controlAction(p.ID, "shutdown")
 	}
@@ -272,25 +215,15 @@ func (a *App) StopAll() error {
 	// Wait up to 800ms for graceful shutdown
 	time.Sleep(800 * time.Millisecond)
 
-	// 2. Kill remaining managed process trees
-	a.mu.Lock()
-	for id, cmd := range a.procs {
-		if cmd != nil && cmd.Process != nil {
-			killProcessTree(cmd.Process.Pid)
-			_ = cmd.Process.Kill()
-		}
-		delete(a.procs, id)
+	// 2. Kill and remove containers
+	for _, p := range a.workspace.Instances {
+		_ = exec.Command("docker", "stop", p.ID).Run()
+		_ = exec.Command("docker", "rm", "-f", p.ID).Run()
 	}
-	a.mu.Unlock()
 
-	// 3. System-wide deep sweep: clean up any remaining orphaned SecureP2P or crypto-engine processes
-	if runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill", "/F", "/IM", "SecureP2P.exe").Run()
-		_ = exec.Command("taskkill", "/F", "/IM", "crypto-engine.exe").Run()
-	} else {
-		_ = exec.Command("killall", "-9", "SecureP2P").Run()
-		_ = exec.Command("killall", "-9", "crypto-engine").Run()
-	}
+	a.mu.Lock()
+	a.procs = make(map[string]*exec.Cmd)
+	a.mu.Unlock()
 
 	return nil
 }
@@ -298,15 +231,12 @@ func (a *App) StopAll() error {
 func (a *App) ResetInstance(id string) error {
 	a.mu.Lock()
 	profile, ok := a.profileLocked(id)
-	running := false
-	if cmd := a.procs[id]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
-		running = true
-	}
 	a.mu.Unlock()
+	
 	if !ok {
 		return fmt.Errorf("unknown instance %s", id)
 	}
-	if running {
+	if isContainerRunning(id) {
 		return fmt.Errorf("stop %s before reset", id)
 	}
 	if err := ensureDemoPath(a.root, profile.RuntimeDir); err != nil {
@@ -445,22 +375,20 @@ func (a *App) controlAction(id string, action string) error {
 
 func (a *App) refreshStatuses(ws DemoWorkspace) []InstanceStatus {
 	a.mu.Lock()
-	procs := make(map[string]*exec.Cmd, len(a.procs))
-	for k, v := range a.procs {
-		procs[k] = v
-	}
 	errs := make(map[string]string, len(a.errors))
 	for k, v := range a.errors {
 		errs[k] = v
 	}
 	a.mu.Unlock()
 
+	runningContainers, _ := getRunningContainers()
+
 	out := make([]InstanceStatus, 0, len(ws.Instances))
 	for _, p := range ws.Instances {
 		st := InstanceStatus{Profile: p, LastError: errs[p.ID]}
-		if cmd := procs[p.ID]; cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
+		if runningContainers != nil && runningContainers[p.ID] {
 			st.Running = true
-			st.PID = cmd.Process.Pid
+			st.PID = getContainerPID(p.ID)
 		}
 		a.fillRemoteStatus(&st, ws.Token)
 		out = append(out, st)
@@ -583,7 +511,7 @@ func defaultWorkspace(repoRoot string) DemoWorkspace {
 			RuntimeDir:  runtimeDir,
 			TemplateDir: filepath.Join(repoRoot, ".demo-control", "templates", id),
 			DBPath:      filepath.Join(runtimeDir, "app.db"),
-			BindIP:      fmt.Sprintf("127.0.0.%d", i),
+			BindIP:      fmt.Sprintf("10.20.30.%d", 10+i),
 			P2PPort:     4100 + i,
 			ControlPort: 5100 + i,
 			Headless:    false,
@@ -609,8 +537,8 @@ func normalizeWorkspace(ws *DemoWorkspace, repoRoot string) {
 		if ws.Instances[i].DBPath == "" {
 			ws.Instances[i].DBPath = filepath.Join(ws.Instances[i].RuntimeDir, "app.db")
 		}
-		if ws.Instances[i].BindIP == "" {
-			ws.Instances[i].BindIP = fmt.Sprintf("127.0.0.%d", i+1)
+		if ws.Instances[i].BindIP == "" || strings.HasPrefix(ws.Instances[i].BindIP, "127.0.0.") {
+			ws.Instances[i].BindIP = fmt.Sprintf("10.20.30.%d", 11+i)
 		}
 	}
 }
@@ -788,4 +716,38 @@ func (a *App) Notify(message string) {
 	if a.ctx != nil {
 		wailsruntime.EventsEmit(a.ctx, "demo:notice", message)
 	}
+}
+
+func getRunningContainers() (map[string]bool, error) {
+	out, err := exec.Command("docker", "ps", "--format", "{{.Names}}").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	running := make(map[string]bool)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			running[name] = true
+		}
+	}
+	return running, nil
+}
+
+func isContainerRunning(id string) bool {
+	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", id).CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
+}
+
+func getContainerPID(id string) int {
+	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Pid}}", id).CombinedOutput()
+	if err != nil {
+		return 0
+	}
+	var pid int
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &pid)
+	return pid
 }

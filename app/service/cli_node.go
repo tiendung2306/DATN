@@ -109,7 +109,7 @@ func connectBootstrap(ctx context.Context, node *p2p.P2PNode, flagAddr, bundleAd
 	if addr == "" {
 		addr = bundleAddr
 	}
-	if bindIP != "" && addr != "" {
+	if bindIP != "" && strings.HasPrefix(bindIP, "127.0.0.") && addr != "" {
 		addr = rewriteBootstrapIPToLoopback(addr)
 	}
 	if addr == "" {
