@@ -27,12 +27,14 @@ type App struct {
 	procs     map[string]*exec.Cmd
 	errors    map[string]string
 	scenario  ScenarioRunState
+	blocked   map[string][]string // nodeID -> blocked PeerIDs
 }
 
 func NewApp() *App {
 	return &App{
-		procs:  make(map[string]*exec.Cmd),
-		errors: make(map[string]string),
+		procs:   make(map[string]*exec.Cmd),
+		errors:  make(map[string]string),
+		blocked: make(map[string][]string),
 	}
 }
 
@@ -61,7 +63,28 @@ func (a *App) GetSnapshot() (ControlSnapshot, error) {
 	ws := a.workspace
 	a.mu.Unlock()
 	statuses := a.refreshStatuses(ws)
-	rules, _ := listFirewallRules()
+
+	// Map peer ID to node ID
+	peerToNode := make(map[string]string)
+	for _, st := range statuses {
+		if st.PeerID != "" {
+			peerToNode[st.PeerID] = st.Profile.ID
+		}
+	}
+
+	a.mu.Lock()
+	var rules []FirewallRule
+	for srcNode, targets := range a.blocked {
+		for _, targetPID := range targets {
+			if destNode, ok := peerToNode[targetPID]; ok {
+				rules = append(rules, FirewallRule{
+					Name: fmt.Sprintf("DATN-DEMO-%s-%s", srcNode, destNode),
+				})
+			}
+		}
+	}
+	a.mu.Unlock()
+
 	return ControlSnapshot{
 		Workspace: ws,
 		Instances: statuses,
@@ -90,6 +113,31 @@ func (a *App) Preflight() (PreflightResult, error) {
 	return out, nil
 }
 
+func (a *App) RebuildDockerImage() error {
+	a.Notify("Opening new terminal window to build Docker image...")
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd.exe", "/c", "start", "cmd.exe", "/k", "title Docker Build - secure-p2p && docker build -t secure-p2p:latest .")
+	} else if runtime.GOOS == "darwin" {
+		script := fmt.Sprintf(`tell application "Terminal" to do script "cd %q && docker build -t secure-p2p:latest ."`, a.root)
+		cmd = exec.Command("osascript", "-e", script)
+	} else {
+		cmd = exec.Command("x-terminal-emulator", "-e", "docker build -t secure-p2p:latest .")
+	}
+
+	cmd.Dir = a.root
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch build terminal: %w", err)
+	}
+
+	go func() {
+		_ = cmd.Wait()
+	}()
+
+	return nil
+}
+
 func (a *App) StartInstance(id string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -98,15 +146,69 @@ func (a *App) StartInstance(id string) error {
 		return fmt.Errorf("unknown instance %s", id)
 	}
 
+	if err := os.MkdirAll(profile.RuntimeDir, 0o700); err != nil {
+		return err
+	}
+
+	if profile.LaunchMode == "exe" {
+		appExe := a.workspace.AppExe
+		if appExe == "" {
+			appExe = filepath.Join(a.workspace.AppDir, "build", "bin", "SecureP2P.exe")
+		}
+
+		args := []string{
+			"-db", filepath.Join(profile.RuntimeDir, "app.db"),
+			"-runtime-dir", profile.RuntimeDir,
+			"-p2p-port", fmt.Sprint(profile.P2PPort),
+			"-control-port", fmt.Sprint(profile.ControlPort),
+			"-control-token", a.workspace.Token,
+			"-instance-label", profile.Label,
+		}
+		if profile.StoreNode {
+			args = append(args, "-store-node")
+		}
+		if profile.Bootstrap != "" {
+			args = append(args, "-bootstrap", profile.Bootstrap)
+		}
+		if profile.Headless {
+			args = append(args, "-headless")
+		}
+
+		cmd := exec.Command(appExe, args...)
+		cmd.Dir = profile.RuntimeDir
+
+		logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+		if err != nil {
+			a.errors[id] = "log file: " + err.Error()
+			return err
+		}
+
+		cmd.Stdout = logFile
+		cmd.Stderr = logFile
+
+		if err := cmd.Start(); err != nil {
+			logFile.Close()
+			a.errors[id] = err.Error()
+			return err
+		}
+
+		a.procs[id] = cmd
+		a.errors[id] = ""
+
+		go func() {
+			_ = cmd.Wait()
+			logFile.Close()
+		}()
+
+		return nil
+	}
+
 	// Ensure Docker bridge network exists
 	_ = exec.Command("docker", "network", "create", "--subnet=10.20.30.0/24", "datn_p2p_net").Run()
 
 	// Clean up any existing container of the same name
 	_ = exec.Command("docker", "rm", "-f", id).Run()
-
-	if err := os.MkdirAll(profile.RuntimeDir, 0o700); err != nil {
-		return err
-	}
 
 	// Docker run arguments (run attached in foreground with --rm)
 	dockerArgs := []string{
@@ -161,18 +263,41 @@ func (a *App) StartInstance(id string) error {
 	return nil
 }
 
+func (a *App) isInstanceRunning(id string) bool {
+	a.mu.Lock()
+	cmd, ok := a.procs[id]
+	profile, hasProfile := a.profileLocked(id)
+	a.mu.Unlock()
+
+	if hasProfile && profile.LaunchMode == "exe" {
+		if ok && cmd != nil && cmd.Process != nil {
+			return cmd.ProcessState == nil
+		}
+		return false
+	}
+	return isContainerRunning(id)
+}
+
 func (a *App) StopInstance(id string) error {
 	_ = a.controlAction(id, "shutdown")
 
 	// Poll for up to 1.5s for graceful exit
 	for i := 0; i < 15; i++ {
-		if !isContainerRunning(id) {
+		if !a.isInstanceRunning(id) {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Force stop and remove container
+	// Force kill host process
+	a.mu.Lock()
+	cmd, ok := a.procs[id]
+	a.mu.Unlock()
+	if ok && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+
+	// Force stop and remove container as backup
 	_ = exec.Command("docker", "stop", id).Run()
 	_ = exec.Command("docker", "rm", "-f", id).Run()
 
@@ -183,10 +308,16 @@ func (a *App) StopInstance(id string) error {
 }
 
 func (a *App) KillInstance(id string) error {
-	_ = exec.Command("docker", "rm", "-f", id).Run()
 	a.mu.Lock()
+	cmd, ok := a.procs[id]
 	delete(a.procs, id)
 	a.mu.Unlock()
+
+	if ok && cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+
+	_ = exec.Command("docker", "rm", "-f", id).Run()
 	return nil
 }
 
@@ -236,7 +367,7 @@ func (a *App) ResetInstance(id string) error {
 	if !ok {
 		return fmt.Errorf("unknown instance %s", id)
 	}
-	if isContainerRunning(id) {
+	if a.isInstanceRunning(id) {
 		return fmt.Errorf("stop %s before reset", id)
 	}
 	if err := ensureDemoPath(a.root, profile.RuntimeDir); err != nil {
@@ -265,9 +396,30 @@ func (a *App) ResetAll() error {
 func (a *App) TriggerOfflineSync(id string) error { return a.controlAction(id, "trigger-offline-sync") }
 func (a *App) ExportDiagnostics(id string) error  { return a.controlAction(id, "export-diagnostics") }
 func (a *App) IsolateNode(id string) error {
-	return a.ApplyPartition(PartitionSpec{ID: "isolate-" + id, Label: "Isolate " + id, Clusters: [][]string{{id}, a.otherIDs(id)}, Active: true})
+	a.Notify(fmt.Sprintf("Isolating node %s (P2P cut)...", id))
+	return a.controlAction(id, "disconnect-p2p")
 }
-func (a *App) HealAll() error                    { return healAllFirewallRules() }
+
+func (a *App) HealAll() error {
+	a.Notify("Healing network partition (clearing blocked peers and resuming P2P)...")
+	
+	// 1. Clear blocked peers in memory
+	a.mu.Lock()
+	a.blocked = make(map[string][]string)
+	a.mu.Unlock()
+
+	// 2. Call resume-p2p and clear blocked peers on all running nodes
+	statuses := a.refreshStatuses(a.workspace)
+	for _, st := range statuses {
+		if st.Running {
+			// Clear blocked list
+			_ = a.setNodeBlockedPeers(st.Profile.ID, []string{})
+			// Resume P2P connection (if it was disconnected/isolated)
+			_ = a.controlAction(st.Profile.ID, "resume-p2p")
+		}
+	}
+	return nil
+}
 func (a *App) OpenRuntimeFolder(id string) error { return a.openInstancePath(id, "runtime") }
 func (a *App) OpenInstanceLog(id string) error {
 	a.mu.Lock()
@@ -306,10 +458,85 @@ func (a *App) ReadInstanceLogTail(id string, limit int) (string, error) {
 }
 
 func (a *App) ApplyPartition(spec PartitionSpec) error {
+	a.Notify(fmt.Sprintf("Applying app-layer P2P connection partition: %s...", spec.Label))
+	
+	// Get active/running instances status to resolve Peer IDs
+	statuses := a.refreshStatuses(a.workspace)
+	peerIDMap := make(map[string]string) // instanceID -> PeerID
+	for _, st := range statuses {
+		if st.Running && st.PeerID != "" {
+			peerIDMap[st.Profile.ID] = st.PeerID
+		}
+	}
+
+	newBlocked := make(map[string][]string)
+
+	// For each cluster
+	for i, cluster := range spec.Clusters {
+		// All nodes in other clusters are targets to block
+		var blockPeerIDs []string
+		for j, otherCluster := range spec.Clusters {
+			if i == j {
+				continue
+			}
+			for _, nodeID := range otherCluster {
+				if pid, ok := peerIDMap[nodeID]; ok {
+					blockPeerIDs = append(blockPeerIDs, pid)
+				}
+			}
+		}
+
+		// Apply the blocked list to each node in the current cluster
+		for _, nodeID := range cluster {
+			if _, ok := peerIDMap[nodeID]; ok {
+				err := a.setNodeBlockedPeers(nodeID, blockPeerIDs)
+				if err != nil {
+					a.Notify(fmt.Sprintf("Warning: failed to partition %s: %v", nodeID, err))
+				}
+				newBlocked[nodeID] = blockPeerIDs
+			}
+		}
+	}
+
 	a.mu.Lock()
-	ws := a.workspace
+	a.blocked = newBlocked
 	a.mu.Unlock()
-	return applyFirewallPartition(ws.Instances, spec)
+
+	return nil
+}
+
+func (a *App) setNodeBlockedPeers(id string, peerIDs []string) error {
+	a.mu.Lock()
+	profile, ok := a.profileLocked(id)
+	token := a.workspace.Token
+	a.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("unknown instance %s", id)
+	}
+
+	bodyData, err := json.Marshal(map[string]interface{}{
+		"peer_ids": peerIDs,
+	})
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/v1/actions/set-blocked-peers", profile.ControlPort), strings.NewReader(string(bodyData)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Demo-Token", token)
+	req.Header.Set("Content-Type", "application/json")
+	client := http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("set-blocked-peers returned %s", resp.Status)
+	}
+	return nil
 }
 
 func (a *App) RunScenario(id string) error {
@@ -386,9 +613,19 @@ func (a *App) refreshStatuses(ws DemoWorkspace) []InstanceStatus {
 	out := make([]InstanceStatus, 0, len(ws.Instances))
 	for _, p := range ws.Instances {
 		st := InstanceStatus{Profile: p, LastError: errs[p.ID]}
-		if runningContainers != nil && runningContainers[p.ID] {
-			st.Running = true
-			st.PID = getContainerPID(p.ID)
+		if p.LaunchMode == "exe" {
+			a.mu.Lock()
+			cmd, ok := a.procs[p.ID]
+			a.mu.Unlock()
+			if ok && cmd != nil && cmd.Process != nil && cmd.ProcessState == nil {
+				st.Running = true
+				st.PID = cmd.Process.Pid
+			}
+		} else {
+			if runningContainers != nil && runningContainers[p.ID] {
+				st.Running = true
+				st.PID = getContainerPID(p.ID)
+			}
 		}
 		a.fillRemoteStatus(&st, ws.Token)
 		out = append(out, st)

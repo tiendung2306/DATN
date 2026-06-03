@@ -125,6 +125,7 @@ export default function App() {
             <h1>DATN Demo Control</h1>
             <p>{snapshot?.workspace.repo_root ?? 'Loading workspace'}</p>
           </div>
+
           <div className="toolbar">
             <button className="cmd primary" disabled={!!busy} onClick={() => run('start-all', runtimeClient.startAll)}>
               <Play size={16} /> Start All
@@ -133,7 +134,10 @@ export default function App() {
               <Square size={16} /> Stop All
             </button>
             <button className="cmd danger" disabled={!!busy} onClick={() => run('heal', runtimeClient.healAll)}>
-              <ShieldAlert size={16} /> Heal Firewall
+              <ShieldAlert size={16} /> Heal P2P Network
+            </button>
+            <button className="cmd" disabled={!!busy} onClick={() => run('rebuild-docker', runtimeClient.rebuildDockerImage)} title="Rebuild secure-p2p:latest Docker image">
+              <RefreshCcw size={16} /> Rebuild Docker
             </button>
             <button className="cmd" disabled={!!busy} onClick={() => void refresh()}>
               <RefreshCcw size={16} /> Refresh
@@ -143,9 +147,21 @@ export default function App() {
 
         {error ? <div className="alert danger-alert"><AlertTriangle size={16} /> {error}</div> : null}
         {preflight && (preflight.errors?.length || preflight.warnings?.length) ? (
-          <div className="alert">
-            <AlertTriangle size={16} />
-            {[...(preflight.errors ?? []), ...(preflight.warnings ?? [])].slice(0, 4).join(' | ')}
+          <div className="alert" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+              <span>{[...(preflight.errors ?? []), ...(preflight.warnings ?? [])].slice(0, 4).join(' | ')}</span>
+            </div>
+            {preflight.warnings?.some(w => w.includes("secure-p2p:latest")) && (
+              <button 
+                className="cmd primary" 
+                style={{ minHeight: '28px', padding: '0 10px', fontSize: '12px', flexShrink: 0 }}
+                disabled={!!busy}
+                onClick={() => run('rebuild-docker', runtimeClient.rebuildDockerImage)}
+              >
+                Build Image Now
+              </button>
+            )}
           </div>
         ) : null}
 
@@ -212,8 +228,11 @@ function InstancesView({
       <aside className="side-panel">
         <h2>Protocol Summary</h2>
         <div className="metric-row"><span>Running</span><strong>{snapshot.instances.filter((i) => i.running).length}/10</strong></div>
-        <div className="metric-row"><span>Firewall Rules</span><strong>{snapshot.firewall.length}</strong></div>
+        <div className="metric-row"><span>Active Peer Blocks</span><strong>{snapshot.firewall.length}</strong></div>
         <div className="metric-row"><span>Selected</span><strong>{selected.length}</strong></div>
+        <button className="wide cmd" style={{ marginBottom: '8px', backgroundColor: '#3b82f6', color: '#ffffff' }} disabled={!!busy} onClick={() => run('rebuild-docker', runtimeClient.rebuildDockerImage)}>
+          <RefreshCcw size={16} /> Rebuild Docker Image
+        </button>
         <button className="wide cmd danger" disabled={!!busy} onClick={() => run('reset-all', runtimeClient.resetAll)}>
           <Database size={16} /> Reset All Runtimes
         </button>
@@ -275,7 +294,7 @@ function InstanceCard({
         <button className="icon-btn" disabled={!!busy} onClick={() => run(`restart-${id}`, () => runtimeClient.restartInstance(id))} title="Restart">
           <RotateCcw size={15} />
         </button>
-        <button className="icon-btn" disabled={!!busy} onClick={() => run(`isolate-${id}`, () => runtimeClient.isolateNode(id))} title="Isolate">
+        <button className="icon-btn" disabled={!!busy} onClick={() => run(`isolate-${id}`, () => runtimeClient.isolateNode(id))} title="Isolate (P2P Cut)">
           <Scissors size={15} />
         </button>
         <button className="icon-btn" disabled={!!busy} onClick={() => run(`sync-${id}`, () => runtimeClient.triggerOfflineSync(id))} title="Offline Sync">
@@ -409,7 +428,7 @@ function TopologyView({
               <GitBranch size={16} /> Split Selected
             </button>
             <button className="cmd danger" disabled={!!busy} onClick={() => run('heal', runtimeClient.healAll)}>
-              <ShieldAlert size={16} /> Heal All
+              <ShieldAlert size={16} /> Heal Network
             </button>
           </div>
         </div>
@@ -546,9 +565,9 @@ function TopologyView({
               <div className="panel-actions" style={{ marginTop: '12px', borderTop: '1px solid rgba(148, 163, 184, 0.08)', paddingTop: '8px' }}>
                 <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>Simulated Network Actions</span>
                 <div className="btn-grid-wide">
-                  {/* Firewall Isolation Button (hard-disconnect using netsh, requires Admin privileges) */}
-                  <button className="cmd danger" disabled={!!busy} onClick={() => run(`isolate-${activeInstance.profile.id}`, () => runtimeClient.isolateNode(activeInstance.profile.id))} title="Isolate Node (Firewall)">
-                    <Scissors size={14} /> Isolate (FW)
+                  {/* Application-layer P2P connection cut */}
+                  <button className="cmd danger" disabled={!!busy} onClick={() => run(`isolate-${activeInstance.profile.id}`, () => runtimeClient.isolateNode(activeInstance.profile.id))} title="Isolate Node (P2P Cut)">
+                    <Scissors size={14} /> Isolate P2P
                   </button>
                   <button className="cmd" disabled={!!busy} onClick={() => run(`sync-${activeInstance.profile.id}`, () => runtimeClient.triggerOfflineSync(activeInstance.profile.id))} title="Trigger Offline Sync">
                     <Zap size={14} /> Offline Sync
@@ -618,12 +637,12 @@ function TopologyView({
 
         {snapshot.firewall.length > 0 && (
           <div style={{ marginTop: '12px' }}>
-            <span style={{ fontSize: '11px', color: '#f43f5e', fontWeight: 600 }}>Active Firewall Blocks ({snapshot.firewall.length})</span>
+            <span style={{ fontSize: '11px', color: '#f43f5e', fontWeight: 600 }}>Active Connection Blocks ({snapshot.firewall.length})</span>
             <div className="event-list" style={{ maxHeight: '110px', overflowY: 'auto' }}>
               {snapshot.firewall.slice(0, 5).map((rule) => (
                 <div className="event-row" key={rule.name} style={{ background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.15)' }}>
                   <Shield size={12} style={{ color: '#f43f5e', flexShrink: 0 }} />
-                  <span style={{ fontSize: '10px', color: '#fca5a5' }}>{rule.name.replace('DATN-DEMO-', '')}</span>
+                  <span style={{ fontSize: '10px', color: '#fca5a5' }}>{rule.name.replace('DATN-DEMO-', '').replace('-', ' ✕ ')}</span>
                 </div>
               ))}
             </div>

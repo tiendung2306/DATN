@@ -67,6 +67,8 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 		filepath.Join(cwd, "..", "crypto-engine", "target", "release", executable),
 		filepath.Join(cwd, "..", "..", "crypto-engine", "target", "debug", executable),
 		filepath.Join(cwd, "..", "..", "crypto-engine", "target", "release", executable),
+		filepath.Join(cwd, "..", "..", "..", "crypto-engine", "target", "debug", executable),
+		filepath.Join(cwd, "..", "..", "..", "crypto-engine", "target", "release", executable),
 	}
 
 	var binPath string

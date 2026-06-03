@@ -41,12 +41,13 @@ func (r *Runtime) startControlServer() error {
 	mux.HandleFunc("/v1/actions/reconnect-p2p", r.controlHTTP("POST", r.handleControlReconnectP2P))
 	mux.HandleFunc("/v1/actions/disconnect-p2p", r.controlHTTP("POST", r.handleControlDisconnectP2P))
 	mux.HandleFunc("/v1/actions/resume-p2p", r.controlHTTP("POST", r.handleControlResumeP2P))
+	mux.HandleFunc("/v1/actions/set-blocked-peers", r.controlHTTP("POST", r.handleControlSetBlockedPeers))
 	mux.HandleFunc("/v1/actions/export-diagnostics", r.controlHTTP("POST", r.handleControlExportDiagnostics))
 	mux.HandleFunc("/v1/actions/trigger-offline-sync", r.controlHTTP("POST", r.handleControlTriggerOfflineSync))
 	mux.HandleFunc("/v1/actions/shutdown", r.controlHTTP("POST", r.handleControlShutdown))
 
 	srv := &http.Server{
-		Addr:              fmt.Sprintf("127.0.0.1:%d", port),
+		Addr:              fmt.Sprintf("0.0.0.0:%d", port),
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
@@ -150,6 +151,17 @@ func (r *Runtime) handleControlDisconnectP2P(w http.ResponseWriter, _ *http.Requ
 
 func (r *Runtime) handleControlResumeP2P(w http.ResponseWriter, _ *http.Request) {
 	writeControlResult(w, map[string]string{"status": "ok"}, r.ResumeP2P())
+}
+
+func (r *Runtime) handleControlSetBlockedPeers(w http.ResponseWriter, req *http.Request) {
+	var input struct {
+		PeerIDs []string `json:"peer_ids"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&input); err != nil {
+		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+		return
+	}
+	writeControlResult(w, map[string]string{"status": "ok"}, r.SetBlockedPeers(input.PeerIDs))
 }
 
 func (r *Runtime) handleControlExportDiagnostics(w http.ResponseWriter, _ *http.Request) {

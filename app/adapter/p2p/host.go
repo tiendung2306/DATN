@@ -33,6 +33,7 @@ type P2PNode struct {
 	PubSub       *pubsub.PubSub
 	AuthProtocol *AuthProtocol
 	mdnsService  mdns.Service
+	gater        *AuthGater
 }
 
 type mdnsNotifee struct {
@@ -110,6 +111,7 @@ func NewP2PNode(
 		Host:   h,
 		DHT:    kademliaDHT,
 		PubSub: ps,
+		gater:  gater,
 	}
 
 	// 5. Initialize auth protocol (when token and root key are provided)
@@ -154,6 +156,12 @@ func (n *P2PNode) ConnectToPeer(ctx context.Context, addrStr string) error {
 
 	slog.Info("Successfully connected to bootstrap peer", "peer", info.ID.String())
 	return nil
+}
+
+func (n *P2PNode) SetBlockedPeers(peers []peer.ID) {
+	if n.gater != nil {
+		n.gater.SetBlockedPeers(peers)
+	}
 }
 
 func (n *P2PNode) Close() error {

@@ -136,6 +136,34 @@ func (r *Runtime) ResumeP2P() error {
 	return nil
 }
 
+func (r *Runtime) SetBlockedPeers(peerIDs []string) error {
+	r.mu.Lock()
+	node := r.node
+	r.mu.Unlock()
+	if node == nil {
+		return fmt.Errorf("P2P node is not running")
+	}
+
+	var list []peer.ID
+	for _, s := range peerIDs {
+		pid, err := peer.Decode(s)
+		if err != nil {
+			return fmt.Errorf("invalid peer ID %q: %w", s, err)
+		}
+		list = append(list, pid)
+	}
+
+	node.SetBlockedPeers(list)
+
+	// Force disconnect from any currently connected peers that are now blocked
+	for _, pid := range list {
+		_ = node.Host.Network().ClosePeer(pid)
+	}
+
+	return nil
+}
+
+
 type DiagnosticsGroupSnapshot struct {
 	GroupID           string         `json:"group_id"`
 	Epoch             uint64         `json:"epoch"`

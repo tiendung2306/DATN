@@ -10,6 +10,7 @@ import {
   OpenRuntimeFolder,
   Preflight,
   ReadInstanceLogTail,
+  RebuildDockerImage,
   ResetAll,
   ResetInstance,
   RestartInstance,
@@ -24,6 +25,7 @@ import {
 export const runtimeClient = {
   getSnapshot: GetSnapshot,
   preflight: Preflight,
+  rebuildDockerImage: RebuildDockerImage,
   startInstance: StartInstance,
   stopInstance: StopInstance,
   killInstance: KillInstance,
