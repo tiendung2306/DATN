@@ -41,6 +41,15 @@ export function messageInfoToChatMessage(message: service.MessageInfo): ChatMess
     status: ((message as { status?: ChatMessage['status'] }).status ?? 'published') as ChatMessage['status'],
     kind: 'user',
     commentCount: (message as any).comment_count,
+    localEchoToken: typeof (message as { local_echo_token?: string }).local_echo_token === 'string'
+      ? (message as { local_echo_token?: string }).local_echo_token
+      : undefined,
+    replayedAt: typeof (message as { replayed_at?: number }).replayed_at === 'number'
+      ? (message as { replayed_at?: number }).replayed_at
+      : undefined,
+    supersedesMessageId: typeof (message as { supersedes_message_id?: string }).supersedes_message_id === 'string'
+      ? (message as { supersedes_message_id?: string }).supersedes_message_id
+      : undefined,
   }
 }
 

@@ -8,6 +8,7 @@ import { useGroupsStore } from '../../../stores/useGroupsStore'
 import { useToastStore } from '../../../stores/useToastStore'
 import { useNotificationStore } from '../../../stores/useNotificationStore'
 import { GroupEpochPayload, GroupLeftPayload, GroupMembersChangedPayload } from './chatTypes'
+import { isSilentReplayBlocked } from '../lib/replayBlocked'
 
 interface InviteAutoJoinedPayload {
 	id?: string
@@ -30,6 +31,7 @@ interface GroupReplayBlockedPayload {
   reason?: string
   state?: string
   seq?: number
+  user_visible?: boolean
 }
 
 interface GroupOperationEventPayload {
@@ -280,9 +282,10 @@ export function useChatEvents({
         await refreshGroupMembers(payload.group_id)
       }
       const reason = String(payload.reason ?? payload.state ?? 'unknown')
+      if (isSilentReplayBlocked(payload)) {
+        return
+      }
       const descriptions: Record<string, string> = {
-        stale_epoch_requires_recovery_snapshot:
-          'Some older history could not be replayed because this device is too far behind the current epoch.',
         decrypt_failed_or_missing_past_key:
           'Some older history could not be decrypted with the retained MLS key window on this device.',
         future_epoch_missing_prior_commit:

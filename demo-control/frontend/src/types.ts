@@ -4,7 +4,19 @@ export interface DemoWorkspace {
   app_dir: string
   app_exe: string
   token: string
+  gui_lane: DemoLaneConfig
+  headless_lane: DemoLaneConfig
+}
+
+export interface DemoLaneConfig {
+  id: string
+  label: string
+  description?: string
+  runtime_root: string
+  template_root: string
   instances: DemoInstanceProfile[]
+  demo_group_id?: string
+  demo_owner_node_id?: string
 }
 
 export interface DemoInstanceProfile {
@@ -28,6 +40,7 @@ export interface InstanceGroup {
   token_holder: string
   token_holder_peer_id?: string
   active_members: number
+  active_view?: string[]
   tree_hash_short?: string
   is_healing: boolean
 }
@@ -48,8 +61,95 @@ export interface InstanceStatus {
   last_seen_ms?: number
 }
 
-export interface FirewallRule {
+export interface PartitionSpec {
+  id: string
+  label: string
+  clusters: string[][]
+  active: boolean
+}
+
+export interface PartitionNetwork {
   name: string
+  nodes?: string[]
+}
+
+export interface NodeNetworkState {
+  node_id: string
+  networks?: string[]
+  primary_network?: string
+  is_docker_managed: boolean
+}
+
+export interface NetworkTopology {
+  shared_network: string
+  active: boolean
+  partition_networks?: PartitionNetwork[]
+  node_networks?: NodeNetworkState[]
+}
+
+export interface DemoClusterMember {
+  peer_id: string
+  display_name: string
+  is_online: boolean
+  role?: string
+}
+
+export interface DemoClusterMessage {
+  message_id: string
+  sender: string
+  sender_display_name: string
+  content: string
+  timestamp: number
+  is_mine: boolean
+}
+
+export interface DemoGroupStatus {
+  group_id?: string
+  epoch: number
+  token_holder?: string
+  token_holder_peer_id?: string
+  active_members: number
+  active_view?: string[]
+  tree_hash_short?: string
+  is_healing: boolean
+}
+
+export interface DemoClusterState {
+  group_id: string
+  owner_node_id: string
+  ready: boolean
+  eligible: boolean
+  last_error?: string
+  member_count: number
+  members?: DemoClusterMember[]
+  recent_messages?: DemoClusterMessage[]
+  group_status_digest: DemoGroupStatus
+}
+
+export interface JobStatus {
+  id: string
+  lane: string
+  kind: string
+  title: string
+  state: string
+  summary?: string
+  log_tail?: string[]
+  started_at_ms?: number
+  ended_at_ms?: number
+}
+
+export interface GuiLaneSnapshot {
+  instances: InstanceStatus[]
+  preflight: PreflightResult
+  build_job_id?: string
+}
+
+export interface HeadlessLaneSnapshot {
+  instances: InstanceStatus[]
+  topology: NetworkTopology
+  demo_cluster: DemoClusterState
+  preflight: PreflightResult
+  build_job_id?: string
 }
 
 export interface ScenarioSpec {
@@ -60,8 +160,9 @@ export interface ScenarioSpec {
 
 export interface ControlSnapshot {
   workspace: DemoWorkspace
-  instances: InstanceStatus[]
-  firewall: FirewallRule[]
+  gui_lane: GuiLaneSnapshot
+  headless_lane: HeadlessLaneSnapshot
+  jobs: JobStatus[]
   scenarios: ScenarioSpec[]
 }
 

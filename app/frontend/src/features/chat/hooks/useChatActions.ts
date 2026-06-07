@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { runtimeClient } from '../../../services/runtime/runtimeClient'
 import { formatOutboundSendError } from '../../../lib/formatSendError'
 import { countUnicodeRunes } from '../../../lib/textLimits'
 import { useChatStore } from '../../../stores/useChatStore'
+import { useNetworkStore } from '../../../stores/useNetworkStore'
 import { useMessageLimitsStore } from '../../../stores/useMessageLimitsStore'
 import { useToastStore } from '../../../stores/useToastStore'
 import { parseMessageContent } from '../../../lib/chatModel'
@@ -35,6 +36,7 @@ export function useChatActions({
   const [attachingFile, setAttachingFile] = useState(false)
   const [fileTransferStateByMessage, setFileTransferStateByMessage] = useState<Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>>({})
   const [fileLocalPathByMessage, setFileLocalPathByMessage] = useState<Record<string, string>>({})
+  const sendInFlightRef = useRef(false)
 
   const handleSelectGroup = (groupId: string) => {
     setActiveGroupId(groupId)
@@ -113,6 +115,7 @@ export function useChatActions({
   }
 
   const handleSendMessage = async () => {
+    if (sendInFlightRef.current) return
     if (!activeGroupId || !composingMessage.trim()) return
     const text = composingMessage.trim()
     const maxDm = useMessageLimitsStore.getState().dmMaxRunes
@@ -125,21 +128,28 @@ export function useChatActions({
       })
       return
     }
-    const pendingId = `local:${Date.now()}`
+    const localEchoToken =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const pendingId = `local:${localEchoToken}`
+    const optimisticSender = useNetworkStore.getState().localPeerId || localPeerId
+    sendInFlightRef.current = true
     pushMessage(activeGroupId, {
       id: pendingId,
       groupId: activeGroupId,
-      sender: localPeerId,
+      sender: optimisticSender,
       content: text,
       timestamp: Date.now(),
       isMine: true,
       status: 'sending',
       kind: 'user',
+      localEchoToken,
     })
     setComposingMessage('')
     setSending(true)
     try {
-      await runtimeClient.sendGroupMessage(activeGroupId, text)
+      await runtimeClient.sendGroupMessageWithLocalEchoToken(activeGroupId, text, localEchoToken)
       updateMessageStatus(activeGroupId, pendingId, 'published')
       void refreshGroups()
     } catch (err) {
@@ -151,6 +161,7 @@ export function useChatActions({
         variant: mapped.variant,
       })
     } finally {
+      sendInFlightRef.current = false
       setSending(false)
     }
   }

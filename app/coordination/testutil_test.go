@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -778,6 +779,59 @@ func (s *MockStorage) MarkMessageReplayed(groupID string, envelopeHash []byte, n
 		}
 	}
 	return nil
+}
+
+func (s *MockStorage) ResolveReplayCanonicalOriginalMessageIDs(groupID string, replayedMessageIDs []string) (map[string]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	links := make(map[string]string)
+	if groupID == "" || len(replayedMessageIDs) == 0 {
+		return links, nil
+	}
+	allowed := make(map[string]struct{}, len(replayedMessageIDs))
+	for _, id := range replayedMessageIDs {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		allowed[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+	}
+	parents := make(map[string]string)
+	for _, ev := range s.applicationEvents {
+		if ev.GroupID != groupID || len(ev.ReplayedEnvelopeHash) == 0 || len(ev.EnvelopeHash) == 0 {
+			continue
+		}
+		replayedID := hex.EncodeToString(ev.ReplayedEnvelopeHash)
+		parents[replayedID] = hex.EncodeToString(ev.EnvelopeHash)
+	}
+	for replayedID := range allowed {
+		current := replayedID
+		root := replayedID
+		firstParent := ""
+		seen := map[string]struct{}{}
+		for {
+			parent, ok := parents[current]
+			if !ok || parent == "" {
+				break
+			}
+			if firstParent == "" {
+				firstParent = parent
+			}
+			if _, cycle := seen[current]; cycle {
+				if firstParent != "" {
+					root = firstParent
+				}
+				break
+			}
+			seen[current] = struct{}{}
+			root = parent
+			current = parent
+		}
+		if root != replayedID {
+			links[replayedID] = root
+		}
+	}
+	return links, nil
 }
 
 func (s *MockStorage) GetMessagesByOwnerInRange(groupID, senderID string, startMs, endMs int64) ([]*StoredMessage, error) {

@@ -276,6 +276,12 @@ type CoordinationStorage interface {
 	// No-op (nil error) if the envelope hash is not found.
 	MarkMessageReplayed(groupID string, envelopeHash []byte, now time.Time) error
 
+	// ResolveReplayCanonicalOriginalMessageIDs returns canonical message ID
+	// mappings for replayed copies already persisted in stored_messages. The
+	// returned map is keyed by replayed message ID and points to the root/original
+	// message ID that the replay supersedes, even after multiple replay rounds.
+	ResolveReplayCanonicalOriginalMessageIDs(groupID string, replayedMessageIDs []string) (map[string]string, error)
+
 	// GetMessagesByOwnerInRange returns stored messages sent by senderID within
 	// [startMs, endMs] (unix milliseconds, inclusive), ordered by HLC ascending.
 	// Used by Autonomous Replay to fetch the partition window without loading the

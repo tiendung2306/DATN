@@ -1,6 +1,7 @@
 import { ChatMessage } from '../../stores/useChatStore'
 import { useContactStore } from '../../stores/useContactStore'
 import { formatMessageTime, parseMessageContent } from '../../lib/chatModel'
+import { cn } from '../../lib/utils'
 import { Button } from '../ui/button'
 import { ReactNode } from 'react'
 import FileAttachmentCard from './FileAttachmentCard'
@@ -20,6 +21,8 @@ interface MessageListProps {
   fileTransferStateByMessage?: Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>
   fileLocalPathByMessage?: Record<string, string>
   fileActionDisabled?: boolean
+  oldestUnreadMessageId?: string | null
+  highlightedMessageId?: string | null
 }
 
 function statusLabel(status: ChatMessage['status']): string {
@@ -46,6 +49,8 @@ export default function MessageList({
   fileLocalPathByMessage = {},
   fileActionDisabled = false,
   peerAvatarByPeerId = {},
+  oldestUnreadMessageId = null,
+  highlightedMessageId = null,
 }: MessageListProps) {
   const getDisplayName = useContactStore((s) => s.getDisplayName)
 
@@ -100,10 +105,19 @@ export default function MessageList({
         }
 
         return (
-          <div
-            key={message.id}
-            className={`flex ${message.isMine ? 'justify-end' : 'justify-start'} ${startsGroup ? 'mt-3' : 'mt-1'}`}
-          >
+          <div key={message.id} data-message-id={message.id}>
+            {oldestUnreadMessageId === message.id ? (
+              <div className="mb-3 flex items-center gap-3">
+                <div className="h-px flex-1 bg-amber-500/30" />
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-200">
+                  Chưa đọc từ đây
+                </span>
+                <div className="h-px flex-1 bg-amber-500/30" />
+              </div>
+            ) : null}
+            <div
+              className={`flex ${message.isMine ? 'justify-end' : 'justify-start'} ${startsGroup ? 'mt-3' : 'mt-1'}`}
+            >
             <div
               className={`min-w-0 max-w-[78%] ${message.isMine ? 'items-end' : 'items-start'} flex flex-col ${
                 startsGroup ? 'gap-1.5' : 'gap-1'
@@ -125,11 +139,13 @@ export default function MessageList({
                 </div>
               ) : null}
               <div
-                className={`rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                className={cn(
+                  'rounded-2xl px-3 py-2 text-sm shadow-sm transition-all',
+                  highlightedMessageId === message.id && 'ring-2 ring-amber-400/60 ring-offset-2 ring-offset-slate-950',
                   message.isMine
                     ? 'border border-emerald-500/30 bg-teal-900/40 text-slate-100'
-                    : 'bg-slate-800 text-slate-100'
-                }`}
+                    : 'bg-slate-800 text-slate-100',
+                )}
               >
                 <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                   {file ? renderMentionedBody(parsed.body || `Đã chia sẻ tệp: ${file.name}`) : renderMentionedBody(message.content)}
@@ -166,6 +182,7 @@ export default function MessageList({
                 </div>
               )}
             </div>
+          </div>
           </div>
         )
       })}

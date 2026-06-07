@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -595,15 +596,15 @@ func TestSQLiteCoordinationStorage_ForkHealingJob_LifecycleAndUniqueConstraint(t
 		Status:            "INITIATED",
 		LosingBranchID:    "lose-1",
 		WinningBranchID:   "win-1",
-		ForkBaseEpoch:       2,
-		LosingEpoch:         2,
-		WinningEpoch:        5,
-		LosingTreeHash:      []byte("lose-tree"),
-		WinningTreeHash:     []byte("win-tree"),
-		WinningCommitHash:   []byte("win-commit"),
-		WinnerPeerID:        "carol",
-		CreatedAtMs:         1000,
-		UpdatedAtMs:         1000,
+		ForkBaseEpoch:     2,
+		LosingEpoch:       2,
+		WinningEpoch:      5,
+		LosingTreeHash:    []byte("lose-tree"),
+		WinningTreeHash:   []byte("win-tree"),
+		WinningCommitHash: []byte("win-commit"),
+		WinnerPeerID:      "carol",
+		CreatedAtMs:       1000,
+		UpdatedAtMs:       1000,
 	}
 
 	if err := s.SaveForkHealingJob(job1); err != nil {
@@ -634,8 +635,8 @@ func TestSQLiteCoordinationStorage_ForkHealingJob_LifecycleAndUniqueConstraint(t
 		Status:            "SNAPSHOT_CREATED", // Also active
 		WinningTreeHash:   []byte("win-tree-2"),
 		WinningCommitHash: []byte("win-commit-2"),
-		CreatedAtMs:         2000,
-		UpdatedAtMs:         2000,
+		CreatedAtMs:       2000,
+		UpdatedAtMs:       2000,
 	}
 	err = s.SaveForkHealingJob(job2)
 	if err == nil {
@@ -773,6 +774,130 @@ func TestSQLiteCoordinationStorage_ApplicationEventsAndPayloadShredding(t *testi
 				t.Errorf("payload fields not shredded for WAITING_AUTHOR_REPLAY event: %+v", ev)
 			}
 		}
+	}
+}
+
+func TestSQLiteCoordinationStorage_ResolveReplayCanonicalOriginalMessageIDs(t *testing.T) {
+	s := setupTestStorage(t)
+
+	originalHash := sha256.Sum256([]byte("original-message"))
+	replayedHash := sha256.Sum256([]byte("replayed-message"))
+	payloadHash := sha256.Sum256([]byte("payload"))
+	if err := s.SaveApplicationEvent(&coordination.ApplicationEvent{
+		EventID:              "ev-replay-link",
+		JobID:                "job-replay-link",
+		GroupID:              "g-replay-link",
+		EnvelopeHash:         originalHash[:],
+		PayloadHash:          payloadHash[:],
+		HlcWallTimeMs:        1000,
+		HlcCounter:           1,
+		HlcNodeID:            "alice",
+		ReplayedEnvelopeHash: replayedHash[:],
+		Status:               "REPLAYED",
+		CreatedAtMs:          1000,
+		UpdatedAtMs:          1000,
+	}); err != nil {
+		t.Fatalf("SaveApplicationEvent: %v", err)
+	}
+
+	links, err := s.ResolveReplayCanonicalOriginalMessageIDs("g-replay-link", []string{hex.EncodeToString(replayedHash[:])})
+	if err != nil {
+		t.Fatalf("ResolveReplayCanonicalOriginalMessageIDs: %v", err)
+	}
+	if got := links[hex.EncodeToString(replayedHash[:])]; got != hex.EncodeToString(originalHash[:]) {
+		t.Fatalf("replay link = %q, want %q", got, hex.EncodeToString(originalHash[:]))
+	}
+}
+
+func TestSQLiteCoordinationStorage_ResolveReplayCanonicalOriginalMessageIDs_MultiHop(t *testing.T) {
+	s := setupTestStorage(t)
+
+	originalHash := sha256.Sum256([]byte("original-message"))
+	replay1Hash := sha256.Sum256([]byte("replay-message-1"))
+	replay2Hash := sha256.Sum256([]byte("replay-message-2"))
+	replay3Hash := sha256.Sum256([]byte("replay-message-3"))
+
+	save := func(eventID string, original []byte, replayed []byte, ts int64) {
+		t.Helper()
+		payloadHash := sha256.Sum256([]byte(eventID))
+		if err := s.SaveApplicationEvent(&coordination.ApplicationEvent{
+			EventID:              eventID,
+			JobID:                "job-replay-chain",
+			GroupID:              "g-replay-chain",
+			EnvelopeHash:         original,
+			PayloadHash:          payloadHash[:],
+			HlcWallTimeMs:        ts,
+			HlcCounter:           1,
+			HlcNodeID:            "alice",
+			ReplayedEnvelopeHash: replayed,
+			Status:               "REPLAYED",
+			CreatedAtMs:          ts,
+			UpdatedAtMs:          ts,
+		}); err != nil {
+			t.Fatalf("SaveApplicationEvent(%s): %v", eventID, err)
+		}
+	}
+
+	save("ev-replay-1", originalHash[:], replay1Hash[:], 1000)
+	save("ev-replay-2", replay1Hash[:], replay2Hash[:], 2000)
+	save("ev-replay-3", replay2Hash[:], replay3Hash[:], 3000)
+
+	links, err := s.ResolveReplayCanonicalOriginalMessageIDs("g-replay-chain", []string{
+		hex.EncodeToString(replay1Hash[:]),
+		hex.EncodeToString(replay2Hash[:]),
+		hex.EncodeToString(replay3Hash[:]),
+	})
+	if err != nil {
+		t.Fatalf("ResolveReplayCanonicalOriginalMessageIDs: %v", err)
+	}
+
+	wantOriginal := hex.EncodeToString(originalHash[:])
+	for _, replayed := range []string{
+		hex.EncodeToString(replay1Hash[:]),
+		hex.EncodeToString(replay2Hash[:]),
+		hex.EncodeToString(replay3Hash[:]),
+	} {
+		if got := links[replayed]; got != wantOriginal {
+			t.Fatalf("canonical replay link for %s = %q, want %q", replayed, got, wantOriginal)
+		}
+	}
+}
+
+func TestSQLiteCoordinationStorage_ResolveReplayCanonicalOriginalMessageIDs_CycleFallback(t *testing.T) {
+	s := setupTestStorage(t)
+
+	hashA := sha256.Sum256([]byte("cycle-a"))
+	hashB := sha256.Sum256([]byte("cycle-b"))
+	save := func(eventID string, original []byte, replayed []byte, ts int64) {
+		t.Helper()
+		payloadHash := sha256.Sum256([]byte(eventID))
+		if err := s.SaveApplicationEvent(&coordination.ApplicationEvent{
+			EventID:              eventID,
+			JobID:                "job-replay-cycle",
+			GroupID:              "g-replay-cycle",
+			EnvelopeHash:         original,
+			PayloadHash:          payloadHash[:],
+			HlcWallTimeMs:        ts,
+			HlcCounter:           1,
+			HlcNodeID:            "alice",
+			ReplayedEnvelopeHash: replayed,
+			Status:               "REPLAYED",
+			CreatedAtMs:          ts,
+			UpdatedAtMs:          ts,
+		}); err != nil {
+			t.Fatalf("SaveApplicationEvent(%s): %v", eventID, err)
+		}
+	}
+
+	save("ev-cycle-a", hashB[:], hashA[:], 1000)
+	save("ev-cycle-b", hashA[:], hashB[:], 2000)
+
+	links, err := s.ResolveReplayCanonicalOriginalMessageIDs("g-replay-cycle", []string{hex.EncodeToString(hashA[:])})
+	if err != nil {
+		t.Fatalf("ResolveReplayCanonicalOriginalMessageIDs: %v", err)
+	}
+	if got := links[hex.EncodeToString(hashA[:])]; got != hex.EncodeToString(hashB[:]) {
+		t.Fatalf("cycle fallback = %q, want %q", got, hex.EncodeToString(hashB[:]))
 	}
 }
 

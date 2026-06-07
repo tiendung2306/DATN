@@ -16,6 +16,28 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-06-05) ✅ — Replay/Duplicate Hardening for Late-Join + Fork-Heal
+
+- **Problem investigated:** Khi node join muộn hoặc sau fork-heal, máy local có thể thấy duplicate message của chính mình. Root cause không nằm ở render thuần túy mà ở semantics replay: mapping cũ chỉ nối `replayed -> previous copy`, không đảm bảo `replayed -> root original`.
+- **Backend contract hardened:**
+  - `service.MessageInfo` giữ `replayed_at` và thêm/chuẩn hóa `supersedes_message_id` với nghĩa **canonical original message ID**.
+  - Realtime `group:message` và các API list (`GetGroupMessages`, `GetGroupPosts`, `GetPostComments`) dùng cùng mapper để trả replay metadata nhất quán.
+  - Resolver replay ở `app/adapter/store/coordination_storage.go` giờ canonicalize replay chain qua `application_event (envelope_hash, replayed_envelope_hash)` để nhiều vòng replay (`A -> B -> C`) vẫn trả `C supersedes A`.
+  - Nếu canonicalization lỗi, service log `slog.Warn` thay vì fail-open im lặng.
+- **Frontend behavior hardened:**
+  - Timeline không còn ẩn message chỉ vì `replayed_at`; chỉ ẩn khi có message khác trong cùng timeline mang `supersedesMessageId` trỏ tới nó.
+  - Rule reconcile được dùng chung cho `messagesByGroup`, `postsByGroup`, `commentsByPost`.
+  - `group:replay_blocked` có backward-compatible silent handling: event mới dùng `user_visible=false`; event cũ thiếu field này nhưng có `reason=stale_epoch_requires_recovery_snapshot` vẫn bị silent.
+- **Files worth remembering for future replay bugs:**
+  - Backend contract/mapping: `app/service/group.go`, `app/service/messaging.go`
+  - Replay link resolution: `app/adapter/store/coordination_storage.go`
+  - Frontend reconcile logic: `app/frontend/src/features/chat/lib/timelineState.ts`
+  - Silent replay-blocked helper: `app/frontend/src/features/chat/lib/replayBlocked.ts`
+- **Verification completed:**
+  - Go targeted tests PASS for storage/service replay mapping and replay_blocked payload behavior.
+  - Frontend `npm test` PASS and `npm run build` PASS.
+  - Full manual `demo-control` 4-node replay scenario still recommended before high-stakes demo.
+
 ### Latest Delta (2026-06-02) ✅ — Locking Boundaries & Deadlock Elimination (Service Quality Hardening)
 
 - **Deadlock & Locking Boundaries Audit & Fixes [COMPLETED]:**

@@ -327,6 +327,11 @@ type StoredMessage struct {
 	SenderID  peer.ID
 	Content   []byte
 	Timestamp HLCTimestamp
+	// LocalEchoToken is a process-local correlation token injected by the
+	// frontend send path so the local UI can replace its optimistic row with the
+	// canonical stored message event without guessing by content/timestamp.
+	// It is never persisted to SQLite or sent over the network.
+	LocalEchoToken string
 	// EnvelopeHash keys exactly-once application for replayed envelopes.
 	EnvelopeHash []byte
 	CommentCount int
@@ -334,6 +339,9 @@ type StoredMessage struct {
 	// Autonomous Replay after fork healing. The frontend uses this to suppress
 	// the original from display once the replay copy arrives, preventing duplicates.
 	ReplayedAt *int64
+	// SupersedesMessageID is the canonical message ID of the original message
+	// replaced by this replayed copy. Empty for normal (non-replay) messages.
+	SupersedesMessageID string
 }
 
 // EnvelopeRecord is one row in the offline envelope_log (wire bytes + ordering).

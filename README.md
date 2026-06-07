@@ -158,6 +158,7 @@ HLCTimestamp = (L, C, NodeID)
 *   **Offline Handling:** Offline recovery uses authenticated direct stream synchronization + local envelope retention (SQLite). The app also supports a global blind-store replication topic (`/org/offline-store/v1`): regular nodes selectively retain only targeted `k`-nearest replicas, while `--store-node` nodes retain all blind-store objects. Kademlia DHT is used for discovery/routing and replica target selection, not as an application mailbox.
 *   **Single-Writer Invariant:** At any given epoch, only the deterministically elected Token Holder may issue a Commit. All other nodes MUST route their Proposals through Gossip and wait for the Token Holder's Commit.
 *   **Epoch Monotonicity:** A node MUST NOT process any MLS Commit/Proposal with an epoch number lower than its current epoch.
+*   **Replay Metadata Invariant:** When Autonomous Replay re-broadcasts a message after fork healing, the user-facing replay link (`supersedes_message_id`) MUST point to the **canonical original/root message**, not merely the immediately previous replay copy. API list and realtime events must expose identical replay semantics.
 *   **PKI Rules (CRITICAL):**
     *   MLS Private Key is generated ON the user's machine and NEVER leaves it (not even encrypted over the network).
     *   Root Admin Private Key MUST NOT be embedded in the client binary. It lives only in the Admin's encrypted local storage.

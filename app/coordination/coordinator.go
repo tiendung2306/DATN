@@ -1834,6 +1834,17 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 // SendMessage encrypts plaintext and broadcasts it as an application message.
 // Returns the HLC timestamp assigned to the message.
 func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
+	return c.sendMessage(plaintext, "")
+}
+
+// SendMessageWithLocalEchoToken mirrors SendMessage but tags the locally emitted
+// StoredMessage with a process-local correlation token so the frontend can
+// replace optimistic echoes deterministically.
+func (c *Coordinator) SendMessageWithLocalEchoToken(plaintext []byte, localEchoToken string) (*HLCTimestamp, error) {
+	return c.sendMessage(plaintext, localEchoToken)
+}
+
+func (c *Coordinator) sendMessage(plaintext []byte, localEchoToken string) (*HLCTimestamp, error) {
 	if c.healing.Load() {
 		return nil, fmt.Errorf("fork healing in progress: message rejected to avoid cross-epoch state corruption")
 	}
@@ -1874,12 +1885,13 @@ func (c *Coordinator) SendMessage(plaintext []byte) (*HLCTimestamp, error) {
 	envelopeHash := hashEnvelope(envBytes)
 
 	msg := &StoredMessage{
-		GroupID:      c.groupID,
-		Epoch:        c.epoch,
-		SenderID:     c.localID,
-		Content:      plaintext,
-		Timestamp:    ts,
-		EnvelopeHash: envelopeHash,
+		GroupID:        c.groupID,
+		Epoch:          c.epoch,
+		SenderID:       c.localID,
+		Content:        plaintext,
+		Timestamp:      ts,
+		LocalEchoToken: localEchoToken,
+		EnvelopeHash:   envelopeHash,
 	}
 	now := c.clock.Now()
 	applied, _, err := c.storage.ApplyApplication(&GroupRecord{

@@ -3,13 +3,15 @@ import MessageComposer from './MessageComposer'
 import MessageList from './MessageList'
 import PostView from './PostView'
 import { useContactStore } from '../../stores/useContactStore'
-import { Info, Lock, Loader2 } from 'lucide-react'
+import { ArrowUp, Info, Lock, Loader2 } from 'lucide-react'
 import { service } from '../../../wailsjs/go/models'
 import { useMentions } from '../../features/chat/hooks/useMentions'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMessageLimitsStore } from '../../stores/useMessageLimitsStore'
 import ChatListAvatar from './ChatListAvatar'
 import { ConversationKind } from '../../lib/chatModel'
+import { Button } from '../ui/button'
+import { computeUnreadAnchorUpdate, shouldPerformInitialScroll } from '../../features/chat/lib/timelineState'
 
 interface ChatViewProps {
   activeGroupId: string | null
@@ -86,11 +88,37 @@ export default function ChatView({
   const scrollRef = useRef<HTMLDivElement>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [isAtBottom, setIsAtBottom] = useState(true)
+  const [unreadAnchorMessageId, setUnreadAnchorMessageId] = useState<string | null>(null)
+  const [unreadJumpCount, setUnreadJumpCount] = useState(0)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const previousMessagesRef = useRef<ChatMessage[]>([])
+  const previousGroupRef = useRef<string | null>(null)
+  const previousScrollHeightRef = useRef(0)
+  const suppressScrollCompensationRef = useRef(false)
+  const pendingInitialScrollGroupRef = useRef<string | null>(null)
+  const highlightTimerRef = useRef<number | null>(null)
 
   const scrollToBottom = (behavior: ScrollBehavior = 'auto') => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior })
     }
+  }
+
+  const focusUnreadAnchor = (behavior: ScrollBehavior = 'smooth') => {
+    if (!unreadAnchorMessageId) return
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(unreadAnchorMessageId)}"]`)
+    if (!el) return
+    el.scrollIntoView({ behavior, block: 'center' })
+    setHighlightedMessageId(unreadAnchorMessageId)
+    setUnreadAnchorMessageId(null)
+    setUnreadJumpCount(0)
+    if (highlightTimerRef.current != null) {
+      window.clearTimeout(highlightTimerRef.current)
+    }
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedMessageId((current) => (current === unreadAnchorMessageId ? null : current))
+      highlightTimerRef.current = null
+    }, 2200)
   }
 
   const handleScroll = async () => {
@@ -99,9 +127,13 @@ export default function ChatView({
 
     const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 100
     setIsAtBottom(atBottom)
+    if (atBottom && unreadAnchorMessageId == null && unreadJumpCount === 0 && highlightedMessageId) {
+      setHighlightedMessageId(null)
+    }
 
     if (el.scrollTop === 0 && onLoadMore && !loadingMore && messages.length > 0) {
       setLoadingMore(true)
+      suppressScrollCompensationRef.current = true
       const oldScrollHeight = el.scrollHeight
       await onLoadMore()
       setTimeout(() => {
@@ -110,13 +142,85 @@ export default function ChatView({
           el.scrollTop = newScrollHeight - oldScrollHeight
         }
         setLoadingMore(false)
+        suppressScrollCompensationRef.current = false
       }, 0)
     }
   }
 
   useEffect(() => {
-    if (activeGroupId && !loadingMessages) {
+    return () => {
+      if (highlightTimerRef.current != null) {
+        window.clearTimeout(highlightTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (previousGroupRef.current !== activeGroupId) {
+      pendingInitialScrollGroupRef.current = activeGroupId
+      previousGroupRef.current = activeGroupId
+      previousMessagesRef.current = messages
+      previousScrollHeightRef.current = scrollRef.current?.scrollHeight ?? 0
+      setUnreadAnchorMessageId(null)
+      setUnreadJumpCount(0)
+      setHighlightedMessageId(null)
+    }
+  }, [activeGroupId, messages])
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    const previousMessages = previousMessagesRef.current
+    const previousGroup = previousGroupRef.current
+    const currentGroup = activeGroupId
+    const previousIds = new Set(previousMessages.map((message) => message.id))
+    const newMessages = messages.filter((message) => !previousIds.has(message.id))
+
+    if (
+      previousGroup === currentGroup &&
+      newMessages.length > 0 &&
+      !isAtBottom &&
+      !suppressScrollCompensationRef.current
+    ) {
+      const oldHeight = previousScrollHeightRef.current
+      const newHeight = el.scrollHeight
+      const delta = newHeight - oldHeight
+      if (delta > 0) {
+        el.scrollTop += delta
+      }
+    }
+
+    if (
+      previousGroup === currentGroup &&
+      newMessages.length > 0 &&
+      !suppressScrollCompensationRef.current
+    ) {
+      const unreadUpdate = computeUnreadAnchorUpdate({
+        previousMessages,
+        nextMessages: messages,
+        current: {
+          anchorId: unreadAnchorMessageId,
+          count: unreadJumpCount,
+        },
+        isAtBottom,
+        suppressTracking: suppressScrollCompensationRef.current,
+      })
+      if (unreadUpdate.anchorId !== unreadAnchorMessageId || unreadUpdate.count !== unreadJumpCount) {
+        setUnreadAnchorMessageId(unreadUpdate.anchorId)
+        setUnreadJumpCount(unreadUpdate.count)
+      }
+    }
+
+    previousScrollHeightRef.current = el.scrollHeight
+    previousMessagesRef.current = messages
+    previousGroupRef.current = currentGroup
+  }, [activeGroupId, isAtBottom, messages, unreadAnchorMessageId])
+
+  useEffect(() => {
+    if (shouldPerformInitialScroll(activeGroupId, pendingInitialScrollGroupRef.current, loadingMessages)) {
       scrollToBottom('auto')
+      pendingInitialScrollGroupRef.current = null
     }
   }, [activeGroupId, loadingMessages])
 
@@ -192,11 +296,12 @@ export default function ChatView({
 
       {!isChannel ? (
         <>
-          <div
-            ref={scrollRef}
-            onScroll={() => void handleScroll()}
-            className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
-          >
+          <div className="relative min-h-0 flex-1">
+            <div
+              ref={scrollRef}
+              onScroll={() => void handleScroll()}
+              className="min-h-0 h-full overflow-y-auto px-5 py-4"
+            >
             {loadingMore && (
               <div className="flex justify-center py-2">
                 <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
@@ -215,7 +320,27 @@ export default function ChatView({
               fileTransferStateByMessage={fileTransferStateByMessage}
               fileLocalPathByMessage={fileLocalPathByMessage}
               fileActionDisabled={attachingFile || sending}
+              oldestUnreadMessageId={unreadAnchorMessageId}
+              highlightedMessageId={highlightedMessageId}
             />
+            </div>
+            {unreadAnchorMessageId ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="pointer-events-auto rounded-full border border-amber-400/30 bg-slate-900/95 px-4 text-amber-100 shadow-lg shadow-black/30 backdrop-blur"
+                  onClick={() => focusUnreadAnchor('smooth')}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                  {unreadJumpCount > 1
+                    ? `${unreadJumpCount} tin chưa đọc`
+                    : '1 tin chưa đọc'}
+                  <span className="text-amber-300/80">Nhảy tới</span>
+                </Button>
+              </div>
+            ) : null}
           </div>
 
           <div className="border-t border-slate-800 px-5 py-4">

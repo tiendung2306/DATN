@@ -158,12 +158,6 @@ func (n *P2PNode) ConnectToPeer(ctx context.Context, addrStr string) error {
 	return nil
 }
 
-func (n *P2PNode) SetBlockedPeers(peers []peer.ID) {
-	if n.gater != nil {
-		n.gater.SetBlockedPeers(peers)
-	}
-}
-
 func (n *P2PNode) Close() error {
 	if n.mdnsService != nil {
 		n.mdnsService.Close()

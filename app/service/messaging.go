@@ -13,6 +13,13 @@ import (
 
 // SendGroupMessage encrypts and broadcasts a text message to the group.
 func (r *Runtime) SendGroupMessage(groupID string, text string) error {
+	return r.SendGroupMessageWithLocalEchoToken(groupID, text, "")
+}
+
+// SendGroupMessageWithLocalEchoToken encrypts and broadcasts a text message to
+// the group while tagging the locally emitted UI event with a correlation token
+// used to replace optimistic frontend placeholders deterministically.
+func (r *Runtime) SendGroupMessageWithLocalEchoToken(groupID string, text string, localEchoToken string) error {
 	if err := r.ensureSessionActive(); err != nil {
 		return err
 	}
@@ -41,7 +48,12 @@ func (r *Runtime) SendGroupMessage(groupID string, text string) error {
 		return fmt.Errorf("not in group %q", groupID)
 	}
 
-	_, err := coord.SendMessage([]byte(text))
+	var err error
+	if strings.TrimSpace(localEchoToken) != "" {
+		_, err = coord.SendMessageWithLocalEchoToken([]byte(text), strings.TrimSpace(localEchoToken))
+	} else {
+		_, err = coord.SendMessage([]byte(text))
+	}
 	return err
 }
 
@@ -67,6 +79,7 @@ func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMess
 	r.mu.RUnlock()
 
 	result := make([]MessageInfo, len(msgs))
+	replayLinks := r.resolveReplaySupersedesMessageIDs(msgs)
 	var localName string
 	if r.db != nil {
 		if identity, err := r.db.GetMLSIdentity(); err == nil {
@@ -75,35 +88,102 @@ func (r *Runtime) mapStoredMessagesToMessageInfo(msgs []*coordination.StoredMess
 	}
 
 	for i, m := range msgs {
-		senderName := ""
-		if m.SenderID == localID {
-			senderName = localName
-		}
-		if senderName == "" && r.node != nil && r.node.AuthProtocol != nil {
-			if tok := r.node.AuthProtocol.GetVerifiedToken(m.SenderID); tok != nil {
-				senderName = tok.DisplayName
-			}
-		}
-		if senderName == "" && r.db != nil {
-			if name, _ := r.db.GetPeerDisplayName(m.SenderID.String()); name != "" {
-				senderName = name
-			}
-		}
-
-		result[i] = MessageInfo{
-			MessageID:         m.MessageID,
-			GroupID:           m.GroupID,
-			Sender:            m.SenderID.String(),
-			SenderDisplayName: senderName,
-			Content:           string(m.Content),
-			Timestamp:         m.Timestamp.WallTimeMs,
-			IsMine:            m.SenderID == localID,
-			Status:            "published",
-			CommentCount:      m.CommentCount,
-			ReplayedAt:        m.ReplayedAt,
-		}
+		result[i] = r.messageInfoFromStoredMessage(m, localID, localName, replayLinks)
 	}
 	return result
+}
+
+func (r *Runtime) resolveReplaySupersedesMessageIDs(msgs []*coordination.StoredMessage) map[string]string {
+	if len(msgs) == 0 {
+		return nil
+	}
+	groupID := strings.TrimSpace(msgs[0].GroupID)
+	if groupID == "" {
+		return nil
+	}
+	ids := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg == nil || strings.TrimSpace(msg.MessageID) == "" {
+			continue
+		}
+		ids = append(ids, msg.MessageID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	r.mu.RLock()
+	cs := r.coordStorage
+	r.mu.RUnlock()
+	if cs == nil {
+		return nil
+	}
+
+	links, err := cs.ResolveReplayCanonicalOriginalMessageIDs(groupID, ids)
+	if err != nil {
+		slog.Warn("resolve replay canonical originals failed", "group_id", groupID, "messages", len(ids), "err", err)
+		return nil
+	}
+	return links
+}
+
+func (r *Runtime) messageInfoFromStoredMessage(m *coordination.StoredMessage, localID peer.ID, localName string, replayLinks map[string]string) MessageInfo {
+	senderName := ""
+	if m.SenderID == localID {
+		senderName = localName
+	}
+	if senderName == "" && r.node != nil && r.node.AuthProtocol != nil {
+		if tok := r.node.AuthProtocol.GetVerifiedToken(m.SenderID); tok != nil {
+			senderName = tok.DisplayName
+		}
+	}
+	if senderName == "" && r.db != nil {
+		if name, _ := r.db.GetPeerDisplayName(m.SenderID.String()); name != "" {
+			senderName = name
+		}
+	}
+
+	info := MessageInfo{
+		MessageID:         m.MessageID,
+		GroupID:           m.GroupID,
+		Sender:            m.SenderID.String(),
+		SenderDisplayName: senderName,
+		Content:           string(m.Content),
+		Timestamp:         m.Timestamp.WallTimeMs,
+		IsMine:            m.SenderID == localID,
+		Status:            "published",
+		CommentCount:      m.CommentCount,
+		LocalEchoToken:    strings.TrimSpace(m.LocalEchoToken),
+		ReplayedAt:        m.ReplayedAt,
+	}
+	if replayLinks != nil {
+		info.SupersedesMessageID = strings.TrimSpace(replayLinks[m.MessageID])
+	}
+	return info
+}
+
+func (r *Runtime) messageInfoPayload(info MessageInfo) map[string]interface{} {
+	payload := map[string]interface{}{
+		"message_id":          info.MessageID,
+		"group_id":            info.GroupID,
+		"sender":              info.Sender,
+		"sender_display_name": info.SenderDisplayName,
+		"content":             info.Content,
+		"timestamp":           info.Timestamp,
+		"is_mine":             info.IsMine,
+		"status":              info.Status,
+		"comment_count":       info.CommentCount,
+	}
+	if info.LocalEchoToken != "" {
+		payload["local_echo_token"] = info.LocalEchoToken
+	}
+	if info.ReplayedAt != nil {
+		payload["replayed_at"] = *info.ReplayedAt
+	}
+	if info.SupersedesMessageID != "" {
+		payload["supersedes_message_id"] = info.SupersedesMessageID
+	}
+	return payload
 }
 
 // GetGroupMessages returns stored messages for a group. If limit > 0, it uses pagination.

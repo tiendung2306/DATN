@@ -30,15 +30,13 @@ type blacklistEntry struct {
 // Blacklist entries expire after blacklistTTL so a misconfigured peer can recover
 // without requiring a full app restart.
 type AuthGater struct {
-	mu           sync.Mutex
-	entries      map[peer.ID]blacklistEntry
-	blockedPeers map[peer.ID]bool
+	mu      sync.Mutex
+	entries map[peer.ID]blacklistEntry
 }
 
 func NewAuthGater() *AuthGater {
 	return &AuthGater{
-		entries:      make(map[peer.ID]blacklistEntry),
-		blockedPeers: make(map[peer.ID]bool),
+		entries: make(map[peer.ID]blacklistEntry),
 	}
 }
 
@@ -63,9 +61,6 @@ func (g *AuthGater) Blacklist(id peer.ID, reason string) {
 func (g *AuthGater) isBlacklisted(id peer.ID) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.blockedPeers != nil && g.blockedPeers[id] {
-		return true
-	}
 	entry, ok := g.entries[id]
 	if !ok {
 		return false
@@ -76,21 +71,6 @@ func (g *AuthGater) isBlacklisted(id peer.ID) bool {
 		return false
 	}
 	return true
-}
-
-func (g *AuthGater) SetBlockedPeers(peers []peer.ID) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.blockedPeers = make(map[peer.ID]bool)
-	for _, p := range peers {
-		g.blockedPeers[p] = true
-	}
-}
-
-func (g *AuthGater) ClearBlockedPeers() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.blockedPeers = make(map[peer.ID]bool)
 }
 
 // InterceptPeerDial — block dialing to blacklisted peers.

@@ -1,4 +1,10 @@
 import { create } from 'zustand'
+import {
+  insertSortedUniqueMessage,
+  mergeTimelineMessages,
+  reconcileTimelineMessages,
+  reconcileCanonicalWithOptimistic,
+} from '../features/chat/lib/timelineState'
 
 export type ChatMessageStatus = 'sending' | 'published' | 'failed'
 export type ChatMessageKind = 'user' | 'system'
@@ -13,6 +19,9 @@ export interface ChatMessage {
   status: ChatMessageStatus
   kind: ChatMessageKind
   commentCount?: number
+  localEchoToken?: string
+  replayedAt?: number
+  supersedesMessageId?: string
 }
 
 interface ChatState {
@@ -46,7 +55,7 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByGroup: {
         ...state.messagesByGroup,
-        [groupId]: [...(state.messagesByGroup[groupId] ?? []), message],
+        [groupId]: insertSortedUniqueMessage(state.messagesByGroup[groupId] ?? [], message),
       },
     })),
   upsertPublishedMessage: (groupId, message) =>
@@ -57,8 +66,11 @@ export const useChatStore = create<ChatState>((set) => ({
       // First preference: replace by canonical message id.
       const canonicalIdx = existing.findIndex((m) => m.id === canonicalId)
       if (canonicalIdx >= 0) {
-        const next = [...existing]
-        next[canonicalIdx] = { ...next[canonicalIdx], ...message, status: 'published' }
+        const next = insertSortedUniqueMessage(existing, {
+          ...existing[canonicalIdx],
+          ...message,
+          status: 'published',
+        })
         return {
           messagesByGroup: {
             ...state.messagesByGroup,
@@ -68,22 +80,8 @@ export const useChatStore = create<ChatState>((set) => ({
       }
 
       // Reconcile optimistic local echo for own message.
-      const pendingIdx = existing.findIndex(
-        (m) =>
-          m.id.startsWith('local:') &&
-          m.isMine &&
-          m.status !== 'failed' &&
-          m.sender === message.sender &&
-          m.content === message.content,
-      )
-      if (pendingIdx >= 0) {
-        const next = [...existing]
-        next[pendingIdx] = {
-          ...next[pendingIdx],
-          ...message,
-          id: canonicalId,
-          status: 'published',
-        }
+      if (message.isMine) {
+        const next = reconcileCanonicalWithOptimistic(existing, { ...message, status: 'published' })
         return {
           messagesByGroup: {
             ...state.messagesByGroup,
@@ -92,10 +90,11 @@ export const useChatStore = create<ChatState>((set) => ({
         }
       }
 
+      const next = insertSortedUniqueMessage(existing, { ...message, status: 'published' })
       return {
         messagesByGroup: {
           ...state.messagesByGroup,
-          [groupId]: [...existing, { ...message, status: 'published' }],
+          [groupId]: next,
         },
       }
     }),
@@ -103,14 +102,14 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       postsByGroup: {
         ...state.postsByGroup,
-        [groupId]: [...(state.postsByGroup[groupId] ?? []), message],
+        [groupId]: insertSortedUniqueMessage(state.postsByGroup[groupId] ?? [], message),
       },
     })),
   pushComment: (postId, message) =>
     set((state) => {
       const newComments = {
         ...state.commentsByPost,
-        [postId]: [...(state.commentsByPost[postId] ?? []), message],
+        [postId]: insertSortedUniqueMessage(state.commentsByPost[postId] ?? [], message),
       }
       // Update comment count in posts list if present
       const newPostsByGroup = { ...state.postsByGroup }
@@ -128,21 +127,21 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByGroup: {
         ...state.messagesByGroup,
-        [groupId]: messages,
+        [groupId]: reconcileTimelineMessages(messages),
       },
     })),
   setPosts: (groupId, posts) =>
     set((state) => ({
       postsByGroup: {
         ...state.postsByGroup,
-        [groupId]: posts,
+        [groupId]: reconcileTimelineMessages(posts),
       },
     })),
   setComments: (postId, comments) =>
     set((state) => ({
       commentsByPost: {
         ...state.commentsByPost,
-        [postId]: comments,
+        [postId]: reconcileTimelineMessages(comments),
       },
     })),
   markGroupRead: (groupId) =>
@@ -178,36 +177,30 @@ export const useChatStore = create<ChatState>((set) => ({
   prependMessages: (groupId, messages) =>
     set((state) => {
       const existing = state.messagesByGroup[groupId] ?? []
-      const existingIds = new Set(existing.map((m) => m.id))
-      const newUnique = messages.filter((m) => !existingIds.has(m.id))
       return {
         messagesByGroup: {
           ...state.messagesByGroup,
-          [groupId]: [...newUnique, ...existing],
+          [groupId]: mergeTimelineMessages(existing, messages),
         },
       }
     }),
   prependPosts: (groupId, posts) =>
     set((state) => {
       const existing = state.postsByGroup[groupId] ?? []
-      const existingIds = new Set(existing.map((m) => m.id))
-      const newUnique = posts.filter((m) => !existingIds.has(m.id))
       return {
         postsByGroup: {
           ...state.postsByGroup,
-          [groupId]: [...newUnique, ...existing],
+          [groupId]: mergeTimelineMessages(existing, posts),
         },
       }
     }),
   prependComments: (postId, comments) =>
     set((state) => {
       const existing = state.commentsByPost[postId] ?? []
-      const existingIds = new Set(existing.map((m) => m.id))
-      const newUnique = comments.filter((m) => !existingIds.has(m.id))
       return {
         commentsByPost: {
           ...state.commentsByPost,
-          [postId]: [...newUnique, ...existing],
+          [postId]: mergeTimelineMessages(existing, comments),
         },
       }
     }),

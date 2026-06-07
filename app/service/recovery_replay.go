@@ -28,6 +28,7 @@ func (r *Runtime) emitReplayBlocked(groupID, reason string, rec *coordination.En
 		"local_epoch":   result.LocalEpoch,
 		"error":         result.Error,
 		"envelope_hash": hex.EncodeToString(result.EnvelopeHash),
+		"user_visible":  reason != "stale_epoch_requires_recovery_snapshot",
 	}
 	r.appendGroupEvent(groupID, groupEventTypeReplayBlocked, "", "", result.LocalEpoch, payload)
 	r.emit("group:replay_blocked", payload)

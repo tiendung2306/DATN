@@ -37,11 +37,18 @@ type MessageInfo struct {
 	IsMine            bool   `json:"is_mine"`
 	Status            string `json:"status"`
 	CommentCount      int    `json:"comment_count"`
+	// LocalEchoToken is a process-local optimistic-send correlation token.
+	// It is emitted only to the local UI event stream and is not persisted as
+	// protocol/application state.
+	LocalEchoToken string `json:"local_echo_token,omitempty"`
 	// ReplayedAt is the unix-ms timestamp at which Autonomous Replay re-broadcast
 	// this message after a fork heal. Frontend uses this to suppress the original
 	// row once the replay copy is received and stored as a new row, preventing
 	// duplicate display. Nil for normal (non-replayed) messages.
 	ReplayedAt *int64 `json:"replayed_at,omitempty"`
+	// SupersedesMessageID points to the canonical message ID replaced by this
+	// replayed copy. Empty for normal (non-replayed) messages.
+	SupersedesMessageID string `json:"supersedes_message_id,omitempty"`
 }
 
 // GroupInfo is a summary of a joined group returned to the frontend.
@@ -998,11 +1005,29 @@ func (r *Runtime) GetGroupStatus(groupID string) map[string]interface{} {
 	}
 
 	snap := coord.GetMetrics()
+	tokenHolderPeerID := ""
+	if holder, err := coord.CurrentTokenHolder(); err == nil {
+		tokenHolderPeerID = holder.String()
+	}
+	treeHashHex := hex.EncodeToString(coord.GetTreeHash())
+	treeHashShort := treeHashHex
+	if len(treeHashShort) > 8 {
+		treeHashShort = treeHashShort[:8]
+	}
+	activeView := make([]string, 0, len(coord.ActiveMembers()))
+	for _, member := range coord.ActiveMembers() {
+		activeView = append(activeView, member.String())
+	}
 	return map[string]interface{}{
 		"group_id":            groupID,
 		"epoch":               coord.CurrentEpoch(),
 		"is_token_holder":     coord.IsTokenHolder(),
+		"token_holder":        map[bool]string{true: "self", false: "other"}[coord.IsTokenHolder()],
+		"token_holder_peer_id": tokenHolderPeerID,
 		"active_members":      len(coord.ActiveMembers()),
+		"active_view":         activeView,
+		"tree_hash_short":     treeHashShort,
+		"is_healing":          coord.IsHealing(),
 		"commits_issued":      snap.CommitsIssued,
 		"proposals_received":  snap.ProposalsReceived,
 		"commit_bytes_total":  snap.CommitBytesTotal,
@@ -1301,16 +1326,7 @@ func (r *Runtime) makeMessageHandler(groupID string) func(*coordination.StoredMe
 
 		// Generate notifications for mentions and replies
 		r.processNotificationsForMessage(msg)
-
-		r.emit("group:message", map[string]interface{}{
-			"message_id": msg.MessageID,
-			"group_id":   msg.GroupID,
-			"sender":     msg.SenderID.String(),
-			"content":    string(msg.Content),
-			"timestamp":  msg.Timestamp.WallTimeMs,
-			"is_mine":    isMine,
-			"status":     "published",
-		})
+		r.emit("group:message", r.messageInfoPayload(r.mapStoredMessagesToMessageInfo([]*coordination.StoredMessage{msg})[0]))
 	}
 }
 

@@ -391,6 +391,81 @@ func (s *SQLiteCoordinationStorage) MarkMessageReplayed(groupID string, envelope
 	return nil
 }
 
+func (s *SQLiteCoordinationStorage) ResolveReplayCanonicalOriginalMessageIDs(groupID string, replayedMessageIDs []string) (map[string]string, error) {
+	links := make(map[string]string)
+	if strings.TrimSpace(groupID) == "" || len(replayedMessageIDs) == 0 {
+		return links, nil
+	}
+
+	canonical := make([]string, 0, len(replayedMessageIDs))
+	for _, id := range replayedMessageIDs {
+		id = strings.TrimSpace(id)
+		if !isCanonicalMessageID(id) {
+			continue
+		}
+		canonical = append(canonical, strings.ToLower(id))
+	}
+	if len(canonical) == 0 {
+		return links, nil
+	}
+
+	rows, err := s.db.Conn.Query(`SELECT replayed_envelope_hash, envelope_hash
+		FROM application_event
+		WHERE group_id = ?
+		  AND replayed_envelope_hash IS NOT NULL
+		  AND envelope_hash IS NOT NULL`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("ResolveReplayCanonicalOriginalMessageIDs: %w", err)
+	}
+	defer rows.Close()
+
+	parents := make(map[string]string)
+	for rows.Next() {
+		var replayedHash []byte
+		var originalHash []byte
+		if err := rows.Scan(&replayedHash, &originalHash); err != nil {
+			return nil, fmt.Errorf("ResolveReplayCanonicalOriginalMessageIDs scan: %w", err)
+		}
+		if len(replayedHash) == 0 || len(originalHash) == 0 {
+			continue
+		}
+		parents[hex.EncodeToString(replayedHash)] = hex.EncodeToString(originalHash)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ResolveReplayCanonicalOriginalMessageIDs rows: %w", err)
+	}
+
+	for _, replayedID := range canonical {
+		current := replayedID
+		root := replayedID
+		firstParent := ""
+		seen := make(map[string]struct{})
+		for {
+			parent, ok := parents[current]
+			if !ok || parent == "" {
+				break
+			}
+			if firstParent == "" {
+				firstParent = parent
+			}
+			if _, cycle := seen[current]; cycle {
+				slog.Warn("replay canonicalization cycle detected", "group_id", groupID, "message_id", replayedID, "stuck_at", current)
+				if firstParent != "" {
+					root = firstParent
+				}
+				break
+			}
+			seen[current] = struct{}{}
+			root = parent
+			current = parent
+		}
+		if root != replayedID {
+			links[replayedID] = root
+		}
+	}
+	return links, nil
+}
+
 func (s *SQLiteCoordinationStorage) GetMessagesByOwnerInRange(groupID, senderID string, startMs, endMs int64) ([]*coordination.StoredMessage, error) {
 	rows, err := s.db.Conn.Query(
 		`SELECT group_id, epoch, sender_id, content, hlc_wall_time_ms, hlc_counter, hlc_node_id, envelope_hash, 0 as comment_count, replayed_at
