@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,21 +27,25 @@ const (
 )
 
 type App struct {
-	ctx       context.Context
-	mu        sync.Mutex
-	root      string
-	workspace DemoWorkspace
-	procs     map[string]*exec.Cmd
-	errors    map[string]string
-	scenario  ScenarioRunState
-	jobs      *jobRunner
+	ctx               context.Context
+	mu                sync.Mutex
+	root              string
+	workspace         DemoWorkspace
+	procs             map[string]*exec.Cmd
+	errors            map[string]string
+	warnings          map[string]string
+	workspaceWarning  []string
+	demoTargetNodeIDs []string
+	scenario          ScenarioRunState
+	jobs              *jobRunner
 }
 
 func NewApp() *App {
 	return &App{
-		procs:  make(map[string]*exec.Cmd),
-		errors: make(map[string]string),
-		jobs:   newJobRunner(),
+		procs:    make(map[string]*exec.Cmd),
+		errors:   make(map[string]string),
+		warnings: make(map[string]string),
+		jobs:     newJobRunner(),
 	}
 }
 
@@ -52,12 +57,13 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 	a.root = repoRoot
-	ws, err := loadOrCreateWorkspace(repoRoot)
+	ws, warnings, err := loadOrCreateWorkspace(repoRoot)
 	if err != nil {
 		a.errors["workspace"] = err.Error()
 		return
 	}
 	a.workspace = ws
+	a.workspaceWarning = warnings
 }
 
 func (a *App) Shutdown(_ context.Context) {
@@ -67,6 +73,7 @@ func (a *App) Shutdown(_ context.Context) {
 func (a *App) GetSnapshot() (ControlSnapshot, error) {
 	a.mu.Lock()
 	ws := a.workspace
+	targetNodeIDs := append([]string(nil), a.demoTargetNodeIDs...)
 	a.mu.Unlock()
 
 	guiStatuses := a.refreshStatusesForProfiles(ws.GuiLane.Instances, ws.Token)
@@ -82,8 +89,9 @@ func (a *App) GetSnapshot() (ControlSnapshot, error) {
 		HeadlessLane: HeadlessLaneSnapshot{
 			Instances:   headlessStatuses,
 			Topology:    a.getNetworkTopologyForProfiles(ws.HeadlessLane.Instances),
-			DemoCluster: a.buildDemoClusterState(ws, headlessStatuses),
+			DemoCluster: a.buildDemoClusterState(ws, headlessStatuses, targetNodeIDs),
 			Preflight:   a.preflightHeadless(),
+			Warnings:    a.workspaceWarnings(),
 			BuildJobID:  headlessBuildJobID,
 		},
 		Jobs:      a.jobs.snapshot(),
@@ -107,7 +115,21 @@ func (a *App) BuildGuiDemo() error {
 	ws := a.workspace
 	a.mu.Unlock()
 	cryptoDir := filepath.Join(ws.RepoRoot, "crypto-engine")
-	command := fmt.Sprintf(`cd /d "%s" && cargo build --release && cd /d "%s" && wails build`, cryptoDir, ws.AppDir)
+	appExe := ws.AppExe
+	if appExe == "" {
+		appExe = filepath.Join(ws.AppDir, "build", "bin", "SecureP2P.exe")
+	}
+	appExeDir := filepath.Dir(appExe)
+	cryptoExe := filepath.Join(cryptoDir, "target", "release", "crypto-engine.exe")
+	command := fmt.Sprintf(
+		`cd /d "%s" && cargo build --release && cd /d "%s" && wails build && if not exist "%s" mkdir "%s" && copy /Y "%s" "%s\crypto-engine.exe"`,
+		cryptoDir,
+		ws.AppDir,
+		appExeDir,
+		appExeDir,
+		cryptoExe,
+		appExeDir,
+	)
 	a.Notify("Opening build terminal for GUI EXE...")
 	return openBuildTerminal(a.root, "GUI Demo Build", command)
 }
@@ -133,7 +155,19 @@ func (a *App) StartInstance(id string) error {
 		return nil
 	}
 
+	seedWarning, err := ensureRuntimeSeeded(profile)
+	if err != nil {
+		a.setInstanceError(profile.ID, err.Error())
+		return err
+	}
+	if seedWarning != "" {
+		a.setInstanceWarning(profile.ID, seedWarning)
+	} else {
+		a.setInstanceWarning(profile.ID, "")
+	}
+
 	if err := os.MkdirAll(profile.RuntimeDir, 0o700); err != nil {
+		a.setInstanceError(profile.ID, err.Error())
 		return err
 	}
 
@@ -167,7 +201,7 @@ func (a *App) startExeInstance(ws DemoWorkspace, profile DemoInstanceProfile) er
 	}
 
 	cmd := exec.Command(appExe, args...)
-	cmd.Dir = profile.RuntimeDir
+	cmd.Dir = exeWorkingDir(appExe, ws.AppDir)
 
 	logPath := filepath.Join(profile.RuntimeDir, "stdout.log")
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -193,6 +227,13 @@ func (a *App) startExeInstance(ws DemoWorkspace, profile DemoInstanceProfile) er
 		_ = logFile.Close()
 	}()
 	return nil
+}
+
+func exeWorkingDir(appExe string, fallback string) string {
+	if dir := strings.TrimSpace(filepath.Dir(appExe)); dir != "" && dir != "." {
+		return dir
+	}
+	return fallback
 }
 
 func (a *App) startDockerInstance(ws DemoWorkspace, profile DemoInstanceProfile) error {
@@ -450,48 +491,24 @@ func (a *App) SendDemoMessage(nodeIDs []string, message string) error {
 	return nil
 }
 
-func (a *App) PrepareDemoCluster(ownerID string) error {
+func (a *App) PrepareDemoCluster(ownerID string, nodeIDs []string) error {
 	a.mu.Lock()
 	ws := a.workspace
+	a.demoTargetNodeIDs = append([]string(nil), nodeIDs...)
 	a.mu.Unlock()
 
 	groupID := strings.TrimSpace(ws.HeadlessLane.DemoGroupID)
 	if groupID == "" {
 		groupID = defaultDemoGroupID
 	}
-	if strings.TrimSpace(ownerID) == "" {
-		ownerID = strings.TrimSpace(ws.HeadlessLane.DemoOwnerNode)
-	}
-	if ownerID == "" && len(ws.HeadlessLane.Instances) > 0 {
-		ownerID = ws.HeadlessLane.Instances[0].ID
-	}
-	if ownerID == "" {
-		return fmt.Errorf("no headless owner node configured")
-	}
-
 	statuses := a.refreshStatusesForProfiles(ws.HeadlessLane.Instances, ws.Token)
-	expectedPeers := make(map[string]string)
-	var blocking []string
-	for _, st := range statuses {
-		if !st.Running {
-			blocking = append(blocking, fmt.Sprintf("%s: not running", st.Profile.ID))
-			continue
-		}
-		if !isEligibleDemoState(st.AppState) {
-			blocking = append(blocking, fmt.Sprintf("%s: state %s", st.Profile.ID, st.AppState))
-			continue
-		}
-		if strings.TrimSpace(st.PeerID) == "" {
-			blocking = append(blocking, fmt.Sprintf("%s: missing peer id", st.Profile.ID))
-			continue
-		}
-		expectedPeers[st.Profile.ID] = st.PeerID
+	target := resolveDemoClusterTargetSet(ws, statuses, nodeIDs)
+	if target.LastError != "" {
+		return errors.New(target.LastError)
 	}
-	if len(blocking) > 0 {
-		return fmt.Errorf("cannot prepare demo cluster: %s", strings.Join(blocking, "; "))
-	}
-	if _, ok := expectedPeers[ownerID]; !ok {
-		return fmt.Errorf("owner %s is not eligible for demo cluster", ownerID)
+	ownerID, err := chooseDemoOwner(ws, target, strings.TrimSpace(ownerID))
+	if err != nil {
+		return err
 	}
 
 	groups, err := a.controlDemoGroups(ownerID)
@@ -519,7 +536,7 @@ func (a *App) PrepareDemoCluster(ownerID string) error {
 	for _, member := range members {
 		memberSet[member.PeerID] = struct{}{}
 	}
-	for nodeID, peerID := range expectedPeers {
+	for nodeID, peerID := range target.ExpectedPeers {
 		if nodeID == ownerID {
 			continue
 		}
@@ -531,7 +548,7 @@ func (a *App) PrepareDemoCluster(ownerID string) error {
 		}
 	}
 
-	if err := a.waitForDemoClusterReady(ownerID, groupID, expectedPeers, 45*time.Second); err != nil {
+	if err := a.waitForDemoClusterReady(ownerID, groupID, target.ExpectedPeers, 45*time.Second); err != nil {
 		return err
 	}
 	return nil
@@ -581,6 +598,114 @@ func remoteGroupsContain(groups []map[string]interface{}, groupID string) bool {
 		}
 	}
 	return false
+}
+
+type demoClusterTargetSet struct {
+	RequestedNodeIDs []string
+	TargetStatuses   []InstanceStatus
+	TargetNodeIDs    []string
+	ExpectedPeers    map[string]string
+	EligibleCount    int
+	BlockingNodes    []string
+	LastError        string
+}
+
+func resolveDemoClusterTargetSet(ws DemoWorkspace, statuses []InstanceStatus, requestedNodeIDs []string) demoClusterTargetSet {
+	index := make(map[string]InstanceStatus, len(statuses))
+	for _, status := range statuses {
+		index[status.Profile.ID] = status
+	}
+
+	out := demoClusterTargetSet{
+		RequestedNodeIDs: append([]string(nil), requestedNodeIDs...),
+		ExpectedPeers:    make(map[string]string),
+	}
+
+	requested := make([]string, 0, len(requestedNodeIDs))
+	seen := make(map[string]struct{}, len(requestedNodeIDs))
+	for _, id := range requestedNodeIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		requested = append(requested, id)
+	}
+
+	if len(requested) > 0 {
+		for _, id := range requested {
+			status, ok := index[id]
+			if !ok {
+				out.BlockingNodes = append(out.BlockingNodes, fmt.Sprintf("%s unknown", id))
+				continue
+			}
+			out.TargetStatuses = append(out.TargetStatuses, status)
+		}
+	} else {
+		for _, status := range statuses {
+			if status.Running {
+				out.TargetStatuses = append(out.TargetStatuses, status)
+			}
+		}
+	}
+
+	for _, status := range out.TargetStatuses {
+		out.TargetNodeIDs = append(out.TargetNodeIDs, status.Profile.ID)
+		if !status.Running {
+			out.BlockingNodes = append(out.BlockingNodes, fmt.Sprintf("%s offline", status.Profile.ID))
+			continue
+		}
+		if !isEligibleDemoState(status.AppState) {
+			out.BlockingNodes = append(out.BlockingNodes, fmt.Sprintf("%s unauthorized (%s)", status.Profile.ID, status.AppState))
+			continue
+		}
+		peerID := strings.TrimSpace(status.PeerID)
+		if peerID == "" {
+			out.BlockingNodes = append(out.BlockingNodes, fmt.Sprintf("%s missing peer id", status.Profile.ID))
+			continue
+		}
+		out.ExpectedPeers[status.Profile.ID] = peerID
+		out.EligibleCount++
+	}
+
+	switch {
+	case len(out.TargetStatuses) == 0 && len(requested) > 0:
+		out.LastError = "no selected headless nodes could be resolved"
+	case len(out.TargetStatuses) == 0:
+		out.LastError = "no running headless nodes selected"
+	case len(out.BlockingNodes) > 0:
+		out.LastError = "cannot prepare demo cluster: " + strings.Join(out.BlockingNodes, "; ")
+	}
+
+	return out
+}
+
+func chooseDemoOwner(ws DemoWorkspace, target demoClusterTargetSet, explicitOwner string) (string, error) {
+	explicitOwner = strings.TrimSpace(explicitOwner)
+	if explicitOwner != "" {
+		if _, ok := target.ExpectedPeers[explicitOwner]; !ok {
+			return "", fmt.Errorf("owner %s is not eligible for demo cluster target set", explicitOwner)
+		}
+		return explicitOwner, nil
+	}
+
+	workspaceOwner := strings.TrimSpace(ws.HeadlessLane.DemoOwnerNode)
+	if workspaceOwner != "" {
+		if _, ok := target.ExpectedPeers[workspaceOwner]; ok {
+			return workspaceOwner, nil
+		}
+	}
+
+	for _, status := range target.TargetStatuses {
+		if _, ok := target.ExpectedPeers[status.Profile.ID]; ok {
+			return status.Profile.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("no eligible headless owner node configured")
 }
 
 func (a *App) IsolateNode(id string) error {
@@ -758,7 +883,7 @@ func (a *App) runScenario(spec ScenarioSpec) {
 		case "reset-headless":
 			err = a.ResetHeadlessLane()
 		case "prepare-demo":
-			err = a.PrepareDemoCluster(step.InstanceID)
+			err = a.PrepareDemoCluster(step.InstanceID, nil)
 		case "heal":
 			err = a.HealAll()
 		case "isolate":
@@ -854,12 +979,16 @@ func (a *App) refreshStatusesForProfiles(profiles []DemoInstanceProfile, token s
 	for k, v := range a.errors {
 		errs[k] = v
 	}
+	warnings := make(map[string]string, len(a.warnings))
+	for k, v := range a.warnings {
+		warnings[k] = v
+	}
 	a.mu.Unlock()
 
 	runningContainers, _ := getRunningContainers()
 	out := make([]InstanceStatus, 0, len(profiles))
 	for _, p := range profiles {
-		st := InstanceStatus{Profile: p, LastError: errs[p.ID]}
+		st := InstanceStatus{Profile: p, LastError: errs[p.ID], LastWarning: warnings[p.ID]}
 		if p.LaunchMode == "exe" {
 			a.mu.Lock()
 			cmd := a.procs[p.ID]
@@ -930,56 +1059,37 @@ func (a *App) fillRemoteStatus(st *InstanceStatus, token string) {
 	}
 }
 
-func (a *App) buildDemoClusterState(ws DemoWorkspace, statuses []InstanceStatus) DemoClusterState {
+func (a *App) buildDemoClusterState(ws DemoWorkspace, statuses []InstanceStatus, requestedNodeIDs []string) DemoClusterState {
 	groupID := strings.TrimSpace(ws.HeadlessLane.DemoGroupID)
 	if groupID == "" {
 		groupID = defaultDemoGroupID
 	}
-	ownerID := strings.TrimSpace(ws.HeadlessLane.DemoOwnerNode)
-	if ownerID == "" && len(ws.HeadlessLane.Instances) > 0 {
-		ownerID = ws.HeadlessLane.Instances[0].ID
-	}
 
+	target := resolveDemoClusterTargetSet(ws, statuses, requestedNodeIDs)
 	state := DemoClusterState{
-		GroupID:     groupID,
-		OwnerNodeID: ownerID,
+		GroupID:       groupID,
+		TargetNodeIDs: append([]string(nil), target.TargetNodeIDs...),
+		TargetCount:   len(target.TargetNodeIDs),
+		EligibleCount: target.EligibleCount,
+		BlockingNodes: append([]string(nil), target.BlockingNodes...),
+	}
+	for _, peerID := range target.ExpectedPeers {
+		state.TargetPeerIDs = append(state.TargetPeerIDs, peerID)
+	}
+	sort.Strings(state.TargetPeerIDs)
+	state.Eligible = len(target.TargetNodeIDs) > 0 && len(target.BlockingNodes) == 0
+	if target.LastError != "" {
+		state.LastError = target.LastError
 	}
 
-	expectedPeers := make(map[string]string)
-	var blocking []string
-	for _, status := range statuses {
-		if !status.Running {
-			blocking = append(blocking, fmt.Sprintf("%s offline", status.Profile.ID))
-			continue
-		}
-		if !isEligibleDemoState(status.AppState) {
-			blocking = append(blocking, fmt.Sprintf("%s %s", status.Profile.ID, status.AppState))
-			continue
-		}
-		if strings.TrimSpace(status.PeerID) == "" {
-			blocking = append(blocking, fmt.Sprintf("%s missing peer", status.Profile.ID))
-			continue
-		}
-		expectedPeers[status.Profile.ID] = status.PeerID
-	}
-	state.Eligible = len(blocking) == 0 && len(expectedPeers) > 0
-	if !state.Eligible {
-		state.LastError = "Blocked: " + strings.Join(blocking, "; ")
-	}
-	if ownerID == "" {
+	ownerID, err := chooseDemoOwner(ws, target, "")
+	if err != nil {
 		if state.LastError == "" {
-			state.LastError = "No owner node configured"
+			state.LastError = err.Error()
 		}
 		return state
 	}
-
-	ownerStatus, ok := findStatusByID(statuses, ownerID)
-	if !ok || !ownerStatus.Running || strings.TrimSpace(ownerStatus.PeerID) == "" {
-		if state.LastError == "" {
-			state.LastError = fmt.Sprintf("Owner %s is not ready", ownerID)
-		}
-		return state
-	}
+	state.OwnerNodeID = ownerID
 
 	groups, err := a.controlDemoGroups(ownerID)
 	if err != nil {
@@ -1015,7 +1125,7 @@ func (a *App) buildDemoClusterState(ws DemoWorkspace, statuses []InstanceStatus)
 	}
 	state.Ready = state.Eligible
 	if state.Ready {
-		for _, peerID := range expectedPeers {
+		for _, peerID := range target.ExpectedPeers {
 			if _, ok := memberSet[peerID]; !ok {
 				state.Ready = false
 				break
@@ -1023,7 +1133,7 @@ func (a *App) buildDemoClusterState(ws DemoWorkspace, statuses []InstanceStatus)
 		}
 	}
 	if !state.Ready && state.LastError == "" {
-		state.LastError = "Demo group exists but roster is incomplete"
+		state.LastError = "demo group exists but roster is incomplete for the selected target nodes"
 	}
 	return state
 }
@@ -1067,30 +1177,42 @@ func (a *App) setInstanceError(id string, message string) {
 	a.errors[id] = message
 }
 
-func loadOrCreateWorkspace(repoRoot string) (DemoWorkspace, error) {
+func (a *App) setInstanceWarning(id string, message string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.warnings[id] = message
+}
+
+func (a *App) workspaceWarnings() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.workspaceWarning...)
+}
+
+func loadOrCreateWorkspace(repoRoot string) (DemoWorkspace, []string, error) {
 	controlRoot := filepath.Join(repoRoot, ".demo-control")
 	if err := os.MkdirAll(controlRoot, 0o700); err != nil {
-		return DemoWorkspace{}, err
+		return DemoWorkspace{}, nil, err
 	}
 	path := filepath.Join(controlRoot, "workspace.json")
 	if fileExists(path) {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return DemoWorkspace{}, err
+			return DemoWorkspace{}, nil, err
 		}
 		var ws DemoWorkspace
 		if err := json.Unmarshal(raw, &ws); err != nil {
-			return DemoWorkspace{}, err
+			return DemoWorkspace{}, nil, err
 		}
-		normalizeWorkspace(&ws, repoRoot)
+		warnings := normalizeWorkspace(&ws, repoRoot)
 		_ = saveWorkspace(path, ws)
-		return ws, nil
+		return ws, warnings, nil
 	}
 	ws := defaultWorkspace(repoRoot)
 	if err := saveWorkspace(path, ws); err != nil {
-		return DemoWorkspace{}, err
+		return DemoWorkspace{}, nil, err
 	}
-	return ws, nil
+	return ws, nil, nil
 }
 
 func defaultWorkspace(repoRoot string) DemoWorkspace {
@@ -1157,7 +1279,8 @@ func defaultWorkspace(repoRoot string) DemoWorkspace {
 	return ws
 }
 
-func normalizeWorkspace(ws *DemoWorkspace, repoRoot string) {
+func normalizeWorkspace(ws *DemoWorkspace, repoRoot string) []string {
+	var warnings []string
 	if ws.RepoRoot == "" {
 		ws.RepoRoot = repoRoot
 	}
@@ -1233,10 +1356,13 @@ func normalizeWorkspace(ws *DemoWorkspace, repoRoot string) {
 		ws.HeadlessLane.DemoOwnerNode = ws.HeadlessLane.Instances[0].ID
 	}
 
+	warnings = append(warnings, migrateLegacyHeadlessPaths(ws, repoRoot)...)
+
 	normalizeLaneProfiles(ws.GuiLane.Instances, ws.GuiLane.RuntimeRoot, ws.GuiLane.TemplateRoot, "exe", false, 4201, 5201, false)
 	normalizeLaneProfiles(ws.HeadlessLane.Instances, ws.HeadlessLane.RuntimeRoot, ws.HeadlessLane.TemplateRoot, "docker", true, 4101, 5101, true)
 	ensureGuiLaneNodeCount(ws)
 	ws.Instances = nil
+	return warnings
 }
 
 func normalizeLaneProfiles(profiles []DemoInstanceProfile, runtimeRoot string, templateRoot string, defaultMode string, defaultHeadless bool, p2pBase int, controlBase int, dockerBind bool) {
@@ -1275,6 +1401,86 @@ func normalizeLaneProfiles(profiles []DemoInstanceProfile, runtimeRoot string, t
 			}
 		}
 	}
+}
+
+func migrateLegacyHeadlessPaths(ws *DemoWorkspace, repoRoot string) []string {
+	if ws == nil {
+		return nil
+	}
+	legacyRuntimeRoot := filepath.Join(repoRoot, ".demo-control", "runtimes")
+	legacyTemplateRoot := filepath.Join(repoRoot, ".demo-control", "templates")
+	var warnings []string
+
+	for i := range ws.HeadlessLane.Instances {
+		profile := &ws.HeadlessLane.Instances[i]
+		targetRuntime := filepath.Join(ws.HeadlessLane.RuntimeRoot, profile.ID)
+		targetTemplate := filepath.Join(ws.HeadlessLane.TemplateRoot, profile.ID)
+
+		if migrated, warning := migrateLegacyNodePath(profile.ID, profile.RuntimeDir, targetRuntime, legacyRuntimeRoot); warning != "" {
+			warnings = append(warnings, warning)
+		} else if migrated != "" {
+			profile.RuntimeDir = migrated
+			if profile.DBPath == "" || isPathWithin(profile.DBPath, legacyRuntimeRoot) || isPathWithin(profile.DBPath, profile.RuntimeDir) {
+				profile.DBPath = filepath.Join(profile.RuntimeDir, "app.db")
+			}
+		}
+
+		if migrated, warning := migrateLegacyNodePath(profile.ID, profile.TemplateDir, targetTemplate, legacyTemplateRoot); warning != "" {
+			warnings = append(warnings, warning)
+		} else if migrated != "" {
+			profile.TemplateDir = migrated
+		}
+	}
+
+	return warnings
+}
+
+func migrateLegacyNodePath(nodeID string, currentPath string, targetPath string, legacyRoot string) (string, string) {
+	currentPath = strings.TrimSpace(currentPath)
+	if currentPath == "" || !isPathWithin(currentPath, legacyRoot) {
+		return "", ""
+	}
+	if pathsEqual(currentPath, targetPath) {
+		return targetPath, ""
+	}
+
+	srcExists := fileExists(currentPath)
+	dstExists := fileExists(targetPath)
+	if srcExists && dstExists {
+		return "", fmt.Sprintf("%s migration conflict: both %s and %s exist", nodeID, currentPath, targetPath)
+	}
+	if srcExists {
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
+			return "", fmt.Sprintf("%s migration failed creating %s: %v", nodeID, filepath.Dir(targetPath), err)
+		}
+		if err := os.Rename(currentPath, targetPath); err != nil {
+			return "", fmt.Sprintf("%s migration failed moving %s to %s: %v", nodeID, currentPath, targetPath, err)
+		}
+	}
+	return targetPath, ""
+}
+
+func ensureRuntimeSeeded(profile DemoInstanceProfile) (string, error) {
+	if err := os.MkdirAll(profile.RuntimeDir, 0o700); err != nil {
+		return "", err
+	}
+
+	dbPath := profile.DBPath
+	if strings.TrimSpace(dbPath) == "" {
+		dbPath = filepath.Join(profile.RuntimeDir, "app.db")
+	}
+	if fileExists(dbPath) {
+		return "", nil
+	}
+
+	templateDir := strings.TrimSpace(profile.TemplateDir)
+	if templateDir == "" || !fileExists(templateDir) {
+		return "runtime has no app.db and no template was found; node will boot from an empty runtime", nil
+	}
+	if err := copyDir(templateDir, profile.RuntimeDir); err != nil {
+		return "", fmt.Errorf("seed runtime %s from template %s: %w", profile.RuntimeDir, templateDir, err)
+	}
+	return "runtime was auto-seeded from template before start", nil
 }
 
 func saveWorkspace(path string, ws DemoWorkspace) error {
@@ -1465,6 +1671,30 @@ func ensureDemoPath(root string, target string) error {
 		return fmt.Errorf("refusing to reset path outside .demo-control: %s", target)
 	}
 	return nil
+}
+
+func isPathWithin(target string, root string) bool {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(absTarget), strings.ToLower(absRoot))
+}
+
+func pathsEqual(left string, right string) bool {
+	absLeft, err := filepath.Abs(left)
+	if err != nil {
+		return false
+	}
+	absRight, err := filepath.Abs(right)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(absLeft, absRight)
 }
 
 func findRepoRoot() (string, error) {

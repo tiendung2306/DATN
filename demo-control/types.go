@@ -1,15 +1,15 @@
 package main
 
 type DemoWorkspace struct {
-	Name         string             `json:"name"`
-	RepoRoot     string             `json:"repo_root"`
-	AppDir       string             `json:"app_dir"`
-	AppExe       string             `json:"app_exe"`
-	Token        string             `json:"token"`
-	GuiLane      DemoLaneConfig     `json:"gui_lane"`
-	HeadlessLane DemoLaneConfig     `json:"headless_lane"`
+	Name         string                `json:"name"`
+	RepoRoot     string                `json:"repo_root"`
+	AppDir       string                `json:"app_dir"`
+	AppExe       string                `json:"app_exe"`
+	Token        string                `json:"token"`
+	GuiLane      DemoLaneConfig        `json:"gui_lane"`
+	HeadlessLane DemoLaneConfig        `json:"headless_lane"`
 	Instances    []DemoInstanceProfile `json:"instances,omitempty"`
-	Partitions   []PartitionSpec    `json:"partitions,omitempty"`
+	Partitions   []PartitionSpec       `json:"partitions,omitempty"`
 }
 
 type DemoLaneConfig struct {
@@ -43,6 +43,7 @@ type InstanceStatus struct {
 	Running      bool                `json:"running"`
 	PID          int                 `json:"pid,omitempty"`
 	LastError    string              `json:"last_error,omitempty"`
+	LastWarning  string              `json:"last_warning,omitempty"`
 	AppState     string              `json:"app_state,omitempty"`
 	StartupStage string              `json:"startup_stage,omitempty"`
 	P2PReady     bool                `json:"p2p_ready"`
@@ -66,11 +67,11 @@ type InstanceGroup struct {
 }
 
 type ControlSnapshot struct {
-	Workspace    DemoWorkspace         `json:"workspace"`
-	GuiLane      GuiLaneSnapshot       `json:"gui_lane"`
-	HeadlessLane HeadlessLaneSnapshot  `json:"headless_lane"`
-	Jobs         []JobStatus           `json:"jobs"`
-	Scenarios    []ScenarioSpec        `json:"scenarios"`
+	Workspace    DemoWorkspace        `json:"workspace"`
+	GuiLane      GuiLaneSnapshot      `json:"gui_lane"`
+	HeadlessLane HeadlessLaneSnapshot `json:"headless_lane"`
+	Jobs         []JobStatus          `json:"jobs"`
+	Scenarios    []ScenarioSpec       `json:"scenarios"`
 }
 
 type GuiLaneSnapshot struct {
@@ -80,11 +81,12 @@ type GuiLaneSnapshot struct {
 }
 
 type HeadlessLaneSnapshot struct {
-	Instances   []InstanceStatus  `json:"instances"`
-	Topology    NetworkTopology   `json:"topology"`
-	DemoCluster DemoClusterState  `json:"demo_cluster"`
-	Preflight   PreflightResult   `json:"preflight"`
-	BuildJobID  string            `json:"build_job_id,omitempty"`
+	Instances   []InstanceStatus `json:"instances"`
+	Topology    NetworkTopology  `json:"topology"`
+	DemoCluster DemoClusterState `json:"demo_cluster"`
+	Preflight   PreflightResult  `json:"preflight"`
+	Warnings    []string         `json:"warnings,omitempty"`
+	BuildJobID  string           `json:"build_job_id,omitempty"`
 }
 
 type DemoClusterState struct {
@@ -93,6 +95,11 @@ type DemoClusterState struct {
 	Ready             bool                 `json:"ready"`
 	Eligible          bool                 `json:"eligible"`
 	LastError         string               `json:"last_error,omitempty"`
+	TargetNodeIDs     []string             `json:"target_node_ids,omitempty"`
+	TargetPeerIDs     []string             `json:"target_peer_ids,omitempty"`
+	TargetCount       int                  `json:"target_count"`
+	EligibleCount     int                  `json:"eligible_count"`
+	BlockingNodes     []string             `json:"blocking_nodes,omitempty"`
 	MemberCount       int                  `json:"member_count"`
 	Members           []DemoClusterMember  `json:"members,omitempty"`
 	RecentMessages    []DemoClusterMessage `json:"recent_messages,omitempty"`

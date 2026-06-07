@@ -25,9 +25,10 @@
 - Build flow riêng: `docker build -t secure-p2p:latest .`
 - Chạy cluster Docker headless trên shared network `datn_p2p_net`.
 - Có control flow `Prepare Demo Cluster` để:
-  - kiểm tra node đang ở `AUTHORIZED` hoặc `ADMIN_READY`
+  - ưu tiên chuẩn bị theo các node đang được chọn trong UI; nếu chưa chọn node nào thì fallback sang toàn bộ node headless đang chạy
+  - kiểm tra chỉ các node mục tiêu đang ở `AUTHORIZED` hoặc `ADMIN_READY`
   - tạo group `demo`
-  - mời các node còn lại vào group
+  - mời các node mục tiêu còn lại vào group
   - poll roster cho đến khi cụm sẵn sàng
 - Có thể:
   - gửi message vào group `demo`
@@ -57,6 +58,7 @@ Các endpoint này chỉ bọc mỏng các method backend đã có như `CreateG
   - `.demo-control/gui/templates/*`
   - `.demo-control/headless/runtimes/*`
   - `.demo-control/headless/templates/*`
+- `Start` sẽ tự seed runtime từ `template_dir` đúng một lần khi runtime đang trống hoặc thiếu `app.db`.
 - `Capture Runtime As Template` cho phép chốt một runtime tốt thành baseline demo.
 
 ## Notes vận hành
@@ -64,6 +66,7 @@ Các endpoint này chỉ bọc mỏng các method backend đã có như `CreateG
 - `Prepare Demo Cluster` **không** làm full PKI onboarding từ đầu.
 - Các node demo nên được seed từ runtime/template đã có identity + bundle hợp lệ.
 - Nếu workspace cũ chỉ có `instances[]` kiểu phẳng, `demo-control` sẽ migrate sang mô hình hai lane khi startup.
+- Nếu workspace legacy còn giữ path headless cũ dưới `.demo-control/runtimes` hoặc `.demo-control/templates`, `demo-control` sẽ cố gắng normalize chúng sang lane root mới `.demo-control/headless/...` khi startup; nếu phát hiện conflict nguồn/đích thì sẽ giữ nguyên metadata cũ và cảnh báo operator.
 
 ## Development
 

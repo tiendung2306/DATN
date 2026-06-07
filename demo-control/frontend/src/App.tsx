@@ -64,6 +64,11 @@ function normalizeSnapshot(raw: ControlSnapshot): ControlSnapshot {
         ready: raw.headless_lane?.demo_cluster?.ready ?? false,
         eligible: raw.headless_lane?.demo_cluster?.eligible ?? false,
         last_error: raw.headless_lane?.demo_cluster?.last_error ?? '',
+        target_node_ids: raw.headless_lane?.demo_cluster?.target_node_ids ?? [],
+        target_peer_ids: raw.headless_lane?.demo_cluster?.target_peer_ids ?? [],
+        target_count: raw.headless_lane?.demo_cluster?.target_count ?? 0,
+        eligible_count: raw.headless_lane?.demo_cluster?.eligible_count ?? 0,
+        blocking_nodes: raw.headless_lane?.demo_cluster?.blocking_nodes ?? [],
         member_count: raw.headless_lane?.demo_cluster?.member_count ?? 0,
         members: raw.headless_lane?.demo_cluster?.members ?? [],
         recent_messages: raw.headless_lane?.demo_cluster?.recent_messages ?? [],
@@ -74,6 +79,7 @@ function normalizeSnapshot(raw: ControlSnapshot): ControlSnapshot {
         },
       },
       preflight: normalizePreflight(raw.headless_lane?.preflight),
+      warnings: raw.headless_lane?.warnings ?? [],
     },
     jobs: raw.jobs ?? [],
     scenarios: raw.scenarios ?? [],
@@ -323,7 +329,7 @@ function HeadlessLaneView({
             <button className="cmd" disabled={!!busy} onClick={() => run('start-headless', runtimeClient.startHeadlessLane)}>
               <Play size={15} /> Start All Headless
             </button>
-            <button className="cmd" disabled={!!busy} onClick={() => run('prepare-demo', () => runtimeClient.prepareDemoCluster(''))}>
+            <button className="cmd" disabled={!!busy} onClick={() => run('prepare-demo', () => runtimeClient.prepareDemoCluster('', selected))}>
               <Zap size={15} /> Prepare Demo Cluster
             </button>
             <button className="cmd danger" disabled={!!busy} onClick={() => run('heal-network', runtimeClient.healAll)}>
@@ -336,6 +342,7 @@ function HeadlessLaneView({
         </div>
 
         <PreflightBanner preflight={lane.preflight} />
+        {lane.warnings?.length ? <div className="alert"><AlertTriangle size={16} /> {lane.warnings.join(' | ')}</div> : null}
 
         <section className="grid-two">
           <div className="panel">
@@ -393,10 +400,13 @@ function HeadlessLaneView({
               <MetricRow label="Owner" value={lane.demo_cluster.owner_node_id} monospace />
               <MetricRow label="Ready" value={lane.demo_cluster.ready ? 'yes' : 'no'} />
               <MetricRow label="Eligible" value={lane.demo_cluster.eligible ? 'yes' : 'no'} />
+              <MetricRow label="Target Nodes" value={String(lane.demo_cluster.target_count)} />
+              <MetricRow label="Eligible Nodes" value={String(lane.demo_cluster.eligible_count)} />
               <MetricRow label="Members" value={String(lane.demo_cluster.member_count)} />
               <MetricRow label="Epoch" value={String(lane.demo_cluster.group_status_digest.epoch ?? 0)} />
               <MetricRow label="Token Holder" value={lane.demo_cluster.group_status_digest.token_holder_peer_id || lane.demo_cluster.group_status_digest.token_holder || '-'} monospace />
               <MetricRow label="Tree Hash" value={lane.demo_cluster.group_status_digest.tree_hash_short || '-'} monospace />
+              <MetricRow label="Target Set" value={(lane.demo_cluster.target_node_ids ?? []).join(', ') || '-'} monospace />
               {lane.demo_cluster.last_error ? <p className="error-text">{lane.demo_cluster.last_error}</p> : null}
             </SummaryCard>
 
@@ -563,6 +573,7 @@ function InstanceCard({
       </div>
       <code className="peer-id">{inst.peer_id || inst.profile.runtime_dir}</code>
       {inst.last_error ? <p className="error-text">{inst.last_error}</p> : null}
+      {inst.last_warning ? <p className="muted">{inst.last_warning}</p> : null}
       <footer>{actions}</footer>
     </article>
   )

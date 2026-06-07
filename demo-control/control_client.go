@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -230,11 +231,11 @@ func decodeRemoteError(resp *http.Response) error {
 	body, _ := io.ReadAll(resp.Body)
 	var remoteErr remoteControlError
 	if json.Unmarshal(body, &remoteErr) == nil && strings.TrimSpace(remoteErr.Error) != "" {
-		return fmt.Errorf(remoteErr.Error)
+		return errors.New(remoteErr.Error)
 	}
 	text := strings.TrimSpace(string(body))
 	if text == "" {
 		return fmt.Errorf("remote control returned %s", resp.Status)
 	}
-	return fmt.Errorf(text)
+	return errors.New(text)
 }

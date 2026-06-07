@@ -50,6 +50,7 @@ export interface InstanceStatus {
   running: boolean
   pid?: number
   last_error?: string
+  last_warning?: string
   app_state?: string
   startup_stage?: string
   p2p_ready: boolean
@@ -120,6 +121,11 @@ export interface DemoClusterState {
   ready: boolean
   eligible: boolean
   last_error?: string
+  target_node_ids?: string[]
+  target_peer_ids?: string[]
+  target_count: number
+  eligible_count: number
+  blocking_nodes?: string[]
   member_count: number
   members?: DemoClusterMember[]
   recent_messages?: DemoClusterMessage[]
@@ -149,6 +155,7 @@ export interface HeadlessLaneSnapshot {
   topology: NetworkTopology
   demo_cluster: DemoClusterState
   preflight: PreflightResult
+  warnings?: string[]
   build_job_id?: string
 }
 
