@@ -138,6 +138,7 @@ func (m *businessIntegrationMLSMock) CreateCommit(_ context.Context, groupState 
 	commitBytes, _ := json.Marshal(commitInfo)
 	return coordination.CreateCommitResult{
 		CommitBytes:           commitBytes,
+		WelcomeBytes:          append([]byte(nil), newStateBytes...),
 		CommittedProposalRefs: cloneBytesListForService(expectedProposalRefs),
 		NewGroupState:         newStateBytes,
 		NewTreeHash:           newTH,

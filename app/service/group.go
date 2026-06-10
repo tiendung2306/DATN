@@ -812,7 +812,8 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	// Authoritatively resolve and persist group creator peer ID before coordinator starts
 	inviter := strings.TrimSpace(inviterPeerID)
 	if inviter == "" {
-		if localID, err := r.localPeerID(); err == nil {
+		localID := r.node.Host.ID().String()
+		if localID != "" {
 			if _, _, _, src, err := r.db.GetStoredWelcome(localID, groupID); err == nil && src != "" {
 				inviter = src
 			}
@@ -1019,19 +1020,19 @@ func (r *Runtime) GetGroupStatus(groupID string) map[string]interface{} {
 		activeView = append(activeView, member.String())
 	}
 	return map[string]interface{}{
-		"group_id":            groupID,
-		"epoch":               coord.CurrentEpoch(),
-		"is_token_holder":     coord.IsTokenHolder(),
-		"token_holder":        map[bool]string{true: "self", false: "other"}[coord.IsTokenHolder()],
+		"group_id":             groupID,
+		"epoch":                coord.CurrentEpoch(),
+		"is_token_holder":      coord.IsTokenHolder(),
+		"token_holder":         map[bool]string{true: "self", false: "other"}[coord.IsTokenHolder()],
 		"token_holder_peer_id": tokenHolderPeerID,
-		"active_members":      len(coord.ActiveMembers()),
-		"active_view":         activeView,
-		"tree_hash_short":     treeHashShort,
-		"is_healing":          coord.IsHealing(),
-		"commits_issued":      snap.CommitsIssued,
-		"proposals_received":  snap.ProposalsReceived,
-		"commit_bytes_total":  snap.CommitBytesTotal,
-		"partitions_detected": snap.PartitionsDetected,
+		"active_members":       len(coord.ActiveMembers()),
+		"active_view":          activeView,
+		"tree_hash_short":      treeHashShort,
+		"is_healing":           coord.IsHealing(),
+		"commits_issued":       snap.CommitsIssued,
+		"proposals_received":   snap.ProposalsReceived,
+		"commit_bytes_total":   snap.CommitBytesTotal,
+		"partitions_detected":  snap.PartitionsDetected,
 	}
 }
 

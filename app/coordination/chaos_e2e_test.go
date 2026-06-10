@@ -1,6 +1,7 @@
 package coordination
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/hex"
@@ -21,7 +22,7 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 	const numNodes = 5
 	const groupID = "chaos-group-1"
 	nodes, network, clk := setupCluster(t, numNodes, groupID)
-	
+
 	for _, n := range nodes {
 		node := n // capture
 		node.coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
@@ -35,7 +36,7 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 			if remoteNode == nil {
 				return nil, fmt.Errorf("node not found")
 			}
-			
+
 			groupInfo, err := remoteNode.mls.ExportGroupInfo(ctx, remoteNode.coord.GetGroupState(), withRatchetTree)
 			if err != nil {
 				return nil, err
@@ -62,7 +63,9 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 	}
 
 	recordMetrics := func() {
-		if writer == nil { return }
+		if writer == nil {
+			return
+		}
 		csvMu.Lock()
 		defer csvMu.Unlock()
 		// Use real time for polling to ensure we capture wall clock progress
@@ -110,12 +113,16 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 				split := r.Intn(numNodes-2) + 1
 				groupA := nodes[:split]
 				groupB := nodes[split:]
-				
+
 				pidsA := make([]peer.ID, len(groupA))
-				for i, n := range groupA { pidsA[i] = n.id }
+				for i, n := range groupA {
+					pidsA[i] = n.id
+				}
 				pidsB := make([]peer.ID, len(groupB))
-				for i, n := range groupB { pidsB[i] = n.id }
-				
+				for i, n := range groupB {
+					pidsB[i] = n.id
+				}
+
 				network.Partition(pidsA, pidsB)
 				time.Sleep(600 * time.Millisecond) // stay partitioned longer
 				network.Heal()
@@ -137,9 +144,9 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 			default:
 				n := nodes[r.Intn(numNodes)]
 				n.coord.SendMessage([]byte(fmt.Sprintf("msg-%d", i)))
-				
+
 				// Very frequent member changes to spike Epoch
-				if i > 0 && i % 15 == 0 {
+				if i > 0 && i%15 == 0 {
 					target := nodes[r.Intn(numNodes)].id
 					nodes[0].coord.RemoveMember([]byte(target))
 					// Add them back immediately in the next step to keep group size
@@ -183,15 +190,24 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 		// All nodes should have converged to the same epoch.
 		// We find the max epoch reached by any node.
 		maxEpoch := uint64(0)
+		var expectedTreeHash []byte
 		for _, n := range nodes {
 			if e := n.coord.CurrentEpoch(); e > maxEpoch {
 				maxEpoch = e
 			}
 		}
-		
+
 		for i, n := range nodes {
 			if n.coord.CurrentEpoch() != maxEpoch {
 				t.Errorf("Node_%d not converged: got epoch %d, want %d", i, n.coord.CurrentEpoch(), maxEpoch)
+			}
+			th := n.coord.GetTreeHash()
+			if i == 0 {
+				expectedTreeHash = append([]byte(nil), th...)
+				continue
+			}
+			if !bytes.Equal(th, expectedTreeHash) {
+				t.Errorf("Node_%d tree hash not converged: got %s, want %s", i, hex.EncodeToString(th), hex.EncodeToString(expectedTreeHash))
 			}
 		}
 	})
