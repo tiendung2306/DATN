@@ -90,14 +90,6 @@
   publisher = {Springer}
 }
 
-@misc{kohbrok2023dmls,
-  author       = {Konrad Kohbrok},
-  title        = {Decentralized Messaging Layer Security},
-  howpublished = {IETF Internet-Draft},
-  year         = {2023},
-  note         = {Work in progress}
-}
-
 @misc{cisco2023webex,
   author       = {{Cisco Webex}},
   title        = {Webex Meetings Zero Trust Security Architecture},
@@ -109,36 +101,39 @@
 
 
 @misc{perrin2025doubleratchet,
-  author       = {Trevor Perrin and Moxie Marlinspike and R. Schmidt},
+  author       = {Trevor Perrin and Moxie Marlinspike and Rolfe Schmidt},
   title        = {The Double Ratchet Algorithm},
   howpublished = {Signal Specifications, Revision 4},
   year         = {2025},
+  note         = {Published 2025-11-04},
   url          = {https://signal.org/docs/specifications/doubleratchet/}
 }
 
-@misc{whatsapp2026encryption,
-  author       = {{WhatsApp}},
-  title        = {WhatsApp Encryption Overview},
-  howpublished = {Whitepaper},
-  year         = {2026},
-  month        = {February}
+@misc{balbas2023senderkeys,
+  author       = {David Balb{\'a}s and Daniel Collins and Phillip Gajland},
+  title        = {Analysis and Improvements of the Sender Keys Protocol for Group Messaging},
+  howpublished = {arXiv preprint arXiv:2301.07045},
+  year         = {2023},
+  doi          = {10.48550/arXiv.2301.07045},
+  url          = {https://arxiv.org/abs/2301.07045},
+  note         = {Appears in RECSI 2022}
 }
 
-@misc{matrix2026megolm,
-  author       = {{Matrix.org}},
-  title        = {Megolm group ratchet},
-  howpublished = {Matrix Specification, version 1.18},
-  year         = {2026}
+@misc{ginesin2024matrix,
+  author       = {Jacob Ginesin and Cristina Nita-Rotaru},
+  title        = {The Matrix Reloaded: A Mechanized Formal Analysis of the Matrix Cryptographic Suite},
+  howpublished = {arXiv preprint arXiv:2408.12743},
+  year         = {2024},
+  doi          = {10.48550/arXiv.2408.12743},
+  url          = {https://arxiv.org/abs/2408.12743}
 }
-
-
 
 @misc{libp2p2026doc,
-  author       = {{libp2p Project}},
-  title        = {libp2p Documentation: Concepts, PubSub, Peer Discovery, NAT Traversal},
-  howpublished = {Online Documentation},
-  year         = {2026},
-  url          = {https://docs.libp2p.io}
+  author       = {{libp2p}},
+  title        = {libp2p Concepts Documentation},
+  howpublished = {Official documentation},
+  note         = {Accessed 2026-06-12},
+  url          = {https://docs.libp2p.io/concepts/}
 }
 
 
@@ -174,6 +169,27 @@
   institution = {University at Buffalo},
   year        = {2014},
   url         = {https://cse.buffalo.edu/tech-reports/2014-04.pdf}
+}
+
+@inproceedings{localfirst2019,
+  author    = {Martin Kleppmann and Adam Wiggins and Peter van Hardenberg and Mark McGranaghan},
+  title     = {Local-first software: You own your data, in spite of the cloud},
+  booktitle = {Proceedings of the ACM SIGPLAN International Symposium on New Ideas, New Paradigms, and Reflections on Programming and Software},
+  series    = {Onward! '19},
+  year      = {2019},
+  doi       = {10.1145/3359591.3359737},
+  url       = {https://martin.kleppmann.com/2019/10/23/local-first-at-onward.html}
+}
+
+@article{lamport1978,
+  author  = {Leslie Lamport},
+  title   = {Time, Clocks, and the Ordering of Events in a Distributed System},
+  journal = {Communications of the ACM},
+  volume  = {21},
+  number  = {7},
+  pages   = {558--565},
+  year    = {1978},
+  doi     = {10.1145/359545.359563}
 }
 
 @article{gilbert2002brewers,

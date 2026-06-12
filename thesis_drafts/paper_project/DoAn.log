@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  11 JUN 2026 18:22
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  13 JUN 2026 03:57
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1762,13 +1762,6 @@ LaTeX Warning: Unused global option(s):
 
 (DoAn.aux
 \g__glossaries_gls_ref_acronym_int=\count542
-
-
-LaTeX Warning: Label `eq:eligible_set' multiply defined.
-
-
-LaTeX Warning: Label `eq:branch_weight' multiply defined.
-
 )
 \openout1 = `DoAn.aux'.
 
@@ -1894,13 +1887,7 @@ Package biblatex Info: Data encoding 'utf8' specified.
 
 Package biblatex Info: Trying to load bibliographic data...
 Package biblatex Info: ... file 'DoAn.bbl' found.
-(DoAn.bbl
-
-Package biblatex Warning: BibTeX reported the following issues
-(biblatex)                with 'whatsapp2026encryption':
-(biblatex)                - Invalid format of field 'month'.
-
-)
+(DoAn.bbl)
 Package biblatex Info: Reference section=0 on input line 165.
 Package biblatex Info: Reference segment=0 on input line 165.
 Package hyperref Info: Link coloring OFF on input line 165.
@@ -1977,7 +1964,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.34 ...epoch authenticator}{19}{subsection.2.3.4}
+l.35 ... tr√∫c t·ªïng th·ªÉ}{15}{subsection.3.1.2}
                                                   % [1
 
 ]
@@ -1985,26 +1972,20 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.59 ... ƒëi·ªáp theo Epoch}{33}{subsection.3.3.3}
+l.59 ... HLC khi nh·∫≠n tin}{31}{subsection.3.5.3}
                                                   % [2]
 pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.85 ...2}C∆° s·ªü t·ª´ MLS}{49}{subsection.4.3.2}
+l.85 ...t sinh trong nh√°nh thua}{43}{section.4.7}
                                                   % [3]
 pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.109 ... c∆° ch·∫ø b·∫£o to√†n}{58}{section.4.10}
-                                                  % [4]
-pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
-een already used, duplicate ignored
-<to be read again> 
-                   \relax 
-l.139 ...√¥ng th·ª©c to√°n h·ªçc}{80}{section.A.7}
-                                                  % [5])
+l.110 ...·ªõi h·∫°n ƒë√°nh gi√°}{57}{section.5.10}
+                                                  % [4])
 \tf@toc=\write7
 \openout7 = `DoAn.toc'.
 
@@ -2014,7 +1995,7 @@ een already used, duplicate ignored
 <to be read again> 
                    \relax 
 l.217 \cleardoublepage
-                       [6] (DoAn.lof)
+                       [5] (DoAn.lof)
 \tf@lof=\write8
 \openout8 = `DoAn.lof'.
 
@@ -2026,11 +2007,6 @@ l.217 \cleardoublepage
 \tf@lot=\write9
 \openout9 = `DoAn.lot'.
 
-
-
-Package glossaries Warning: Empty glossary for \printnoidxglossary[type={main}]
-. Rerun may be required (or you may have forgotten to use commands like \gls) o
-n input line 241.
 
 
 Package glossaries Info: Preparing to sort glossary `acronym' (total number of
@@ -2048,66 +2024,39 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has
 been already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.13 
+l.14 
       [1
 
-] [2] [3] [4] [5] [6] [7]
-LaTeX Font Info:    Trying to load font information for T5+pcr on input line 11
-8.
+] [2] [3]) [4]
+Ch\uhorn \ohorn ng 2.
+(Chuong/2_Co_so_ly_thuyet.tex [5
+
+]
+LaTeX Font Info:    Calculating math sizes for size <11.86258> on input line 95
+.
+ [6] [7] [8] [9] [10] [11] [12]) [13]
+Ch\uhorn \ohorn ng 3.
+(Chuong/3_De_xuat.tex [14
+
+]
+<Hinh/chuong3_architecture.png, id=867, 5595.90625pt x 2983.145pt>
+File: Hinh/chuong3_architecture.png Graphic file (type png)
+<use Hinh/chuong3_architecture.png>
+Package pdftex.def Info: Hinh/chuong3_architecture.png  used on input line 25.
+(pdftex.def)             Requested size: 426.79135pt x 227.5043pt.
+LaTeX Font Info:    Trying to load font information for T5+pcr on input line 32
+.
 
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5pcr.fd
 File: t5ucr.fd 2005/08/24 Fontinst v1.929 font definitions for T5/pcr.
 )
-[8] [9] [10]) [11]
-Ch\uhorn \ohorn ng 2.
-(Chuong/2_Co_so_ly_thuyet.tex [12
-
-]
-LaTeX Font Info:    Calculating math sizes for size <11.86258> on input line 53
-.
-
-Overfull \hbox (46.58081pt too wide) in paragraph at lines 102--103
- [][] 
- []
-
-[13] [14] [15] [16] [17]
-LaTeX Font Info:    Calculating math sizes for size <8.66673> on input line 229
-.
-
-
-LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <4.33336> not available
-(Font)              size <5> substituted on input line 229.
-
-
-LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <4.33336> not available
-(Font)              size <5> substituted on input line 229.
-
-
-LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <4.33336> not available
-(Font)              size <5> substituted on input line 229.
-
-
-LaTeX Font Warning: Font shape `U/lasy/m/n' in size <4.33336> not available
-(Font)              size <5> substituted on input line 229.
-
-[18] [19] [20] [21] [22] [23]) [24]
-Ch\uhorn \ohorn ng 3.
-(Chuong/3_De_xuat.tex [25
-
-]
-LaTeX Font Info:    Trying to load font information for T5+phv on input line 10
-2.
-
-(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5phv.fd
-File: t5uhv.fd 2005/08/24 Fontinst v1.929 font definitions for T5/phv.
-)
-[26] [27] [28] [29] [30]
-Underfull \hbox (badness 10000) in paragraph at lines 212--212
+[15 <./Hinh/chuong3_architecture.png (PNG copy)>] [16] [17] [18] [19]
+Underfull \hbox (badness 10000) in paragraph at lines 139--139
 []\T5/ptm/b/n/13 Algorithm 2: \T5/ptm/m/n/13 Quy trºnh t§o Commit cıa Token Hol
 der
  []
 
-[31]
+[20]
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
 1.sty
 File: lstlang1.sty 2025/11/14 1.11b listings language file
@@ -2122,117 +2071,109 @@ File: lstlang3.sty 2025/11/14 1.11b listings language file
 )
 LaTeX Font Info: \kern \lst@width \kern \lst@width \kern \lst@width Calculating
 \kern \lst@width math\kern \lst@width sizes\kern \lst@width for\kern \lst@width
- size\kern \lst@width <10.83347> on input line 236.
+ size\kern \lst@width <10.83347> on input line 163.
 
 
 LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 236.
+(Font)              size <8> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 236.
+(Font)              size <5> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <7.58339> not available
-(Font)              size <8> substituted on input line 236.
+(Font)              size <8> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <5.41673> not available
-(Font)              size <5> substituted on input line 236.
+(Font)              size <5> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 236.
+(Font)              size <8> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 236.
+(Font)              size <5> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `U/lasy/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 236.
+(Font)              size <8> substituted on input line 163.
 
 
 LaTeX Font Warning: Font shape `U/lasy/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 236.
+(Font)              size <5> substituted on input line 163.
 
-[32]
-Underfull \hbox (badness 10000) in paragraph at lines 305--305
+[21]
+Underfull \hbox (badness 10000) in paragraph at lines 235--235
 []\T5/ptm/b/n/13 Algorithm 3: \T5/ptm/m/n/13 Quy trºnh ph•n lo§i v† x˚ l˛ Envel
 ope ^^_∏n
  []
 
-[33]
+[22]
 Overfull \vbox (123.41238pt too high) has occurred while \output is active []
 
 
-[34]
-Underfull \hbox (badness 10000) in paragraph at lines 337--337
+[23]
+Underfull \hbox (badness 10000) in paragraph at lines 267--267
 []\T5/ptm/b/n/13 Algorithm 4: \T5/ptm/m/n/13 Quy trºnh Re-Propose cho Proposal 
 b‡ b‰ s‚t
  []
 
-[35] [36] [37] [38] [39] [40] [41] [42] [43] [44]
-Underfull \hbox (badness 10000) in paragraph at lines 624--624
+[24]
+Underfull \hbox (badness 1571) in paragraph at lines 280--281
+\T5/pcr/m/n/13 GroupStateAnnouncement\T5/ptm/m/n/13 , cho c°c nh‚m m† n‚ tham g
+ia qua k∂nh
+ []
+
+[25] [26] [27] [28] [29] [30] [31] [32] [33]
+Underfull \hbox (badness 10000) in paragraph at lines 547--547
 []\T5/ptm/b/n/13 Algorithm 10: \T5/ptm/m/n/13 Quy trºnh y∂u c¶u thay ^^_Íi th†n
 h vi∂n
  []
 
-[45]) [46]
+[34]) [35]
 Ch\uhorn \ohorn ng 4.
-(Chuong/4_Phan_tich_ly_thuyet.tex
-LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
-8.
+(Chuong/4_Phan_tich_ly_thuyet.tex [36
 
-(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
-File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
-) [47
-
-{C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.en
-c}] [48] [49] [50] [51]
-Underfull \hbox (badness 1622) in paragraph at lines 150--151
-\T5/ptm/m/n/13 epoch $\OML/cmm/m/it/12 E$ \T5/ptm/m/n/13 nh˜ng c‚ $\OML/cmm/m/i
-t/12 treeHash[] \OMS/cmsy/m/n/12 6\OT1/cmr/m/n/12 = \OML/cmm/m/it/12 treeHash[]
-$ \T5/ptm/m/n/13 ho∞c $\OML/cmm/m/it/12 epochAuthenticator[] \OMS/cmsy/m/n/12 6
-\OT1/cmr/m/n/12 =
- []
-
-[52] [53] [54] [55] [56] [57]
-Underfull \hbox (badness 3108) in paragraph at lines 308--308
+] [37] [38] [39] [40] [41] [42] [43]
+[44] [45] [46]
+Underfull \hbox (badness 3108) in paragraph at lines 300--300
 []|\T5/ptm/m/n/11.86258 Epoch cˆc bÎ khÊng
  []
 
 
-Underfull \hbox (badness 5374) in paragraph at lines 312--312
+Underfull \hbox (badness 5374) in paragraph at lines 304--304
 []|\T5/ptm/m/n/11.86258 Fork tr§ng th°i ph°t
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 312--312
+Underfull \hbox (badness 10000) in paragraph at lines 304--304
 []|\T5/ptm/m/n/11.86258 StateSummary, tree hash,
  []
 
 
-Underfull \hbox (badness 3965) in paragraph at lines 314--314
+Underfull \hbox (badness 3965) in paragraph at lines 306--306
 []|\T5/ptm/m/n/11.86258 KhÊng gÎp tr¸c ti∏p
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 316--317
+Underfull \hbox (badness 10000) in paragraph at lines 308--309
 []|\T5/ptm/m/n/11.86258 T°ch application ordering
  []
 
 
-Underfull \hbox (badness 1348) in paragraph at lines 318--319
+Underfull \hbox (badness 1348) in paragraph at lines 310--311
 \T5/ptm/m/n/11.86258 phΩ m™t m¢ v† chi phΩ hª
  []
 
 
-Overfull \hbox (9.1472pt too wide) in paragraph at lines 304--321
+Overfull \hbox (9.1472pt too wide) in paragraph at lines 296--313
  [][] 
  []
 
-[58] [59]) [60]
+[47] [48]) [49]
 Ch\uhorn \ohorn ng 5.
 (Chuong/5_Thuc_nghiem.tex
 Underfull \hbox (badness 10000) in paragraph at lines 34--34
@@ -2244,48 +2185,45 @@ Underfull \hbox (badness 4569) in paragraph at lines 36--36
 []|\T5/ptm/m/n/13 ThÌi gian phˆc hÁi
  []
 
-[61
+[50
 
-] [62]
-<Hinh/chuong5/chaos_convergence.png, id=1325, 945.2916pt x 537.6888pt>
+] [51]
+<Hinh/chuong5/chaos_convergence.png, id=1144, 945.2916pt x 537.6888pt>
 File: Hinh/chuong5/chaos_convergence.png Graphic file (type png)
 <use Hinh/chuong5/chaos_convergence.png>
 Package pdftex.def Info: Hinh/chuong5/chaos_convergence.png  used on input line
  65.
 (pdftex.def)             Requested size: 405.45047pt x 230.61916pt.
-<Hinh/chuong5/partition_recovery.png, id=1329, 715.2321pt x 496.4949pt>
+<Hinh/chuong5/partition_recovery.png, id=1148, 715.2321pt x 496.4949pt>
 File: Hinh/chuong5/partition_recovery.png Graphic file (type png)
 <use Hinh/chuong5/partition_recovery.png>
 Package pdftex.def Info: Hinh/chuong5/partition_recovery.png  used on input lin
 e 98.
 (pdftex.def)             Requested size: 384.1096pt x 266.6411pt.
- [63 <./Hinh/chuong5/chaos_convergence.png>] [64 <./Hinh/chuong5/partition_reco
+ [52 <./Hinh/chuong5/chaos_convergence.png>] [53 <./Hinh/chuong5/partition_reco
 very.png>]
-<Hinh/chuong5/concurrency_batching.png, id=1340, 1145.2386pt x 518.1759pt>
+<Hinh/chuong5/concurrency_batching.png, id=1159, 1145.2386pt x 518.1759pt>
 File: Hinh/chuong5/concurrency_batching.png Graphic file (type png)
 <use Hinh/chuong5/concurrency_batching.png>
 Package pdftex.def Info: Hinh/chuong5/concurrency_batching.png  used on input l
 ine 139.
 (pdftex.def)             Requested size: 384.1096pt x 173.78964pt.
- [65 <./Hinh/chuong5/concurrency_batching.png>] [66]
-<Hinh/chuong5/coordinator_overhead.png, id=1355, 786.0567pt x 533.8344pt>
+ [54 <./Hinh/chuong5/concurrency_batching.png>] [55]
+<Hinh/chuong5/coordinator_overhead.png, id=1175, 786.0567pt x 533.8344pt>
 File: Hinh/chuong5/coordinator_overhead.png Graphic file (type png)
 <use Hinh/chuong5/coordinator_overhead.png>
 Package pdftex.def Info: Hinh/chuong5/coordinator_overhead.png  used on input l
 ine 217.
 (pdftex.def)             Requested size: 384.1096pt x 260.86432pt.
 
-[67 <./Hinh/chuong5/coordinator_overhead.png>] [68]) [69]
+[56 <./Hinh/chuong5/coordinator_overhead.png>] [57]) [58]
 Ch\uhorn \ohorn ng 6.
-(Chuong/6_Ket_luan.tex [70
+(Chuong/6_Ket_luan.tex [59
 
-] [71]) [72] (Chuong/7_Tai_lieu_tham_khao.tex)
-[73
-
-]
+] [60]) [61]
 
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'rfc9420' on input line 298.
+(biblatex)                at entry 'rfc9420' on input line 292.
 
 
 Package biblatex Warning: Using fallback definition for \mkbibdatelong.
@@ -2296,15 +2234,15 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 
 
 Package biblatex Warning: Bibliography string 'july' untranslated
-(biblatex)                at entry 'rfc9420' on input line 298.
+(biblatex)                at entry 'rfc9420' on input line 292.
 
 
 Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'rfc9420' on input line 298.
+(biblatex)                at entry 'rfc9420' on input line 292.
 
 
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'rfc9750' on input line 298.
+(biblatex)                at entry 'rfc9750' on input line 292.
 
 
 Package biblatex Warning: Using fallback definition for \mkbibdatelong.
@@ -2315,21 +2253,55 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 
 
 Package biblatex Warning: Bibliography string 'february' untranslated
-(biblatex)                at entry 'rfc9750' on input line 298.
+(biblatex)                at entry 'rfc9750' on input line 292.
 
 
 Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'rfc9750' on input line 298.
+(biblatex)                at entry 'rfc9750' on input line 292.
 
 
-Underfull \hbox (badness 2591) in paragraph at lines 299--299
+Underfull \hbox (badness 2591) in paragraph at lines 293--293
 \T5/ptm/m/it/13 Messaging Layer Security (MLS) Architecture\T5/ptm/m/n/13 , RFC
  9750, []
  []
 
 
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'perrin2025doubleratchet' on input line 298.
+(biblatex)                at entry 'localfirst2019' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'in' untranslated
+(biblatex)                at entry 'localfirst2019' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'jourser' untranslated
+(biblatex)                at entry 'localfirst2019' on input line 292.
+
+
+Package biblatex Warning: Using fallback definition for \mkbibdatelong.
+(biblatex)                The command should be defined in the .lbx file.
+(biblatex)                If you see this message, the .lbx file could not be
+(biblatex)                loaded, is faulty or does not contain a definition
+(biblatex)                for \mkbibdatelong.
+
+
+Package biblatex Warning: Bibliography string 'url' untranslated
+(biblatex)                at entry 'localfirst2019' on input line 292.
+
+
+Underfull \hbox (badness 3557) in paragraph at lines 293--293
+\T5/ptm/m/n/13 ``Local-first software: You own your data, in spite of the cloud
+,''
+ []
+
+
+Underfull \hbox (badness 5147) in paragraph at lines 293--293
+[]\T5/ptm/m/it/13 Proceedings of the ACM SIGPLAN International Symposium on
+ []
+
+
+Package biblatex Warning: Bibliography string 'and' untranslated
+(biblatex)                at entry 'perrin2025doubleratchet' on input line 292.
 
 
 
@@ -2341,30 +2313,28 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 
 
 Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'perrin2025doubleratchet' on input line 298.
+(biblatex)                at entry 'perrin2025doubleratchet' on input line 292.
 
 
 
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
+Underfull \hbox (badness 5563) in paragraph at lines 293--293
+[]\T5/ptm/m/n/13 T. Perrin, M. Marlinspike [] R. Schmidt, \T5/ptm/m/it/13 The D
+ouble Ratchet
+ []
 
 
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
+Underfull \hbox (badness 3668) in paragraph at lines 293--293
+\T5/ptm/m/it/13 Algorithm\T5/ptm/m/n/13 , Signal Specifications, Revision 4, Pu
+blished 2025-11-04,
+ []
 
 
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 298.
+(biblatex)                at entry 'alwen2023fork' on input line 292.
 
 
 Package biblatex Warning: Bibliography string 'in' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 298.
+(biblatex)                at entry 'alwen2023fork' on input line 292.
 
 
 Package biblatex Warning: Using fallback definition for \mkbibdatelong.
@@ -2375,10 +2345,10 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 
 
 Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 298.
+(biblatex)                at entry 'alwen2023fork' on input line 292.
 
 
-Underfull \hbox (badness 1616) in paragraph at lines 299--299
+Underfull \hbox (badness 1616) in paragraph at lines 293--293
 \T5/ptm/m/n/13 Group Key Agreement,'' []\T5/ptm/m/it/13 Advances in Cryptology 
 -- CRYPTO 2023
  []
@@ -2391,20 +2361,16 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 (biblatex)                for \mkbibdatelong.
 
 
+Package biblatex Warning: Bibliography string 'october' untranslated
+(biblatex)                at entry 'kohbrok2025dmls' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'url' untranslated
+(biblatex)                at entry 'kohbrok2025dmls' on input line 292.
+
+
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'jourvol' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'number' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 298.
+(biblatex)                at entry 'balbas2023senderkeys' on input line 292.
 
 
 Package biblatex Warning: Using fallback definition for \mkbibdatelong.
@@ -2414,14 +2380,112 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 (biblatex)                for \mkbibdatelong.
 
 
-Underfull \hbox (badness 1354) in paragraph at lines 299--299
+Package biblatex Warning: Bibliography string 'url' untranslated
+(biblatex)                at entry 'balbas2023senderkeys' on input line 292.
+
+
+Underfull \hbox (badness 2961) in paragraph at lines 293--293
+[]\T5/ptm/m/n/13 D. Balb°s, D. Collins [] P. Gajland, \T5/ptm/m/it/13 Analysis 
+and Improvements
+ []
+
+
+Underfull \hbox (badness 3128) in paragraph at lines 293--293
+\T5/ptm/m/it/13 of the Sender Keys Protocol for Group Messaging\T5/ptm/m/n/13 ,
+ arXiv preprint
+ []
+
+
+Package biblatex Warning: Bibliography string 'and' untranslated
+(biblatex)                at entry 'ginesin2024matrix' on input line 292.
+
+
+Package biblatex Warning: Using fallback definition for \mkbibdatelong.
+(biblatex)                The command should be defined in the .lbx file.
+(biblatex)                If you see this message, the .lbx file could not be
+(biblatex)                loaded, is faulty or does not contain a definition
+(biblatex)                for \mkbibdatelong.
+
+
+Package biblatex Warning: Bibliography string 'url' untranslated
+(biblatex)                at entry 'ginesin2024matrix' on input line 292.
+
+
+Underfull \hbox (badness 1231) in paragraph at lines 293--293
+[]\T5/ptm/m/n/13 J. Ginesin [] C. Nita-Rotaru, \T5/ptm/m/it/13 The Matrix Reloa
+ded: A Mechanized
+ []
+
+
+Underfull \hbox (badness 3271) in paragraph at lines 293--293
+\T5/ptm/m/it/13 Formal Analysis of the Matrix Cryptographic Suite\T5/ptm/m/n/13
+ , arXiv preprint
+ []
+
+
+Package biblatex Warning: Bibliography string 'and' untranslated
+(biblatex)                at entry 'gilbert2002brewers' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'jourvol' untranslated
+(biblatex)                at entry 'gilbert2002brewers' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'number' untranslated
+(biblatex)                at entry 'gilbert2002brewers' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'pages' untranslated
+(biblatex)                at entry 'gilbert2002brewers' on input line 292.
+
+
+Package biblatex Warning: Using fallback definition for \mkbibdatelong.
+(biblatex)                The command should be defined in the .lbx file.
+(biblatex)                If you see this message, the .lbx file could not be
+(biblatex)                loaded, is faulty or does not contain a definition
+(biblatex)                for \mkbibdatelong.
+
+
+Underfull \hbox (badness 1354) in paragraph at lines 293--293
 \T5/ptm/m/n/13 Consistent, Available, Partition-Tolerant Web Services,'' \T5/pt
 m/m/it/13 ACM SIGACT
  []
 
+[62
+
+]
+
+Package biblatex Warning: Bibliography string 'url' untranslated
+(biblatex)                at entry 'libp2p2026doc' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'jourvol' untranslated
+(biblatex)                at entry 'lamport1978' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'number' untranslated
+(biblatex)                at entry 'lamport1978' on input line 292.
+
+
+Package biblatex Warning: Bibliography string 'pages' untranslated
+(biblatex)                at entry 'lamport1978' on input line 292.
+
+
+Package biblatex Warning: Using fallback definition for \mkbibdatelong.
+(biblatex)                The command should be defined in the .lbx file.
+(biblatex)                If you see this message, the .lbx file could not be
+(biblatex)                loaded, is faulty or does not contain a definition
+(biblatex)                for \mkbibdatelong.
+
+
+Overfull \hbox (9.20186pt too wide) in paragraph at lines 293--293
+\T5/ptm/m/n/13 System,'' \T5/ptm/m/it/13 Communications of the ACM\T5/ptm/m/n/1
+3 , [] 21, [] 7, [] 558^^U565,
+ []
+
 
 Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'kulkarni2014hlc' on input line 298.
+(biblatex)                at entry 'kulkarni2014hlc' on input line 292.
 
 
 Package biblatex Warning: Using fallback definition for \mkbibdatelong.
@@ -2432,113 +2496,15 @@ Package biblatex Warning: Using fallback definition for \mkbibdatelong.
 
 
 Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'kulkarni2014hlc' on input line 298.
+(biblatex)                at entry 'kulkarni2014hlc' on input line 292.
 
 
-Underfull \hbox (badness 3884) in paragraph at lines 299--299
+Underfull \hbox (badness 3884) in paragraph at lines 293--293
 \T5/ptm/m/n/13 Databases,'' University at Buffalo, techreport, 2014. []: []$\T5
 /pcr/m/n/13 https :
  []
 
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'libp2p2026doc' on input line 298.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'october' untranslated
-(biblatex)                at entry 'kohbrok2025dmls' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'kohbrok2025dmls' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'scott2013sdn' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'in' untranslated
-(biblatex)                at entry 'scott2013sdn' on input line 298.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'scott2013sdn' on input line 298.
-
-[74
-
-]
-
-Package biblatex Warning: Bibliography string 'andothers' untranslated
-(biblatex)                at entry 'ashton2009internet' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'jourvol' untranslated
-(biblatex)                at entry 'ashton2009internet' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'number' untranslated
-(biblatex)                at entry 'ashton2009internet' on input line 298.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'ashton2009internet' on input line 298.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-[75] [76
-
-]
-PH·ª§ L·ª§C A.
-(Chuong/Phu_luc_A.tex [77
-
-] [78]
-<Hinh_ve/IoT.png, id=1433, 931.48pt x 523.9575pt>
-File: Hinh_ve/IoT.png Graphic file (type png)
-<use Hinh_ve/IoT.png>
-Package pdftex.def Info: Hinh_ve/IoT.png  used on input line 81.
-(pdftex.def)             Requested size: 320.0935pt x 180.05399pt.
- [79 <./Hinh_ve/IoT.png>]
-<Hinh_ve/Bia.PNG, id=1447, 313.77225pt x 331.83975pt>
-File: Hinh_ve/Bia.PNG Graphic file (type png)
-<use Hinh_ve/Bia.PNG>
-Package pdftex.def Info: Hinh_ve/Bia.PNG  used on input line 114.
-(pdftex.def)             Requested size: 213.39568pt x 225.68349pt.
-<Hinh_ve/GayBia.PNG, id=1448, 420.97275pt x 479.99326pt>
-File: Hinh_ve/GayBia.PNG Graphic file (type png)
-<use Hinh_ve/GayBia.PNG>
-Package pdftex.def Info: Hinh_ve/GayBia.PNG  used on input line 126.
-(pdftex.def)             Requested size: 213.39568pt x 243.31384pt.
-) [80] [81 <./Hinh_ve/Bia.PNG> <./Hinh_ve/GayBia.PNG>]
-PH·ª§ L·ª§C B.
-(Chuong/Phu_luc_B.tex) [82
-
-] (DoAn.aux)
+[63] (DoAn.aux)
  ***********
 LaTeX2e <2026-06-01>
 L3 programming layer <2026-05-26>
@@ -2551,11 +2517,8 @@ LaTeX Font Warning: Size substitutions with differences
 
 LaTeX Warning: There were undefined references.
 
-
-LaTeX Warning: There were multiply-defined labels.
-
 Package rerunfilecheck Info: File `DoAn.out' has not changed.
-(rerunfilecheck)             Checksum: 0E5633923B7D566B5D180908F23CFD48;32419.
+(rerunfilecheck)             Checksum: 8064CA2EB1CDB3B3FC9435DE406338FB;26460.
 
 Package biblatex Warning: Please (re)run BibTeX on the file(s):
 (biblatex)                DoAn
@@ -2566,40 +2529,33 @@ Package logreq Info: Writing requests to 'DoAn.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 47271 strings out of 467509
- 931330 string characters out of 5405379
- 1906609 words of memory out of 5000000
- 75388 multiletter control sequences out of 15000+600000
- 706922 words of font info for 129 fonts, out of 8000000 for 9000
+ 46645 strings out of 467509
+ 919648 string characters out of 5405379
+ 1896956 words of memory out of 5000000
+ 74838 multiletter control sequences out of 15000+600000
+ 690439 words of font info for 112 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  108i,15n,107p,2507b,2419s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
-nts/cm/cmex10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/ty
-pe1/public/amsfonts/cm/cmmi10.pfb><C:/Users/tiendung2306/AppData/Local/Programs
-/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi12.pfb><C:/Users/tiendung2306/AppDat
-a/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi6.pfb><C:/Users/tien
-dung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb
-><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfon
-ts/cm/cmmi9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type
-1/public/amsfonts/cm/cmr12.pfb><C:/Users/tiendung2306/AppData/Local/Programs/Mi
-KTeX/fonts/type1/public/amsfonts/cm/cmr6.pfb><C:/Users/tiendung2306/AppData/Loc
-al/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C:/Users/tiendung23
-06/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr9.pfb><C:/Us
-ers/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/c
-msy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/publ
-ic/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/f
-onts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs
-/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiendung2306/AppData/Local
-/Programs/MiKTeX/fonts/type1/vntex/urwvn/uhvb8v.pfb><C:/Users/tiendung2306/AppD
-ata/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Users/tiendung
-2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.pfb><C:/User
-s/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmr8a.pfb><
-C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utm
-r8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/
-urwvn/utmri8v.pfb>
-Output written on DoAn.pdf (96 pages, 2601887 bytes).
+nts/cm/cmmi10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/ty
+pe1/public/amsfonts/cm/cmmi12.pfb><C:/Users/tiendung2306/AppData/Local/Programs
+/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/tiendung2306/AppData
+/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi9.pfb><C:/Users/tiend
+ung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb>
+<C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfont
+s/cm/cmr9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/
+public/amsfonts/cm/cmsy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiK
+TeX/fonts/type1/public/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Loc
+al/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/Ap
+pData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiendu
+ng2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Use
+rs/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.p
+fb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn
+/utmr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vn
+tex/urwvn/utmri8v.pfb>
+Output written on DoAn.pdf (76 pages, 2511924 bytes).
 PDF statistics:
- 1623 PDF objects out of 1728 (max. 8388607)
- 328 named destinations out of 1000 (max. 500000)
- 1096 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 1360 PDF objects out of 1440 (max. 8388607)
+ 273 named destinations out of 1000 (max. 500000)
+ 886 words of extra memory for PDF output out of 10000 (max. 10000000)
 

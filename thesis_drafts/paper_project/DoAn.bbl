@@ -131,6 +131,53 @@
     \field{year}{2025}
   \endentry
 
+  \entry{localfirst2019}{inproceedings}{}{}
+    \name{author}{4}{}{%
+      {{hash=KM}{%
+         family={Kleppmann},
+         familyi={K\bibinitperiod},
+         given={Martin},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=WA}{%
+         family={Wiggins},
+         familyi={W\bibinitperiod},
+         given={Adam},
+         giveni={A\bibinitperiod},
+      }}%
+      {{hash=vHP}{%
+         prefix={van},
+         prefixi={v\bibinitperiod},
+         family={Hardenberg},
+         familyi={H\bibinitperiod},
+         given={Peter},
+         giveni={P\bibinitperiod},
+      }}%
+      {{hash=MM}{%
+         family={McGranaghan},
+         familyi={M\bibinitperiod},
+         given={Mark},
+         giveni={M\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{KM+1}
+    \strng{fullhash}{KMWAHPvMM1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{booktitle}{Proceedings of the ACM SIGPLAN International Symposium on
+  New Ideas, New Paradigms, and Reflections on Programming and Software}
+    \verb{doi}
+    \verb 10.1145/3359591.3359737
+    \endverb
+    \field{series}{Onward! '19}
+    \field{title}{Local-first software: You own your data, in spite of the
+  cloud}
+    \verb{url}
+    \verb https://martin.kleppmann.com/2019/10/23/local-first-at-onward.html
+    \endverb
+    \field{year}{2019}
+  \endentry
+
   \entry{perrin2025doubleratchet}{misc}{}{}
     \name{author}{3}{}{%
       {{hash=PT}{%
@@ -148,7 +195,7 @@
       {{hash=SR}{%
          family={Schmidt},
          familyi={S\bibinitperiod},
-         given={R.},
+         given={Rolfe},
          giveni={R\bibinitperiod},
       }}%
     }
@@ -157,44 +204,12 @@
     \field{labelnamesource}{author}
     \field{labeltitlesource}{title}
     \field{howpublished}{Signal Specifications, Revision 4}
+    \field{note}{Published 2025-11-04}
     \field{title}{The Double Ratchet Algorithm}
     \verb{url}
     \verb https://signal.org/docs/specifications/doubleratchet/
     \endverb
     \field{year}{2025}
-  \endentry
-
-  \entry{whatsapp2026encryption}{misc}{}{}
-    \name{author}{1}{}{%
-      {{hash=W}{%
-         family={{WhatsApp}},
-         familyi={W\bibinitperiod},
-      }}%
-    }
-    \strng{namehash}{W1}
-    \strng{fullhash}{W1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{howpublished}{Whitepaper}
-    \field{title}{WhatsApp Encryption Overview}
-    \field{year}{2026}
-    \warn{\item Invalid format of field 'month'}
-  \endentry
-
-  \entry{matrix2026megolm}{misc}{}{}
-    \name{author}{1}{}{%
-      {{hash=M}{%
-         family={{Matrix.org}},
-         familyi={M\bibinitperiod},
-      }}%
-    }
-    \strng{namehash}{M1}
-    \strng{fullhash}{M1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{howpublished}{Matrix Specification, version 1.18}
-    \field{title}{Megolm group ratchet}
-    \field{year}{2026}
   \endentry
 
   \entry{alwen2023fork}{inproceedings}{}{}
@@ -231,7 +246,7 @@
     \field{year}{2023}
   \endentry
 
-  \entry{kohbrok2023dmls}{misc}{}{}
+  \entry{kohbrok2025dmls}{misc}{}{}
     \name{author}{1}{}{%
       {{hash=KK}{%
          family={Kohbrok},
@@ -244,10 +259,83 @@
     \strng{fullhash}{KK1}
     \field{labelnamesource}{author}
     \field{labeltitlesource}{title}
-    \field{howpublished}{IETF Internet-Draft}
-    \field{note}{Work in progress}
-    \field{title}{Decentralized Messaging Layer Security}
+    \field{howpublished}{Internet-Draft draft-kohbrok-mls-dmls-03}
+    \field{note}{Expired Internet-Draft, work in progress}
+    \field{title}{{Decentralized Messaging Layer Security}}
+    \verb{url}
+    \verb https://datatracker.ietf.org/doc/draft-kohbrok-mls-dmls/
+    \endverb
+    \field{month}{10}
+    \field{year}{2025}
+  \endentry
+
+  \entry{balbas2023senderkeys}{misc}{}{}
+    \name{author}{3}{}{%
+      {{hash=BD}{%
+         family={Balb{\'a}s},
+         familyi={B\bibinitperiod},
+         given={David},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=CD}{%
+         family={Collins},
+         familyi={C\bibinitperiod},
+         given={Daniel},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=GP}{%
+         family={Gajland},
+         familyi={G\bibinitperiod},
+         given={Phillip},
+         giveni={P\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{BD+1}
+    \strng{fullhash}{BDCDGP1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.48550/arXiv.2301.07045
+    \endverb
+    \field{howpublished}{arXiv preprint arXiv:2301.07045}
+    \field{note}{Appears in RECSI 2022}
+    \field{title}{Analysis and Improvements of the Sender Keys Protocol for
+  Group Messaging}
+    \verb{url}
+    \verb https://arxiv.org/abs/2301.07045
+    \endverb
     \field{year}{2023}
+  \endentry
+
+  \entry{ginesin2024matrix}{misc}{}{}
+    \name{author}{2}{}{%
+      {{hash=GJ}{%
+         family={Ginesin},
+         familyi={G\bibinitperiod},
+         given={Jacob},
+         giveni={J\bibinitperiod},
+      }}%
+      {{hash=NRC}{%
+         family={Nita-Rotaru},
+         familyi={N\bibinithyphendelim R\bibinitperiod},
+         given={Cristina},
+         giveni={C\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{GJNRC1}
+    \strng{fullhash}{GJNRC1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.48550/arXiv.2408.12743
+    \endverb
+    \field{howpublished}{arXiv preprint arXiv:2408.12743}
+    \field{title}{The Matrix Reloaded: A Mechanized Formal Analysis of the
+  Matrix Cryptographic Suite}
+    \verb{url}
+    \verb https://arxiv.org/abs/2408.12743
+    \endverb
+    \field{year}{2024}
   \endentry
 
   \entry{gilbert2002brewers}{article}{}{}
@@ -279,6 +367,50 @@
     \field{volume}{33}
     \field{journaltitle}{ACM SIGACT News}
     \field{year}{2002}
+  \endentry
+
+  \entry{libp2p2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=l}{%
+         family={{libp2p}},
+         familyi={l\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{l1}
+    \strng{fullhash}{l1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{note}{Accessed 2026-06-12}
+    \field{title}{libp2p Concepts Documentation}
+    \verb{url}
+    \verb https://docs.libp2p.io/concepts/
+    \endverb
+  \endentry
+
+  \entry{lamport1978}{article}{}{}
+    \name{author}{1}{}{%
+      {{hash=LL}{%
+         family={Lamport},
+         familyi={L\bibinitperiod},
+         given={Leslie},
+         giveni={L\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{LL1}
+    \strng{fullhash}{LL1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.1145/359545.359563
+    \endverb
+    \field{number}{7}
+    \field{pages}{558\bibrangedash 565}
+    \field{title}{Time, Clocks, and the Ordering of Events in a Distributed
+  System}
+    \field{volume}{21}
+    \field{journaltitle}{Communications of the ACM}
+    \field{year}{1978}
   \endentry
 
   \entry{kulkarni2014hlc}{report}{}{}
@@ -328,109 +460,6 @@
     }
     \field{type}{techreport}
     \field{year}{2014}
-  \endentry
-
-  \entry{libp2p2026doc}{misc}{}{}
-    \name{author}{1}{}{%
-      {{hash=l}{%
-         family={{libp2p Project}},
-         familyi={l\bibinitperiod},
-      }}%
-    }
-    \strng{namehash}{l1}
-    \strng{fullhash}{l1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{howpublished}{Online Documentation}
-    \field{title}{libp2p Documentation: Concepts, PubSub, Peer Discovery, NAT
-  Traversal}
-    \verb{url}
-    \verb https://docs.libp2p.io
-    \endverb
-    \field{year}{2026}
-  \endentry
-
-  \entry{kohbrok2025dmls}{misc}{}{}
-    \name{author}{1}{}{%
-      {{hash=KK}{%
-         family={Kohbrok},
-         familyi={K\bibinitperiod},
-         given={Konrad},
-         giveni={K\bibinitperiod},
-      }}%
-    }
-    \strng{namehash}{KK1}
-    \strng{fullhash}{KK1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{howpublished}{Internet-Draft draft-kohbrok-mls-dmls-03}
-    \field{note}{Expired Internet-Draft, work in progress}
-    \field{title}{{Decentralized Messaging Layer Security}}
-    \verb{url}
-    \verb https://datatracker.ietf.org/doc/draft-kohbrok-mls-dmls/
-    \endverb
-    \field{month}{10}
-    \field{year}{2025}
-  \endentry
-
-  \entry{scott2013sdn}{inproceedings}{}{}
-    \name{author}{3}{}{%
-      {{hash=SHS}{%
-         family={Scott-Hayward},
-         familyi={S\bibinithyphendelim H\bibinitperiod},
-         given={Sandra},
-         giveni={S\bibinitperiod},
-      }}%
-      {{hash=OG}{%
-         family={O'Callaghan},
-         familyi={O\bibinitperiod},
-         given={Gemma},
-         giveni={G\bibinitperiod},
-      }}%
-      {{hash=SS}{%
-         family={Sezer},
-         familyi={S\bibinitperiod},
-         given={Sakir},
-         giveni={S\bibinitperiod},
-      }}%
-    }
-    \list{organization}{1}{%
-      {IEEE}%
-    }
-    \strng{namehash}{SHS+1}
-    \strng{fullhash}{SHSOGSS1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{booktitle}{2013 IEEE SDN For Future Networks and Services (SDN4FNS)}
-    \field{pages}{1\bibrangedash 7}
-    \field{title}{SDN security: A survey}
-    \field{year}{2013}
-  \endentry
-
-  \entry{ashton2009internet}{article}{}{}
-    \true{moreauthor}
-    \true{morelabelname}
-    \name{author}{1}{}{%
-      {{hash=AK}{%
-         family={Ashton},
-         familyi={A\bibinitperiod},
-         given={Kevin},
-         giveni={K\bibinitperiod},
-      }}%
-    }
-    \list{publisher}{1}{%
-      {Hauppauge, New York}%
-    }
-    \strng{namehash}{AK+1}
-    \strng{fullhash}{AK+1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \field{number}{7}
-    \field{pages}{97\bibrangedash 114}
-    \field{title}{That ‘internet of things’ thing}
-    \field{volume}{22}
-    \field{journaltitle}{RFID journal}
-    \field{year}{2009}
   \endentry
 \enddatalist
 \endinput

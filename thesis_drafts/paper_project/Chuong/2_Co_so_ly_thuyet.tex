@@ -1,21 +1,22 @@
 \documentclass[../DoAn.tex]{subfiles}
 \begin{document}
 
-Chương 1 đã trình bày bối cảnh, động lực và mục tiêu của đề tài: xây dựng một lớp điều phối phi tập trung nhằm hỗ trợ vận hành Messaging Layer Security (MLS) trên môi trường mạng ngang hàng. Để làm rõ cơ sở khoa học cho hướng tiếp cận này, Chương 2 tập trung trình bày các nền tảng lý thuyết cốt lõi của đề tài, bao gồm bài toán nhất quán trạng thái mật mã trong hệ phân tán, các hướng nghiên cứu liên quan, cơ chế hoạt động của MLS và TreeKEM, cùng các đặc tính của mạng ngang hàng phi tập trung.
+Chương 1 đã trình bày bối cảnh, mục tiêu và định hướng chung của đề tài. Tiếp nối phần mở đầu đó, Chương 2 tập trung làm rõ nền tảng lý thuyết cần thiết cho bài toán vận hành MLS trên mạng ngang hàng. Trọng tâm của chương không phải là liệt kê thật nhiều kiến thức rời rạc, mà là chỉ ra mối liên hệ giữa ba lớp vấn đề: lõi mật mã của MLS, đặc tính bất đồng bộ của mạng P2P và yêu cầu duy trì một trạng thái nhóm nhất quán.
 
-Nội dung chương được tổ chức thành bốn phần chính. Mục 2.1 phân tích ngữ cảnh bài toán và chỉ ra vì sao việc đưa MLS lên mạng ngang hàng không chỉ là một bài toán truyền thông, mà là một bài toán nhất quán trạng thái mật mã. Mục 2.2 tổng hợp các kết quả nghiên cứu và giải pháp liên quan, từ các mô hình Sender Keys, Megolm đến MLS tập trung, DMLS và các hướng dựa trên đồng thuận phân tán. Mục 2.3 trình bày nền tảng MLS và TreeKEM, đặc biệt là khái niệm Epoch, Proposal, Commit, Delivery Service và bài toán tuần tự hóa thay đổi trạng thái. Mục 2.4 trình bày nền tảng mạng ngang hàng, go-libp2p, GossipSub và vai trò của đồng hồ logic trong việc sắp xếp thông điệp ứng dụng.
+Nội dung chương được tổ chức thành bốn phần. Trước hết, chương phân tích ngữ cảnh bài toán để làm rõ vì sao khi đưa MLS từ mô hình có máy chủ trung tâm sang mô hình ngang hàng, khó khăn lớn nhất không nằm ở việc truyền tin mà nằm ở việc giữ cho các thành viên cùng đi trên một chuỗi trạng thái mật mã hợp lệ. Tiếp theo, chương khảo sát các hướng nghiên cứu liên quan nhằm chỉ ra ưu điểm, giới hạn và khoảng trống còn lại. Sau đó, chương trình bày các kiến thức nền tảng quan trọng nhất của MLS và TreeKEM. Cuối cùng, chương giới thiệu ngắn gọn những đặc tính của mạng ngang hàng, cơ chế phát tán thông điệp và công cụ hỗ trợ sắp xếp thông điệp ứng dụng trong hệ phân tán.
 
 \section{Ngữ cảnh của bài toán: nhất quán trạng thái mật mã trong hệ phân tán}
 \label{sec:ngu-canh-bai-toan}
 
-Trong các hệ thống phân tán thông thường, nhất quán trạng thái là bài toán đảm bảo nhiều nút mạng cùng quan sát và cập nhật dữ liệu theo một quy tắc thống nhất. Đối với hệ thống nhắn tin mã hóa đầu-cuối nhóm, bài toán này trở nên phức tạp hơn vì trạng thái cần nhất quán không chỉ là dữ liệu ứng dụng, mà còn là trạng thái mật mã dùng để sinh khóa mã hóa, xác thực thành viên và bảo vệ lịch sử hội thoại.
+Trong hệ phân tán nói chung, bài toán nhất quán trạng thái nhằm bảo đảm nhiều nút cùng hiểu và cùng cập nhật dữ liệu theo một quy tắc thống nhất. Đối với hệ thống nhắn tin nhóm được mã hóa đầu cuối, trạng thái cần được giữ nhất quán không chỉ là dữ liệu ứng dụng, mà còn là trạng thái mật mã dùng để sinh khóa, xác thực thành viên và ràng buộc lịch sử hội thoại \cite{rfc9420,rfc9750}. Vì vậy, nếu các nút không còn cùng nhìn thấy một trạng thái mật mã chung, khả năng giao tiếp của nhóm sẽ bị ảnh hưởng trực tiếp.
 
-MLS biểu diễn một nhóm bằng một trạng thái mật mã tiến hóa qua các kỷ nguyên, gọi là Epoch. Mỗi Epoch tương ứng với một tập thành viên hợp lệ và một tập bí mật nhóm được chia sẻ giữa các thành viên đó. Khi nhóm thay đổi thành viên hoặc khi thành viên cập nhật khóa, trạng thái nhóm phải chuyển từ Epoch hiện tại sang Epoch mới. Nếu tất cả thành viên cùng áp dụng một thay đổi theo cùng một thứ tự, nhóm tiếp tục duy trì khả năng giao tiếp. Ngược lại, nếu các thành viên áp dụng các thay đổi khác nhau hoặc áp dụng cùng các thay đổi theo thứ tự không tương thích, nhóm có thể rơi vào trạng thái phân nhánh mật mã.
+Trong MLS, trạng thái nhóm tiến hóa theo các kỷ nguyên, gọi là epoch. Có thể hiểu mỗi epoch là một phiên bản cụ thể của nhóm, trong đó tập thành viên hợp lệ cùng chia sẻ một bộ bí mật tương ứng. Khi nhóm thêm thành viên, loại bỏ thành viên hoặc cập nhật khóa, trạng thái này phải chuyển sang epoch mới. Nếu tất cả thành viên cùng áp dụng các thay đổi theo cùng một thứ tự, nhóm tiếp tục hoạt động bình thường. Ngược lại, nếu các thay đổi được áp dụng theo những thứ tự khác nhau, các thành viên có thể dần tách khỏi nhau về mặt mật mã \cite{rfc9420,alwen2023fork}.
 
-Hiện tượng này được gọi là rẽ nhánh trạng thái mật mã (Cryptographic State Fork). Đây là tình huống trong đó hai tập thành viên cùng tin rằng mình đang ở Epoch hợp lệ tiếp theo của cùng một nhóm, nhưng thực tế lại nắm giữ các bí mật (secrets), hàm băm cây (tree hash) và lịch sử giao tiếp (transcript hash) khác nhau. Khi đó, thông điệp được mã hóa trên một nhánh sẽ không thể được xử lý hợp lệ trên nhánh còn lại. Khác với xung đột dữ liệu thông thường trong hệ phân tán, xung đột trạng thái mật mã không thể được giải quyết đơn giản bằng cách ``merge'' hai phiên bản dữ liệu, vì mỗi nhánh đã phát sinh một chuỗi khóa và xác thực riêng. Hiện tượng rẽ nhánh trạng thái mật mã này được minh họa chi tiết trong Hình \ref{fig:cryptographic_state_fork}.
+Hiện tượng đó được gọi là rẽ nhánh trạng thái mật mã (Cryptographic State Fork). Đây là tình huống trong đó các nút vẫn nghĩ rằng mình thuộc cùng một nhóm, thậm chí có thể cùng nhìn thấy cùng số epoch, nhưng thực tế lại đang nắm giữ các bí mật nhóm, hàm băm cây (tree hash) hoặc lịch sử bắt tay (transcript hash) khác nhau. Khi đó, thông điệp được tạo trên một nhánh không còn được xử lý hợp lệ trên nhánh còn lại. Khác với xung đột dữ liệu thông thường, trạng thái mật mã đã rẽ nhánh không thể được ghép lại bằng cách trộn hai phiên bản dữ liệu, vì mỗi nhánh đã sinh ra một chuỗi khóa và một lịch sử xác thực riêng \cite{rfc9420,alwen2023fork,kohbrok2025dmls}. Hiện tượng này được minh họa trong Hình \ref{fig:cryptographic_state_fork}.
 
 \begin{figure}[htbp]
 \centering
+\resizebox{0.95\textwidth}{!}{%
 \begin{tikzpicture}[
     font=\small,
     >=Latex,
@@ -48,13 +49,11 @@ Hiện tượng này được gọi là rẽ nhánh trạng thái mật mã (Cry
     arrow/.style={->, thick}
 ]
 
-% Top state
 \node[box] (epochE) {
     \textbf{Epoch $E$}\\
     Trạng thái nhóm chung $S_E$
 };
 
-% Concurrent commits
 \node[smallbox, below left=1.4cm and 1.8cm of epochE] (commitA) {
     Commit của nút $A$\\
     (dựa trên $S_E$)
@@ -65,7 +64,6 @@ Hiện tượng này được gọi là rẽ nhánh trạng thái mật mã (Cry
     (dựa trên $S_E$)
 };
 
-% Forked states
 \node[box, below=1.2cm of commitA] (branchA) {
     \textbf{Nhánh A}\\
     Epoch $E+1$\\
@@ -80,241 +78,126 @@ Hiện tượng này được gọi là rẽ nhánh trạng thái mật mã (Cry
     Transcript Hash: $H_B$
 };
 
-% Final note
 \node[note, below=1.8cm of $(branchA)!0.5!(branchB)$] (result) {
-    \textbf{Cryptographic State Fork}\\[1mm]
-    Mặc dù cả hai nhánh đều mang số Epoch $E+1$, trạng thái mật mã của chúng khác nhau
-    ($TH_A \neq TH_B$, $H_A \neq H_B$). Vì vậy, các nút ở hai nhánh không còn chia sẻ
-    cùng một MLS group state và không thể xử lý hợp lệ các thông điệp handshake hoặc
-    application của nhau.
+    \textbf{Rẽ nhánh trạng thái mật mã}\\[1mm]
+    Hai nhánh cùng mang số Epoch $E+1$ nhưng không còn cùng trạng thái MLS, vì vậy
+    các nút ở hai nhánh không thể xử lý hợp lệ thông điệp của nhau.
 };
 
-% Arrows
 \draw[arrow] (epochE.south) -- node[left, pos=0.45] {\scriptsize đồng thời} (commitA.north);
 \draw[arrow] (epochE.south) -- node[right, pos=0.45] {\scriptsize đồng thời} (commitB.north);
-
 \draw[arrow] (commitA.south) -- (branchA.north);
 \draw[arrow] (commitB.south) -- (branchB.north);
-
 \draw[arrow] (branchA.south) -- ++(0,-0.5) -| (result.north west);
 \draw[arrow] (branchB.south) -- ++(0,-0.5) -| (result.north east);
 
 \end{tikzpicture}
+}
 \caption{Minh họa hiện tượng rẽ nhánh trạng thái mật mã trong MLS}
 \label{fig:cryptographic_state_fork}
 \end{figure}
 
-\subsection{Từ mô hình tập trung sang mô hình ngang hàng}
+Trong các triển khai thông thường của MLS, việc hạn chế rẽ nhánh được hỗ trợ bởi Delivery Service (DS), có thể hiểu là lớp dịch vụ tiếp nhận và phân phối các thông điệp MLS giữa các thiết bị \cite{rfc9750}. Trong môi trường có DS nhất quán mạnh, khi nhiều thành viên cùng tạo Commit ở cùng một epoch, hệ thống có một điểm tự nhiên để quyết định Commit nào được xử lý trước. Nhờ đó, các thay đổi trạng thái dễ được quan sát theo một thứ tự thống nhất hơn.
 
-Trong các hệ thống nhắn tin hiện đại, kể cả khi nội dung tin nhắn được mã hóa đầu-cuối, máy chủ trung tâm vẫn thường giữ vai trò quan trọng trong việc định tuyến, lưu trữ khóa công khai ban đầu, phân phối thông điệp và hỗ trợ thiết bị ngoại tuyến. Với MLS, vai trò này thường được mô hình hóa thông qua Delivery Service (DS) \cite{rfc9750}. Trong các triển khai thông thường, DS là nơi nhận thông điệp từ client, phân phối thông điệp tới các thành viên còn lại và có thể tham gia áp đặt thứ tự đối với các thông điệp thay đổi trạng thái nhóm.
+Khó khăn xuất hiện khi đưa MLS sang mạng ngang hàng. Trong môi trường P2P, thông điệp có thể đến chậm, đến sai thứ tự, bị lặp lại hoặc tạm thời không đến được do thiết bị ngoại tuyến hay do mạng bị chia cắt. Khi đó, không còn một thực thể trung tâm nào tự nhiên đứng ra sắp xếp thứ tự cho các Commit. Nói cách khác, MLS đòi hỏi chuỗi epoch tiến hóa gần như tuyến tính, trong khi mạng ngang hàng bất đồng bộ lại không tự cung cấp thứ tự tuyến tính toàn cục cho các thông điệp thay đổi trạng thái \cite{rfc9750,gilbert2002brewers}. Đây chính là mâu thuẫn cốt lõi của bài toán mà đồ án cần giải quyết.
 
-Mô hình tập trung giúp đơn giản hóa bài toán tuần tự hóa. Khi nhiều thành viên cùng gửi Commit tại cùng một Epoch, DS có thể đóng vai trò như một bộ sắp xếp thứ tự, quyết định Commit nào được chấp nhận trước và Commit nào trở thành dư thừa. Chính điểm này khiến MLS vận hành thuận lợi trong mô hình Client-Server: hệ thống có một vị trí tự nhiên để áp đặt thứ tự tuyến tính cho các thay đổi trạng thái.
-
-Khi chuyển sang mạng ngang hàng, điểm tựa này biến mất. Các nút mạng có thể gửi thông điệp trực tiếp hoặc gián tiếp qua nhiều đường truyền khác nhau. Độ trễ truyền tin không đồng đều, thông điệp có thể đến khác thứ tự, nút mạng có thể offline đột ngột và mạng có thể bị chia cắt thành nhiều phân vùng. Trong môi trường như vậy, không còn một máy chủ trung tâm hiển nhiên để quyết định đâu là Commit ``đến trước''. Đây là điểm gãy kiến trúc khi đưa MLS từ mô hình triển khai tập trung thông thường sang mô hình P2P phi tập trung.
-
-\subsection{Mô hình hệ thống và giả định nghiên cứu}
-
-Trong phạm vi đồ án, hệ thống được mô hình hóa như một mạng gồm nhiều nút ngang hàng, trong đó mỗi nút tương ứng với một thiết bị của người dùng. Các nút này có thể tham gia vào một hoặc nhiều nhóm liên lạc khác nhau. Mỗi nhóm được xác định bởi một định danh riêng, một tập thành viên hợp lệ và một trạng thái MLS được lưu cục bộ trên từng thiết bị. Thay vì phụ thuộc vào một máy chủ trung tâm luôn sẵn sàng để lưu trữ và phân phối toàn bộ thông điệp, các thiết bị trao đổi dữ liệu trực tiếp hoặc gián tiếp với nhau thông qua mạng ngang hàng.
-
-Đặc điểm quan trọng của môi trường này là các nút không luôn quan sát được cùng một trạng thái tại cùng một thời điểm. Một thông điệp có thể đến trễ, đến sai thứ tự, bị lặp lại hoặc tạm thời không đến được do điều kiện mạng. Một thiết bị cũng có thể rời mạng, quay trở lại sau một khoảng thời gian ngoại tuyến, hoặc chỉ nhìn thấy một phần các thành viên đang hoạt động. Những hiện tượng này là bình thường trong mạng P2P, nhưng lại trở thành vấn đề nghiêm trọng khi áp dụng cho MLS, vì mỗi thay đổi trạng thái nhóm đều gắn với một epoch và một trạng thái mật mã cụ thể.
-
-Do đó, đồ án tập trung vào bài toán điều phối trạng thái MLS trong môi trường P2P không ổn định. Các tình huống chính được xem xét bao gồm độ trễ mạng không đồng đều, thiết bị ngoại tuyến, peer churn và network partition. Mục tiêu của mô hình là phản ánh các điều kiện vận hành thực tế mà một ứng dụng liên lạc ngang hàng có thể gặp phải, từ đó làm cơ sở cho việc thiết kế các cơ chế như Single-Writer, Epoch Checks và Fork Healing ở các chương sau.
-
-Một giả định xuyên suốt của đồ án là MLS vẫn giữ vai trò lõi mật mã chuẩn của hệ thống. Đồ án không thay đổi thuật toán mã hóa, xác thực hay key schedule của MLS. Thay vào đó, phần đóng góp được đặt ở lớp điều phối phía trên MLS: kiểm soát thời điểm tạo Commit, kiểm tra epoch của thông điệp nhận được, phát hiện khi trạng thái nhóm bị phân nhánh và đưa các nút hội tụ trở lại sau khi mạng được kết nối. Cách tiếp cận này giúp hệ thống tận dụng được các bảo đảm mật mã của MLS/OpenMLS, đồng thời bổ sung những cơ chế cần thiết để vận hành trong môi trường mạng ngang hàng.
-
-
-\subsection{Mâu thuẫn cốt lõi của MLS trên mạng ngang hàng}
-
-Mâu thuẫn cốt lõi có thể được phát biểu như sau: MLS yêu cầu trạng thái nhóm tiến hóa theo chuỗi Epoch tuyến tính, trong khi mạng ngang hàng bất đồng bộ không tự cung cấp một thứ tự tuyến tính toàn cục cho các thông điệp thay đổi trạng thái. Khi hai thành viên cùng tạo Commit dựa trên Epoch $E$, mỗi Commit đều có thể là một ứng viên hợp lệ để đưa nhóm sang Epoch $E + 1$ nếu xét riêng tại thời điểm nó được tạo. Tuy nhiên, hai Commit này thường tạo ra hai trạng thái cây khác nhau. Nếu một phần nhóm áp dụng Commit thứ nhất, trong khi phần còn lại áp dụng Commit thứ hai, toàn nhóm sẽ phân kỳ.
-
-Trong mô hình tập trung, DS có thể xử lý xung đột bằng cách chỉ phát tán Commit thắng cuộc hoặc yêu cầu client chỉ chấp nhận Commit đầu tiên được DS xác nhận. Nhưng trong mô hình P2P, không có máy chủ trung tâm nào có quyền hòa giải việc đó. Do đó, nếu không có lớp điều phối bổ sung, MLS trên P2P có nguy cơ rơi vào trạng thái mà các nhánh khác nhau đều có vẻ hợp lệ cục bộ nhưng không thể giao tiếp liên nhánh.
-
-Đây chính là khoảng trống mà đồ án hướng tới: xây dựng một cơ chế điều phối phi tập trung để ảo hóa vai trò tuần tự hóa của DS, nhưng không đưa trở lại một máy chủ trung tâm và không sử dụng các thuật toán đồng thuận nặng nề cho mọi Commit.
+Trong phạm vi đồ án, hệ thống được xem như một mạng gồm nhiều thiết bị ngang hàng, mỗi thiết bị lưu cục bộ trạng thái MLS của các nhóm mà nó tham gia. Các tình huống được quan tâm gồm độ trễ mạng không đồng đều, thiết bị ngoại tuyến, sự biến động nút mạng và phân mảnh mạng. Mục tiêu của phần nghiên cứu không phải thay đổi các bảo đảm mật mã nền tảng của MLS, mà là tìm cách tổ chức việc điều phối ở tầng ứng dụng để các thiết bị vẫn có thể hội tụ trở lại một trạng thái nhóm hợp lệ sau những bất ổn của mạng.
 
 \section{Các kết quả nghiên cứu tương tự}
 \label{sec:nghien-cuu-lien-quan}
 
-Các nghiên cứu và hệ thống hiện có về mã hóa đầu-cuối nhóm có thể được nhìn từ góc độ phù hợp với bài toán của đồ án: cách hệ thống quản lý khóa nhóm, cách xử lý thay đổi thành viên, và đặc biệt là cách duy trì thứ tự các thay đổi trạng thái khi nhóm vận hành trong môi trường phân tán. Theo hướng tiếp cận này, các giải pháp liên quan có thể chia thành ba nhóm chính: các cơ chế mã hóa nhóm trước MLS như Sender Keys và Megolm, MLS trong mô hình có Delivery Service, và các nỗ lực đưa MLS sang môi trường phi tập trung.
+Các nghiên cứu liên quan có thể được nhìn từ ba hướng chính: các cơ chế nhắn tin nhóm xuất hiện trước MLS, MLS trong mô hình có Delivery Service và các nỗ lực đưa MLS sang môi trường phi tập trung. Việc phân chia theo hướng này giúp làm rõ vì sao đồ án không chọn lặp lại hoàn toàn một giải pháp có sẵn, mà cần một hướng tiếp cận riêng phù hợp hơn với mục tiêu P2P và Local-First.
 
 \subsection{Các cơ chế mã hóa nhóm trước MLS}
 
-Double Ratchet là nền tảng quan trọng của nhiều hệ thống nhắn tin bảo mật hiện đại, đặc biệt trong liên lạc hai bên. Khi mở rộng sang nhóm, một hướng phổ biến là sử dụng Sender Keys, trong đó mỗi thành viên tạo một khóa gửi tin riêng và phân phối khóa này cho các thành viên còn lại thông qua các kênh bảo mật hai bên \cite{perrin2025doubleratchet,whatsapp2026encryption}. Sau khi khóa gửi tin đã được phân phối, người gửi có thể mã hóa một thông điệp một lần, còn hạ tầng bên dưới chịu trách nhiệm phân phối bản mã tới các thành viên trong nhóm. Cách tiếp cận này có hiệu quả thực tiễn cao, nhưng chi phí cập nhật khóa và phục hồi sau thỏa hiệp vẫn tăng đáng kể khi nhóm lớn hoặc khi membership thay đổi thường xuyên.
+Trước khi MLS được chuẩn hóa, nhiều hệ thống nhắn tin nhóm đã mở rộng từ cơ chế bảo mật hai bên sang môi trường nhiều người tham gia. Một nền tảng quan trọng là Double Ratchet, vốn rất hiệu quả cho liên lạc hai bên \cite{perrin2025doubleratchet}. Khi đưa sang nhóm, một hướng phổ biến là để mỗi người gửi tự tạo một khóa gửi tin riêng, rồi phân phối khóa đó cho các thành viên còn lại qua các kênh bảo mật hai bên. Cách làm này thường được gọi là Sender Keys \cite{balbas2023senderkeys}. Sau khi khóa gửi tin đã được chia sẻ, người gửi chỉ cần mã hóa một lần cho mỗi thông điệp, còn hạ tầng bên dưới chịu trách nhiệm phát tán bản mã tới cả nhóm. Ưu điểm của hướng này là chi phí gửi tin thấp và triển khai tương đối thực dụng. Tuy nhiên, khi nhóm đông hoặc thay đổi thành viên thường xuyên, chi phí cập nhật khóa và phục hồi sau thỏa hiệp vẫn tăng đáng kể.
 
-Megolm, được sử dụng trong hệ sinh thái Matrix, cũng đi theo hướng tối ưu hiệu năng gửi tin nhóm. Cơ chế này sử dụng \textit{group ratchet}, cho phép một outbound session phục vụ nhiều thông điệp liên tiếp trong cùng một phòng trò chuyện \cite{matrix2026megolm}. Thiết kế này giúp giảm chi phí mã hóa và truyền thông, nhưng đánh đổi ở khả năng phục hồi sau khi session state bị compromise. Khi ratchet state của một session bị lộ, phạm vi thông điệp bị ảnh hưởng có thể kéo dài trong chính session đó cho đến khi hệ thống thiết lập session mới và phân phối lại khóa.
+Megolm trong hệ sinh thái Matrix cũng theo tinh thần tối ưu việc gửi tin nhóm \cite{ginesin2024matrix}. Có thể hiểu đơn giản rằng mỗi người gửi duy trì một phiên gửi ra (\textit{outbound session}), tức một trạng thái khóa được dùng liên tiếp để mã hóa nhiều tin nhắn trong cùng một phòng trò chuyện. Bên trong phiên đó, trạng thái khóa được cập nhật dần theo một cơ chế nhất định của nhóm (\textit{group ratchet}). Thiết kế này giúp việc gửi tin trong nhóm nhẹ hơn, nhưng điểm đổi lại là khả năng phục hồi sau thỏa hiệp không mạnh bằng những mô hình thay khóa nhóm chặt chẽ hơn. Nếu trạng thái của một phiên bị lộ, phạm vi thông điệp bị ảnh hưởng có thể kéo dài cho đến khi hệ thống tạo phiên mới và phân phối lại khóa.
 
-Nhìn chung, Sender Keys và Megolm là các thiết kế có giá trị thực tiễn lớn, nhưng chúng không trực tiếp giải quyết bài toán mà đồ án tập trung vào: duy trì một trạng thái khóa nhóm nhất quán khi nhiều thành viên có thể cùng thực hiện thay đổi nhóm trong môi trường P2P bất đồng bộ. Đây là lý do MLS trở thành nền tảng phù hợp hơn cho đề tài, vì MLS cung cấp một mô hình quản lý khóa nhóm có cấu trúc thông qua TreeKEM, Proposal, Commit và Epoch.
+Nhìn chung, Sender Keys và Megolm đều có giá trị thực tiễn cao đối với bài toán phát tán tin nhắn trong nhóm. Tuy nhiên, chúng không trực tiếp giải quyết bài toán mà đồ án quan tâm nhất, đó là duy trì một trạng thái nhóm nhất quán khi nhiều thiết bị có thể cùng thay đổi trạng thái trong môi trường P2P bất đồng bộ. Đây là lý do MLS trở thành nền tảng phù hợp hơn cho đề tài.
 
 \subsection{MLS với Delivery Service}
 
-MLS được chuẩn hóa nhằm cung cấp cơ chế thiết lập khóa nhóm bất đồng bộ, hiệu quả và có các thuộc tính bảo mật phù hợp cho truyền thông nhóm quy mô lớn \cite{rfc9420}. Thông qua cấu trúc TreeKEM, MLS cho phép cập nhật trạng thái khóa nhóm theo đường đi trong cây thay vì phân phối lại khóa theo cách tuyến tính tới toàn bộ thành viên. Đây là điểm khác biệt quan trọng so với các mô hình dựa trên việc mỗi sender tự quản lý khóa gửi tin riêng.
+MLS được chuẩn hóa để cung cấp cơ chế thiết lập khóa nhóm bất đồng bộ với các bảo đảm bảo mật mạnh hơn cho truyền thông nhóm quy mô lớn \cite{rfc9420}. Điểm quan trọng của MLS là nó không chỉ tối ưu việc gửi thông điệp, mà còn mô hình hóa rõ quá trình thay đổi thành viên và cập nhật khóa của cả nhóm thông qua các khái niệm như proposal, commit và epoch.
 
-Tuy nhiên, MLS không tự định nghĩa toàn bộ hệ thống nhắn tin. Trong kiến trúc MLS, Delivery Service thường đảm nhiệm việc lưu trữ KeyPackage, phân phối MLS messages và hỗ trợ quá trình truyền thông giữa các client \cite{rfc9750}. Với mô hình Delivery Service nhất quán mạnh, hệ thống còn có thể dựa vào DS để áp đặt một thứ tự tuyến tính cho các Commit. Khi hai thành viên cùng tạo Commit tại cùng một epoch, DS có thể đóng vai trò phá hòa, giúp toàn nhóm chỉ đi theo một chuỗi trạng thái thống nhất.
-
-Chính vai trò này làm cho MLS vận hành thuận lợi trong mô hình Client-Server, nhưng cũng tạo ra giới hạn khi chuyển sang P2P. Nếu loại bỏ DS trung tâm, hệ thống không chỉ mất một thành phần truyền tin, mà còn mất điểm điều phối thứ tự cho các Commit. Trong khi đó, thứ tự Commit lại là yếu tố sống còn đối với MLS, vì mỗi Commit tạo ra một epoch mới và một trạng thái mật mã mới. Do đó, đưa MLS lên mạng ngang hàng đòi hỏi một cơ chế thay thế vai trò ordering của DS ở tầng ứng dụng.
+Trong kiến trúc chuẩn của MLS, Delivery Service thường đảm nhiệm việc lưu trữ một số vật liệu khóa công khai ban đầu, phân phối thông điệp MLS và hỗ trợ quá trình truyền thông giữa các client \cite{rfc9750}. Nhờ có một đầu mối như vậy, hệ thống triển khai theo mô hình Client-Server có điều kiện thuận lợi hơn để quan sát các Commit theo một thứ tự đủ nhất quán. Vì thế, MLS hoạt động tự nhiên hơn trong môi trường có DS, nhưng khi bỏ đi điểm điều phối này thì bài toán ordering của Commit lập tức trở nên khó hơn nhiều.
 
 \subsection{Các hướng phi tập trung hóa MLS}
 
-Một hướng tiếp cận trực tiếp là bổ sung một lớp đồng thuận phân tán để thống nhất thứ tự Commit. Các cơ chế như BFT, blockchain hoặc quorum-based consensus có thể tạo ra một log tuyến tính cho các thay đổi trạng thái nhóm. Nếu mọi Commit đều được ghi vào cùng một log và được áp dụng theo cùng một thứ tự, hệ thống có thể tránh phân nhánh trạng thái. Tuy nhiên, cách tiếp cận này thường yêu cầu nhiều vòng trao đổi mạng, phụ thuộc vào quorum và tạo ra chi phí triển khai lớn. Với mục tiêu xây dựng một hệ thống P2P nhẹ, Local-First và có thể vận hành trong mạng nội bộ hoặc mạng không ổn định, việc duy trì đồng thuận nặng nề cho mọi Commit không phải lựa chọn phù hợp.
+Một hướng tiếp cận trực tiếp là bổ sung một lớp đồng thuận phân tán để thống nhất thứ tự Commit. Các cơ chế như BFT, blockchain hoặc đồng thuận dựa trên quorum có thể tạo ra một nhật ký tuyến tính chung cho các thay đổi trạng thái nhóm. Nếu mọi Commit đều được ghi vào cùng một chuỗi thứ tự, nguy cơ rẽ nhánh trạng thái sẽ giảm rõ rệt. Tuy nhiên, đổi lại là chi phí truyền thông cao, phụ thuộc vào quorum và độ phức tạp triển khai lớn. Với mục tiêu xây dựng một hệ thống P2P nhẹ, có thể vận hành trong mạng nội bộ hoặc mạng không ổn định, đây không phải lựa chọn phù hợp \cite{gilbert2002brewers,localfirst2019}.
 
-Một hướng khác là Decentralized MLS (DMLS) của Kohbrok. Khác với hướng dùng đồng thuận bên ngoài, DMLS mở rộng trực tiếp bản thân MLS để hỗ trợ xử lý Commit đến ngoài thứ tự trong môi trường không có thực thể trung tâm áp đặt ordering \cite{kohbrok2023dmls}. Hướng này cho phép client giữ lại một phần key material để xử lý các nhánh Commit khác nhau với mức ảnh hưởng tới Forward Secrecy thấp hơn so với việc giữ khóa cũ một cách thô sơ \cite{alwen2023fork}. Tuy nhiên, đặc trưng này cũng là điểm đánh đổi chính của DMLS: để xử lý out-of-order commits, client vẫn phải duy trì thêm trạng thái mật mã cũ hoặc trạng thái tạm thời, làm tăng độ phức tạp triển khai và làm giảm phần nào mức bảo vệ FS so với mô hình xóa khóa nghiêm ngặt của MLS gốc. Ngoài ra, DMLS hiện vẫn là một Internet-Draft đã hết hạn, chưa trở thành một chuẩn IETF hoàn chỉnh \cite{kohbrok2023dmls}.
+Một hướng khác là Decentralized MLS (DMLS) của Kohbrok, trong đó chính bản thân MLS được mở rộng để xử lý Commit đến ngoài thứ tự \cite{kohbrok2025dmls}. Về ý tưởng, client giữ lại thêm một phần vật liệu khóa hoặc trạng thái tạm thời để có thể xử lý những nhánh Commit khác nhau khi mạng phi tập trung không cung cấp ordering rõ ràng. Cách làm này cho thấy một hướng nghiên cứu đáng chú ý, nhưng đồng thời cũng làm tăng độ phức tạp triển khai và đặt ra thêm đánh đổi đối với Forward Secrecy \cite{alwen2023fork,kohbrok2025dmls}. Hơn nữa, hướng này hiện vẫn ở mức Internet-Draft, chưa trở thành chuẩn hoàn chỉnh.
 
-Từ các phân tích trên, đồ án lựa chọn một hướng tiếp cận khác: giữ nguyên lõi MLS và giải quyết bài toán ordering ở tầng điều phối phía trên. Cụ thể, đồ án đề xuất lớp điều phối gồm Single-Writer để hạn chế concurrent commits trong điều kiện mạng liên thông, Epoch Checks để ngăn client áp dụng thông điệp sai trạng thái, Fork Healing để phục hồi khi network partition tạo ra nhiều nhánh, và HLC Message Ordering để sắp xếp thông điệp ứng dụng trong cùng một epoch. Cách tiếp cận này không biến hệ thống thành một blockchain hay một hệ thống BFT đầy đủ, đồng thời cũng không yêu cầu sửa đổi key schedule của MLS. Đây là khoảng trống chính mà đồ án khai thác: một lớp điều phối đủ nhẹ cho P2P, nhưng vẫn đủ chặt để bảo vệ chuỗi trạng thái MLS.
+Từ các hướng trên có thể thấy khoảng trống còn lại nằm ở chỗ sau: cần một cơ chế đủ nhẹ để phù hợp với P2P, nhưng vẫn đủ chặt để giảm nguy cơ rẽ nhánh và hỗ trợ hệ thống hội tụ trở lại sau khi mạng bị chia cắt. Đó cũng là động lực trực tiếp cho hướng tiếp cận mà đồ án theo đuổi ở các chương sau.
 
 \section{Nền tảng MLS và TreeKEM}
 \label{sec:nen-tang-mls-treekem}
 
-\subsection{Các khái niệm cốt lõi: Client, Group, Member và Epoch}
+\subsection{Các khái niệm cốt lõi: client, group, member và epoch}
 
-Trong MLS \cite{rfc9420}, client là thực thể nắm giữ khóa mật mã và tham gia vào quá trình thiết lập trạng thái nhóm. Group là một tập logic gồm các client cùng chia sẻ một trạng thái mật mã tại một thời điểm. Member là client đang nằm trong trạng thái chia sẻ của group và có quyền truy cập các bí mật (secrets) của group. Epoch là một phiên bản cụ thể của trạng thái nhóm, trong đó tập thành viên hợp lệ cùng nắm giữ trạng thái mật mã tương ứng.
+Trong MLS, client là thực thể nắm giữ khóa mật mã và tham gia vào tiến trình thiết lập trạng thái nhóm. Group là một nhóm logic gồm các client cùng chia sẻ một trạng thái mật mã tại một thời điểm. Member là client đang thực sự nằm trong trạng thái chia sẻ đó và có quyền truy cập các bí mật của nhóm. Epoch, như đã trình bày ở trên, là một phiên bản cụ thể của trạng thái nhóm \cite{rfc9420}.
 
-Điểm quan trọng là trạng thái group trong MLS không phải một tập dữ liệu rời rạc có thể hợp nhất tùy ý. Nó là một chuỗi Epoch tuyến tính, trong đó mỗi Epoch phụ thuộc vào Epoch trước đó. Mỗi thay đổi thành viên hoặc cập nhật khóa làm phát sinh một Epoch mới. Vì vậy, tính đúng đắn của MLS phụ thuộc mạnh vào việc tất cả thành viên cùng nhìn nhận một chuỗi Epoch tương thích.
+Điểm quan trọng cần nhấn mạnh là trạng thái nhóm trong MLS không phải một tập dữ liệu rời rạc có thể ghép lại tùy ý. Nó là một chuỗi epoch nối tiếp nhau, trong đó mỗi epoch mới được sinh ra từ epoch trước đó. Vì vậy, nếu các thành viên không cùng nhìn nhận một chuỗi epoch tương thích, nhóm sẽ mất khả năng duy trì một trạng thái mật mã chung.
 
 \subsection{Ratchet Tree và TreeKEM}
 
-TreeKEM là cơ chế trung tâm giúp MLS đạt hiệu quả khi cập nhật khóa nhóm. Thay vì mọi thành viên phải trao đổi khóa với mọi thành viên còn lại, MLS tổ chức các thành viên thành lá của một cây nhị phân gọi là Ratchet Tree. Các nút trong cây chứa vật liệu khóa công khai, còn các thành viên biết một số bí mật tương ứng với đường đi từ lá của mình lên gốc.
+TreeKEM là cơ chế trung tâm giúp MLS cập nhật khóa nhóm hiệu quả. Thay vì để mỗi thành viên phải trao đổi khóa riêng với tất cả các thành viên còn lại, MLS tổ chức các thành viên thành các lá của một cây nhị phân, gọi là Ratchet Tree. Có thể hiểu trực quan rằng mỗi lần nhóm thay đổi, hệ thống chỉ cần cập nhật một số bí mật dọc theo một đường trong cây, thay vì phát lại toàn bộ khóa cho cả nhóm \cite{rfc9420}.
 
-Khi một thành viên cập nhật khóa, thành viên đó tạo một đường dẫn cập nhật (update path) mới từ lá của mình lên gốc cây. Các bí mật mới trên đường đi này được mã hóa cho các nhánh đồng cấp tương ứng (copath), sao cho các thành viên còn lại có thể giải mã và cập nhật trạng thái. Nhờ cấu trúc cây, số lượng thao tác mã hóa và kích thước thông tin cập nhật tăng theo chiều cao cây, tức xấp xỉ logarit theo số thành viên trong nhóm ($O(\log N)$).
+Khi một thành viên cập nhật khóa, thành viên đó tạo ra một đường dẫn cập nhật (\textit{update path}) từ lá của mình lên gốc cây. Các bí mật mới trên đường đi này được mã hóa cho các nhánh đồng cấp tương ứng, thường được gọi là \textit{copath}. Nhờ cấu trúc cây, số lượng phép tính và lượng dữ liệu cập nhật chỉ tăng gần theo logarit của số thành viên trong nhóm. Nói ngắn gọn, TreeKEM là cơ chế giúp MLS thay khóa nhóm theo cách có cấu trúc và tiết kiệm hơn so với việc phân phối lại khóa theo kiểu tuyến tính cho toàn bộ thành viên.
 
-Sơ đồ cấu trúc cây Ratchet Tree và quá trình cập nhật đường dẫn (Path Update) được mô tả chi tiết trong Hình \ref{fig:treekem_path_update}.
+Cần lưu ý rằng bí mật ở gốc cây không được dùng trực tiếp để mã hóa thông điệp ứng dụng. Sau mỗi Commit, MLS còn đưa các bí mật mới qua lịch trình sinh khóa (\textit{key schedule}) để tạo ra các khóa cụ thể cho từng mục đích như xác thực, mã hóa thông điệp hay xuất vật liệu khóa \cite{rfc9420}. Vì vậy, TreeKEM nên được hiểu là cơ chế cập nhật trạng thái khóa nhóm, còn việc sinh các khóa sử dụng trực tiếp cho thông điệp được xử lý ở bước sau.
 
-\begin{figure}[htbp]
-\centering
-\resizebox{0.9\textwidth}{!}{%
-\begin{tikzpicture}[
-    node distance=1.5cm and 1.2cm,
-    rootnode/.style={draw, circle, minimum size=1.0cm, align=center, fill=blue!10, draw=blue!50, font=\small},
-    innernode/.style={draw, circle, minimum size=1.0cm, align=center, fill=gray!10, draw=gray!50, font=\small},
-    leafnode/.style={draw, rectangle, rounded corners, minimum width=1.5cm, minimum height=0.8cm, align=center, fill=green!10, draw=green!50, font=\small},
-    pathnode/.style={draw, circle, minimum size=1.0cm, align=center, fill=orange!25, draw=orange, font=\small\bfseries},
-    pathleaf/.style={draw, rectangle, rounded corners, minimum width=1.5cm, minimum height=0.8cm, align=center, fill=orange!25, draw=orange, font=\small\bfseries},
-    arrow/.style={thick,->,>=stealth,draw=gray!80},
-    patharrow/.style={very thick,->,>=stealth,draw=orange}
-]
+\subsection{Proposal, Commit và tiến trình chuyển epoch}
 
-% Nodes layout
-\node (root) [pathnode] {Root\\$pk_{root}$};
+MLS phân biệt rõ proposal và commit. Proposal là thông điệp đề xuất một thay đổi cho nhóm, chẳng hạn thêm thành viên, loại bỏ thành viên hoặc cập nhật khóa. Bản thân proposal chưa làm thay đổi epoch. Commit mới là thông điệp thực sự áp dụng một tập proposal và đưa nhóm sang epoch mới \cite{rfc9420}.
 
-\node (p12) [pathnode, below left=1.2cm and 2.0cm of root] {$P_{12}$\\$pk_{12}$};
-\node (p34) [innernode, below right=1.2cm and 2.0cm of root] {$P_{34}$\\$pk_{34}$};
+Nhìn dưới góc độ hệ phân tán, có thể xem Commit như thao tác ghi vào trạng thái mật mã của nhóm. Mỗi Commit đều làm xuất hiện một phiên bản trạng thái mới. Vì thế, nếu tại cùng một epoch mà có nhiều Commit cạnh tranh, nguy cơ rẽ nhánh trạng thái sẽ xuất hiện. Đây là lý do bài toán ordering của Commit luôn giữ vai trò trung tâm khi vận hành MLS trên mạng ngang hàng.
 
-\node (l1) [pathleaf, below left=1.0cm and 0.8cm of p12] {$N_1$\\$pk_{L1}$};
-\node (l2) [leafnode, below right=1.0cm and 0.8cm of p12] {$N_2$\\$pk_{L2}$};
-\node (l3) [leafnode, below left=1.0cm and 0.8cm of p34] {$N_3$\\$pk_{L3}$};
-\node (l4) [leafnode, below right=1.0cm and 0.8cm of p34] {$N_4$\\$pk_{L4}$};
+\subsection{Các dấu hiệu nhận biết trạng thái: tree hash, transcript hash và epoch authenticator}
 
-% Edges
-\draw[patharrow] (l1) -- (p12);
-\draw[arrow] (l2) -- (p12);
-\draw[arrow] (l3) -- (p34);
-\draw[arrow] (l4) -- (p34);
-\draw[patharrow] (p12) -- (root);
-\draw[arrow] (p34) -- (root);
+Để kiểm tra các thành viên có còn cùng một trạng thái hay không, MLS sử dụng một số giá trị ràng buộc trạng thái \cite{rfc9420}. Trong đó, hàm băm cây (tree hash) phản ánh cấu trúc Ratchet Tree hiện tại; hàm băm lịch sử bắt tay (transcript hash) ràng buộc chuỗi thông điệp bắt tay đã được xác nhận; còn bộ xác thực epoch (epoch authenticator) có thể được dùng để đối chiếu việc các thành viên có thực sự đang chia sẻ cùng trạng thái epoch hay không.
 
-% Explanations / Brackets
-\node at (-1.8, 1.4) [font=\scriptsize\itshape, text=orange, align=left] {Direct Path (Đường dẫn\\trực tiếp cập nhật của $N_1$)};
+Ý nghĩa của các giá trị này đối với đồ án là rất trực tiếp. Trong môi trường P2P, hai thiết bị có thể cùng báo cùng mã nhóm và cùng số epoch, nhưng điều đó chưa đủ để kết luận rằng chúng còn ở cùng trạng thái MLS. Nếu tree hash hoặc transcript hash khác nhau, về bản chất chúng đã tách thành hai nhánh. Vì vậy, khi nghiên cứu bài toán phát hiện phân nhánh và đồng bộ lại trạng thái, các dấu hiệu nhận biết này đóng vai trò đặc biệt quan trọng.
 
-\node (copath1) [draw, rectangle, dashed, draw=blue, fill=blue!5, font=\scriptsize, align=left, left=0.8cm of p12] {
-  \textbf{Copath của $N_1$ tại tầng 1:} $N_2$ \\
-  $sk_{12}$ mới được mã hóa dưới khóa $pk_{L2}$
-};
-\node (copath2) [draw, rectangle, dashed, draw=blue, fill=blue!5, font=\scriptsize, align=left, right=0.8cm of root] {
-  \textbf{Copath của $P_{12}$ tại tầng 2:} $P_{34}$ \\
-  $sk_{root}$ mới được mã hóa dưới khóa $pk_{P34}$
-};
+\subsection{Application messages, delayed messages và External Commit}
 
-\draw[->, >=stealth, thin, dashed, draw=blue] (copath1) -- (l2);
-\draw[->, >=stealth, thin, dashed, draw=blue] (copath2) -- (p34);
+MLS phân biệt thông điệp bắt tay (\textit{handshake messages}) với thông điệp ứng dụng (\textit{application messages}) \cite{rfc9420}. Proposal và Commit thuộc nhóm thứ nhất vì chúng làm thay đổi hoặc chuẩn bị thay đổi trạng thái nhóm. Ngược lại, application messages là các tin nhắn ứng dụng được mã hóa bằng khóa sinh ra từ trạng thái của epoch hiện tại.
 
-\end{tikzpicture}%
-}
-\caption{Cấu trúc cây nhị phân Ratchet Tree và tiến trình cập nhật đường dẫn (Path Update) của thành viên $N_1$}
-\label{fig:treekem_path_update}
-\end{figure}
+Trong mạng thực tế, thông điệp ứng dụng có thể đến muộn hoặc đến sai thứ tự. MLS có cơ chế hỗ trợ một mức độ nhất định cho các thông điệp bị trễ, chẳng hạn thông qua bộ khóa của người gửi (\textit{sender ratchet}) và bộ đếm thế hệ (\textit{generation counter}). Tuy nhiên, để bảo vệ Forward Secrecy, thiết bị không nên giữ các khóa cũ vô thời hạn. Điều này tạo ra một đánh đổi quen thuộc: nếu xóa khóa cũ quá sớm thì thông điệp đến muộn có thể không giải mã được; nếu giữ khóa cũ quá lâu thì phạm vi thiệt hại khi thiết bị bị thỏa hiệp sẽ tăng \cite{rfc9420}.
 
-Cần lưu ý rằng bí mật tại gốc cây ($sk_{root}$) không được sử dụng trực tiếp như khóa mã hóa tin nhắn ứng dụng. Sau mỗi Commit, MLS đưa các bí mật mới qua lịch trình sinh khóa (key schedule) để tạo ra các bí mật của Epoch mới, bao gồm các khóa dùng cho xác thực, mã hóa thông điệp, xuất dữ liệu khóa (exporter) và các cơ chế liên quan. Vì vậy, TreeKEM nên được hiểu là cơ chế cập nhật trạng thái khóa nhóm, còn việc sinh khóa cụ thể cho thông điệp ứng dụng (application messages) được thực hiện bởi key schedule của MLS.
-
-\subsection{Proposal, Commit và tiến trình chuyển Epoch}
-
-MLS phân biệt rõ Proposal và Commit. Proposal là thông điệp đề xuất một thay đổi đối với nhóm, ví dụ thêm thành viên (Add), loại bỏ thành viên (Remove), cập nhật khóa (Update) hoặc thay đổi phần mở rộng của bối cảnh nhóm (group context). Proposal tự nó chưa làm thay đổi Epoch. Commit là thông điệp thực sự áp dụng một tập Proposal và đưa nhóm từ Epoch hiện tại sang Epoch mới.
-
-Khi tạo Commit, thành viên thực hiện Commit lựa chọn một tập Proposal hợp lệ, áp dụng chúng lên Ratchet Tree và group context, tạo đường dẫn cập nhật (update path) nếu cần, sau đó sinh ra trạng thái mật mã mới. Các thành viên nhận Commit sẽ kiểm tra chữ ký, kiểm tra điều kiện hợp lệ của danh sách Proposal, áp dụng thay đổi theo đúng quy tắc, tính toán trạng thái mới và xác minh thẻ xác nhận (confirmation tag). Confirmation tag đóng vai trò xác nhận rằng các thành viên đã đi tới cùng một trạng thái nhóm sau khi xử lý Commit.
-
-Từ góc nhìn hệ phân tán, Commit là thao tác ghi vào trạng thái mật mã nhóm. Vì mỗi Commit tạo ra một Epoch mới, việc có nhiều Commit cạnh tranh tại cùng một Epoch chính là nguồn gốc của phân nhánh trạng thái. Do đó, lớp điều phối của đồ án tập trung kiểm soát quyền tạo Commit, trong khi vẫn cho phép nhiều thành viên gửi Proposal.
-
-\subsection{Tree hash, transcript hash và epoch authenticator}
-
-Để phát hiện sự đồng bộ hoặc phân kỳ giữa các thành viên, MLS sử dụng nhiều giá trị ràng buộc trạng thái. Tree hash phản ánh cấu trúc Ratchet Tree hiện tại. Transcript hash ràng buộc lịch sử các thông điệp bắt tay (handshake) đã được xác nhận. Epoch authenticator là giá trị có thể được dùng để xác nhận rằng các thành viên đang chia sẻ cùng trạng thái Epoch.
-
-Các giá trị này mang ý nghĩa thiết yếu đối với đồ án. Trong môi trường P2P, hai nút có thể cùng báo rằng chúng thuộc cùng một định danh nhóm (group\_id) và cùng một số Epoch, nhưng thực chất tree hash hoặc transcript hash khác nhau. Khi đó, hai nút không thật sự ở cùng trạng thái mật mã. Vì vậy, cơ chế Fork Healing ở Chương 3 cần dựa trên các định danh trạng thái như epoch, tree hash, commit hash hoặc epoch authenticator để phát hiện phân nhánh.
-
-\subsection{Delivery Service và bài toán tuần tự hóa Commit}
-
-Delivery Service trong kiến trúc MLS \cite{rfc9750} có thể được hiểu là lớp dịch vụ cung cấp hai chức năng chính: lưu trữ và cung cấp vật liệu khóa ban đầu, đồng thời phân phối các thông điệp MLS giữa các client. Trong các triển khai Client-Server thông thường, DS còn thường được dùng như một điểm tuần tự hóa tự nhiên cho các thông điệp thay đổi trạng thái nhóm.
-
-Về mặt tiêu chuẩn, MLS không bắt buộc DS phải là một máy chủ trung tâm duy nhất. DS có thể được hiện thực bởi một hạ tầng tập trung, một hệ thống liên miền hoặc thậm chí bởi chính mạng ngang hàng nếu các client truyền các thông điệp MLS qua P2P. Tuy nhiên, khi không có DS tập trung, các client phải tự cung cấp những thuộc tính mà DS thường đảm nhiệm, đặc biệt là phân phối thông điệp, xử lý Commit đến trễ, phát hiện Commit cạnh tranh và hòa giải trạng thái.
-
-Có thể nói, trong triển khai MLS thông thường, DS là ``người gác cổng thời gian'' của trạng thái nhóm: nó giúp tất cả thành viên nhìn thấy các thay đổi theo một thứ tự đủ nhất quán. Khi loại bỏ DS khỏi kiến trúc, hệ thống không chỉ mất một máy chủ truyền tin, mà còn mất điểm sắp xếp thứ tự trung tâm. Đây là lý do lớp điều phối phi tập trung trở thành thành phần bắt buộc trong thiết kế của đồ án.
-
-\subsection{Application messages, delayed messages và giới hạn Forward Secrecy}
-
-MLS phân biệt handshake messages và application messages. Handshake messages như Proposal và Commit làm thay đổi hoặc chuẩn bị thay đổi trạng thái nhóm. Application messages là thông điệp ứng dụng được mã hóa bằng khóa sinh ra từ trạng thái Epoch hiện tại.
-
-Trong mạng thực tế, application messages có thể đến muộn hoặc đến sai thứ tự. MLS có cơ chế xử lý ở mức bộ khóa của người gửi (sender ratchet) và bộ đếm thế hệ (generation counter) để hỗ trợ một mức độ nhất định đối với thông điệp bị trễ hoặc bị sắp xếp lại. Tuy nhiên, để bảo vệ Forward Secrecy, client không nên giữ khóa cũ vô thời hạn. Điều này tạo ra một đánh đổi quan trọng: nếu xóa khóa cũ quá sớm, các thông điệp đến muộn có thể không giải mã được; nếu giữ khóa cũ quá lâu, phạm vi thiệt hại khi thiết bị bị thỏa hiệp sẽ tăng.
-
-Đánh đổi này là nền tảng cho cơ chế Epoch Checks và bộ đệm thông điệp trong đồ án. Khi một nút nhận thông điệp thuộc Epoch cũ, Epoch hiện tại hoặc Epoch tương lai, lớp điều phối phải quyết định loại bỏ, xử lý, đệm tạm thời hay kích hoạt đồng bộ trạng thái. Chính sách này cần cân bằng giữa tính sẵn sàng của hệ thống, khả năng đồng bộ ngoại tuyến và yêu cầu bảo mật xuôi.
-
-\subsection{External Commit và cơ chế gia nhập lại nhóm}
-
-MLS hỗ trợ cơ chế gia nhập từ bên ngoài (external join) thông qua External Commit, cho phép một client bên ngoài nhóm tạo Commit để tự thêm mình vào nhóm nếu có thông tin nhóm (GroupInfo) hợp lệ và thỏa mãn các chính sách của ứng dụng. Đây là cơ chế quan trọng đối với đồ án vì trong quá trình Fork Healing, các nút ở nhánh thua có thể cần hủy trạng thái cũ và gia nhập lại nhánh thắng.
-
-Trong ngữ cảnh của đề tài, External Join không được dùng như một thao tác tùy tiện. Nó là bước phục hồi có kiểm soát sau khi hệ thống xác định rằng trạng thái cục bộ của một nút không còn thuộc nhánh được chọn. Nút đó cần dừng sử dụng khóa cũ cho thông điệp mới, lấy trạng thái công khai cần thiết của nhánh thắng, thực hiện quy trình gia nhập lại và chỉ tiếp tục gửi thông điệp sau khi có trạng thái MLS hợp lệ mới.
+MLS cũng hỗ trợ cơ chế gia nhập từ bên ngoài, thường được gọi là External Commit hoặc External Join \cite{rfc9420}. Có thể hiểu đây là cách để một client chưa ở trong trạng thái hiện tại của nhóm gia nhập lại nhóm khi có đủ thông tin công khai cần thiết. Cơ chế này quan trọng đối với đồ án vì khi trạng thái đã rẽ nhánh, một thiết bị có thể cần từ bỏ nhánh cũ và tham gia lại nhánh đang được chọn.
 
 \section{Nền tảng mạng ngang hàng và thứ tự trong hệ phân tán}
 \label{sec:mang-ngang-hang-libp2p}
 
 \subsection{Đặc tính của mạng ngang hàng}
 
-Mạng ngang hàng khác với mô hình Client-Server ở chỗ không có một máy chủ trung tâm duy nhất điều phối toàn bộ luồng truyền thông. Các nút có thể tự phát hiện nhau, thiết lập kết nối trực tiếp hoặc gián tiếp, và trao đổi dữ liệu qua nhiều đường truyền. Đặc tính này giúp hệ thống giảm phụ thuộc vào hạ tầng trung tâm, nhưng đồng thời làm tăng độ phức tạp của điều phối.
+Mạng ngang hàng khác với mô hình Client-Server ở chỗ không có một máy chủ trung tâm duy nhất điều phối toàn bộ luồng truyền thông. Các thiết bị có thể tự phát hiện nhau, thiết lập kết nối trực tiếp hoặc gián tiếp và trao đổi dữ liệu qua nhiều đường truyền khác nhau. Cách tổ chức này giúp hệ thống giảm phụ thuộc vào hạ tầng trung tâm, nhưng đồng thời làm cho việc điều phối trở nên khó hơn.
 
-Trong mạng P2P, các vấn đề phổ biến gồm địa chỉ IP thay đổi, NAT, tường lửa, thiết bị ngoại tuyến (offline), sự biến động nút mạng (peer churn), độ trễ không đồng đều, trùng lặp thông điệp (message duplication) và phân mảnh mạng (network partition). Với ứng dụng thông thường, các vấn đề này có thể chỉ gây trễ hoặc mất dữ liệu tạm thời. Với MLS, chúng có thể làm phát sinh lỗi nghiêm trọng hơn: một số nút chuyển Epoch trước, một số nút vẫn ở Epoch cũ, hoặc hai phân vùng mạng cùng tạo Commit khác nhau.
+Trong môi trường P2P, các hiện tượng như thiết bị ngoại tuyến, độ trễ không đồng đều, trùng lặp thông điệp, biến động nút mạng hoặc phân mảnh mạng là điều bình thường. Với ứng dụng thông thường, chúng chủ yếu gây chậm hoặc mất dữ liệu tạm thời. Với MLS, các hiện tượng đó còn có thể kéo theo hệ quả nghiêm trọng hơn: một số thiết bị đã chuyển sang epoch mới trong khi thiết bị khác vẫn ở epoch cũ, hoặc hai phân vùng mạng cùng tạo ra những Commit khác nhau. Điều này cho thấy lớp mạng P2P chỉ giải quyết việc truyền thông, chứ không tự giải quyết bài toán nhất quán trạng thái mật mã.
 
-Do đó, lớp mạng P2P chỉ giải quyết bài toán truyền thông. Nó không tự giải quyết bài toán nhất quán trạng thái mật mã. Bất kỳ hệ thống MLS-over-P2P nào cũng cần một lớp điều phối phía trên để quyết định khi nào được tạo Commit, Commit nào được chấp nhận, thông điệp nào cần đệm và trạng thái nào là trạng thái hợp lệ của nhóm.
+\subsection{go-libp2p và GossipSub}
 
-\subsection{go-libp2p và các thành phần truyền thông}
+Trong nguyên mẫu của đồ án, tầng mạng được xây dựng trên go-libp2p \cite{libp2p2026doc}. Đây là thư viện P2P mô-đun hóa, cho phép mỗi thiết bị có một định danh mạng riêng, thiết lập kết nối qua nhiều cơ chế truyền dẫn và trao đổi dữ liệu trên nhiều luồng logic. Những khả năng này phù hợp với yêu cầu của một ứng dụng nhắn tin không phụ thuộc hoàn toàn vào máy chủ trung tâm.
 
-Thư viện go-libp2p \cite{libp2p2026doc} là một thư viện mạng ngang hàng mô-đun hóa, cung cấp các thành phần quan trọng để xây dựng ứng dụng P2P. Mỗi nút trong libp2p có một mã định danh peer (PeerID) được dẫn xuất từ khóa công khai, nhờ đó danh tính mạng không phụ thuộc hoàn toàn vào địa chỉ IP. Các nút có thể được định vị thông qua multiaddr, cho phép mô tả địa chỉ kết nối qua nhiều giao thức và tầng mạng khác nhau.
+Một thành phần quan trọng của libp2p là GossipSub, tức cơ chế phát tán thông điệp theo mô hình công bố/đăng ký nhận (\textit{publish/subscribe}). Có thể hiểu đơn giản rằng khi một thiết bị gửi thông điệp vào một chủ đề chung, thông điệp đó sẽ được lan truyền dần qua các thiết bị lân cận trong mạng. Cơ chế này phù hợp để phát tán proposal, commit hoặc các thông báo trạng thái trong môi trường P2P.
 
-Để thiết lập kết nối, libp2p hỗ trợ nhiều giao thức truyền vận (transport) như TCP, QUIC hoặc WebRTC tùy môi trường triển khai. Sau khi kết nối, các peer có thể nâng cấp kênh truyền lên kênh bảo mật bằng các giao thức như Noise hoặc TLS. Libp2p cũng hỗ trợ cơ chế đa luồng (stream multiplexing) để nhiều luồng ứng dụng chạy trên cùng một kết nối, giúp hệ thống có thể vừa gửi thông điệp chat, vừa đồng bộ trạng thái hoặc truyền tệp.
-
-Về phát hiện peer, libp2p cung cấp nhiều cơ chế như mDNS cho mạng cục bộ LAN, bootstrap peer, rendezvous hoặc Kademlia DHT cho môi trường rộng hơn. Với ứng dụng của đồ án, mDNS phù hợp cho kịch bản mạng nội bộ, còn DHT hoặc bootstrap có thể hỗ trợ các kịch bản WAN/VPN.
-
-\subsection{GossipSub và giới hạn về thứ tự thông điệp}
-
-GossipSub \cite{libp2p2026doc} là cơ chế publish/subscribe phổ biến trong libp2p, cho phép các nút tham gia vào một chủ đề (topic) và phát tán thông điệp qua mạng lưới liên kết (mesh). Khi một peer gửi thông điệp vào topic, thông điệp được lan truyền qua các peer lân cận và tiếp tục được truyền phát (gossip) tới các peer khác. Cơ chế này phù hợp để phát tán Proposal, Commit, nhịp đập mạng (heartbeat) hoặc thông báo trạng thái nhóm trong môi trường P2P.
-
-Tuy nhiên, GossipSub không cung cấp các bảo đảm mà MLS cần cho việc tuần tự hóa Commit. Nó không bảo đảm mọi peer nhận thông điệp theo cùng một thứ tự, không bảo đảm phân phối đúng một lần (exactly-once delivery) và không tự quyết định thông điệp nào là Commit thắng cuộc khi có xung đột. GossipSub là lớp truyền bá thông điệp, không phải lớp đồng thuận trạng thái.
-
-Giới hạn này là lý do đồ án không thể chỉ ``đưa MLS lên GossipSub'' là đủ. Nếu chỉ phát tán Commit qua GossipSub mà không có cơ chế điều phối, hệ thống vẫn có nguy cơ concurrent commits và cryptographic state fork. Vì vậy, các cơ chế Single-Writer, Epoch Checks và Fork Healing được đặt phía trên GossipSub như một lớp kiểm soát trạng thái.
+Tuy nhiên, GossipSub chỉ là cơ chế phát tán thông điệp, không phải cơ chế đồng thuận. Nó không bảo đảm mọi thiết bị nhận thông điệp theo cùng một thứ tự, không tự chọn Commit thắng cuộc khi có xung đột, và cũng không bảo đảm một thông điệp chỉ được nhận đúng một lần. Vì vậy, chỉ đưa MLS lên trên GossipSub là chưa đủ để bảo vệ chuỗi trạng thái của nhóm.
 
 \subsection{Đồng hồ logic và thứ tự hiển thị thông điệp ứng dụng}
 
-Trong MLS, Epoch chỉ thay đổi khi có thao tác thay đổi trạng thái nhóm, chẳng hạn Add, Remove, Update hoặc Commit. Trong cùng một Epoch, nhiều thành viên có thể gửi application messages song song. Các thông điệp này không nhất thiết cần một thứ tự mật mã toàn cục giống Commit, nhưng ứng dụng chat vẫn cần một thứ tự hiển thị ổn định và hợp lý giữa các thiết bị.
+Trong cùng một epoch, nhiều thành viên có thể gửi thông điệp ứng dụng song song. Những thông điệp này không nhất thiết cần một thứ tự mật mã toàn cục như Commit, nhưng giao diện chat vẫn cần một thứ tự hiển thị đủ ổn định giữa các thiết bị. Nếu chỉ dựa vào đồng hồ vật lý, hệ thống dễ gặp sai lệch do lệch giờ hoặc do môi trường mạng không ổn định.
 
-Đồng hồ vật lý không đủ tin cậy trong mạng P2P vì các thiết bị có thể lệch giờ, không có NTP hoặc bị cấu hình sai. Vì vậy, hệ phân tán thường sử dụng các loại đồng hồ logic để biểu diễn quan hệ thứ tự giữa sự kiện. Lamport Clock cung cấp thứ tự logic đơn giản; Vector Clock biểu diễn quan hệ nhân quả chi tiết hơn nhưng có chi phí tăng theo số nút; Hybrid Logical Clock (HLC) \cite{kulkarni2014hlc} kết hợp thời gian vật lý và bộ đếm logic để tạo timestamp vừa gần với thời gian thực, vừa ổn định hơn khi có lệch giờ.
-
-Trong đồ án, HLC được sử dụng cho thứ tự hiển thị application messages, không dùng để quyết định tính hợp lệ của Commit. Nói cách khác, HLC giúp người dùng trên các thiết bị khác nhau nhìn thấy dòng chat theo thứ tự nhất quán hơn, nhưng không thay thế cơ chế MLS Epoch, không thay thế chữ ký, không thay thế confirmation tag và không giải quyết concurrent commits. Sự phân tách này đóng vai trò then chốt: Commit cần cơ chế điều phối trạng thái; application messages cần cơ chế sắp xếp hiển thị.
+Vì vậy, hệ phân tán thường sử dụng các dạng đồng hồ logic để biểu diễn quan hệ thứ tự giữa các sự kiện. Lamport Clock cho một thứ tự logic đơn giản \cite{lamport1978}. Hybrid Logical Clock (HLC) kết hợp thời gian vật lý và bộ đếm logic để tạo ra dấu thời gian gần với thời gian thực hơn, nhưng vẫn ổn định hơn khi đồng hồ giữa các thiết bị không hoàn toàn khớp nhau \cite{kulkarni2014hlc}. Trong đồ án, loại dấu thời gian này chỉ có ý nghĩa đối với việc sắp xếp hiển thị các thông điệp ứng dụng; nó không thay thế epoch, chữ ký hay các cơ chế bảo vệ trạng thái của MLS.
 
 \subsection{Khoảng trống cần giải quyết}
 
-Từ các nền tảng trên, có thể thấy bài toán của đề tài nằm ở giao điểm giữa mật mã học nhóm và hệ phân tán. MLS cung cấp lõi mật mã mạnh nhưng giả định hệ thống triển khai phải giải quyết phân phối và thứ tự thông điệp. go-libp2p cung cấp hạ tầng truyền thông ngang hàng nhưng không cung cấp thứ tự tuyến tính cho Commit. GossipSub giúp phát tán thông điệp nhưng không phải cơ chế đồng thuận. HLC giúp sắp xếp application messages nhưng không bảo vệ trạng thái mật mã.
+Từ các phân tích trên có thể thấy bài toán của đề tài nằm ở giao điểm giữa mật mã học nhóm và hệ phân tán. MLS cung cấp lõi mật mã mạnh nhưng giả định hệ thống triển khai phải giải quyết việc phân phối và ordering của thông điệp. Libp2p và GossipSub cung cấp hạ tầng truyền thông ngang hàng nhưng không cung cấp thứ tự tuyến tính cho Commit. HLC hỗ trợ sắp xếp thông điệp ứng dụng nhưng không bảo vệ trạng thái mật mã của nhóm \cite{rfc9750,libp2p2026doc,kulkarni2014hlc}.
 
-Khoảng trống nghiên cứu của đồ án chính là thiết kế một lớp điều phối phi tập trung nằm giữa hai thế giới này. Lớp điều phối phải đủ nhẹ để phù hợp với P2P, đủ chặt để bảo vệ chuỗi Epoch tuyến tính của MLS, và đủ thực dụng để phục hồi khi mạng bị chia cắt. Bốn cơ chế được đề xuất ở Chương 3 --- Single-Writer, Epoch Checks, Fork Healing và HLC Message Ordering --- được xây dựng trực tiếp từ khoảng trống này.
+Khoảng trống nghiên cứu vì vậy không nằm ở chỗ thiếu một giao thức mã hóa nhóm, mà nằm ở chỗ thiếu một cơ chế điều phối đủ nhẹ để phù hợp với P2P, nhưng vẫn đủ chặt để giảm nguy cơ rẽ nhánh và hỗ trợ hội tụ trở lại sau khi mạng bất ổn. Khoảng trống đó là cơ sở trực tiếp cho giải pháp sẽ được trình bày ở Chương 3.
 
-% Kết chương
-Chương 2 đã trình bày nền tảng lý thuyết cho bài toán vận hành MLS trên mạng ngang hàng. Trước hết, chương làm rõ rằng thách thức chính của đề tài không chỉ là truyền thông điệp qua P2P, mà là duy trì tính nhất quán trạng thái mật mã của một nhóm MLS khi không còn máy chủ trung tâm đóng vai trò tuần tự hóa. Tiếp theo, chương phân tích các hướng tiếp cận hiện có như Sender Keys, Megolm, MLS tập trung, đồng thuận phân tán và DMLS, qua đó chỉ ra khoảng trống giữa hiệu năng, bảo mật và khả năng vận hành phi tập trung.
+Chương 2 đã làm rõ ngữ cảnh lý thuyết của bài toán vận hành MLS trên mạng ngang hàng. Trước hết, chương chỉ ra rằng khó khăn trung tâm của đề tài không chỉ là truyền tin trong môi trường P2P, mà là duy trì một trạng thái mật mã chung cho toàn nhóm khi không còn điểm tuần tự hóa trung tâm. Tiếp theo, chương khảo sát các hướng tiếp cận liên quan, từ Sender Keys, Megolm đến MLS trong mô hình có Delivery Service và các nỗ lực phi tập trung hóa MLS, qua đó làm nổi bật khoảng trống nghiên cứu mà đồ án hướng tới.
 
-Chương cũng trình bày các khái niệm cốt lõi của MLS và TreeKEM, bao gồm Group, Epoch, Proposal, Commit, Delivery Service, tree hash, transcript hash, application messages và External Commit. Những khái niệm này là cơ sở để hiểu vì sao concurrent commits có thể gây rẽ nhánh trạng thái mật mã và vì sao việc phục hồi sau phân mảnh mạng cần được xử lý cẩn trọng. Cuối cùng, chương phân tích nền tảng go-libp2p, GossipSub và HLC, đồng thời nhấn mạnh rằng lớp mạng ngang hàng chỉ cung cấp khả năng truyền thông, không tự bảo đảm thứ tự tuyến tính hay đồng thuận trạng thái.
-
-Các phân tích trên tạo tiền đề trực tiếp cho Chương 3, nơi đồ án trình bày chi tiết giao thức điều phối phi tập trung gồm bốn cơ chế: Single-Writer để giảm concurrent commits, Epoch Checks để bảo vệ tính đơn điệu của trạng thái cục bộ, Fork Healing để phục hồi khi mạng bị phân mảnh, và HLC Message Ordering để sắp xếp thông điệp ứng dụng trong cùng một Epoch.
+Bên cạnh đó, chương cũng trình bày các kiến thức nền tảng cần thiết để hiểu phần phương pháp ở các chương sau, bao gồm epoch, proposal, commit, TreeKEM, các dấu hiệu nhận biết trạng thái và cơ chế gia nhập lại nhóm. Cuối cùng, chương phân tích ngắn gọn các đặc tính của mạng ngang hàng, vai trò của libp2p, GossipSub và đồng hồ logic trong việc hỗ trợ truyền thông và sắp xếp thông điệp ứng dụng. Những nội dung này tạo tiền đề trực tiếp cho Chương 3, nơi giải pháp điều phối phi tập trung của đồ án sẽ được trình bày chi tiết.
 
 \end{document}

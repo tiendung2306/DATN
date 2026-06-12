@@ -4,7 +4,7 @@
 	\label{ch:danh_gia_thuc_nghiem}
 	\section*{Tổng quan chương}
 	
-	Chương này trình bày quá trình đánh giá thực nghiệm hệ thống truyền thông phi tập trung sử dụng MLS trên mạng P2P. Mục tiêu của chương không chỉ là đo hiệu năng thuần túy, mà quan trọng hơn là kiểm chứng các thuộc tính cốt lõi đã được đề xuất ở các chương trước: tính an toàn của cơ chế Single-Writer, khả năng hội tụ epoch và TreeHash sau phân mảnh mạng, tính đúng đắn của cơ chế Fork Healing, khả năng sắp xếp thông điệp nhất quán bằng Hybrid Logical Clock, và việc bảo toàn các thuộc tính bảo mật của MLS khi tích hợp vào kiến trúc Go--Rust sidecar.
+Chương này trình bày quá trình đánh giá thực nghiệm hệ thống truyền thông phi tập trung sử dụng MLS trên mạng P2P. Mục tiêu của chương không chỉ dừng ở việc đo hiệu năng thuần túy, mà quan trọng hơn là kiểm chứng các thuộc tính cốt lõi đã được đề xuất ở các chương trước, gồm tính an toàn của cơ chế Single-Writer, khả năng hội tụ epoch và TreeHash sau phân mảnh mạng, tính đúng đắn của cơ chế Fork Healing, khả năng sắp xếp thông điệp nhất quán bằng Hybrid Logical Clock và mức độ bảo toàn các thuộc tính bảo mật của MLS khi tích hợp vào kiến trúc Go--Rust sidecar.
 	
 	Các kết quả trong chương được tổng hợp từ các bài kiểm thử tự động trong mã nguồn, các tệp dữ liệu đo đạc trong thư mục \texttt{evaluation/data}, và các biểu đồ được sinh từ những dữ liệu này. Cần nhấn mạnh rằng hệ thống đánh giá được chia thành nhiều tầng: một số bài kiểm thử sử dụng mạng giả lập và MLS giả lập để cô lập logic điều phối; một số bài kiểm thử khác sử dụng Rust sidecar thật để kiểm chứng thuộc tính mật mã. Cách phân tầng này giúp tách bạch rõ ràng giữa kiểm chứng giao thức điều phối và kiểm chứng chi phí mật mã của OpenMLS.
 	
@@ -15,7 +15,7 @@
 	
 	Thứ nhất, nhóm đánh giá tính đúng đắn tập trung vào việc trả lời câu hỏi: trong điều kiện mạng P2P có thể mất kết nối, chia cắt, trễ gói hoặc nhận thông điệp không theo thứ tự, các nút có còn hội tụ về cùng một trạng thái MLS hay không. Với nhóm mục tiêu này, các đại lượng quan trọng là epoch cuối cùng, TreeHash cuối cùng, số lượng Commit hợp lệ trong mỗi epoch, và việc phát hiện các nhánh phân kỳ.
 	
-	Thứ hai, nhóm đánh giá hiệu quả điều phối tập trung vào chi phí mà lớp Coordination thêm vào phía trên MLS. Vì MLS vốn giả định có Delivery Service để tuần tự hóa Commit, hệ thống đề xuất thay thế vai trò này bằng cơ chế Single-Writer phi tập trung. Do đó, cần đo xem cơ chế gom Proposal, bầu Token Holder và phát tán Commit có giúp giảm xung đột hay không, đặc biệt khi nhiều nút cùng gửi Proposal trong một khoảng thời gian ngắn.
+	Thứ hai, nhóm đánh giá hiệu quả điều phối tập trung vào chi phí mà lớp Coordination thêm vào phía trên MLS. Vì MLS vốn giả định có Delivery Service để tuần tự hóa Commit, hệ thống đề xuất thay thế vai trò này bằng cơ chế Single-Writer phi tập trung \cite{rfc9750}. Do đó, cần đo xem cơ chế gom Proposal, bầu Token Holder và phát tán Commit có giúp giảm xung đột hay không, đặc biệt khi nhiều nút cùng gửi Proposal trong một khoảng thời gian ngắn.
 	
 	Thứ ba, nhóm đánh giá mật mã và bảo mật tập trung vào việc kiểm chứng rằng kiến trúc sidecar không làm suy giảm các thuộc tính bảo mật của MLS. Bài kiểm thử quan trọng nhất trong nhóm này là kiểm chứng Forward Secrecy bằng Rust sidecar thật: một thành viên đã bị loại khỏi nhóm không được phép giải mã thông điệp ở các epoch sau.
 	
@@ -67,7 +67,7 @@
 		\label{fig:chaos_convergence}
 	\end{figure}
 	
-	Kết quả cuối cùng cho thấy toàn bộ các nút hợp lệ hội tụ về cùng một epoch và cùng một TreeHash. Điều này xác nhận rằng cơ chế Fork Healing hoạt động đúng ở mức giao thức: khi phát hiện TreeHash khác nhau, các nút so sánh trọng số nhánh, chọn nhánh thắng, và nhánh thua thực hiện External Join để quay về trạng thái thống nhất. Quan trọng hơn, quá trình này không cần một máy chủ trung tâm đóng vai trò Delivery Service.
+Kết quả cuối cùng cho thấy toàn bộ các nút hợp lệ hội tụ về cùng một epoch và cùng một TreeHash. Điều này cho thấy cơ chế Fork Healing hoạt động phù hợp với mục tiêu thiết kế ở mức giao thức: khi phát hiện TreeHash khác nhau, các nút so sánh trọng số nhánh, chọn nhánh thắng và để nhánh thua thực hiện External Join nhằm quay về trạng thái thống nhất. Đáng chú ý, quá trình này diễn ra mà không cần một máy chủ trung tâm đóng vai trò Delivery Service.
 	
 	\section{Đánh giá khả năng phục hồi sau phân vùng mạng}
 	\label{sec:danh_gia_partition}
@@ -141,7 +141,7 @@
 		\label{fig:concurrency_batching}
 	\end{figure}
 	
-	Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược cơ sở cần nhiều Proposal hơn do phải thử lại sau khi epoch đã thay đổi. Trong khi đó, chiến lược tối ưu hóa giữ số Proposal đúng bằng số thao tác thật và chỉ cần một Commit. Kết quả này khẳng định vai trò của Single-Writer không chỉ ở tính đúng đắn, mà còn ở hiệu quả vận hành: thay vì giải quyết xung đột sau khi đã xảy ra, hệ thống ngăn xung đột Commit ngay từ đầu.
+Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược cơ sở cần nhiều Proposal hơn do phải thử lại sau khi epoch đã thay đổi. Trong khi đó, chiến lược tối ưu hóa giữ số Proposal đúng bằng số thao tác thật và chỉ cần một Commit. Kết quả này cho thấy vai trò của Single-Writer không chỉ nằm ở tính đúng đắn, mà còn ở hiệu quả vận hành: thay vì xử lý xung đột sau khi đã xảy ra, hệ thống tìm cách hạn chế xung đột Commit ngay từ đầu.
 	
 	\section{Đánh giá khả năng mở rộng của thao tác thành viên}
 	\label{sec:danh_gia_scalability}
@@ -203,7 +203,7 @@
 		\label{tab:mls_crypto_benchmark}
 	\end{table}
 	
-	Kết quả cho thấy MLS hiệu quả hơn rõ rệt so với mã hóa pairwise khi số lượng thành viên tăng. Với 4096 nút, pairwise baseline có trung vị khoảng 955 ms, trong khi full-blob MLS khoảng 79 ms. Điều này thể hiện lợi thế cơ bản của MLS: người gửi không phải mã hóa riêng cho từng người nhận.
+Kết quả cho thấy MLS hiệu quả hơn rõ rệt so với mã hóa pairwise khi số lượng thành viên tăng. Với 4096 nút, pairwise baseline có trung vị khoảng 955 ms, trong khi full-blob MLS khoảng 79 ms. Điều này thể hiện lợi thế cơ bản của MLS: người gửi không phải mã hóa riêng cho từng người nhận \cite{rfc9420}.
 	
 	Tuy nhiên, kết quả cũng chỉ ra điểm nghẽn của kiến trúc hiện tại. Đường full-blob MLS vẫn phải truyền và tuần tự hóa toàn bộ trạng thái nhóm giữa Go và Rust sidecar. Vì vậy, mặc dù MLS tránh được chi phí mã hóa riêng cho từng người nhận, nguyên mẫu vẫn có overhead triển khai khi kích thước \texttt{GroupState} tăng. Đây là hạn chế cần được xem xét trong các hướng tối ưu hóa IPC và persistence ở các nghiên cứu tiếp theo.
 	
@@ -226,20 +226,20 @@
 	
 	Một kiểm chứng bảo mật quan trọng là \path{\texttt{TestBusinessP1_E2E_RealSidecar_ForwardSecrecy}}. Khác với các kiểm thử điều phối dùng mock, bài kiểm thử này sử dụng Rust sidecar thật. Kịch bản gồm các bước: Alice tạo nhóm, Bob tham gia nhóm, Alice loại Bob khỏi nhóm, sau đó Alice gửi một thông điệp mới ở epoch sau khi Bob đã bị loại.
 	
-	Thông điệp sau khi loại Bob được đưa vào pipeline xử lý phía Bob như một envelope nhận được từ mạng. Nếu hệ thống sai, Bob có thể giải mã và lưu plaintext vào cơ sở dữ liệu cục bộ. Kết quả kiểm thử cho thấy Bob không giải mã được thông điệp này và không có plaintext nào được lưu lại. Điều này xác nhận rằng việc bọc MLS bằng lớp Coordination không phá vỡ Forward Secrecy của MLS.
+Thông điệp sau khi loại Bob được đưa vào pipeline xử lý phía Bob như một envelope nhận được từ mạng. Nếu hệ thống vận hành sai, Bob có thể giải mã và lưu plaintext vào cơ sở dữ liệu cục bộ. Kết quả kiểm thử cho thấy Bob không giải mã được thông điệp này và không có plaintext nào được lưu lại. Điều này cho thấy việc đặt MLS trong lớp Coordination của hệ thống không làm suy giảm thuộc tính Forward Secrecy trong kịch bản được kiểm thử.
 	
 	Kết quả này có ý nghĩa đặc biệt quan trọng đối với mô hình zero-trust. Ngay cả khi một nút từng là thành viên hợp lệ của nhóm, sau khi bị xóa khỏi cây MLS, nút đó không thể đọc các thông điệp tương lai. Lớp điều phối chỉ quyết định thứ tự và trạng thái nhóm; quyền giải mã cuối cùng vẫn được kiểm soát bởi trạng thái mật mã MLS.
 	
 	\section{Nhận xét và giới hạn đánh giá}
 	\label{sec:nhan_xet_gioi_han}
 	
-	Các kết quả thực nghiệm cho thấy thiết kế đạt được ba mục tiêu chính. Thứ nhất, cơ chế Single-Writer loại bỏ xung đột Commit trong một epoch và giúp hệ thống hội tụ ổn định. Thứ hai, Fork Healing đưa các nhánh phân kỳ quay về cùng trạng thái mà không cần Delivery Service trung tâm. Thứ ba, kiến trúc Go--Rust sidecar bảo toàn thuộc tính bảo mật của MLS, trong đó có Forward Secrecy.
+Các kết quả thực nghiệm cho thấy thiết kế đã tiếp cận được ba mục tiêu chính. Thứ nhất, cơ chế Single-Writer giúp ngăn phần lớn xung đột Commit trong một epoch và hỗ trợ hệ thống hội tụ ổn định trong các kịch bản đã đánh giá. Thứ hai, Fork Healing cho phép các nhánh phân kỳ quay về cùng trạng thái mà không cần Delivery Service trung tâm. Thứ ba, kiến trúc Go--Rust sidecar cho thấy khả năng bảo toàn các thuộc tính bảo mật quan trọng của MLS, trong đó có Forward Secrecy, trong phạm vi thí nghiệm của đồ án.
 	
 	Tuy nhiên, vẫn tồn tại một số giới hạn. Các chaos test hiện tại chủ yếu dùng mạng giả lập nên chưa phản ánh đầy đủ độ trễ, mất gói và hành vi NAT của mạng thực tế. Các benchmark MLS cho thấy xu hướng chi phí rõ ràng, nhưng chưa phải đánh giá hiệu năng đầu cuối của toàn bộ ứng dụng desktop. Ngoài ra, mô hình full-blob hiện tại có chi phí serialization lớn khi nhóm rất đông thành viên; đây là điểm cần tối ưu nếu hệ thống được triển khai ở quy mô doanh nghiệp lớn.
 	
 	\section*{Kết chương}
 	
-	Chương này đã trình bày quá trình đánh giá thực nghiệm hệ thống theo cả hai hướng: tính đúng đắn của giao thức phối hợp phi tập trung và hiệu năng của lớp mật mã MLS. Kết quả chaos test chứng minh các nút có thể hội tụ về cùng epoch và TreeHash sau phân vùng mạng. Kết quả concurrency test cho thấy cơ chế gom Proposal giúp giảm số Commit và loại bỏ retry không cần thiết. Các benchmark mật mã cho thấy MLS có ưu thế rõ rệt so với mã hóa pairwise, đồng thời chỉ ra nút thắt hiện tại nằm ở chi phí quản lý trạng thái full-blob. Cuối cùng, kiểm thử với Rust sidecar thật xác nhận Forward Secrecy được bảo toàn sau khi loại thành viên khỏi nhóm.
+Chương này đã trình bày quá trình đánh giá thực nghiệm hệ thống theo cả hai hướng: tính đúng đắn của giao thức điều phối phi tập trung và hiệu năng của lớp mật mã MLS. Kết quả chaos test cho thấy các nút có thể hội tụ về cùng epoch và TreeHash sau phân vùng mạng. Kết quả concurrency test cho thấy cơ chế gom Proposal giúp giảm số Commit và hạn chế các lần thử lại không cần thiết. Các benchmark mật mã chỉ ra MLS có ưu thế rõ rệt so với mã hóa pairwise, đồng thời cho thấy nút thắt hiện tại nằm ở chi phí quản lý trạng thái full-blob. Cuối cùng, kiểm thử với Rust sidecar thật cho thấy thuộc tính Forward Secrecy vẫn được duy trì sau khi loại thành viên khỏi nhóm.
 	
 	Những kết quả này củng cố tính khả thi của hướng tiếp cận đã đề xuất: thay thế Delivery Service tập trung của MLS bằng một lớp điều phối phi tập trung, trong khi vẫn giữ MLS làm lõi mật mã an toàn. Chương tiếp theo sẽ tổng kết các đóng góp chính của đồ án và trình bày các hướng phát triển tiếp theo.
 	
