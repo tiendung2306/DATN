@@ -1,0 +1,349 @@
+\documentclass[../DoAn.tex]{subfiles}
+\begin{document}
+
+\label{ch:phan_tich_ly_thuyet}
+
+\section{Mục tiêu và phạm vi phân tích}
+\label{sec:muc_tieu_pham_vi_phan_tich}
+
+Chương này phân tích cơ sở lý thuyết của lớp điều phối phi tập trung được đề xuất trong đồ án. Các chương trước đã trình bày bối cảnh bài toán, nền tảng MLS và kiến trúc tổng thể của hệ thống. Trọng tâm của chương này là trả lời câu hỏi: vì sao các cơ chế Single-Writer, Epoch Checks, Fork Healing và HLC Message Ordering có thể giúp MLS vận hành trong môi trường mạng ngang hàng mà không cần một Delivery Service trung tâm đảm nhiệm toàn bộ vai trò điều phối Commit.
+
+Điểm cần làm rõ trước hết là đồ án không chứng minh lại các thuộc tính mật mã của MLS. Các thuộc tính như xác thực thành viên, bảo mật thông điệp, Forward Secrecy và Post-Compromise Security thuộc về bản thân chuẩn MLS và được kế thừa thông qua việc sử dụng OpenMLS \cite{rfc9420}. Đóng góp của đồ án nằm ở lớp điều phối phía trên MLS: lớp này không thay đổi thuật toán mã hóa, không thay đổi key schedule, và không tự tạo ra trạng thái mật mã ngoài mô hình của MLS.
+
+Trong MLS, trạng thái nhóm tiến hóa theo chuỗi các epoch. Mỗi Commit có nhiệm vụ áp dụng một tập Proposal và đưa nhóm sang epoch mới \cite{rfc9420}. Khi có Delivery Service nhất quán mạnh, hệ thống có thể dựa vào DS để áp đặt một thứ tự tuyến tính cho các Commit, đồng thời phá hòa khi nhiều thành viên gửi Commit tại cùng một epoch \cite{rfc9750}. Tuy nhiên, trong môi trường P2P hoặc eventually consistent delivery, các client có thể nhận thông điệp theo các thứ tự khác nhau và phải tự thực hiện reconciliation \cite{rfc9750}. Đây chính là khoảng trống mà lớp điều phối của đồ án hướng tới xử lý.
+
+Về mặt lý thuyết, bài toán của đồ án có thể phát biểu như sau: trong một hệ thống không có DS trung tâm, làm thế nào để các nút P2P vẫn duy trì được một chuỗi trạng thái MLS hợp lệ, hoặc ít nhất phát hiện và phục hồi khi chuỗi trạng thái đó bị phân nhánh. Do tính chất của hệ phân tán, đặc biệt khi xảy ra network partition, hệ thống không thể đồng thời đảm bảo tuyệt đối tính nhất quán mạnh, tính sẵn sàng và khả năng chịu phân mảnh \cite{gilbert2002brewers}. Vì vậy, mục tiêu của đồ án không phải là loại bỏ mọi khả năng fork trong mọi điều kiện mạng, mà là đạt ba mục tiêu thực tế hơn:
+
+\begin{itemize}
+	\item giảm khả năng sinh concurrent commits trong điều kiện các nút có cùng góc nhìn về nhóm;
+	\item phát hiện được fork khi các phân vùng mạng tiến hóa sang các trạng thái MLS khác nhau;
+	\item đưa các nút hội tụ trở lại một trạng thái MLS hợp lệ sau khi mạng kết nối trở lại.
+\end{itemize}
+
+Các phân tích trong chương này được trình bày theo dạng bất biến và lập luận tính đúng đắn. Đây không phải là chứng minh hình thức đầy đủ theo mô hình toán học hoặc mô hình đối kháng mạnh, nhưng đủ để làm rõ vì sao các cơ chế đề xuất phù hợp với mục tiêu của đồ án và vì sao chúng không phá vỡ mô hình mật mã của MLS.
+
+\section{Mô hình phân tích}
+\label{sec:mo_hinh_phan_tich}
+
+Xét một nhóm MLS có định danh $groupID$ và tập thành viên tại epoch $E$ là $M_E$. Mỗi nút trong nhóm duy trì một trạng thái cục bộ $S_E$, bao gồm số epoch hiện tại, trạng thái cây MLS, các giá trị định danh trạng thái như tree hash, transcript hash, epoch authenticator, và một số thông tin điều phối ở tầng ứng dụng. Hai nút được xem là có cùng trạng thái MLS tại epoch $E$ nếu các định danh trạng thái quan trọng của chúng trùng nhau, đặc biệt là epoch, tree hash và epoch authenticator.
+
+Mạng P2P được xem là môi trường bất đồng bộ. Thông điệp có thể đến trễ, đến sai thứ tự, bị lặp hoặc tạm thời không đến được. Trong điều kiện mạng liên thông, các nút cuối cùng có thể nhận được thông tin từ nhau, nhưng không giả định rằng mọi nút nhận thông điệp theo cùng một thứ tự. Trong điều kiện network partition, nhóm có thể bị chia thành nhiều phân vùng, mỗi phân vùng chỉ quan sát được một phần các thành viên đang hoạt động.
+
+Ký hiệu $ActiveView_i(E)$ là tập thành viên mà nút $i$ quan sát là đang hoạt động tại epoch $E$. Trong điều kiện mạng ổn định, các nút có xu hướng hội tụ về cùng một $ActiveView$. Ngược lại, khi mạng bị phân mảnh, hai phân vùng khác nhau có thể có hai $ActiveView$ khác nhau. Đây là nguyên nhân trực tiếp khiến cùng một công thức bầu Token Holder có thể cho ra kết quả khác nhau giữa các phân vùng.
+
+Trong phạm vi phân tích, đồ án giả định các nút tuân thủ giao thức ở mức cơ bản và OpenMLS xử lý đúng các thao tác mật mã. Các hành vi đối kháng phức tạp không phải trọng tâm của chương này. Cách giới hạn phạm vi như vậy giúp phân tích tập trung vào vấn đề chính của đồ án: điều phối trạng thái MLS trong môi trường P2P không ổn định.
+
+\section{Bất biến 1: Epoch cục bộ không được thoái lui}
+\label{sec:bat_bien_epoch_monotonicity}
+
+\subsection{Phát biểu bất biến}
+
+Tại mỗi nút, giá trị epoch cục bộ chỉ được giữ nguyên hoặc tăng lên sau khi nút xử lý thành công một Commit hợp lệ. Nút không được áp dụng một thông điệp thuộc epoch cũ lên trạng thái hiện tại, vì điều này có thể dẫn đến rollback trạng thái mật mã hoặc xử lý bản mã trên một trạng thái cây MLS không còn tương thích.
+
+Bất biến này có thể viết ngắn gọn như sau:
+
+\[
+E_i(t + 1) \geq E_i(t)
+\]
+
+trong đó $E_i(t)$ là epoch cục bộ của nút $i$ tại thời điểm logic $t$.
+
+\subsection{Cơ sở từ MLS}
+
+MLS tổ chức lịch sử nhóm thành một chuỗi các epoch, trong đó mỗi epoch biểu diễn một trạng thái nhóm với tập thành viên đã xác thực cùng chia sẻ trạng thái mật mã \cite{rfc9420}. Mỗi Commit khởi tạo một epoch mới bằng cách yêu cầu các thành viên áp dụng một tập Proposal và cập nhật ratchet tree \cite{rfc9420}. Vì vậy, nếu một nút áp dụng thông điệp sai epoch, nút đó có nguy cơ đặt một thông điệp hợp lệ về mặt định dạng lên một trạng thái mật mã không còn tương thích.
+
+\subsection{Cơ chế bảo toàn bất biến}
+
+Cơ chế Epoch Checks của đồ án bọc mỗi thông điệp nhận từ mạng trong một lớp envelope chứa $groupID$, loại thông điệp và epoch của người gửi. Khi nhận thông điệp, lớp điều phối so sánh epoch của thông điệp với epoch cục bộ trước khi chuyển thông điệp xuống OpenMLS.
+
+\begin{table}[htbp]
+	\centering
+	\begin{tabular}{|p{4.5cm}|p{9.5cm}|}
+		\hline
+		\textbf{Quan hệ epoch} & \textbf{Hành động của lớp điều phối} \\
+		\hline
+		$E_{msg} = E_{local}$ & Thông điệp được chuyển tiếp cho lớp MLS xử lý theo luồng tiến hóa bình thường. \\
+		\hline
+		$E_{msg} < E_{local}$ & Thông điệp bị từ chối áp dụng lên trạng thái MLS hiện tại nhằm ngăn chặn hành vi thoái lui (rollback) trạng thái. \\
+		\hline
+		$E_{msg} > E_{local}$ & Thông điệp chưa được xử lý ngay; nút đưa vào bộ đệm tạm thời và kích hoạt quá trình đồng bộ trạng thái. \\
+		\hline
+	\end{tabular}
+	\caption{Quy tắc xử lý thông điệp theo epoch}
+	\label{tab:epoch_rules}
+\end{table}
+
+\textbf{Mệnh đề 1.} Nếu một nút chỉ tăng epoch sau khi xử lý thành công Commit hợp lệ và từ chối áp dụng thông điệp thuộc epoch cũ, thì epoch cục bộ của nút là đơn điệu không giảm.
+
+\textit{Lập luận.} Giả sử một nút chỉ tăng epoch sau khi xử lý thành công một Commit hợp lệ. Theo quy tắc định tuyến tại Bảng~\ref{tab:epoch_rules}, nút từ chối áp dụng mọi thông điệp có $E_{msg} < E_{local}$, do đó trạng thái MLS cục bộ không bao giờ bị ghi đè hoặc thoái lui về quá khứ. Đối với thông điệp có $E_{msg} > E_{local}$, nút buộc phải đồng bộ hóa chuỗi trạng thái thay vì áp dụng trực tiếp, đảm bảo mọi quá trình chuyển đổi trạng thái đều phải tuần tự trải qua các Commit hợp lệ. Do OpenMLS chỉ sinh trạng thái mới thông qua quá trình xử lý Commit hợp lệ, kết hợp với cơ chế kiểm soát vòng ngoài của lớp điều phối, chuỗi giá trị epoch cục bộ tại mọi nút luôn thỏa mãn tính chất đơn điệu không giảm.
+
+Bất biến này không đảm bảo rằng mọi nút luôn có cùng epoch tại mọi thời điểm. Trong mạng P2P, một số nút có thể tạm thời đi sau do mất kết nối hoặc nhận thông điệp chậm. Điều bất biến đảm bảo là mỗi nút không tự rollback trạng thái MLS của chính nó.
+
+\section{Bất biến 2: Với cùng một view, chỉ có một Token Holder}
+\label{sec:bat_bien_single_writer}
+
+\subsection{Phát biểu bất biến}
+
+Tại epoch $E$, nếu hai nút có cùng $groupID$, cùng số epoch và cùng tập ứng viên hợp lệ, chúng phải tính ra cùng một Token Holder. Token Holder là nút duy nhất được quyền tạo Commit cho epoch đó trong view tương ứng.
+
+Tập ứng viên hợp lệ được xác định như sau:
+
+\begin{equation}
+	\label{eq:eligible_set}
+	\begin{split}
+		Eligible(E) =\ & GroupMembers(E) \cap ActiveView(E) \\
+		& \cap AuthorizedCommitters(E) \setminus RemovedOrSuspended(E)
+	\end{split}
+\end{equation}
+
+Trong đó, $GroupMembers(E)$ là tập thành viên có trong trạng thái MLS tại epoch $E$; $ActiveView(E)$ là tập thành viên đang được quan sát là còn hoạt động; $AuthorizedCommitters(E)$ là tập thành viên được chính sách ứng dụng cho phép tạo Commit; và $RemovedOrSuspended(E)$ là tập thành viên tạm thời không được xét làm Token Holder.
+
+Token Holder được tính bằng quy tắc tất định:
+
+\begin{equation}
+	\label{eq:token_holder}
+	TokenHolder(E) =
+	\operatorname{argmin}_{n \in Eligible(E)}
+	H(groupID \parallel E \parallel n)
+\end{equation}
+
+Trong đó $H$ là hàm băm mật mã, ví dụ SHA-256.
+
+\textbf{Mệnh đề 2.} Nếu hai nút có cùng $groupID$, cùng epoch $E$ và cùng tập $Eligible(E)$, thì chúng chọn cùng một Token Holder.
+
+\textit{Lập luận.} Nếu hai nút $i$ và $j$ có cùng $groupID$, cùng epoch $E$ và cùng tập $Eligible(E)$, thì đầu vào của Công thức~\ref{eq:token_holder} trên hai nút là giống nhau. Vì hàm băm là tất định, tập giá trị băm thu được trên hai nút cũng giống nhau. Do cùng áp dụng phép chọn $\operatorname{argmin}$ trên cùng một tập giá trị, hai nút sẽ chọn cùng một Token Holder.
+
+Trong điều kiện các nút có cùng view, Single-Writer đảm bảo chỉ có một Token Holder, do đó hệ thống không cần thêm một vòng bỏ phiếu mạng để thống nhất ai là người tạo Commit. Mỗi nút có thể tự tính cục bộ và đi đến cùng kết quả. Các nút không phải Token Holder vẫn có thể tạo Proposal, nhưng không trực tiếp tạo Commit tại epoch đó.
+
+\subsection{Ý nghĩa đối với concurrent commits}
+
+Trong MLS, Commit là thao tác làm thay đổi trạng thái nhóm và đưa nhóm sang epoch mới \cite{rfc9420}. Với DS nhất quán mạnh, DS có thể phá hòa khi hai thành viên gửi Commit cùng lúc \cite{rfc9750}. Khi không có DS trung tâm, nếu mọi thành viên đều được tự do Commit, hệ thống dễ sinh nhiều Commit cạnh tranh tại cùng một epoch. Single-Writer giải quyết vấn đề này bằng cách giới hạn quyền Commit vào một Token Holder duy nhất trong mỗi view.
+
+Cơ chế này không khẳng định hệ thống không bao giờ fork. Khi network partition xảy ra, các phân vùng có thể có $ActiveView$ khác nhau, dẫn tới $Eligible(E)$ khác nhau và Token Holder khác nhau. Vì vậy, Single-Writer không phải cơ chế chống fork tuyệt đối trong mọi điều kiện mạng. Vai trò đúng của nó là hạn chế concurrent commits trong điều kiện các nút có cùng góc nhìn, từ đó giảm đáng kể nguy cơ fork khi mạng còn liên thông.
+
+\section{Bất biến 3: Fork trạng thái phải phát hiện được}
+\label{sec:bat_bien_fork_detection}
+
+\subsection{Hiện tượng fork trạng thái mật mã}
+
+Một fork trạng thái mật mã xảy ra khi hai tập nút có cùng $groupID$ nhưng tiến hóa sang hai trạng thái MLS khác nhau. Trường hợp dễ gây nhầm lẫn nhất là hai nhánh đều mang số epoch $E+1$, nhưng tree hash, transcript hash hoặc epoch authenticator khác nhau. Khi đó, dù số epoch giống nhau, hai nhánh thực chất không còn chia sẻ cùng một MLS group state.
+
+DMLS cũng chỉ ra vấn đề tương tự: trong môi trường phi tập trung, có thể xuất hiện nhiều Commit cho cùng một số epoch, khiến số nguyên epoch không còn đủ để định danh duy nhất một trạng thái nhóm \cite{kohbrok2025dmls}. Điều này củng cố nhận định rằng trong P2P MLS, chỉ kiểm tra số epoch là chưa đủ; hệ thống cần so sánh thêm các fingerprint của trạng thái mật mã.
+
+\subsection{Fingerprint trạng thái}
+
+MLS định nghĩa nhiều giá trị có thể dùng để nhận diện trạng thái nhóm. Tree hash tóm tắt trạng thái ratchet tree và root tree hash được dùng trong GroupContext để xác nhận rằng các thành viên đồng ý về toàn bộ cây \cite{rfc9420}. Epoch authenticator có thể được dùng để xác nhận rằng các client đang ở cùng epoch và cùng trạng thái nhóm \cite{rfc9420}.
+
+Dựa trên các giá trị này, lớp điều phối trao đổi định kỳ một bản tóm tắt trạng thái:
+
+\[
+\begin{split}
+StateSummary =\ & (groupID, E, treeHash, \\
+                & epochAuthenticator, commitHash)
+\end{split}
+\]
+
+Trong đó $commitHash$ là định danh của Commit gần nhất theo lớp điều phối. Giá trị này không thay thế các định danh mật mã của MLS, nhưng giúp hệ thống truy vết nhanh nhánh trạng thái ở tầng ứng dụng.
+
+\textbf{Mệnh đề 3.} Khi network partition xảy ra, hệ thống không đảm bảo ngăn fork tuyệt đối, nhưng có thể phát hiện sự khác biệt trạng thái mật mã thông qua việc so sánh các giá trị định danh trạng thái và phục hồi sau khi các phân vùng kết nối trở lại.
+
+\textit{Lập luận.} Giả sử hai nút $i$ và $j$ có cùng $groupID$. Nếu chúng cùng ở epoch $E$ nhưng có $treeHash_i \neq treeHash_j$ hoặc $epochAuthenticator_i \neq epochAuthenticator_j$, thì hai nút không có cùng trạng thái MLS tại epoch đó. Khi đó, lớp điều phối có thể kết luận rằng đã xuất hiện fork trạng thái.
+
+Lập luận quan trọng ở đây là fork MLS không phải là trạng thái mơ hồ ở tầng ứng dụng. Khi hai nhánh đã khác trạng thái mật mã, sự khác biệt đó để lại dấu vết trong các fingerprint như tree hash và epoch authenticator. Vì vậy, hệ thống không cần lưu toàn bộ lịch sử thông điệp để phát hiện mọi trường hợp; nó có thể phát hiện fork bằng cách so sánh các trạng thái đặc trưng.
+
+\section{Bất biến 4: Không hợp nhất trực tiếp hai trạng thái MLS đã phân nhánh}
+\label{sec:bat_bien_khong_hop_nhat_truc_tiep}
+
+\subsection{Vấn đề của việc gộp trạng thái}
+
+Khi hai nhánh MLS đã phân kỳ, mỗi nhánh có lịch sử Commit, ratchet tree, transcript và key schedule riêng. Việc cố gắng trộn trực tiếp khóa, cây hoặc transcript của hai nhánh để tạo ra một trạng thái chung mới là không phù hợp với mô hình của MLS. Trong MLS, trạng thái nhóm chỉ nên tiến hóa thông qua các thao tác hợp lệ như Proposal và Commit; mỗi Commit đưa nhóm sang một epoch mới và làm cho các giá trị trạng thái như ratchet tree, transcript hash, epoch secret và epoch authenticator được cập nhật theo đúng quy tắc của giao thức \cite{rfc9420}. Nếu lớp điều phối tự tạo ra một trạng thái mật mã mới bằng cách gộp thủ công hai nhánh đã fork, trạng thái đó không còn là kết quả của một chuỗi Commit hợp lệ. Khi đó, hệ thống không còn có thể dựa trực tiếp vào các bảo đảm của MLS/OpenMLS.
+
+
+Do đó, đồ án đặt ra bất biến sau: khi fork đã xảy ra, hệ thống không hợp nhất trực tiếp hai trạng thái MLS. Thay vào đó, hệ thống chọn một nhánh tiếp tục và đưa các nút ở nhánh còn lại gia nhập lại nhóm để tạo ra một trạng thái MLS hợp lệ mới.
+
+\subsection{Quy tắc chọn nhánh}
+
+Giả sử sau khi network partition kết thúc, hệ thống quan sát được tập các nhánh:
+
+\[
+\mathcal{B} = \{B_1, B_2, \dots, B_k\}
+\]
+
+Mỗi nhánh $B$ được gắn với một trọng số:
+
+\begin{equation}
+	\label{eq:branch_weight}
+	\begin{split}
+		W(B) =\ & (E_B,\ C_{valid}(B), \\
+		        & H_{commit}(B),\ H_{tree}(B))
+	\end{split}
+\end{equation}
+
+Trong đó $E_B$ là epoch của nhánh, $C_{valid}(B)$ là số thành viên hợp lệ hoặc số nút quan sát được đang ủng hộ nhánh, $H_{commit}(B)$ là mã băm Commit gần nhất, và $H_{tree}(B)$ là tree hash của nhánh. Các trường hash không biểu diễn nhánh "tốt hơn" về mặt bảo mật, mà chỉ đóng vai trò phá hòa tất định khi các tiêu chí trước bằng nhau.
+
+Nhánh thắng được chọn bằng một hàm tất định:
+
+\begin{equation}
+	\label{eq:select_branch}
+	B_{win} = SelectBranch(\mathcal{B}) =
+	\operatorname{argmax}_{B \in \mathcal{B}} W(B)
+\end{equation}
+
+Việc so sánh được hiểu là so sánh từ điển theo thứ tự các thành phần trong $W(B)$.
+
+\textbf{Mệnh đề 4.} Mọi phân vùng quan sát cùng một tập nhánh sẽ chọn cùng một nhánh thắng để phục hồi sau fork.
+
+\textit{Lập luận.} Nếu hai nút quan sát cùng một tập nhánh $\mathcal{B}$ và cùng sử dụng hàm $SelectBranch$, chúng sẽ chọn cùng một nhánh thắng $B_{win}$. Tính hội tụ ở đây đến từ tính tất định của quy tắc lựa chọn, không đến từ một máy chủ trung tâm.
+
+Sau khi nhánh thắng được xác định, các nút thuộc nhánh thua không tiếp tục gửi thông điệp mới bằng trạng thái cũ. Chúng đóng băng trạng thái cũ ở tầng ứng dụng, sau đó gia nhập lại nhánh thắng bằng cơ chế phù hợp của MLS, chẳng hạn Welcome hoặc External Commit tùy điều kiện triển khai. RFC 9420 mô tả External Commit như một cơ chế cho phép một thành viên bên ngoài tham gia hoặc resync vào nhóm trong những điều kiện nhất định \cite{rfc9420}.
+
+Suy ra, sau quá trình healing, hệ thống không duy trì song song nhiều nhánh cho các thông điệp mới. Thay vào đó, các nút hội tụ về một trạng thái MLS hợp lệ được tạo ra thông qua cơ chế của MLS, không phải thông qua việc tự trộn khóa cũ.
+
+\subsection{Giới hạn của lập luận}
+
+Lập luận trên phụ thuộc vào hai điều kiện. Thứ nhất, các phân vùng mạng phải kết nối trở lại để thông tin về các nhánh được trao đổi. Nếu partition kéo dài vô hạn, không có cơ chế P2P nào có thể buộc các phân vùng không liên lạc với nhau phải hội tụ tức thời. Thứ hai, các nút cần dần quan sát được cùng tập nhánh hoặc ít nhất cùng nhánh có trọng số cao nhất. Trước khi thông tin hội tụ, một số nút có thể tạm thời chưa chọn cùng kết quả.
+
+Những giới hạn này không làm mất ý nghĩa của Fork Healing. Chúng chỉ phản ánh bản chất của hệ phân tán: khi mất liên lạc, hệ thống không thể vừa cho phép các phân vùng tiếp tục hoạt động cục bộ, vừa đảm bảo mọi phân vùng luôn có cùng trạng thái tại mọi thời điểm.
+
+\section{Xử lý thông điệp phát sinh trong nhánh thua}
+\label{sec:xu_ly_thong_diep_nhanh_thua}
+
+Trong thời gian network partition, người dùng ở mỗi phân vùng có thể tiếp tục gửi application message. Khi partition kết thúc và một nhánh được chọn làm nhánh tiếp tục, các thông điệp phát sinh ở nhánh thua đặt ra một vấn đề riêng: chúng là dữ liệu ứng dụng hợp lệ đối với người gửi, nhưng bản mã của chúng được tạo dưới một trạng thái MLS không còn được tiếp tục sử dụng.
+
+Vì vậy, đồ án không phát lại nguyên trạng các bản mã cũ của nhánh thua. Nếu chính sách ứng dụng cho phép phục hồi nội dung, nút chỉ phát lại các thông điệp do chính nó tạo ra và mã hóa lại nội dung dưới epoch hợp lệ của nhánh thắng. Cách làm này có ba ý nghĩa.
+
+Thứ nhất, hệ thống không kéo dài vòng đời sử dụng của khóa cũ thuộc nhánh thua. Thứ hai, mỗi nút chỉ có thể phát lại nội dung mà nó là tác giả, tránh việc một nút tự ý đại diện cho nút khác để tái tạo thông điệp. Thứ ba, thông điệp sau khi được phát lại sẽ là application message mới, được mã hóa và xác thực trong trạng thái MLS hiện hành của nhánh thắng.
+
+Lập luận này không khẳng định rằng mọi dữ liệu phát sinh trong partition đều có thể được phục hồi trọn vẹn. Một số thông điệp có thể bị mất nếu tác giả không còn lưu plaintext cục bộ hoặc chính sách ứng dụng không cho phép replay. Tuy nhiên, cách xử lý này giữ được ranh giới quan trọng: phục hồi dữ liệu ứng dụng không được đánh đổi bằng việc hợp nhất hoặc tái sử dụng tùy tiện trạng thái mật mã cũ.
+
+\section{Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}
+\label{sec:bat_bien_hlc}
+
+\subsection{Phân biệt crypto ordering và application ordering}
+
+Trong hệ thống, cần phân biệt hai loại thứ tự khác nhau. Thứ tự thứ nhất là thứ tự Commit, quyết định chuỗi trạng thái mật mã của MLS. Thứ tự này ảnh hưởng trực tiếp đến epoch, ratchet tree và key schedule. Thứ tự thứ hai là thứ tự hiển thị application message trong cùng một epoch. Thứ tự này phục vụ trải nghiệm người dùng và đồng bộ dữ liệu ứng dụng.
+
+MLS đã có cơ chế riêng để xử lý application message bị trễ hoặc đến sai thứ tự thông qua group identifier, epoch và generation counter \cite{rfc9420}. Tuy nhiên, trong một ứng dụng P2P, các nút vẫn cần một quy tắc ổn định để hiển thị các thông điệp đã giải mã hợp lệ theo cùng một thứ tự tương đối. Đây là vai trò của HLC trong đồ án.
+
+\subsection{Cơ sở của HLC}
+
+Hybrid Logical Clock kết hợp thông tin thời gian vật lý và đồng hồ logic. Theo Kulkarni và Demirbas, HLC giữ được thuộc tính một chiều của quan hệ nhân quả: nếu sự kiện $e$ xảy ra trước sự kiện $f$ theo quan hệ happened-before, thì timestamp HLC của $e$ nhỏ hơn timestamp HLC của $f$ \cite{kulkarni2014hlc}.
+
+Trong đồ án, timestamp của một application message được biểu diễn dưới dạng:
+
+\begin{equation}
+	\label{eq:hlc}
+	HLC = (L,\ C,\ NodeID)
+\end{equation}
+
+Trong đó $L$ là thành phần thời gian logic gần với thời gian vật lý, $C$ là bộ đếm logic dùng khi nhiều sự kiện có cùng $L$, và $NodeID$ là khóa phá hòa tất định.
+
+\textbf{Mệnh đề 5.} HLC tạo thứ tự hiển thị tất định cho cùng một tập thông điệp đã được giải mã hợp lệ, không thay thế cơ chế ordering của Commit.
+
+\textit{Lập luận.} Khi một nút gửi application message, nó gắn HLC hiện tại vào message. Khi một nút nhận message từ nút khác, nó cập nhật HLC cục bộ dựa trên timestamp nhận được và thời gian cục bộ. Nếu message $A$ là nguyên nhân dẫn đến message $B$, ví dụ người dùng trả lời sau khi đã nhận $A$, thì HLC của $B$ sẽ lớn hơn HLC của $A$ theo quan hệ từ điển. Điều này giúp hệ thống giữ được thứ tự nhân quả cơ bản trong quá trình hiển thị.
+
+Đối với các message đồng thời, tức không có quan hệ nhân quả rõ ràng, hệ thống sử dụng so sánh từ điển trên $(L, C, NodeID)$ để tạo thứ tự hiển thị tất định. Điều này không biến HLC thành cơ chế đồng thuận, và HLC không đảm bảo mọi nút có lịch sử giống nhau tuyệt đối. Nó chỉ đảm bảo rằng khi hai nút đã có cùng một tập message hợp lệ, chúng có thể sắp xếp tập message đó theo cùng một quy tắc.
+
+\subsection{Giới hạn của HLC trong đồ án}
+
+HLC không được dùng để quyết định Commit nào hợp lệ. HLC cũng không được dùng để sửa fork trạng thái MLS. Một Commit chỉ hợp lệ khi được MLS/OpenMLS xác thực và phù hợp với trạng thái epoch hiện tại. Vì vậy, HLC chỉ nằm ở tầng ứng dụng, sau các bước xác thực và giải mã, nhằm phục vụ thứ tự hiển thị và đồng bộ hội thoại.
+
+Sự phân định này đóng vai trò thiết yếu. Nếu nhầm HLC với cơ chế ordering cho Commit, hệ thống có thể vô tình cho phép một timestamp ứng dụng ảnh hưởng đến tiến trình key schedule của MLS. Đồ án tránh điều này bằng cách tách rõ hai tầng: Commit ordering thuộc lớp điều phối MLS, còn application ordering thuộc lớp hiển thị và đồng bộ dữ liệu.
+
+\section{Phân tích chi phí lý thuyết}
+\label{sec:phan_tich_chi_phi_ly_thuyet}
+
+Phần này phân tích chi phí của hệ thống theo ba lớp: chi phí mật mã MLS, chi phí điều phối P2P và chi phí triển khai. Việc tách ba lớp là cần thiết vì độ phức tạp thuật toán của MLS không phản ánh đầy đủ độ trễ end-to-end của một hệ thống thực tế có gRPC, lưu trữ cục bộ và truyền thông P2P.
+
+\subsection{Chi phí gửi application message}
+
+Trong mô hình mã hóa pairwise, người gửi thường phải tạo hoặc bọc khóa riêng cho từng người nhận. Với nhóm có $N$ thành viên, chi phí này có xu hướng tăng tuyến tính theo số người nhận.
+
+Với MLS, application message được bảo vệ bằng khóa dẫn xuất từ trạng thái nhóm tại epoch hiện tại. Người gửi không cần tạo một bản mã độc lập cho từng thành viên. Vì vậy, xét riêng thao tác mã hóa nội dung ứng dụng, chi phí không tăng tuyến tính theo số lượng thành viên như mô hình pairwise. Đây là một trong những lý do MLS phù hợp hơn cho truyền thông nhóm quy mô lớn \cite{rfc9420}.
+
+Tuy nhiên, trong hệ thống P2P, chi phí toàn trình còn phụ thuộc vào lớp mạng. Nếu một thông điệp phải được truyền trực tiếp tới nhiều peer, chi phí mạng có thể tăng theo số lượng peer hoặc theo cơ chế lan truyền của overlay. Do đó, cần phân biệt giữa chi phí mật mã của MLS và chi phí phân phối message của hệ thống P2P.
+
+\subsection{Chi phí cập nhật thành viên và rekey}
+
+Các thao tác thêm thành viên, loại bỏ thành viên hoặc cập nhật khóa đều được biểu diễn thông qua Proposal và Commit. Ở mức TreeKEM, ratchet tree cho phép cập nhật khóa hiệu quả hơn so với việc mã hóa riêng cho từng thành viên; RFC 9420 mô tả rằng việc mã hóa tới các subtree giúp giảm chi phí từ tuyến tính xuống theo chiều cao cây trong một số thao tác, ví dụ loại bỏ một thành viên khỏi nhóm \cite{rfc9420}.
+
+Trong triển khai thực tế, chi phí Commit không chỉ gồm phần mật mã lõi. Nó còn bao gồm chi phí tạo Proposal, tạo Commit, xử lý Welcome hoặc External Commit, lưu trạng thái mới, truyền message qua mạng P2P và đồng bộ các nút nhận. Vì vậy, ở Chương~\ref{ch:danh_gia_thuc_nghiem}, việc đánh giá cần tách hai loại số liệu: chi phí MLS core và chi phí end-to-end của toàn hệ thống.
+
+\subsection{Chi phí của Single-Writer}
+
+Cơ chế Single-Writer không yêu cầu một vòng đồng thuận mạng riêng để bầu Token Holder trong điều kiện các nút có cùng view. Mỗi nút tự tính Token Holder bằng cách duyệt qua tập $Eligible(E)$ và áp dụng hàm băm cho từng ứng viên. Nếu số thành viên hợp lệ là $N$, chi phí tính toán cục bộ của bước chọn Token Holder là $O(N)$ trong cách cài đặt trực tiếp.
+
+Điểm quan trọng là chi phí này là chi phí cục bộ, không phải chi phí nhiều vòng mạng. Trong bối cảnh P2P, tránh thêm các vòng đồng thuận cho mỗi Commit là một lợi thế quan trọng, vì độ trễ mạng và peer churn có thể làm các giao thức đồng thuận trở nên nặng hơn nhu cầu thực tế của ứng dụng.
+
+\subsection{Chi phí của Epoch Checks và Fork Detection}
+
+Epoch Checks có chi phí nhỏ vì mỗi message chỉ cần so sánh một số trường metadata như $groupID$, epoch và loại thông điệp trước khi chuyển xuống MLS. Chi phí này có thể xem là $O(1)$ trên mỗi message nếu không tính phần xử lý MLS bên dưới.
+
+Fork Detection yêu cầu các nút trao đổi StateSummary chứa epoch, tree hash, epoch authenticator và commit hash. Kích thước của mỗi StateSummary là nhỏ so với toàn bộ trạng thái MLS. Do đó, chi phí mỗi lần trao đổi tóm tắt trạng thái có thể xem là $O(1)$ theo kích thước nhóm, mặc dù tổng chi phí mạng phụ thuộc vào tần suất heartbeat và số lượng peer mà mỗi nút duy trì kết nối.
+
+\subsection{Chi phí của Fork Healing}
+
+Fork Healing phát sinh khi hệ thống đã có phân nhánh trạng thái. Chi phí của quá trình này gồm ba phần: phát hiện nhánh, chọn nhánh, và đưa các nút ở nhánh thua gia nhập lại. Phần chọn nhánh có chi phí phụ thuộc vào số nhánh quan sát được $k$, thường nhỏ hơn nhiều so với số thành viên nhóm. Phần tốn kém hơn là quá trình gia nhập lại, vì nó cần thực hiện các thao tác MLS như Welcome hoặc External Commit và đồng bộ trạng thái mới.
+
+Về lý thuyết, Fork Healing là chi phí bất thường, không phải chi phí trên mọi message. Nó chỉ xuất hiện khi có partition hoặc fork. Do đó, đồ án chấp nhận chi phí này để đổi lấy khả năng duy trì hoạt động cục bộ trong thời gian mạng bị chia cắt và khả năng hội tụ sau khi kết nối được khôi phục.
+
+\subsection{Ảnh hưởng của kiến trúc sidecar phi trạng thái}
+
+Trong kiến trúc triển khai của đồ án, Go Host lưu snapshot trạng thái nhóm trong SQLite và truyền \texttt{GroupState} sang Rust sidecar khi cần thực hiện thao tác MLS. Rust xử lý snapshot này bằng OpenMLS rồi trả lại trạng thái mới để Go Host lưu bền vững. Cách thiết kế này không làm thay đổi độ phức tạp lý thuyết của TreeKEM, nhưng làm phát sinh thêm chi phí tuần tự hóa, truyền dữ liệu qua gRPC và ghi lại trạng thái khi quy mô nhóm tăng.
+
+Do đó, khi đánh giá hiệu năng, cần tránh nhầm lẫn giữa hai tầng. Nếu đo MLS core, kết quả phản ánh chi phí mật mã và xử lý trạng thái trong OpenMLS. Nếu đo end-to-end, kết quả phản ánh thêm chi phí IPC, lưu trữ, truyền mạng và điều phối. Trong phạm vi đồ án, các kết quả thực nghiệm chủ yếu dùng để kiểm chứng tính đúng đắn, khả năng hội tụ và thuộc tính bảo mật; tối ưu hóa chi phí IPC và persistence được xem là hướng phát triển tiếp theo.
+
+\section{Tổng hợp các bất biến và cơ chế bảo toàn}
+\label{sec:tong_hop_bat_bien}
+
+Bảng~\ref{tab:invariant_summary} tổng hợp các bất biến chính được phân tích trong chương này và cơ chế tương ứng trong thiết kế của đồ án.
+
+\begin{table}[htbp]
+	\centering
+	\small
+	\begin{tabular}{|p{4.0cm}|p{5.0cm}|p{5.0cm}|}
+		\hline
+		\textbf{Bất biến / Thuộc tính} & \textbf{Cơ chế bảo toàn} & \textbf{Ý nghĩa} \\
+		\hline
+		Epoch cục bộ không thoái lui & Epoch Checks & Ngăn nút áp dụng thông điệp lên trạng thái MLS cũ hoặc không tương thích. \\
+		\hline
+		Một Token Holder trong cùng view & Single-Writer per Epoch & Giảm concurrent commits khi các nút có cùng góc nhìn về nhóm. \\
+		\hline
+		Fork trạng thái phát hiện được & StateSummary, tree hash, epoch authenticator & Nhận diện trường hợp cùng nhóm nhưng khác trạng thái mật mã. \\
+		\hline
+		Không gộp trực tiếp trạng thái MLS đã fork & Fork Healing qua chọn nhánh và gia nhập lại & Tránh tự tạo trạng thái mật mã ngoài mô hình MLS. \\
+		\hline
+		Thứ tự hiển thị không quyết định Commit & HLC Message Ordering & Tách application ordering khỏi crypto ordering. \\
+		\hline
+		Chi phí điều phối không thay thế chi phí MLS core & Phân tách Go Coordination và Rust OpenMLS & Cho phép đánh giá riêng chi phí mật mã và chi phí hệ thống. \\
+		\hline
+	\end{tabular}
+	\caption{Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}
+	\label{tab:invariant_summary}
+\end{table}
+
+Qua các bất biến trên, có thể thấy đóng góp cốt lõi của đồ án không nằm ở việc thay đổi MLS, mà nằm ở việc xây dựng một lớp điều phối giúp MLS thích nghi với môi trường P2P. Lớp này thay thế một phần vai trò ordering thường do DS đảm nhiệm, đồng thời vẫn giữ ranh giới rõ ràng với phần mật mã chuẩn.
+
+\section{Giới hạn lý thuyết của phương pháp}
+\label{sec:gioi_han_ly_thuyet}
+
+Phương pháp đề xuất không phải là một giao thức đồng thuận mạnh. Nó không đảm bảo rằng mọi phân vùng mạng luôn nhìn thấy cùng một trạng thái tại mọi thời điểm. Khi network partition xảy ra, mỗi phân vùng có thể tiếp tục hoạt động cục bộ và tiến hóa trạng thái riêng. Đây là đánh đổi có chủ đích để phù hợp với mục tiêu P2P và Local-First của hệ thống.
+
+Single-Writer chỉ đảm bảo một Token Holder duy nhất khi các nút có cùng view. Nếu các phân vùng có $ActiveView$ khác nhau, chúng có thể chọn ra Token Holder khác nhau. Trong trường hợp này, tính đúng đắn của hệ thống không nằm ở việc ngăn fork tuyệt đối, mà nằm ở khả năng phát hiện fork và phục hồi sau đó.
+
+Fork Healing cũng phụ thuộc vào việc các phân vùng cuối cùng kết nối lại. Nếu các phân vùng không bao giờ trao đổi được StateSummary, hệ thống không có đủ thông tin để hội tụ. Đây là giới hạn tự nhiên của mọi cơ chế phục hồi trong hệ phân tán bất đồng bộ.
+
+Cuối cùng, HLC chỉ hỗ trợ thứ tự hiển thị application message. HLC không thay thế kiểm tra epoch, không thay thế xác thực của MLS, và không được dùng để quyết định Commit nào hợp lệ. Nhờ giới hạn rõ vai trò như vậy, hệ thống tránh việc để một cơ chế ordering ở tầng ứng dụng can thiệp sai vào tiến trình mật mã của MLS.
+
+Những giới hạn trên không làm suy yếu đóng góp của đồ án. Ngược lại, chúng làm rõ phạm vi đúng của phương pháp: đồ án không cố biến P2P MLS thành một hệ thống đồng thuận toàn cục nặng nề, mà xây dựng một lớp điều phối nhẹ hơn, phù hợp với môi trường P2P, có khả năng giảm fork trong điều kiện bình thường và phục hồi khi fork xảy ra.
+
+\section{Kết chương}
+\label{sec:ket_chuong_phan_tich_ly_thuyet}
+
+Chương này đã phân tích các bất biến lý thuyết quan trọng của lớp điều phối phi tập trung cho MLS trên mạng P2P. Các bất biến chính bao gồm: epoch cục bộ không được thoái lui, trong cùng một view chỉ có một Token Holder, fork trạng thái phải phát hiện được, hai trạng thái MLS đã phân nhánh không được gộp trực tiếp, và HLC chỉ dùng để sắp xếp application message chứ không quyết định Commit.
+
+Các lập luận trong chương cho thấy lớp điều phối đề xuất không thay đổi lõi mật mã của MLS, mà bổ sung các cơ chế cần thiết để vận hành MLS trong môi trường không có DS trung tâm. Single-Writer giúp giảm concurrent commits khi các nút có cùng góc nhìn; Epoch Checks bảo vệ client khỏi việc xử lý thông điệp sai trạng thái; Fork Healing giúp hệ thống hội tụ lại sau network partition; và HLC tạo thứ tự hiển thị ổn định hơn cho application message.
+
+Từ góc độ lý thuyết, phương pháp của đồ án là hợp lý vì nó tách rõ hai trách nhiệm: MLS/OpenMLS chịu trách nhiệm bảo mật mật mã, còn lớp điều phối chịu trách nhiệm ordering, phát hiện fork và phục hồi trạng thái ở tầng hệ thống. Những phân tích này là cơ sở để Chương~\ref{ch:danh_gia_thuc_nghiem} tiếp tục kiểm chứng bằng thực nghiệm về hiệu năng, độ trễ và khả năng phục hồi của nguyên mẫu triển khai.
+
+\end{document}

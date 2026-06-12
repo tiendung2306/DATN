@@ -79,6 +79,7 @@ type SingleWriter struct {
 	cfg        *CoordinatorConfig
 	groupID    string
 	authorized AuthorizedCommittersProvider
+	suspended  map[peer.ID]struct{}
 }
 
 // NewSingleWriter creates a SingleWriter for the given group.
@@ -88,6 +89,7 @@ func NewSingleWriter(av *ActiveView, localID peer.ID, epoch uint64, cfg *Coordin
 		localID:    localID,
 		epoch:      epoch,
 		cfg:        cfg,
+		suspended:  make(map[peer.ID]struct{}),
 	}
 }
 
@@ -98,6 +100,31 @@ func (sw *SingleWriter) SetAuthorizedCommitters(groupID string, provider Authori
 	sw.authorized = provider
 }
 
+// Suspend temporarily excludes a peer from being elected as Token Holder
+// for the remainder of the current epoch. The suspension is cleared automatically
+// when the epoch advances.
+func (sw *SingleWriter) Suspend(id peer.ID) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if sw.suspended == nil {
+		sw.suspended = make(map[peer.ID]struct{})
+	}
+	sw.suspended[id] = struct{}{}
+}
+
+func filterSuspended(candidates []peer.ID, suspended map[peer.ID]struct{}) []peer.ID {
+	if len(suspended) == 0 || len(candidates) == 0 {
+		return candidates
+	}
+	out := make([]peer.ID, 0, len(candidates))
+	for _, pid := range candidates {
+		if _, ok := suspended[pid]; !ok {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
 // IsTokenHolder returns true if the local node is the Token Holder for the
 // current epoch. Returns false if the active view is empty.
 func (sw *SingleWriter) IsTokenHolder() bool {
@@ -106,10 +133,14 @@ func (sw *SingleWriter) IsTokenHolder() bool {
 	groupID := sw.groupID
 	provider := sw.authorized
 	batch := sw.peekNextBatchLocked()
+	suspended := make(map[peer.ID]struct{}, len(sw.suspended))
+	for k, v := range sw.suspended {
+		suspended[k] = v
+	}
 	sw.mu.Unlock()
 
 	members := sw.activeView.Members()
-	holder, err := sw.computeHolder(members, epoch, groupID, batch, provider)
+	holder, err := sw.computeHolder(members, epoch, groupID, batch, provider, suspended)
 	if err != nil {
 		return false
 	}
@@ -123,9 +154,29 @@ func (sw *SingleWriter) CurrentTokenHolder() (peer.ID, error) {
 	groupID := sw.groupID
 	provider := sw.authorized
 	batch := sw.peekNextBatchLocked()
+	suspended := make(map[peer.ID]struct{}, len(sw.suspended))
+	for k, v := range sw.suspended {
+		suspended[k] = v
+	}
 	sw.mu.Unlock()
 
-	return sw.computeHolder(sw.activeView.Members(), epoch, groupID, batch, provider)
+	return sw.computeHolder(sw.activeView.Members(), epoch, groupID, batch, provider, suspended)
+}
+
+// HolderForBatch computes the token holder given a specific batch of proposals,
+// applying the current epoch, active view, and suspensions.
+func (sw *SingleWriter) HolderForBatch(batch []BufferedProposal) (peer.ID, error) {
+	sw.mu.Lock()
+	epoch := sw.epoch
+	groupID := sw.groupID
+	provider := sw.authorized
+	suspended := make(map[peer.ID]struct{}, len(sw.suspended))
+	for k, v := range sw.suspended {
+		suspended[k] = v
+	}
+	sw.mu.Unlock()
+
+	return sw.computeHolder(sw.activeView.Members(), epoch, groupID, batch, provider, suspended)
 }
 
 // BufferProposal adds an MLS Proposal to the internal buffer. The proposal's
@@ -252,6 +303,7 @@ func (sw *SingleWriter) AdvanceEpoch(newEpoch uint64) {
 	defer sw.mu.Unlock()
 	sw.epoch = newEpoch
 	sw.proposals = nil
+	sw.suspended = make(map[peer.ID]struct{})
 }
 
 // Epoch returns the current epoch.
@@ -261,7 +313,7 @@ func (sw *SingleWriter) Epoch() uint64 {
 	return sw.epoch
 }
 
-func (sw *SingleWriter) computeHolder(activeView []peer.ID, epoch uint64, groupID string, batch []BufferedProposal, provider AuthorizedCommittersProvider) (peer.ID, error) {
+func (sw *SingleWriter) computeHolder(activeView []peer.ID, epoch uint64, groupID string, batch []BufferedProposal, provider AuthorizedCommittersProvider, suspended map[peer.ID]struct{}) (peer.ID, error) {
 	eligible := activeView
 	if provider != nil {
 		authorized, err := provider(groupID, epoch, cloneProposalBatch(batch))
@@ -271,6 +323,7 @@ func (sw *SingleWriter) computeHolder(activeView []peer.ID, epoch uint64, groupI
 		eligible = intersectPeerIDs(activeView, authorized)
 	}
 	eligible = filterRemovedByBatch(eligible, batch)
+	eligible = filterSuspended(eligible, suspended)
 	if groupID == "" {
 		return ComputeTokenHolder(eligible, epoch)
 	}

@@ -1,0 +1,144 @@
+\babel@toc {nil}{}\relax 
+\ttl@change@i {\@ne }{chapter}{0.0cm}{\bfseries \vspace {0.3cm}}{{\bfseries {\scshape } CHƯƠNG \thecontentslabel .\ }}{}{\titlerule *[0.3pc]{.}\contentspage }\relax 
+\ttl@change@v {chapter}{}{}{}\relax 
+\ttl@change@i {\@ne }{section}{0.0cm}{\vspace {0.3cm}}{\thecontentslabel \ }{}{\titlerule *[0.3pc]{.}\contentspage }\relax 
+\ttl@change@v {section}{}{}{}\relax 
+\ttl@change@i {\@ne }{subsection}{1.0cm}{\vspace {0.3cm}}{\thecontentslabel \ }{}{\titlerule *[0.3pc]{.}\contentspage }\relax 
+\ttl@change@v {subsection}{}{}{}\relax 
+\thispagestyle {empty}
+\contentsline {chapter}{\numberline {1}GIỚI THIỆU ĐỀ TÀI}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}Đặt vấn đề}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}Các giải pháp hiện tại và hạn chế}{2}{section.1.2}%
+\contentsline {subsection}{\numberline {1.2.1}Double Ratchet, Sender Keys và Megolm}{3}{subsection.1.2.1}%
+\contentsline {subsection}{\numberline {1.2.2}MLS và bài toán Delivery Service trong triển khai phân tán}{4}{subsection.1.2.2}%
+\contentsline {section}{\numberline {1.3}Mục tiêu và định hướng giải pháp}{5}{section.1.3}%
+\contentsline {subsection}{\numberline {1.3.1}Mục tiêu của đồ án}{5}{subsection.1.3.1}%
+\contentsline {subsection}{\numberline {1.3.2}Định hướng giải pháp}{7}{subsection.1.3.2}%
+\contentsline {section}{\numberline {1.4}Đóng góp của đồ án}{9}{section.1.4}%
+\contentsline {subsection}{\numberline {1.4.1}Đóng góp về mặt nghiên cứu lý thuyết}{9}{subsection.1.4.1}%
+\contentsline {subsection}{\numberline {1.4.2}Đóng góp về mặt hiện thực kỹ thuật}{10}{subsection.1.4.2}%
+\contentsline {section}{\numberline {1.5}Bố cục đồ án}{10}{section.1.5}%
+\contentsline {chapter}{\numberline {2}NỀN TẢNG LÝ THUYẾT}{12}{chapter.2}%
+\contentsline {section}{\numberline {2.1}Ngữ cảnh của bài toán: nhất quán trạng thái mật mã trong hệ phân tán}{12}{section.2.1}%
+\contentsline {subsection}{\numberline {2.1.1}Từ mô hình tập trung sang mô hình ngang hàng}{13}{subsection.2.1.1}%
+\contentsline {subsection}{\numberline {2.1.2}Mô hình hệ thống và giả định nghiên cứu}{14}{subsection.2.1.2}%
+\contentsline {subsection}{\numberline {2.1.3}Mâu thuẫn cốt lõi của MLS trên mạng ngang hàng}{15}{subsection.2.1.3}%
+\contentsline {section}{\numberline {2.2}Các kết quả nghiên cứu tương tự}{15}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}Các cơ chế mã hóa nhóm trước MLS}{15}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}MLS với Delivery Service}{16}{subsection.2.2.2}%
+\contentsline {subsection}{\numberline {2.2.3}Các hướng phi tập trung hóa MLS}{17}{subsection.2.2.3}%
+\contentsline {section}{\numberline {2.3}Nền tảng MLS và TreeKEM}{18}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}Các khái niệm cốt lõi: Client, Group, Member và Epoch}{18}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}Ratchet Tree và TreeKEM}{18}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}Proposal, Commit và tiến trình chuyển Epoch}{19}{subsection.2.3.3}%
+\contentsline {subsection}{\numberline {2.3.4}Tree hash, transcript hash và epoch authenticator}{19}{subsection.2.3.4}%
+\contentsline {subsection}{\numberline {2.3.5}Delivery Service và bài toán tuần tự hóa Commit}{20}{subsection.2.3.5}%
+\contentsline {subsection}{\numberline {2.3.6}Application messages, delayed messages và giới hạn Forward Secrecy}{20}{subsection.2.3.6}%
+\contentsline {subsection}{\numberline {2.3.7}External Commit và cơ chế gia nhập lại nhóm}{21}{subsection.2.3.7}%
+\contentsline {section}{\numberline {2.4}Nền tảng mạng ngang hàng và thứ tự trong hệ phân tán}{21}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Đặc tính của mạng ngang hàng}{21}{subsection.2.4.1}%
+\contentsline {subsection}{\numberline {2.4.2}go-libp2p và các thành phần truyền thông}{22}{subsection.2.4.2}%
+\contentsline {subsection}{\numberline {2.4.3}GossipSub và giới hạn về thứ tự thông điệp}{22}{subsection.2.4.3}%
+\contentsline {subsection}{\numberline {2.4.4}Đồng hồ logic và thứ tự hiển thị thông điệp ứng dụng}{23}{subsection.2.4.4}%
+\contentsline {subsection}{\numberline {2.4.5}Khoảng trống cần giải quyết}{23}{subsection.2.4.5}%
+\contentsline {chapter}{\numberline {3}PHƯƠNG PHÁP ĐỀ XUẤT}{25}{chapter.3}%
+\contentsline {section}{\numberline {3.1}Tổng quan giải pháp}{25}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}Bài toán cần giải quyết}{25}{subsection.3.1.1}%
+\contentsline {subsection}{\numberline {3.1.2}Kiến trúc tổng thể}{26}{subsection.3.1.2}%
+\contentsline {subsection}{\numberline {3.1.3}Các thành phần chính của giao thức}{27}{subsection.3.1.3}%
+\contentsline {subsection}{\numberline {3.1.4}Luồng hoạt động tổng thể}{27}{subsection.3.1.4}%
+\contentsline {section}{\numberline {3.2}Giao thức người ghi duy nhất theo Epoch}{28}{section.3.2}%
+\contentsline {subsection}{\numberline {3.2.1}Mục tiêu thiết kế}{28}{subsection.3.2.1}%
+\contentsline {subsection}{\numberline {3.2.2}Tập ứng viên hợp lệ}{28}{subsection.3.2.2}%
+\contentsline {subsection}{\numberline {3.2.3}Hàm bầu chọn Token Holder}{29}{subsection.3.2.3}%
+\contentsline {subsection}{\numberline {3.2.4}Tạo Proposal và Commit}{30}{subsection.3.2.4}%
+\contentsline {subsection}{\numberline {3.2.5}Chuyển quyền và failover}{31}{subsection.3.2.5}%
+\contentsline {section}{\numberline {3.3}Kiểm tra nhất quán Epoch}{32}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Mục tiêu thiết kế}{32}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}Coordination Envelope}{32}{subsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.3.3}Phân loại thông điệp theo Epoch}{33}{subsection.3.3.3}%
+\contentsline {subsection}{\numberline {3.3.4}Đồng bộ trạng thái khi gặp thông điệp tương lai}{35}{subsection.3.3.4}%
+\contentsline {subsection}{\numberline {3.3.5}Xử lý Proposal bị bỏ sót}{35}{subsection.3.3.5}%
+\contentsline {section}{\numberline {3.4}Cơ chế phục hồi phân nhánh trạng thái}{36}{section.3.4}%
+\contentsline {subsection}{\numberline {3.4.1}Bối cảnh network partition}{36}{subsection.3.4.1}%
+\contentsline {subsection}{\numberline {3.4.2}Phát hiện fork bằng heartbeat trạng thái}{36}{subsection.3.4.2}%
+\contentsline {subsection}{\numberline {3.4.3}Hàm trọng số nhánh}{37}{subsection.3.4.3}%
+\contentsline {subsection}{\numberline {3.4.4}Quy trình Fork Healing}{39}{subsection.3.4.4}%
+\contentsline {subsection}{\numberline {3.4.5}Lưu trạng thái bền vững trong quá trình hàn gắn}{40}{subsection.3.4.5}%
+\contentsline {section}{\numberline {3.5}Thứ tự thông điệp ứng dụng bằng Hybrid Logical Clock}{41}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}Lý do cần HLC}{41}{subsection.3.5.1}%
+\contentsline {subsection}{\numberline {3.5.2}Tạo timestamp khi gửi tin}{41}{subsection.3.5.2}%
+\contentsline {subsection}{\numberline {3.5.3}Cập nhật HLC khi nhận tin}{42}{subsection.3.5.3}%
+\contentsline {subsection}{\numberline {3.5.4}Thứ tự hiển thị tất định}{43}{subsection.3.5.4}%
+\contentsline {section}{\numberline {3.6}Quản lý trạng thái Go-Rust và lưu trữ cục bộ}{44}{section.3.6}%
+\contentsline {subsection}{\numberline {3.6.1}Lý do sử dụng Rust Sidecar phi trạng thái}{44}{subsection.3.6.1}%
+\contentsline {subsection}{\numberline {3.6.2}Phân chia trách nhiệm giữa SQLite và Rust Sidecar}{44}{subsection.3.6.2}%
+\contentsline {subsection}{\numberline {3.6.3}Luồng xử lý khi gửi tin nhắn ứng dụng}{44}{subsection.3.6.3}%
+\contentsline {subsection}{\numberline {3.6.4}Luồng xử lý khi thay đổi thành viên}{45}{subsection.3.6.4}%
+\contentsline {section}{\numberline {3.7}Tính đúng đắn trực giác của phương pháp}{45}{section.3.7}%
+\contentsline {section}{\numberline {3.8}Kết chương}{46}{section.3.8}%
+\contentsline {chapter}{\numberline {4}PHÂN TÍCH LÝ THUYẾT}{47}{chapter.4}%
+\contentsline {section}{\numberline {4.1}Mục tiêu và phạm vi phân tích}{47}{section.4.1}%
+\contentsline {section}{\numberline {4.2}Mô hình phân tích}{48}{section.4.2}%
+\contentsline {section}{\numberline {4.3}Bất biến 1: Epoch cục bộ không được thoái lui}{48}{section.4.3}%
+\contentsline {subsection}{\numberline {4.3.1}Phát biểu bất biến}{48}{subsection.4.3.1}%
+\contentsline {subsection}{\numberline {4.3.2}Cơ sở từ MLS}{49}{subsection.4.3.2}%
+\contentsline {subsection}{\numberline {4.3.3}Cơ chế bảo toàn bất biến}{49}{subsection.4.3.3}%
+\contentsline {section}{\numberline {4.4}Bất biến 2: Với cùng một view, chỉ có một Token Holder}{50}{section.4.4}%
+\contentsline {subsection}{\numberline {4.4.1}Phát biểu bất biến}{50}{subsection.4.4.1}%
+\contentsline {subsection}{\numberline {4.4.2}Ý nghĩa đối với concurrent commits}{51}{subsection.4.4.2}%
+\contentsline {section}{\numberline {4.5}Bất biến 3: Fork trạng thái phải phát hiện được}{51}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}Hiện tượng fork trạng thái mật mã}{51}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}Fingerprint trạng thái}{51}{subsection.4.5.2}%
+\contentsline {section}{\numberline {4.6}Bất biến 4: Không hợp nhất trực tiếp hai trạng thái MLS đã phân nhánh}{52}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Vấn đề của việc gộp trạng thái}{52}{subsection.4.6.1}%
+\contentsline {subsection}{\numberline {4.6.2}Quy tắc chọn nhánh}{53}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Giới hạn của lập luận}{54}{subsection.4.6.3}%
+\contentsline {section}{\numberline {4.7}Xử lý thông điệp phát sinh trong nhánh thua}{54}{section.4.7}%
+\contentsline {section}{\numberline {4.8}Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}{55}{section.4.8}%
+\contentsline {subsection}{\numberline {4.8.1}Phân biệt crypto ordering và application ordering}{55}{subsection.4.8.1}%
+\contentsline {subsection}{\numberline {4.8.2}Cơ sở của HLC}{55}{subsection.4.8.2}%
+\contentsline {subsection}{\numberline {4.8.3}Giới hạn của HLC trong đồ án}{56}{subsection.4.8.3}%
+\contentsline {section}{\numberline {4.9}Phân tích chi phí lý thuyết}{56}{section.4.9}%
+\contentsline {subsection}{\numberline {4.9.1}Chi phí gửi application message}{56}{subsection.4.9.1}%
+\contentsline {subsection}{\numberline {4.9.2}Chi phí cập nhật thành viên và rekey}{56}{subsection.4.9.2}%
+\contentsline {subsection}{\numberline {4.9.3}Chi phí của Single-Writer}{57}{subsection.4.9.3}%
+\contentsline {subsection}{\numberline {4.9.4}Chi phí của Epoch Checks và Fork Detection}{57}{subsection.4.9.4}%
+\contentsline {subsection}{\numberline {4.9.5}Chi phí của Fork Healing}{57}{subsection.4.9.5}%
+\contentsline {subsection}{\numberline {4.9.6}Ảnh hưởng của kiến trúc sidecar phi trạng thái}{58}{subsection.4.9.6}%
+\contentsline {section}{\numberline {4.10}Tổng hợp các bất biến và cơ chế bảo toàn}{58}{section.4.10}%
+\contentsline {section}{\numberline {4.11}Giới hạn lý thuyết của phương pháp}{59}{section.4.11}%
+\contentsline {section}{\numberline {4.12}Kết chương}{59}{section.4.12}%
+\contentsline {chapter}{\numberline {5}ĐÁNH GIÁ THỰC NGHIỆM}{61}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Mục tiêu và phạm vi đánh giá}{61}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Môi trường và phương pháp thí nghiệm}{62}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Đánh giá hội tụ trong điều kiện mạng hỗn loạn}{63}{section.5.3}%
+\contentsline {section}{\numberline {5.4}Đánh giá khả năng phục hồi sau phân vùng mạng}{63}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Đánh giá cơ chế Single-Writer và gom Proposal}{65}{section.5.5}%
+\contentsline {section}{\numberline {5.6}Đánh giá khả năng mở rộng của thao tác thành viên}{66}{section.5.6}%
+\contentsline {section}{\numberline {5.7}Đánh giá chi phí mật mã MLS}{66}{section.5.7}%
+\contentsline {section}{\numberline {5.8}Chi phí phụ trợ của lớp điều phối}{67}{section.5.8}%
+\contentsline {section}{\numberline {5.9}Kiểm chứng Forward Secrecy bằng Rust sidecar thật}{68}{section.5.9}%
+\contentsline {section}{\numberline {5.10}Nhận xét và giới hạn đánh giá}{68}{section.5.10}%
+\contentsline {chapter}{\numberline {6}KẾT LUẬN}{70}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Kết luận}{70}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Hướng phát triển trong tương lai}{71}{section.6.2}%
+\contentsline {chapter}{TÀI LIỆU THAM KHẢO}{75}{section*.25}%
+\contentsline {chapter}{PHỤ LỤC}{77}{section*.26}%
+\ttl@change@i {\@ne }{chapter}{0.0cm}{\bfseries \vspace {0.3cm}}{{\bfseries {\scshape } \thecontentslabel .\ }}{}{\titlerule *[0.3pc]{.}\contentspage }\relax 
+\ttl@change@v {chapter}{}{}{}\relax 
+\contentsline {chapter}{\numberline {A}HƯỚNG DẪN VIẾT ĐATN}{77}{chapter.A}%
+\contentsline {section}{\numberline {A.1}Quy định chung}{77}{section.A.1}%
+\contentsline {section}{\numberline {A.2}Ngành học}{78}{section.A.2}%
+\contentsline {section}{\numberline {A.3}Đánh dấu (bullet) và đánh số (numering)}{78}{section.A.3}%
+\contentsline {section}{\numberline {A.4}Cách thêm bảng}{79}{section.A.4}%
+\contentsline {section}{\numberline {A.5}Chèn hình ảnh}{79}{section.A.5}%
+\contentsline {section}{\numberline {A.6}Tài liệu tham khảo}{80}{section.A.6}%
+\contentsline {paragraph}{Cách liệt kê}{80}{paragraph*.29}%
+\contentsline {paragraph}{Các loại tài liệu tham khảo}{80}{paragraph*.30}%
+\contentsline {section}{\numberline {A.7}Cách viết phương trình và công thức toán học}{80}{section.A.7}%
+\contentsline {section}{\numberline {A.8}Qui cách đóng quyển}{80}{section.A.8}%
+\contentsline {chapter}{\numberline {B}ĐẶC TẢ USE CASE}{82}{chapter.B}%
+\contentsline {section}{\numberline {B.1}Đặc tả use case ``Thống kê tình hình mượn sách''}{82}{section.B.1}%
+\contentsline {section}{\numberline {B.2}Đặc tả use case ``Đăng ký làm thẻ mượn''}{82}{section.B.2}%
+\contentsfinish 

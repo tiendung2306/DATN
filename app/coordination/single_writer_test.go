@@ -294,3 +294,39 @@ func TestSingleWriter_SnapshotNextBatch_SortsByProposalRefAcrossTypes(t *testing
 		t.Fatalf("SnapshotNextBatch drained buffer")
 	}
 }
+
+func TestSingleWriter_SuspendExcludesTarget(t *testing.T) {
+	clk := NewFakeClock(time.Now())
+	cfg := TestConfig()
+	av := NewActiveView(clk, cfg, peerID("alice"), nil)
+	av.RecordHeartbeat(peerID("bob"))
+	av.RecordHeartbeat(peerID("carol"))
+
+	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
+	
+	normalHolder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	sw.Suspend(normalHolder)
+	
+	newHolder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newHolder == normalHolder {
+		t.Fatalf("suspended holder %s was still elected", normalHolder)
+	}
+
+	sw.AdvanceEpoch(2)
+	sw.epoch = 1 // hack for test to verify deterministic re-election after clear
+	
+	restoredHolder, err := sw.CurrentTokenHolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredHolder != normalHolder {
+		t.Fatalf("expected restored holder %s after epoch advance, got %s", normalHolder, restoredHolder)
+	}
+}

@@ -1,0 +1,24 @@
+\babel@toc {nil}{}\relax 
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {1.1}{\ignorespaces Kiến trúc hai lớp của hệ thống đề xuất}}{7}{figure.caption.6}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {2.1}{\ignorespaces Minh họa hiện tượng rẽ nhánh trạng thái mật mã trong MLS}}{13}{figure.caption.7}%
+\contentsline {figure}{\numberline {2.2}{\ignorespaces Cấu trúc cây nhị phân Ratchet Tree và tiến trình cập nhật đường dẫn (Path Update) của thành viên $N_1$}}{19}{figure.caption.8}%
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {3.1}{\ignorespaces Kiến trúc triển khai chi tiết của Go Host và Rust Sidecar}}{26}{figure.caption.9}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {6.1}{\ignorespaces Hội tụ epoch của các nút trong chaos test}}{64}{figure.caption.13}%
+\contentsline {figure}{\numberline {6.2}{\ignorespaces Thời gian phục hồi khi độ dài phân vùng thay đổi}}{64}{figure.caption.15}%
+\contentsline {figure}{\numberline {6.3}{\ignorespaces Hiệu quả của cơ chế gom Proposal khi mức đồng thời tăng}}{65}{figure.caption.17}%
+\contentsline {figure}{\numberline {6.4}{\ignorespaces So sánh chi phí mật mã giữa pairwise, full-blob MLS và hot-cache}}{66}{figure.caption.20}%
+\contentsline {figure}{\numberline {6.5}{\ignorespaces Phân rã chi phí phụ trợ của lớp điều phối}}{67}{figure.caption.21}%
+\addvspace {10\p@ }
+\addvspace {10\p@ }
+\contentsline {figure}{\numberline {A.1}{\ignorespaces Internet vạn vật}}{74}{figure.caption.26}%
+\contentsline {figure}{\numberline {A.2}{\ignorespaces Qui cách đóng quyển đồ án}}{76}{figure.caption.29}%
+\contentsline {figure}{\numberline {A.3}{\ignorespaces Qui cách đóng quyển đồ án}}{76}{figure.caption.30}%
+\addvspace {10\p@ }
+\contentsfinish 
+\contentsfinish 

@@ -41,19 +41,23 @@ Việc bầu chọn Token Holder sử dụng cơ chế đồng thuận ngầm (I
 Thuật toán: ComputeTokenHolder
 Đầu vào: 
   - activeView: Danh sách các thành viên đang trực tuyến (PeerID[])
+  - suspended: Danh sách các thành viên bị đình chỉ trong epoch hiện tại (PeerID[])
+  - authorizedCommitters: Danh sách thành viên được cấp quyền (PeerID[])
+  - removedBy: Các thành viên bị loại trong danh sách đề xuất hiện tại (PeerID[])
   - epoch: Số kỷ nguyên hiện tại (uint64)
 Đầu ra: 
   - holderID: Định danh của Token Holder (PeerID)
 
 Bắt đầu:
-  Nếu activeView rỗng thì Trả về Lỗi "NoActiveView"
+  eligible = activeView ∩ authorizedCommitters - removedBy - suspended
+  Nếu eligible rỗng thì Trở về Lỗi "NoEligibleMembers"
   
   bestID = null
   bestHash = max_hash_value
 
   Chuyển epoch thành mảng 8 bytes theo chuẩn Little Endian (epochBytes)
 
-  Với mỗi peerID trong activeView thực hiện:
+  Với mỗi peerID trong eligible thực hiện:
     // Nối peerID với epochBytes
     data = nối(peerID, epochBytes)
     
@@ -73,7 +77,7 @@ Kết thúc
 1. Mọi nút muốn tạo đề xuất (Proposal) như Add/Remove thành viên đều gửi Proposal qua mạng Gossip.
 2. Chỉ Token Holder của kỷ nguyên hiện tại thu thập các Proposal này, xử lý qua Rust Sidecar để sinh ra một Commit hợp lệ.
 3. Token Holder phát sóng Commit. Khi Commit được áp dụng bởi mạng lưới, $epoch$ tăng lên $E+1$, kết quả hàm băm tự động thay đổi, đẩy quyền Token Holder sang một nút ngẫu nhiên mới.
-4. **Failover (Chuyển tiếp lỗi):** Nếu Token Holder bị mất mạng, nó sẽ bị loại khỏi `activeView` của các nút khác. Hệ thống tự chạy lại thuật toán với `activeView` mới để bầu Holder thay thế.
+4. **Failover & Censorship Resistance (Chuyển tiếp lỗi và Chống kiểm duyệt):** Nếu Token Holder bị mất mạng hoặc cố tình lờ đi không chịu commit các Proposal hợp lệ trong khoảng thời gian `TokenHolderTimeout`, các nút khác sẽ đình chỉ nó bằng cách đưa vào tập `suspended`. Hệ thống tự tính lại thuật toán Token Holder mới. Tập `suspended` bị ràng buộc bởi epoch (Epoch-bound), nghĩa là nó tự động bị xóa (clear) khi nhóm tiến lên Epoch mới, giúp loại bỏ hoàn toàn nguy cơ Livelock hoặc lỗi phân nhánh do Clock Skew.
 
 ## 3.3. Giao thức kiểm tra tính nhất quán kỷ nguyên (Epoch Consistency)
 

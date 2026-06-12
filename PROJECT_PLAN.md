@@ -186,8 +186,9 @@
   - ActiveView changes trigger Token Holder recomputation.
 - **Task: Implicit Token Holder Election:**
   ```go
-  func ComputeTokenHolder(activeView []peer.ID, epoch uint64) peer.ID {
-      // TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch)
+  func ComputeTokenHolder(...) peer.ID {
+      // Eligible(E) = GroupMembers ∩ ActiveView ∩ AuthorizedCommitters - RemovedBy - SuspendedOrExcluded
+      // TokenHolder = argmin_{node ∈ Eligible(E)} H(nodeID || epoch)
       // H = SHA-256. All nodes compute the same result deterministically.
   }
   ```
@@ -198,12 +199,12 @@
 - **Task: Commit Broadcasting:**
   - Token Holder broadcasts Commit via GossipSub topic `{group_id}/commits`.
   - All nodes process Commit → advance to epoch E+1 → recompute Token Holder.
-- **Task: Failover (Token Holder Timeout):**
-  - If no Commit is received within `T_timeout` (configurable, default 3–5s):
-    - Evict Token Holder from ActiveView.
+- **Task: Failover & Censorship Resistance (Token Holder Timeout):**
+  - If no Commit is received within `TokenHolderTimeout` (configurable, default 5s):
+    - Suspend Token Holder by adding it to `SuspendedOrExcluded`.
     - Recompute new Token Holder.
     - New holder assumes Commit authority immediately.
-  - **Critical:** Timeout must account for network latency in LAN (typically <1ms).
+    - **Crucial:** Suspensions are strictly Epoch-bound and automatically cleared when the group advances to E+1.
 - **Status:** `app/coordination/single_writer.go` — `ComputeTokenHolder` (argmin SHA-256), `BufferProposal`, `DrainProposals`, `AdvanceEpoch`. `app/coordination/active_view.go` — heartbeat tracking, liveness check, peer eviction, sorted member list, onChange callback. **18 tests PASS (9 + 9).**
 
 ### 4.4. Mechanism 2 — Epoch Consistency Checks (Go Coordination Layer) [COMPLETED ✅]

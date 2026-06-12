@@ -827,7 +827,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   Tại mọi thời điểm, chỉ **một node duy nhất** — Epoch Token Holder — có quyền tạo Commit.
 *   Election tất định (không cần giao tiếp): `TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch)`
 *   Phân tách Proposal/Commit: mọi node có thể tạo Proposal, chỉ Token Holder đóng gói thành Commit.
-*   Failover: Token Holder không commit trong `T_timeout` (3-5s) → bị loại khỏi ActiveView → bầu lại.
+*   Failover & Censorship Resistance: Token Holder không commit trong `TokenHolderTimeout` -> Đưa vào danh sách đình chỉ (`SuspendedOrExcluded`) -> Bầu lại Token Holder mới. Danh sách đình chỉ tự động bị xóa (clear) khi sang epoch mới (Epoch-bound Clearing).
 
 **2. Epoch Consistency (Nhất quán nhân quả qua kiểm tra Epoch):**
 *   `msg.epoch == local.epoch` → xử lý bình thường

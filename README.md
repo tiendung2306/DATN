@@ -66,7 +66,8 @@ Instead of resolving conflicts after they occur, the system **eliminates concurr
 
 *   **Implicit Election (no communication overhead):**
     ```
-    TokenHolder = argmin_{node ∈ ActiveView} H(nodeID || epoch_number)
+    Eligible(E) = GroupMembers ∩ ActiveView ∩ AuthorizedCommitters - RemovedBy - SuspendedOrExcluded
+    TokenHolder = argmin_{node ∈ Eligible(E)} H(nodeID || epoch_number)
     ```
     Every node computes the same result deterministically. No voting round needed.
 
@@ -74,7 +75,7 @@ Instead of resolving conflicts after they occur, the system **eliminates concurr
 
 *   **Token Rotation:** After epoch transitions to E+1, all nodes recompute `TokenHolder` for the new epoch.
 
-*   **Failover:** If the Token Holder does not emit a Commit within `T_timeout` (3–5 seconds), nodes evict it from `ActiveView` and elect a new holder.
+*   **Failover & Censorship Resistance:** If the Token Holder does not emit a Commit within `TokenHolderTimeout`, nodes suspend it by moving it to the `SuspendedOrExcluded` set, and deterministically elect a new holder. Suspensions are strictly **Epoch-bound** and clear automatically upon epoch transition, eliminating livelock and clock-skew risks.
 
 #### Mechanism 2 — Causal Consistency via Epoch Checks
 

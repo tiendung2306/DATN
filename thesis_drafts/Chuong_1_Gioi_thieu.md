@@ -66,8 +66,8 @@ Do đó, thách thức nghiên cứu lớn nhất hiện nay là: **Làm thế n
 +-----------------------------------------------------------------------+
 |                          CRYPTO LAYER (Rust)                          |
 |                                                                       |
-|  - Thư viện OpenMLS (RFC 9420)  - Stateful Memory Cache MlsGroup      |
-|  - Quản lý TreeKEM mật mã       - Xử lý mật mã thuần túy (Stateless)   |
+|  - Thư viện OpenMLS (RFC 9420)  - Xử lý mật mã thuần túy              |
+|  - Quản lý TreeKEM mật mã       - Nhận/trả GroupState qua gRPC         |
 +-----------------------------------------------------------------------+
 ```
 
@@ -91,7 +91,7 @@ Do đó, thách thức nghiên cứu lớn nhất hiện nay là: **Làm thế n
 *   **Đặc tả giải thuật Fork Healing an toàn:** Đưa ra quy trình phục hồi phân mảnh mạng tự động, bền vững, an toàn mật mã học (đạt Forward Secrecy nhờ tiêu hủy khóa nhánh thua) và tôn trọng tính phi bác bỏ (Non-repudiation) thông qua Autonomous Replay.
 
 ### 2. Đóng góp về mặt Hiện thực Kỹ thuật (Engineering Contributions)
-*   **Kiến trúc Sidecar Go-Rust tối ưu qua gRPC:** Thiết lập giải pháp quản lý tiến trình tự động, phân phối cổng kết nối IPC an toàn. Triển khai cơ chế **Stateful Sidecar Memory Cache** ( DashMap trong Rust) để đưa độ phức tạp của các thao tác mã hóa/giải mã từ tuyến tính $O(N)$ về gần mức logarithmic $O(\log N)$ hoặc hằng số $O(1)$, giải quyết triệt để bottleneck của kiến trúc Stateless wrapper truyền thống.
+*   **Kiến trúc Sidecar Go-Rust qua gRPC:** Thiết lập giải pháp quản lý tiến trình tự động, phân phối cổng kết nối IPC an toàn. Go giữ vai trò điều phối, lưu trữ trạng thái nhóm trong SQLite và truyền `GroupState` cho Rust xử lý các thao tác OpenMLS. Cách tách lớp này giúp cô lập logic mật mã trong Rust, đồng thời giữ Go/SQLite là nguồn sự thật bền vững của ứng dụng.
 *   **Ứng dụng Chat Bảo mật Serverless hoàn chỉnh:** Phát triển thành công phần mềm desktop sử dụng framework Wails (Go + React/TypeScript) tích hợp SQLite lưu trữ cục bộ, thư viện go-libp2p hỗ trợ khám phá kết nối tự động trong mạng LAN (qua mDNS) và diện rộng (qua Kademlia DHT).
 *   **Tính năng nâng cao chuyên nghiệp:**
     *   *Offline Sync:* Hỗ trợ đồng bộ hóa thông điệp qua luồng trực tiếp khi thiết bị ngoại tuyến quay trở lại mạng.
@@ -111,7 +111,7 @@ Quyển đồ án tốt nghiệp được cấu trúc thành 6 chương chính v
 *   **CHƯƠNG 3: PHƯƠNG PHÁP ĐỀ XUẤT**
     Mô tả chi tiết kiến trúc giải pháp đề xuất. Chi tiết hóa thiết kế lớp điều phối Go với 4 cơ chế (Single-Writer, Epoch Checks, Fork Healing, HLC) và cách hiện thực hóa ứng dụng thông qua sự kết hợp Go - Rust sidecar.
 *   **CHƯƠNG 4: PHÂN TÍCH LÝ THUYẾT**
-    Phân tích và chứng minh toán học/mật mã học về độ an toàn của hệ thống (chứng minh tính FS/PCS được bảo toàn trong Fork Healing, an toàn PKI, Session Takeover). Phân tích độ phức tạp tính toán và băng thông của giải pháp tối ưu hóa bộ nhớ Stateful cache.
+    Phân tích và chứng minh toán học/mật mã học về độ an toàn của hệ thống (chứng minh tính FS/PCS được bảo toàn trong Fork Healing, an toàn PKI, Session Takeover). Phân tích độ phức tạp tính toán và băng thông của giao thức phối hợp khi triển khai với sidecar OpenMLS.
 *   **CHƯƠNG 5: ĐÁNH GIÁ THỰC NGHIỆM**
     Mô tả môi trường, các thông số đánh giá và kịch bản thí nghiệm chaos. Trình bày và phân tích các biểu đồ thực nghiệm thu thập được về tính hội tụ trạng thái nhóm dưới phân mảnh mạng, độ trễ và khả năng mở rộng của giao thức so với pairwise E2EE và sự cải tiến của cơ chế caching.
 *   **CHƯƠNG 6: KẾT LUẬN**

@@ -140,6 +140,7 @@ type Coordinator struct {
 	epochTracker      *EpochTracker
 	forkDetector      *ForkDetector
 	proposalTimerChan <-chan time.Time
+	failoverTimerChan <-chan time.Time
 	lastTokenHolder   peer.ID
 	startedAt         time.Time
 	started           bool
@@ -597,6 +598,7 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 		CategoryID:     proposal.CategoryID,
 		KeyPackageHash: proposal.KeyPackageHash,
 	})
+	c.scheduleFailoverTimerLocked()
 	c.metrics.IncrProposalsReceived()
 	if c.onProposalObserved != nil {
 		c.onProposalObserved(ProposalAuditSummary{
@@ -660,7 +662,7 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 		if sender == "" {
 			slog.Warn("Commit envelope missing sender; skipping token-holder metadata validation for compatibility", "group", c.groupID, "epoch", c.epoch)
 		} else {
-			holder, err := c.singleWriter.computeHolder(c.activeView.Members(), c.epoch, c.groupID, batch, c.authorizedCommitters)
+			holder, err := c.singleWriter.HolderForBatch(batch)
 			if err != nil {
 				c.markInvalidCommitLocked(commitHash)
 				return false
@@ -1009,6 +1011,52 @@ func (c *Coordinator) scheduleBatchCommitLocked() {
 	}(ch)
 }
 
+// scheduleFailoverTimerLocked starts the censorship timeout if the local node is
+// not the Token Holder and there are pending proposals.
+func (c *Coordinator) scheduleFailoverTimerLocked() {
+	if c.failoverTimerChan != nil {
+		return // already scheduled
+	}
+	if c.singleWriter == nil || c.singleWriter.ProposalCount() == 0 || c.singleWriter.IsTokenHolder() {
+		return // no need for failover
+	}
+
+	delay := c.cfg.TokenHolderTimeout
+	if delay <= 0 {
+		delay = 5 * time.Second
+	}
+
+	slog.Info("Scheduling token holder failover timer", "group", c.groupID, "epoch", c.epoch, "delay", delay)
+	ch := c.clock.After(delay)
+	c.failoverTimerChan = ch
+
+	go func(timerChan <-chan time.Time) {
+		<-timerChan
+
+		c.mu.Lock()
+		defer c.mu.Unlock()
+
+		if c.failoverTimerChan == timerChan {
+			c.failoverTimerChan = nil
+			if c.singleWriter != nil && c.singleWriter.ProposalCount() > 0 && !c.singleWriter.IsTokenHolder() {
+				holder, err := c.singleWriter.CurrentTokenHolder()
+				if err == nil && holder != "" {
+					slog.Warn("Token Holder failed to commit in time, suspending", "group", c.groupID, "epoch", c.epoch, "holder", holder)
+					c.singleWriter.Suspend(holder)
+					
+					// Re-evaluate: if we became the Token Holder, we should try to commit now.
+					if c.singleWriter.IsTokenHolder() {
+						c.scheduleBatchCommitLocked()
+					} else {
+						// Someone else is the new Token Holder, restart the failover timer for them.
+						c.scheduleFailoverTimerLocked()
+					}
+				}
+			}
+		}
+	}(ch)
+}
+
 // tryCommitLocked commits the deterministic proposal-ref snapshot for this epoch.
 func (c *Coordinator) tryCommitLocked() {
 	batch := c.singleWriter.SnapshotNextBatch()
@@ -1335,6 +1383,7 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 		c.lastTokenHolder = holder
 	}
 	c.proposalTimerChan = nil // Reset active timer on epoch transition
+	c.failoverTimerChan = nil // Reset failover timer on epoch transition
 
 	commitHash := hashCommitData(commitData)
 	c.lastCommitHash = copyBytes(commitHash)
@@ -1515,6 +1564,7 @@ func (c *Coordinator) AddMember(req AddMemberRequest) (AddMemberResult, error) {
 	}
 
 	c.singleWriter.BufferProposal(buffered)
+	c.scheduleFailoverTimerLocked()
 	c.metrics.IncrProposalsReceived()
 
 	// Update op status to proposed
@@ -1761,6 +1811,7 @@ func (c *Coordinator) RemoveMemberWithPeer(req RemoveMemberRequest) error {
 	}
 
 	c.singleWriter.BufferProposal(buffered)
+	c.scheduleFailoverTimerLocked()
 
 	// Update op status to proposed
 	h := sha256.Sum256(msg.Data)
@@ -2112,6 +2163,7 @@ func (c *Coordinator) proposeLockedWithMetadata(pType ProposalType, data []byte,
 	c.broadcastLocked(MsgProposal, msg)
 
 	c.singleWriter.BufferProposal(buffered)
+	c.scheduleFailoverTimerLocked()
 	c.metrics.IncrProposalsReceived()
 	if c.onProposalObserved != nil {
 		c.onProposalObserved(ProposalAuditSummary{
@@ -3803,6 +3855,7 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 				})
 				if err == nil {
 					c.singleWriter.BufferProposal(buffered)
+					c.scheduleFailoverTimerLocked()
 					c.broadcastLocked(MsgProposal, msg)
 					h := sha256.Sum256(msg.Data)
 					op.LatestProposalHash = h[:]
@@ -3818,6 +3871,7 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 				})
 				if err == nil {
 					c.singleWriter.BufferProposal(buffered)
+					c.scheduleFailoverTimerLocked()
 					c.broadcastLocked(MsgProposal, msg)
 					h := sha256.Sum256(msg.Data)
 					op.LatestProposalHash = h[:]

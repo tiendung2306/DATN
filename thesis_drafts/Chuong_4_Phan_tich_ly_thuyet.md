@@ -8,13 +8,18 @@ Phạm vi của chương này là phân tích ở mức thiết kế và bất b
 
 ### 4.1.1. Bất biến Single-Writer
 
-Tại mỗi epoch, hệ thống chỉ cho phép một nút giữ quyền phát hành MLS Commit. Nút này được gọi là Token Holder và được tính quyết định từ tập thành viên đang hoạt động:
+Tại mỗi epoch, hệ thống chỉ cho phép một nút giữ quyền phát hành MLS Commit. Nút này được gọi là Token Holder và được tính quyết định từ tập thành viên hợp lệ (Eligible):
 
 $$
-TokenHolder = \arg\min_{node \in ActiveView} H(groupID \parallel epoch \parallel nodeID)
+Eligible(E, P) = GroupMembers(E) \cap ActiveView \cap AuthorizedCommitters - RemovedBy(P) - SuspendedOrExcluded
 $$
 
-Trong đó $H$ là SHA-256. Nếu hai nút có cùng `ActiveView`, cùng `groupID` và cùng epoch, kết quả bầu chọn là giống nhau mà không cần thêm vòng bỏ phiếu. Các nút không phải Token Holder chỉ được tạo Proposal và phát tán Proposal qua GossipSub; quyền gom Proposal thành Commit thuộc về Token Holder.
+$$
+TokenHolder = \arg\min_{node \in Eligible(E, P)} H(groupID \parallel epoch \parallel nodeID)
+$$
+
+Trong đó $H$ là SHA-256. Nếu hai nút có cùng danh sách ứng viên hợp lệ, cùng `groupID` và cùng epoch, kết quả bầu chọn là giống nhau mà không cần thêm vòng bỏ phiếu. Các nút không phải Token Holder chỉ được tạo Proposal và phát tán Proposal qua GossipSub; quyền gom Proposal thành Commit thuộc về Token Holder.
+Nếu Token Holder kiểm duyệt bằng cách lờ đi Proposal, hệ thống dùng cơ chế **Epoch-bound Suspension**: Token Holder bị đưa vào tập $SuspendedOrExcluded$ cục bộ sau `TokenHolderTimeout`. Thuật toán sẽ tính lại người thay thế mà không cần Evict hoàn toàn nút lỗi khỏi mạng lưới, và tập $Suspended$ tự làm sạch khi Epoch tịnh tiến. Cơ chế này an toàn vì nó phụ thuộc vào Logical Clock (Epoch) thay vì Physical Time Clock.
 
 Từ đó suy ra bất biến quan trọng: trong một nhánh mạng không bị phân mảnh và có cùng ActiveView, tối đa một nút hợp lệ có thể tạo Commit cho epoch hiện tại. Các Commit đến từ nút không phải Token Holder bị từ chối ở lớp phối hợp. Bất biến này không loại bỏ hoàn toàn phân nhánh khi mạng vật lý bị chia cắt, vì mỗi phân vùng có thể hình thành ActiveView riêng; phần phân nhánh đó được xử lý bởi cơ chế Fork Healing.
 
@@ -91,14 +96,11 @@ Do đó cần phân biệt hai mức:
 
 ### 4.3.2. Cập nhật thành viên và Key Rotation
 
-TreeKEM của MLS cập nhật các nút trên đường từ lá lên gốc cây, nên mô hình lý thuyết thường được diễn giải là tăng theo $O(\log N)$ cho phần cấu trúc cây. Tuy nhiên, thực thi cụ thể còn phụ thuộc vào thư viện, serialization, storage provider và cách benchmark tách hay gộp hot path.
+TreeKEM của MLS cập nhật các nút trên đường từ lá lên gốc cây, nên mô hình lý thuyết thường được diễn giải là tăng theo $O(\log N)$ cho phần cấu trúc cây. Tuy nhiên, thực thi cụ thể còn phụ thuộc vào thư viện, serialization, storage provider và cách benchmark tách hay gộp các lớp chi phí triển khai.
 
-Trong dự án này có hai đường triển khai cần tách bạch:
+Trong triển khai hiện tại của dự án, `GrpcMLSEngine` dùng full-blob stateless RPC: Go đọc `GroupState` từ SQLite, gửi sang Rust, Rust xử lý OpenMLS rồi trả lại trạng thái mới để Go lưu bền vững. Đây là kiến trúc chính vì đảm bảo Rust không giữ trạng thái lâu dài và Go/SQLite là nguồn sự thật sau crash hoặc restart.
 
-- **Đường production:** `GrpcMLSEngine` dùng full-blob stateless RPC. Đây là kiến trúc chính vì đảm bảo Rust không giữ trạng thái bền vững và Go/SQLite là nguồn sự thật.
-- **Đường benchmark hot-cache:** `RuntimeCache`/`DashMap` trong Rust chỉ dùng cho benchmark tối ưu hóa, nhằm đo hiệu quả khi loại bỏ full-state serialization khỏi hot path. Đường này không nên được mô tả là kiến trúc production nếu chưa có cơ chế persistence, version fencing và phục hồi lỗi tương đương production.
-
-Vì vậy, kết luận học thuật nên viết thận trọng: MLS loại bỏ chi phí pairwise $O(N)$ của người gửi; full-blob stateless làm phát sinh overhead triển khai đáng kể; hot-cache cho thấy tiềm năng tối ưu hóa đường gửi tin nhắn, nhưng cập nhật nhóm trong benchmark hiện tại vẫn cần được phân tích bằng số liệu thực nghiệm thay vì khẳng định thuần $O(\log N)$.
+Vì vậy, kết luận học thuật nên viết thận trọng: MLS loại bỏ chi phí pairwise $O(N)$ của người gửi ở mức thuật toán, nhưng đường triển khai sidecar full-blob vẫn làm phát sinh overhead theo kích thước `GroupState`. Các kết quả thực nghiệm cần phản ánh đúng đường production này thay vì khẳng định toàn bộ hệ thống đạt $O(\log N)$.
 
 ## 4.4. Liên hệ giữa phân tích lý thuyết và triển khai
 
