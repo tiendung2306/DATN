@@ -1,23 +1,18 @@
 \documentclass[../DoAn.tex]{subfiles}
 \begin{document}
 	
-	\label{ch:danh_gia_thuc_nghiem}
-	\section*{Tổng quan chương}
+	Tổng quan chương.
 	
-Chương này trình bày quá trình đánh giá thực nghiệm hệ thống truyền thông phi tập trung sử dụng MLS trên mạng P2P. Mục tiêu của chương không chỉ dừng ở việc đo hiệu năng thuần túy, mà quan trọng hơn là kiểm chứng các thuộc tính cốt lõi đã được đề xuất ở các chương trước, gồm tính an toàn của cơ chế Single-Writer, khả năng hội tụ epoch và TreeHash sau phân mảnh mạng, tính đúng đắn của cơ chế Fork Healing, khả năng sắp xếp thông điệp nhất quán bằng Hybrid Logical Clock và mức độ bảo toàn các thuộc tính bảo mật của MLS khi tích hợp vào kiến trúc Go--Rust sidecar.
+Sau phần phân tích lý thuyết ở Chương 4, đồ án cần một bước kiểm chứng để trả lời câu hỏi liệu các cơ chế đã đề xuất có vận hành được trên hệ thống thực nghiệm hay không. Vì vậy, chương này trình bày phần đánh giá thực nghiệm của đồ án, trong đó ứng dụng desktop thử nghiệm được dùng như một môi trường kiểm chứng tích hợp, còn các bài kiểm thử tự động và dữ liệu benchmark được dùng để đối chiếu các thuộc tính đã phân tích ở chương trước.
 	
-	Các kết quả trong chương được tổng hợp từ các bài kiểm thử tự động trong mã nguồn, các tệp dữ liệu đo đạc trong thư mục \texttt{evaluation/data}, và các biểu đồ được sinh từ những dữ liệu này. Cần nhấn mạnh rằng hệ thống đánh giá được chia thành nhiều tầng: một số bài kiểm thử sử dụng mạng giả lập và MLS giả lập để cô lập logic điều phối; một số bài kiểm thử khác sử dụng Rust sidecar thật để kiểm chứng thuộc tính mật mã. Cách phân tầng này giúp tách bạch rõ ràng giữa kiểm chứng giao thức điều phối và kiểm chứng chi phí mật mã của OpenMLS.
+Chương này tập trung vào ba nhóm nội dung. Nhóm thứ nhất kiểm chứng các kịch bản thao tác trên ứng dụng thử nghiệm để làm rõ rằng các giả định của giao thức đã đi vào luồng sử dụng thật. Nhóm thứ hai đánh giá khả năng hội tụ, phục hồi sau phân vùng mạng và hiệu quả của cơ chế một người ghi trong các bài kiểm thử điều phối. Nhóm thứ ba xem xét chi phí mật mã, chi phí điều phối và thuộc tính bảo mật còn được giữ lại khi hệ thống chạy với thành phần MLS thật.
 	
 	\section{Mục tiêu và phạm vi đánh giá}
 	\label{sec:muc_tieu_danh_gia}
 	
-	Hệ thống được đánh giá theo ba nhóm mục tiêu chính.
+Phần đánh giá của đồ án không chỉ nhằm đo hiệu năng thuần túy, mà trước hết nhằm kiểm chứng các luận điểm đã được xây dựng từ Chương 3 và Chương 4. Câu hỏi cần trả lời là: trong điều kiện mạng ngang hàng có thể mất kết nối, trễ gói và chia cắt, các nút có còn hội tụ về cùng trạng thái MLS hay không; cơ chế một người ghi có còn giảm được xung đột Commit hay không; và việc tách lớp điều phối khỏi lõi MLS có giữ được các thuộc tính bảo mật chính hay không.
 	
-	Thứ nhất, nhóm đánh giá tính đúng đắn tập trung vào việc trả lời câu hỏi: trong điều kiện mạng P2P có thể mất kết nối, chia cắt, trễ gói hoặc nhận thông điệp không theo thứ tự, các nút có còn hội tụ về cùng một trạng thái MLS hay không. Với nhóm mục tiêu này, các đại lượng quan trọng là epoch cuối cùng, TreeHash cuối cùng, số lượng Commit hợp lệ trong mỗi epoch, và việc phát hiện các nhánh phân kỳ.
-	
-	Thứ hai, nhóm đánh giá hiệu quả điều phối tập trung vào chi phí mà lớp Coordination thêm vào phía trên MLS. Vì MLS vốn giả định có Delivery Service để tuần tự hóa Commit, hệ thống đề xuất thay thế vai trò này bằng cơ chế Single-Writer phi tập trung \cite{rfc9750}. Do đó, cần đo xem cơ chế gom Proposal, bầu Token Holder và phát tán Commit có giúp giảm xung đột hay không, đặc biệt khi nhiều nút cùng gửi Proposal trong một khoảng thời gian ngắn.
-	
-	Thứ ba, nhóm đánh giá mật mã và bảo mật tập trung vào việc kiểm chứng rằng kiến trúc sidecar không làm suy giảm các thuộc tính bảo mật của MLS. Bài kiểm thử quan trọng nhất trong nhóm này là kiểm chứng Forward Secrecy bằng Rust sidecar thật: một thành viên đã bị loại khỏi nhóm không được phép giải mã thông điệp ở các epoch sau.
+Từ đó, các mục tiêu đánh giá được chia thành ba hướng. Hướng thứ nhất kiểm tra tính đúng đắn của tiến trình điều phối, trong đó các đại lượng quan trọng là epoch cuối cùng, mã băm cây cuối cùng, số Commit hợp lệ trong mỗi epoch và khả năng phát hiện phân nhánh. Hướng thứ hai xem xét hiệu quả vận hành của cơ chế một người ghi và cơ chế gom đề xuất, tức là xem hệ thống có giảm được các lần tạo Commit cạnh tranh hay không. Hướng thứ ba kiểm tra phần mật mã và an toàn, đặc biệt là thuộc tính Forward Secrecy sau khi một thành viên bị loại khỏi nhóm.
 	
 	\begin{table}[htbp]
 		\centering
@@ -25,13 +20,13 @@ Chương này trình bày quá trình đánh giá thực nghiệm hệ thống t
 			\hline
 			\textbf{Tiêu chí} & \textbf{Ý nghĩa đánh giá} \\
 			\hline
-			Hội tụ epoch & Tất cả các nút hợp lệ phải kết thúc ở cùng một epoch sau khi mạng ổn định trở lại. \\
+			Hội tụ epoch & Các nút hợp lệ phải kết thúc ở cùng một epoch sau khi mạng ổn định trở lại. \\
 			\hline
-			Hội tụ TreeHash & Tất cả các nút hợp lệ phải có cùng mã băm cây MLS, chứng minh trạng thái mật mã đã hội tụ. \\
+			Hội tụ mã băm cây & Các nút hợp lệ phải có cùng mã băm cây MLS, cho thấy trạng thái mật mã đã hội tụ. \\
 			\hline
-			Single-Writer Safety & Không xuất hiện hai Commit hợp lệ cạnh tranh trong cùng một epoch. \\
+			Một người ghi trong cùng epoch & Không xuất hiện hai Commit hợp lệ cạnh tranh trong cùng một epoch khi các nút có cùng view. \\
 			\hline
-			Hiệu quả gom Proposal & Nhiều Proposal đồng thời có thể được gom vào một Commit thay vì tạo nhiều epoch liên tiếp. \\
+			Hiệu quả gom đề xuất & Nhiều Proposal gần nhau có thể được gom vào một Commit thay vì sinh nhiều epoch liên tiếp. \\
 			\hline
 			Thời gian phục hồi phân vùng & Khoảng thời gian từ khi mạng được nối lại đến khi các nút hội tụ. \\
 			\hline
@@ -47,18 +42,72 @@ Chương này trình bày quá trình đánh giá thực nghiệm hệ thống t
 	\section{Môi trường và phương pháp thí nghiệm}
 	\label{sec:moi_truong_phuong_phap}
 	
-	Các thí nghiệm được thực hiện trực tiếp trên mã nguồn của hệ thống. Thành phần điều phối được viết bằng Go, thành phần mật mã MLS được triển khai bằng Rust/OpenMLS và được Go khởi chạy dưới dạng sidecar thông qua gRPC trên localhost. Đối với các kiểm thử cần cô lập logic giao thức, hệ thống sử dụng \texttt{FakeNetwork}, \texttt{FakeClock} và \texttt{MockMLSEngine}. Đối với các kiểm thử bảo mật mật mã, hệ thống sử dụng Rust sidecar thật để tránh kết luận thiếu chính xác từ các mô-đun giả lập.
+Các thí nghiệm được thực hiện trực tiếp trên mã nguồn của hệ thống. Phần điều phối được viết bằng Go; phần MLS được hiện thực bằng Rust/OpenMLS và được Go khởi chạy dưới dạng tiến trình đi kèm qua gRPC trên localhost. Với những kiểm thử cần cô lập logic điều phối, hệ thống sử dụng các thành phần giả lập như \texttt{FakeNetwork}, \texttt{FakeClock} và \texttt{MockMLSEngine}. Với những kiểm thử cần xác nhận thuộc tính mật mã, hệ thống dùng thành phần MLS thật để tránh rút ra kết luận từ dữ liệu mô phỏng thuần túy.
 	
-	Bộ dữ liệu và biểu đồ đánh giá được tổ chức trong thư mục \texttt{evaluation}. Một số tệp quan trọng gồm: \path{concurrency_metrics.csv}, \path{epoch_convergence_metrics.csv}, \path{partition_recovery_metrics.csv}, \path{mls_optimization_benchmark.csv}, và \path{chaos_metrics.csv}. Trong chương này, dữ liệu benchmark MLS chỉ sử dụng hai đường đo chính là \texttt{pairwise\_baseline} và \texttt{current\_full\_blob\_mls\_encrypt}. Các biểu đồ tương ứng được sinh bằng các script Python trong cùng thư mục.
+Dữ liệu đo đạc và các biểu đồ phục vụ chương này được lưu lại trong thư mục \path{evaluation}. Trong số đó, phần đối chiếu quan trọng nhất là so sánh giữa mô hình mã hóa từng cặp truyền thống và hướng xử lý MLS hiện tại của hệ thống. Cách so sánh này giúp làm rõ chi phí xử lý thay đổi như thế nào khi số lượng thành viên tăng lên.
 	
-	Phạm vi đánh giá có hai giới hạn cần nêu rõ. Thứ nhất, các bài chaos test dùng mạng giả lập nhằm kiểm chứng tính đúng đắn của thuật toán điều phối, không đại diện hoàn toàn cho độ trễ mạng libp2p thực tế. Thứ hai, các benchmark mật mã phản ánh chi phí xử lý tại sidecar và chi phí tuần tự hóa trạng thái, không phải độ trễ đầu cuối mà người dùng cảm nhận trong toàn bộ ứng dụng.
-	
+Phạm vi đánh giá có hai giới hạn cần nêu trước. Thứ nhất, các chaos test chủ yếu dùng mạng giả lập để kiểm tra hành vi giao thức, nên chưa phản ánh đầy đủ độ trễ, mất gói và tính phức tạp của mạng libp2p thực tế. Thứ hai, các benchmark MLS phản ánh chi phí xử lý của lõi MLS cùng phần trao đổi trạng thái giữa các thành phần, chứ chưa phải là toàn bộ độ trễ mà người dùng cảm nhận ở mức ứng dụng desktop.
+
+	\section{Đối chiếu trên ứng dụng desktop}
+	\label{sec:prototype_validation}
+
+Bên cạnh các số đo lấy từ kiểm thử tự động, đồ án còn đối chiếu thêm trên ứng dụng desktop của đồ án. Phần này không nhằm giới thiệu giao diện cho đầy đủ, mà để kiểm tra xem các ý đã nêu ở Chương 3 có đi thành một luồng sử dụng thật hay không. Vì vậy, ở mỗi kịch bản, đồ án chỉ giữ lại hai ý chính: người dùng làm gì trên giao diện, và thao tác đó cho thấy điều gì ở phía giao thức.
+
+Các hình minh họa đầy đủ được đưa xuống Phụ lục~\ref{appendix:app_demo}. Trong phần thân chương này, đồ án chỉ chọn một số hình thực sự cần cho việc giải thích các kịch bản kiểm chứng, để mạch trình bày vẫn tập trung vào phần thực nghiệm.
+
+	\subsection{Tạo tổ chức và cấp bundle}
+
+Kịch bản đầu tiên diễn ra trên hai máy. Ở máy quản trị, người dùng tạo tổ chức và mở phần quản trị để cấp bundle cho một thiết bị mới. Ở máy thành viên, người dùng tạo định danh cục bộ rồi dừng ở màn hình chờ bundle, nơi ứng dụng hiển thị PeerID và khóa công khai MLS của thiết bị. Nhìn ở mức thao tác, đây chỉ là một quy trình đăng ký. Nhưng nhìn ở mức giao thức, nó cho thấy một thiết bị không thể tự ý vào mạng của tổ chức; nó phải có bundle hợp lệ do phía quản trị cấp.
+
+Hình~\ref{fig:app_bundle_flow} đặt hai đầu của quy trình này cạnh nhau. Màn hình chờ bundle cho thấy thiết bị thành viên phải tự tạo định danh trước khi xin tham gia, còn màn hình quản trị cho thấy quyền cho tham gia nằm ở phía quản trị viên, chứ không do một máy chủ trung tâm tự động cấp phát. Chi tiết này bám đúng với giả định an toàn mà đồ án đặt ra từ đầu.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Thiết bị thành viên ở trạng thái chờ bundle}{Vị trí đặt ảnh Awaiting Bundle của Alice}
+		\hfill
+		\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Bảng điều khiển quản trị phát hành bundle}{Vị trí đặt ảnh Admin Panel cấp bundle}
+		\caption{Cấp bundle cho thiết bị mới trên ứng dụng desktop}
+		\label{fig:app_bundle_flow}
+	\end{figure}
+
+	\subsection{Thiết bị mới vào hệ thống}
+
+Sau khi nhận được bundle, người dùng nhập bundle vào ứng dụng. Nếu bundle hợp lệ, ứng dụng chuyển từ màn hình chờ sang màn hình làm việc chính. Việc chuyển màn hình này nhìn qua thì đơn giản, nhưng về bản chất nó cho thấy thiết bị chỉ thực sự vào hệ thống sau khi bundle được kiểm tra xong, dữ liệu tổ chức được nạp vào máy cục bộ và các quan hệ nhóm cần thiết được khởi tạo.
+
+Kịch bản này cũng cho thấy giao diện chỉ là lớp bên ngoài. Nó không tự quyết định thiết bị đã tham gia hay chưa; nó chỉ hiển thị kết quả sau khi phần điều phối và phần lưu trữ cục bộ cập nhật xong trạng thái mới.
+
+	\subsection{Trao đổi tin nhắn trong nhóm}
+
+Kịch bản tiếp theo mở đồng thời các cửa sổ ứng dụng của Admin, Alice và Bob. Sau khi nhóm được tạo và thêm đủ thành viên, các bên cùng gửi tin nhắn vào một cuộc trò chuyện chung. Đây là phần dễ nhìn nhất của hệ thống, nhưng điều đáng chú ý không chỉ là việc tin nhắn hiện ra trên màn hình. Trước đó, các thay đổi về thành viên phải đi qua Proposal và Commit để mọi phía cùng ổn định về một trạng thái nhóm. Chỉ sau bước đó, các tin nhắn mới được mã hóa bằng MLS và hiển thị theo cùng một logic sắp xếp.
+
+Hình~\ref{fig:app_group_chat_multinode} đặt các cửa sổ này cạnh nhau để người đọc nhìn được cùng một nhóm ở nhiều phía khác nhau. Cách trình bày này có ích hơn so với chỉ chụp một cửa sổ, vì nó cho thấy hệ thống không chỉ chạy được ở một phía mà thực sự đồng bộ được khi mạng còn thông.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_admin.png}{Cửa sổ nhóm trên thiết bị Admin}{Vị trí đặt ảnh group chat của Admin}
+		\hfill
+		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_alice.png}{Cửa sổ nhóm trên thiết bị Alice}{Vị trí đặt ảnh group chat của Alice}
+		\hfill
+		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_bob.png}{Cửa sổ nhóm trên thiết bị Bob}{Vị trí đặt ảnh group chat của Bob}
+		\caption{Trao đổi tin nhắn trong nhóm}
+		\label{fig:app_group_chat_multinode}
+	\end{figure}
+
+Đi cùng với nhắn tin là phần quản trị thành viên. Khi người dùng mở phần chi tiết phòng để xem danh sách thành viên, đổi chính sách mời hoặc thêm người mới, giao diện thực chất đang kích hoạt các thao tác thay đổi thành viên ở phía sau. Vì vậy, Hình~\ref{fig:app_group_management} được giữ lại để nối phần thao tác người dùng với các quy tắc điều phối đã nêu ở Chương 3.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_06_group_management_alice.png}{Vị trí đặt ảnh Room Panel hoặc Group Settings của Alice}
+		\caption{Màn hình quản trị thành viên của nhóm}
+		\label{fig:app_group_management}
+	\end{figure}
+
 	\section{Đánh giá hội tụ trong điều kiện mạng hỗn loạn}
 	\label{sec:danh_gia_chaos}
 	
-	Bài kiểm thử quan trọng nhất của lớp điều phối là \path{\texttt{TestIntegration_Chaos_Convergence}}. Thí nghiệm tạo một cụm gồm 5 nút cùng tham gia một nhóm MLS. Trong quá trình chạy, một tiến trình thử nghiệm liên tục chia mạng thành hai phân vùng, duy trì trạng thái phân vùng trong khoảng 600 ms, sau đó nối mạng lại. Đồng thời, các nút vẫn tiếp tục gửi thông điệp và phát sinh thao tác thay đổi thành viên.
+Bài kiểm thử quan trọng nhất cho lớp điều phối là \path{TestIntegration_Chaos_Convergence}. Thí nghiệm tạo một cụm gồm năm nút cùng tham gia một nhóm MLS. Trong quá trình chạy, tiến trình thử nghiệm liên tục chia mạng thành hai phân vùng, giữ trạng thái phân vùng trong khoảng 600 ms rồi nối mạng lại. Đồng thời, các nút vẫn tiếp tục gửi thông điệp và phát sinh thao tác thay đổi thành viên.
 	
-	Kết quả được ghi vào \path{chaos_metrics.csv}, gồm thời điểm đo, định danh nút, epoch hiện tại và TreeHash rút gọn. Hình~\ref{fig:chaos_convergence} minh họa quá trình các nút có thể tạm thời phân kỳ trong lúc mạng bị chia cắt, sau đó hội tụ về cùng epoch và TreeHash khi mạng được nối lại.
+Kết quả được ghi vào \path{evaluation/data/chaos_metrics.csv}, gồm thời điểm đo, định danh nút, epoch hiện tại và mã băm cây rút gọn. Hình~\ref{fig:chaos_convergence} minh họa quá trình các nút có thể tạm thời phân kỳ trong lúc mạng bị chia cắt, sau đó hội tụ về cùng epoch khi mạng được nối lại.
 	
 	\begin{figure}[htbp]
 		\centering
@@ -67,12 +116,12 @@ Chương này trình bày quá trình đánh giá thực nghiệm hệ thống t
 		\label{fig:chaos_convergence}
 	\end{figure}
 	
-Kết quả cuối cùng cho thấy toàn bộ các nút hợp lệ hội tụ về cùng một epoch và cùng một TreeHash. Điều này cho thấy cơ chế Fork Healing hoạt động phù hợp với mục tiêu thiết kế ở mức giao thức: khi phát hiện TreeHash khác nhau, các nút so sánh trọng số nhánh, chọn nhánh thắng và để nhánh thua thực hiện External Join nhằm quay về trạng thái thống nhất. Đáng chú ý, quá trình này diễn ra mà không cần một máy chủ trung tâm đóng vai trò Delivery Service.
+Kết quả cuối cùng cho thấy các nút hợp lệ hội tụ về cùng epoch và cùng mã băm cây. Điều này phù hợp với lập luận ở Chương 4: khác biệt trạng thái được nhận diện trước, sau đó các nút đối chiếu nhánh, chọn nhánh tiếp tục và đưa nhánh còn lại quay về một trạng thái thống nhất. Quan trọng hơn, quá trình này diễn ra mà không cần một Delivery Service trung tâm áp đặt thứ tự từ bên ngoài.
 	
 	\section{Đánh giá khả năng phục hồi sau phân vùng mạng}
 	\label{sec:danh_gia_partition}
 	
-	Để đánh giá riêng thời gian phục hồi, hệ thống đo thời gian từ khi hai phân vùng được nối lại cho đến khi các nút hội tụ. Dữ liệu tổng hợp (thể hiện chi tiết tại Bảng~\ref{tab:partition_recovery} và minh họa ở Hình~\ref{fig:partition_recovery}) cho thấy thời gian phục hồi dao động quanh mức xấp xỉ 1,1--1,2 giây trong các kịch bản phân vùng kéo dài từ 5 giây đến 60 giây.
+Để tách riêng chi phí phục hồi, hệ thống đo khoảng thời gian từ khi hai phân vùng được nối lại cho đến khi các nút hội tụ. Dữ liệu tổng hợp được trình bày ở Bảng~\ref{tab:partition_recovery} và minh họa ở Hình~\ref{fig:partition_recovery}. Các kết quả cho thấy thời gian phục hồi dao động quanh mức xấp xỉ 1,1 đến 1,2 giây trong các kịch bản phân vùng kéo dài từ 5 giây đến 60 giây.
 	
 	\begin{table}[htbp]
 		\centering
@@ -100,21 +149,21 @@ Kết quả cuối cùng cho thấy toàn bộ các nút hợp lệ hội tụ v
 		\label{fig:partition_recovery}
 	\end{figure}
 	
-	Kết quả này cho thấy thời gian phục hồi không tăng tuyến tính theo thời gian phân vùng. Đây là đặc điểm hợp lý của thiết kế: chi phí phục hồi chủ yếu nằm ở bước phát hiện phân kỳ, trao đổi GroupInfo, thực hiện External Join và phát lại thông điệp cục bộ cần thiết; nó không phụ thuộc trực tiếp vào việc phân vùng đã kéo dài bao lâu. Tuy nhiên, trong môi trường thực tế, thời gian này vẫn có thể chịu ảnh hưởng bởi chất lượng mạng, độ trễ libp2p, số lượng thông điệp cần phát lại và kích thước nhóm.
+Kết quả này cho thấy thời gian phục hồi không tăng tuyến tính theo thời gian phân vùng. Điều đó phù hợp với bản chất của cơ chế hàn gắn: chi phí chính nằm ở bước đối chiếu trạng thái, chọn nhánh và gia nhập lại, chứ không tăng trực tiếp theo số giây mà mạng đã bị chia cắt. Dĩ nhiên, trong môi trường thực tế, thời gian này vẫn còn phụ thuộc vào chất lượng mạng, số lượng thông điệp cần xử lý lại và quy mô nhóm.
 	
-	\section{Đánh giá cơ chế Single-Writer và gom Proposal}
+	\section{Đánh giá cơ chế một người ghi và gom đề xuất}
 	\label{sec:danh_gia_single_writer}
 	
-	Một rủi ro lớn khi đưa MLS lên mạng P2P là nhiều nút có thể cùng tạo Commit cho cùng một epoch. Nếu điều này xảy ra, cây MLS bị phân nhánh và các thành viên không còn cùng một trạng thái mật mã. Cơ chế Single-Writer giải quyết vấn đề này bằng cách chỉ cho phép Token Holder của epoch hiện tại phát hành Commit; các nút khác chỉ gửi Proposal.
+Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùng tạo Commit cho cùng một epoch. Nếu điều đó xảy ra, cây MLS sẽ bị tách nhánh và các thành viên không còn cùng một trạng thái mật mã. Cơ chế một người ghi được đưa ra để chặn đúng tình huống này: chỉ Token Holder của epoch hiện tại được tạo Commit, còn các nút khác chỉ phát tán Proposal.
 	
-	Để đánh giá hiệu quả của cơ chế gom Proposal, thí nghiệm so sánh hai chiến lược. Chiến lược cơ sở (baseline) thực hiện Commit ngay khi nhận Proposal, dẫn đến các Proposal đến muộn ở cùng epoch phải thử lại. Chiến lược tối ưu hóa (optimized) chờ một khoảng thời gian gom batch 1 giây để Token Holder gom nhiều Proposal vào một Commit duy nhất.
+Để đánh giá hiệu quả của cơ chế gom đề xuất, thí nghiệm so sánh hai chiến lược. Chiến lược thứ nhất xử lý ngay khi nhận Proposal, nên các Proposal đến muộn trong cùng một epoch dễ phải thử lại sau khi epoch đã đổi. Chiến lược thứ hai chờ một khoảng gom 1 giây để Token Holder đưa nhiều Proposal vào cùng một Commit.
 	
 	\begin{table}[htbp]
 		\centering
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|c|r|r|r|r|r|r|}
 			\hline
-			\textbf{Đồng thời} & \multicolumn{3}{c|}{\textbf{Baseline}} & \multicolumn{3}{c|}{\textbf{Optimized}} \\
+			\textbf{Mức đồng thời} & \multicolumn{3}{c|}{\textbf{Xử lý ngay}} & \multicolumn{3}{c|}{\textbf{Gom theo lô}} \\
 			\cline{2-7}
 			& \textbf{Proposal} & \textbf{Commit} & \textbf{Tỷ lệ thành công} & \textbf{Proposal} & \textbf{Commit} & \textbf{Tỷ lệ thành công} \\
 			\hline
@@ -130,23 +179,23 @@ Kết quả cuối cùng cho thấy toàn bộ các nút hợp lệ hội tụ v
 			\hline
 		\end{tabular}
 		}
-		\caption{So sánh baseline và cơ chế gom Proposal}
+		\caption{So sánh xử lý ngay và cơ chế gom đề xuất}
 		\label{tab:concurrency_results}
 	\end{table}
 	
 	\begin{figure}[htbp]
 		\centering
 		\includegraphics[width=0.9\textwidth]{Hinh/chuong5/concurrency_batching.png}
-		\caption{Hiệu quả của cơ chế gom Proposal khi mức đồng thời tăng}
+		\caption{Hiệu quả của cơ chế gom đề xuất khi mức đồng thời tăng}
 		\label{fig:concurrency_batching}
 	\end{figure}
 	
-Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược cơ sở cần nhiều Proposal hơn do phải thử lại sau khi epoch đã thay đổi. Trong khi đó, chiến lược tối ưu hóa giữ số Proposal đúng bằng số thao tác thật và chỉ cần một Commit. Kết quả này cho thấy vai trò của Single-Writer không chỉ nằm ở tính đúng đắn, mà còn ở hiệu quả vận hành: thay vì xử lý xung đột sau khi đã xảy ra, hệ thống tìm cách hạn chế xung đột Commit ngay từ đầu.
+Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược xử lý ngay phải tạo thêm Proposal do các nút thường rơi vào tình trạng gửi muộn so với epoch hiện hành. Trong khi đó, chiến lược gom theo lô giữ số Proposal đúng bằng số thao tác thực và vẫn chỉ cần một Commit. Kết quả này củng cố lập luận ở Chương 4 rằng vai trò của cơ chế một người ghi không chỉ nằm ở tính đúng đắn, mà còn ở hiệu quả vận hành: hệ thống cố giảm xung đột Commit từ đầu thay vì xử lý hậu quả sau đó.
 	
 	\section{Đánh giá khả năng mở rộng của thao tác thành viên}
 	\label{sec:danh_gia_scalability}
 	
-	Thí nghiệm tiếp theo đo chi phí của ba thao tác: thêm thành viên, xóa thành viên và cập nhật thành viên, với quy mô nhóm từ 5 đến 1000 nút. Dữ liệu đánh giá chi tiết được trình bày tại Bảng~\ref{tab:epoch_convergence_metrics}.
+Thí nghiệm tiếp theo đo chi phí của ba thao tác: thêm thành viên, xóa thành viên và cập nhật thành viên, với quy mô nhóm từ 5 đến 1000 nút. Dữ liệu chi tiết được trình bày ở Bảng~\ref{tab:epoch_convergence_metrics}.
 	
 	\begin{table}[htbp]
 		\centering
@@ -175,19 +224,21 @@ Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} ch
 		\label{tab:epoch_convergence_metrics}
 	\end{table}
 	
-	Kết quả cho thấy chi phí tăng rõ rệt khi số lượng thành viên tăng. Điều này phù hợp với đặc điểm triển khai hiện tại: mỗi thao tác thay đổi thành viên không chỉ cập nhật logic điều phối, mà còn kéo theo việc xử lý trạng thái nhóm và phát tán Commit đến các nút liên quan. Với quy mô 1000 nút, thời gian xử lý ở mức vài giây trong môi trường mô phỏng. Vì vậy, kết quả này không nên được hiểu là giới hạn lý thuyết của MLS, mà là chi phí thực tế của pipeline triển khai hiện tại khi trạng thái nhóm được xử lý theo mô hình full-state.
+Kết quả cho thấy chi phí tăng rõ khi số lượng thành viên tăng. Điều này phù hợp với phân tích lý thuyết ở Chương 4: thao tác thay đổi thành viên luôn đắt hơn gửi application message thông thường, vì nó kéo theo Proposal, Commit và cập nhật trạng thái nhóm. Tuy vậy, kết quả này cần được hiểu là chi phí của pipeline hiện tại của ứng dụng thử nghiệm, không phải là giới hạn tuyệt đối của MLS về mặt lý thuyết.
 	
-	\section{Đánh giá chi phí mật mã MLS}
-	\label{sec:danh_gia_crypto}
+\section{Đánh giá chi phí mật mã MLS}
+\label{sec:danh_gia_crypto}
 	
-	Để đánh giá phần mật mã, hệ thống so sánh hai hướng tiếp cận: mã hóa pairwise truyền thống và đường MLS full-blob hiện tại của nguyên mẫu. Kết quả đo đạc được thể hiện tại Bảng~\ref{tab:mls_crypto_benchmark}. Mỗi điểm đo sử dụng 100 mẫu với payload 1024 byte.
+Phần này dùng số liệu từ benchmark \path{crypto-engine/src/bin/mls_bench.rs}. Chương trình này tạo sẵn các trạng thái nhóm với kích thước từ 16 đến 4096 thành viên, rồi lặp lại mỗi phép đo 100 lần với payload 1024 byte. Thời gian của từng lần chạy được lấy bằng \texttt{Instant::now()}, sau đó sắp xếp lại để rút ra ba mốc là trung vị, p95 và p99. Trong chương này, bảng số liệu chỉ giữ giá trị trung vị để cách đọc gọn hơn.
+
+Benchmark trên có hai đường đo chính. Đường mã hóa từng cặp, tương ứng với nhãn \path{pairwise_baseline} trong dữ liệu, mô phỏng cách gửi kiểu từng cặp, nghĩa là phía gửi phải thực hiện thao tác bọc khóa và mã hóa riêng cho từng người nhận. Đường MLS hiện tại, tương ứng với nhãn \path{current_full_blob_mls_encrypt}, đi theo đúng cách làm hiện nay của hệ thống: hàm \texttt{encrypt\_message} nhận toàn bộ \path{group_state}, nạp trạng thái đó vào OpenMLS, tạo MLS message, tuần tự hóa bản mã rồi xuất lại trạng thái nhóm mới. Vì vậy, con số của đường MLS hiện tại không chỉ phản ánh phần mã hóa thuần túy, mà còn bao gồm cả chi phí nạp và xuất trạng thái.
 	
 	\begin{table}[htbp]
 		\centering
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|r|r|r|}
 			\hline
-			\textbf{Số nút} & \textbf{Pairwise (ms)} & \textbf{Full-blob MLS (ms)} \\
+			\textbf{Số nút} & \textbf{Mã hóa từng cặp (ms)} & \textbf{MLS toàn trạng thái (ms)} \\
 			\hline
 			16 & 3,62 & 0,55 \\
 			\hline
@@ -199,48 +250,65 @@ Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} ch
 			\hline
 		\end{tabular}
 		}
-		\caption{So sánh độ trễ mật mã giữa các mô hình}
-		\label{tab:mls_crypto_benchmark}
-	\end{table}
+	\caption{So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}
+	\label{tab:mls_crypto_benchmark}
+\end{table}
+
+\begin{table}[htbp]
+	\centering
+	\begin{tabular}{|l|r|r|}
+		\hline
+		\textbf{Mốc đo} & \textbf{Từng cặp (ms)} & \textbf{MLS (ms)} \\
+		\hline
+		p95 & 1023,66 & 95,04 \\
+		\hline
+		p99 & 1081,72 & 110,85 \\
+		\hline
+	\end{tabular}
+	\caption{So sánh p95 và p99 ở nhóm 4096 thành viên}
+	\label{tab:mls_crypto_tail_latency}
+\end{table}
 	
-Kết quả cho thấy MLS hiệu quả hơn rõ rệt so với mã hóa pairwise khi số lượng thành viên tăng. Với 4096 nút, pairwise baseline có trung vị khoảng 955 ms, trong khi full-blob MLS khoảng 79 ms. Điều này thể hiện lợi thế cơ bản của MLS: người gửi không phải mã hóa riêng cho từng người nhận \cite{rfc9420}.
-	
-	Tuy nhiên, kết quả cũng chỉ ra điểm nghẽn của kiến trúc hiện tại. Đường full-blob MLS vẫn phải truyền và tuần tự hóa toàn bộ trạng thái nhóm giữa Go và Rust sidecar. Vì vậy, mặc dù MLS tránh được chi phí mã hóa riêng cho từng người nhận, nguyên mẫu vẫn có overhead triển khai khi kích thước \texttt{GroupState} tăng. Đây là hạn chế cần được xem xét trong các hướng tối ưu hóa IPC và persistence ở các nghiên cứu tiếp theo.
+Các con số trong Bảng~\ref{tab:mls_crypto_benchmark} cho thấy hai xu hướng khá rõ. Thứ nhất, đường mã hóa từng cặp tăng gần tuyến tính theo số thành viên: từ 3,62 ms ở nhóm 16 thành viên lên 59,62 ms ở nhóm 256 thành viên, 238,75 ms ở nhóm 1024 thành viên và 955,18 ms ở nhóm 4096 thành viên. Thứ hai, đường MLS hiện tại cũng tăng theo quy mô nhóm, nhưng chậm hơn nhiều: các mốc tương ứng lần lượt là 0,55 ms, 5,41 ms, 19,86 ms và 78,95 ms. Điều này phù hợp với ưu thế cơ bản của MLS: phía gửi không phải mã hóa lại riêng cho từng người nhận \cite{rfc9420}.
+
+Bảng~\ref{tab:mls_crypto_tail_latency} cho thấy kết luận trên không chỉ đúng ở mức trung vị. Ngay tại nhóm 4096 thành viên, p95 của đường từng cặp là 1023,66 ms và p99 là 1081,72 ms, trong khi đường MLS hiện tại có p95 là 95,04 ms và p99 là 110,85 ms. Điều đó cho thấy ngay cả ở các lần chạy chậm hơn bình thường, chênh lệch giữa hai hướng vẫn còn rất lớn.
+
+Tuy nhiên, benchmark này cũng cho thấy điểm nghẽn của đường triển khai hiện tại. Trong mã nguồn, hàm \texttt{encrypt\_message} không chỉ tạo bản mã mà còn phải nạp lại toàn bộ trạng thái nhóm và xuất lại trạng thái mới sau mỗi lần gửi. Vì vậy, dù tránh được chi phí mã hóa từng cặp, đường này vẫn tăng theo kích thước \path{group_state}. Đây là lý do làm cho thời gian đo ở nhóm lớn chưa thấp như một cách cài đặt mà trạng thái được giữ sẵn trong bộ nhớ.
 	
 	\section{Chi phí phụ trợ của lớp điều phối}
 	\label{sec:coordinator_overhead}
 	
-	Bên cạnh chi phí mật mã, lớp điều phối cũng tạo thêm chi phí cho việc bầu Token Holder, kiểm tra epoch, lưu trữ envelope, cập nhật ActiveView và phát hiện fork. Tuy nhiên, các tác vụ này chủ yếu là xử lý metadata, so sánh hash, ghi SQLite và điều phối trạng thái, nhẹ hơn đáng kể so với các thao tác MLS trên nhóm lớn.
+Ngoài phần mật mã, hệ thống còn tốn thêm thời gian cho lớp điều phối. Tuy nhiên, Hình~\ref{fig:coordinator_overhead} không phải là kết quả của một phép đo đầu cuối duy nhất. Hình này được dựng từ ba phần. Phần thứ nhất là trung vị của đường MLS hiện tại trong benchmark. Phần thứ hai là độ trễ lưu \path{storage\_ms} trung bình trong dữ liệu SQLite, sau đó được co giãn theo kích thước trạng thái nhóm. Phần thứ ba là chi phí điều phối được script dựng hình ước lượng bằng một mô hình tuyến tính đơn giản: có một phần cố định nhỏ cho việc xử lý hàng đợi và cập nhật trạng thái cục bộ, cộng với phần tăng theo số thành viên khi nút phải duyệt danh sách để xác định Token Holder của epoch hiện tại. Nói cách khác, phần điều phối trong hình là một giá trị ước lượng hợp lý để minh họa tỷ trọng tương đối, chứ không phải số đo trực tiếp lấy từ một phép thử riêng.
 	
 	\begin{figure}[htbp]
 		\centering
 		\includegraphics[width=0.9\textwidth]{Hinh/chuong5/coordinator_overhead.png}
-		\caption{Phân rã chi phí phụ trợ của lớp điều phối}
+		\caption{Phân rã chi phí xử lý cục bộ giữa phần MLS, phần lưu trữ và phần điều phối}
 		\label{fig:coordinator_overhead}
 	\end{figure}
 	
-	Từ góc độ kiến trúc, dữ liệu được trình bày ở Hình~\ref{fig:coordinator_overhead} là một kết quả tích cực. Lớp Coordination bổ sung các thuộc tính mà MLS không tự cung cấp trong môi trường P2P, nhưng không làm thay đổi vai trò của MLS như lớp mật mã lõi. Go chịu trách nhiệm điều phối, lưu trữ, kiểm tra epoch và khôi phục phân nhánh; Rust sidecar vẫn chỉ thực hiện các thao tác MLS thuần túy.
+Điểm quan trọng nhất của Hình~\ref{fig:coordinator_overhead} là phần điều phối chỉ chiếm một phần nhỏ của tổng chi phí cục bộ khi quy mô nhóm tăng. Ở nhóm 128 thành viên, chi phí điều phối vào khoảng 0,46 ms trên tổng 13,64 ms, tức khoảng 3,34\%. Ở nhóm 512 thành viên, con số này là 1,22 ms trên tổng 50,36 ms, tương ứng khoảng 2,43\%. Đến nhóm 1024 thành viên, phần điều phối vào khoảng 2,25 ms trên tổng 100,01 ms, tức khoảng 2,25\%. Trong khi đó, phần chi phí lớn hơn nhiều lại nằm ở OpenMLS và nhất là phần lưu trữ, tuần tự hóa trạng thái. Vì vậy, ý nghĩa chính của hình này không phải là chứng minh từng con số tuyệt đối của lớp điều phối, mà là cho thấy ngay cả khi cộng thêm phần điều phối thì chỗ tốn thời gian nhất vẫn không nằm ở đó.
+
+Vì vậy, kết quả này có ý nghĩa tích cực cho lập luận của đồ án. Lớp điều phối có bổ sung thêm công việc như bầu Token Holder, kiểm tra epoch và giữ metadata cục bộ, nhưng phần bổ sung đó không phải là chỗ gây tốn thời gian chính trong đường xử lý hiện nay. Nút thắt lớn hơn vẫn nằm ở việc xử lý và trao đổi trạng thái nhóm có kích thước ngày càng lớn.
 	
-	\section{Kiểm chứng Forward Secrecy bằng Rust sidecar thật}
+	\section{Kiểm chứng Forward Secrecy bằng thành phần MLS thật}
 	\label{sec:forward_secrecy}
 	
-	Một kiểm chứng bảo mật quan trọng là \path{\texttt{TestBusinessP1_E2E_RealSidecar_ForwardSecrecy}}. Khác với các kiểm thử điều phối dùng mock, bài kiểm thử này sử dụng Rust sidecar thật. Kịch bản gồm các bước: Alice tạo nhóm, Bob tham gia nhóm, Alice loại Bob khỏi nhóm, sau đó Alice gửi một thông điệp mới ở epoch sau khi Bob đã bị loại.
+Một kiểm chứng bảo mật quan trọng là bài kiểm thử \path{TestBusinessP1_E2E_RealSidecar_ForwardSecrecy}. Khác với các kiểm thử điều phối dùng thành phần giả lập, bài kiểm thử này sử dụng trực tiếp thành phần MLS thật. Kịch bản gồm các bước: Alice tạo nhóm, Bob tham gia nhóm, Alice loại Bob khỏi nhóm, sau đó Alice gửi một thông điệp mới ở epoch sau khi Bob đã bị loại.
 	
-Thông điệp sau khi loại Bob được đưa vào pipeline xử lý phía Bob như một envelope nhận được từ mạng. Nếu hệ thống vận hành sai, Bob có thể giải mã và lưu plaintext vào cơ sở dữ liệu cục bộ. Kết quả kiểm thử cho thấy Bob không giải mã được thông điệp này và không có plaintext nào được lưu lại. Điều này cho thấy việc đặt MLS trong lớp Coordination của hệ thống không làm suy giảm thuộc tính Forward Secrecy trong kịch bản được kiểm thử.
+Thông điệp này vẫn được đưa vào pipeline xử lý phía Bob như một envelope nhận được từ mạng. Nếu hệ thống vận hành sai, Bob có thể giải mã và lưu plaintext vào cơ sở dữ liệu cục bộ. Kết quả kiểm thử cho thấy Bob không giải mã được thông điệp đó và không có plaintext nào được lưu lại. Điều này cho thấy việc đặt lớp điều phối bên ngoài MLS không làm suy giảm thuộc tính Forward Secrecy trong kịch bản được kiểm thử.
 	
-	Kết quả này có ý nghĩa đặc biệt quan trọng đối với mô hình zero-trust. Ngay cả khi một nút từng là thành viên hợp lệ của nhóm, sau khi bị xóa khỏi cây MLS, nút đó không thể đọc các thông điệp tương lai. Lớp điều phối chỉ quyết định thứ tự và trạng thái nhóm; quyền giải mã cuối cùng vẫn được kiểm soát bởi trạng thái mật mã MLS.
+Kết quả này có ý nghĩa rõ ràng đối với mô hình bảo mật của đồ án. Một nút từng là thành viên hợp lệ của nhóm nhưng đã bị loại khỏi cây MLS sẽ không còn quyền đọc các thông điệp tương lai. Lớp điều phối chỉ quyết định tiến trình trạng thái và thứ tự xử lý; quyền giải mã cuối cùng vẫn do trạng thái mật mã MLS kiểm soát.
 	
 	\section{Nhận xét và giới hạn đánh giá}
 	\label{sec:nhan_xet_gioi_han}
 	
-Các kết quả thực nghiệm cho thấy thiết kế đã tiếp cận được ba mục tiêu chính. Thứ nhất, cơ chế Single-Writer giúp ngăn phần lớn xung đột Commit trong một epoch và hỗ trợ hệ thống hội tụ ổn định trong các kịch bản đã đánh giá. Thứ hai, Fork Healing cho phép các nhánh phân kỳ quay về cùng trạng thái mà không cần Delivery Service trung tâm. Thứ ba, kiến trúc Go--Rust sidecar cho thấy khả năng bảo toàn các thuộc tính bảo mật quan trọng của MLS, trong đó có Forward Secrecy, trong phạm vi thí nghiệm của đồ án.
+Các kết quả thực nghiệm cho thấy hướng tiếp cận của đồ án đạt được ba điểm quan trọng. Thứ nhất, cơ chế một người ghi và cơ chế gom đề xuất giúp giảm xung đột Commit trong các kịch bản đã đo. Thứ hai, tiến trình đối chiếu trạng thái và hàn gắn phân nhánh cho phép các nút quay về cùng epoch và cùng mã băm cây sau phân vùng mạng. Thứ ba, khi kết hợp với thành phần MLS thật, hệ thống vẫn giữ được thuộc tính Forward Secrecy trong phạm vi kiểm thử của đồ án.
 	
-	Tuy nhiên, vẫn tồn tại một số giới hạn. Các chaos test hiện tại chủ yếu dùng mạng giả lập nên chưa phản ánh đầy đủ độ trễ, mất gói và hành vi NAT của mạng thực tế. Các benchmark MLS cho thấy xu hướng chi phí rõ ràng, nhưng chưa phải đánh giá hiệu năng đầu cuối của toàn bộ ứng dụng desktop. Ngoài ra, mô hình full-blob hiện tại có chi phí serialization lớn khi nhóm rất đông thành viên; đây là điểm cần tối ưu nếu hệ thống được triển khai ở quy mô doanh nghiệp lớn.
+Tuy nhiên, phần đánh giá vẫn còn giới hạn. Các chaos test hiện nay chủ yếu dùng mạng giả lập nên chưa phản ánh đầy đủ độ trễ, mất gói và hành vi NAT của môi trường thực. Các benchmark MLS cho thấy xu hướng chi phí rõ ràng, nhưng chưa phải là đánh giá đầu cuối của toàn bộ ứng dụng desktop trên nhiều máy độc lập. Ngoài ra, mô hình trao đổi toàn trạng thái giữa các thành phần còn gây chi phí lớn khi nhóm rất đông thành viên; đây là điểm cần tiếp tục tối ưu nếu muốn tiến xa hơn khỏi phạm vi ứng dụng thử nghiệm.
 	
-	\section*{Kết chương}
+Kết chương. Chương này đã kiểm chứng các cơ chế đã đề xuất bằng cả hai con đường: dữ liệu thực nghiệm và kịch bản chạy trên ứng dụng desktop thử nghiệm. Các kịch bản giao diện cho thấy những giả định thiết kế như cấp bundle, gia nhập thiết bị và quản trị thành viên đã được chuyển thành thao tác sử dụng thật. Các bài kiểm thử và benchmark tiếp tục cho thấy hệ thống có thể hội tụ sau phân vùng mạng, giảm xung đột Commit và giữ được các thuộc tính bảo mật quan trọng của MLS trong phạm vi đã đánh giá.
 	
-Chương này đã trình bày quá trình đánh giá thực nghiệm hệ thống theo cả hai hướng: tính đúng đắn của giao thức điều phối phi tập trung và hiệu năng của lớp mật mã MLS. Kết quả chaos test cho thấy các nút có thể hội tụ về cùng epoch và TreeHash sau phân vùng mạng. Kết quả concurrency test cho thấy cơ chế gom Proposal giúp giảm số Commit và hạn chế các lần thử lại không cần thiết. Các benchmark mật mã chỉ ra MLS có ưu thế rõ rệt so với mã hóa pairwise, đồng thời cho thấy nút thắt hiện tại nằm ở chi phí quản lý trạng thái full-blob. Cuối cùng, kiểm thử với Rust sidecar thật cho thấy thuộc tính Forward Secrecy vẫn được duy trì sau khi loại thành viên khỏi nhóm.
-	
-	Những kết quả này củng cố tính khả thi của hướng tiếp cận đã đề xuất: thay thế Delivery Service tập trung của MLS bằng một lớp điều phối phi tập trung, trong khi vẫn giữ MLS làm lõi mật mã an toàn. Chương tiếp theo sẽ tổng kết các đóng góp chính của đồ án và trình bày các hướng phát triển tiếp theo.
+Những kết quả đó chưa đủ để đưa ra khẳng định tuyệt đối cho mọi môi trường triển khai, nhưng chúng là cơ sở thực nghiệm đáng tin cậy để kết lại phần nghiên cứu. Từ đây, Chương 6 sẽ tổng hợp lại đóng góp chính của đồ án, nêu rõ giới hạn còn tồn tại và xác định các hướng phát triển tiếp theo.
 	
 \end{document}

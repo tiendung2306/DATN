@@ -106,7 +106,7 @@ Trong phạm vi đồ án, hệ thống được xem như một mạng gồm nhi
 \section{Các kết quả nghiên cứu tương tự}
 \label{sec:nghien-cuu-lien-quan}
 
-Các nghiên cứu liên quan có thể được nhìn từ ba hướng chính: các cơ chế nhắn tin nhóm xuất hiện trước MLS, MLS trong mô hình có Delivery Service và các nỗ lực đưa MLS sang môi trường phi tập trung. Việc phân chia theo hướng này giúp làm rõ vì sao đồ án không chọn lặp lại hoàn toàn một giải pháp có sẵn, mà cần một hướng tiếp cận riêng phù hợp hơn với mục tiêu P2P và Local-First.
+Các nghiên cứu liên quan có thể được nhìn từ ba hướng chính: các cơ chế nhắn tin nhóm xuất hiện trước MLS, MLS trong mô hình có Delivery Service và các nỗ lực đưa MLS sang môi trường phi tập trung. Việc phân chia theo hướng này giúp làm rõ vì sao đồ án không chọn lặp lại hoàn toàn một giải pháp có sẵn, mà cần một hướng tiếp cận riêng phù hợp hơn với mục tiêu P2P và định hướng ưu tiên dữ liệu cục bộ.
 
 \subsection{Các cơ chế mã hóa nhóm trước MLS}
 
@@ -145,7 +145,7 @@ TreeKEM là cơ chế trung tâm giúp MLS cập nhật khóa nhóm hiệu quả
 
 Khi một thành viên cập nhật khóa, thành viên đó tạo ra một đường dẫn cập nhật (\textit{update path}) từ lá của mình lên gốc cây. Các bí mật mới trên đường đi này được mã hóa cho các nhánh đồng cấp tương ứng, thường được gọi là \textit{copath}. Nhờ cấu trúc cây, số lượng phép tính và lượng dữ liệu cập nhật chỉ tăng gần theo logarit của số thành viên trong nhóm. Nói ngắn gọn, TreeKEM là cơ chế giúp MLS thay khóa nhóm theo cách có cấu trúc và tiết kiệm hơn so với việc phân phối lại khóa theo kiểu tuyến tính cho toàn bộ thành viên.
 
-Cần lưu ý rằng bí mật ở gốc cây không được dùng trực tiếp để mã hóa thông điệp ứng dụng. Sau mỗi Commit, MLS còn đưa các bí mật mới qua lịch trình sinh khóa (\textit{key schedule}) để tạo ra các khóa cụ thể cho từng mục đích như xác thực, mã hóa thông điệp hay xuất vật liệu khóa \cite{rfc9420}. Vì vậy, TreeKEM nên được hiểu là cơ chế cập nhật trạng thái khóa nhóm, còn việc sinh các khóa sử dụng trực tiếp cho thông điệp được xử lý ở bước sau.
+Cần lưu ý rằng bí mật ở gốc cây không được dùng trực tiếp để mã hóa thông điệp ứng dụng. Sau mỗi Commit, MLS còn đưa các bí mật mới qua một cơ chế sinh khóa (\textit{key schedule}) để tạo ra các khóa cụ thể cho từng mục đích như xác thực, mã hóa thông điệp hay xuất vật liệu khóa \cite{rfc9420}. Vì vậy, TreeKEM nên được hiểu là cơ chế cập nhật trạng thái khóa nhóm, còn việc sinh các khóa sử dụng trực tiếp cho thông điệp được xử lý ở bước sau.
 
 \subsection{Proposal, Commit và tiến trình chuyển epoch}
 
@@ -155,7 +155,7 @@ Nhìn dưới góc độ hệ phân tán, có thể xem Commit như thao tác gh
 
 \subsection{Các dấu hiệu nhận biết trạng thái: tree hash, transcript hash và epoch authenticator}
 
-Để kiểm tra các thành viên có còn cùng một trạng thái hay không, MLS sử dụng một số giá trị ràng buộc trạng thái \cite{rfc9420}. Trong đó, hàm băm cây (tree hash) phản ánh cấu trúc Ratchet Tree hiện tại; hàm băm lịch sử bắt tay (transcript hash) ràng buộc chuỗi thông điệp bắt tay đã được xác nhận; còn bộ xác thực epoch (epoch authenticator) có thể được dùng để đối chiếu việc các thành viên có thực sự đang chia sẻ cùng trạng thái epoch hay không.
+Để kiểm tra các thành viên có còn cùng một trạng thái hay không, MLS sử dụng một số giá trị ràng buộc trạng thái \cite{rfc9420}. Trong đó, hàm băm cây (tree hash) phản ánh cấu trúc Ratchet Tree hiện tại. Hàm băm lịch sử bắt tay (transcript hash) tóm tắt lịch sử các bản tin điều khiển của MLS đã được nhóm chấp nhận, chẳng hạn như Proposal và Commit, nhờ đó cho biết các thành viên có thực sự đi qua cùng một chuỗi thay đổi trạng thái hay không. Còn bộ xác thực epoch (epoch authenticator) có thể được dùng để đối chiếu việc các thành viên có thực sự đang chia sẻ cùng trạng thái epoch hay không.
 
 Ý nghĩa của các giá trị này đối với đồ án là rất trực tiếp. Trong môi trường P2P, hai thiết bị có thể cùng báo cùng mã nhóm và cùng số epoch, nhưng điều đó chưa đủ để kết luận rằng chúng còn ở cùng trạng thái MLS. Nếu tree hash hoặc transcript hash khác nhau, về bản chất chúng đã tách thành hai nhánh. Vì vậy, khi nghiên cứu bài toán phát hiện phân nhánh và đồng bộ lại trạng thái, các dấu hiệu nhận biết này đóng vai trò đặc biệt quan trọng.
 
@@ -178,7 +178,7 @@ Trong môi trường P2P, các hiện tượng như thiết bị ngoại tuyến
 
 \subsection{go-libp2p và GossipSub}
 
-Trong nguyên mẫu của đồ án, tầng mạng được xây dựng trên go-libp2p \cite{libp2p2026doc}. Đây là thư viện P2P mô-đun hóa, cho phép mỗi thiết bị có một định danh mạng riêng, thiết lập kết nối qua nhiều cơ chế truyền dẫn và trao đổi dữ liệu trên nhiều luồng logic. Những khả năng này phù hợp với yêu cầu của một ứng dụng nhắn tin không phụ thuộc hoàn toàn vào máy chủ trung tâm.
+Trong ứng dụng thử nghiệm của đồ án, tầng mạng được xây dựng trên go-libp2p \cite{libp2p2026doc}. Đây là thư viện P2P mô-đun hóa, cho phép mỗi thiết bị có một định danh mạng riêng, thiết lập kết nối qua nhiều cơ chế truyền dẫn và trao đổi dữ liệu trên nhiều luồng logic. Những khả năng này phù hợp với yêu cầu của một ứng dụng nhắn tin không phụ thuộc hoàn toàn vào máy chủ trung tâm.
 
 Một thành phần quan trọng của libp2p là GossipSub, tức cơ chế phát tán thông điệp theo mô hình công bố/đăng ký nhận (\textit{publish/subscribe}). Có thể hiểu đơn giản rằng khi một thiết bị gửi thông điệp vào một chủ đề chung, thông điệp đó sẽ được lan truyền dần qua các thiết bị lân cận trong mạng. Cơ chế này phù hợp để phát tán proposal, commit hoặc các thông báo trạng thái trong môi trường P2P.
 

@@ -1,89 +1,81 @@
 \documentclass[../DoAn.tex]{subfiles}
 \begin{document}
 
-Chương 2 đã làm rõ nền tảng của MLS, TreeKEM, mạng ngang hàng và hiện tượng phân nhánh trạng thái mật mã khi nhiều Commit cạnh tranh xuất hiện trong cùng một Epoch. Trên cơ sở đó, Chương 3 trình bày giao thức điều phối phi tập trung được đề xuất nhằm hỗ trợ MLS vận hành trên mạng ngang hàng mà không cần một Delivery Service trung tâm làm bộ tuần tự hóa.
+Tổng quan chương.
 
-Nội dung chương được tổ chức thành các phần chính sau. Trước hết, chương mô tả tổng quan giải pháp, kiến trúc hai lớp Go--Rust và luồng hoạt động của hệ thống. Tiếp theo, chương trình bày ba cơ chế điều phối cốt lõi gồm người ghi duy nhất theo epoch, kiểm tra nhất quán epoch và hàn gắn phân nhánh trạng thái khi mạng bị chia cắt. Sau đó, chương giới thiệu cách sử dụng đồng hồ logic lai để sắp xếp thông điệp ứng dụng, rồi khép lại bằng mô hình quản lý trạng thái giữa Go Host, Rust Sidecar và lưu trữ cục bộ bằng SQLite.
+Chương 2 đã trình bày nền tảng của MLS, TreeKEM, mạng ngang hàng và nguyên nhân dẫn tới phân nhánh trạng thái mật mã khi nhiều Commit cùng xuất hiện trong một Epoch. Trên cơ sở đó, Chương 3 tập trung vào lớp điều phối phi tập trung mà đồ án đề xuất để MLS có thể vận hành trong môi trường P2P mà không cần một Delivery Service trung tâm sắp thứ tự Commit.
 
-\section{Tổng quan giải pháp}
+Trọng tâm của chương này là phương pháp đề xuất ở mức giao thức. Cụ thể, chương lần lượt trình bày bài toán và các yêu cầu thiết kế, cơ chế người ghi duy nhất theo epoch, cơ chế kiểm tra nhất quán epoch, cơ chế phát hiện và hàn gắn phân nhánh, cùng cách dùng đồng hồ logic lai để sắp xếp thông điệp ứng dụng. Ở cuối chương, đồ án chỉ dành một mục ngắn để nêu cách ứng dụng thử nghiệm hiện thực các nguyên tắc đó; phần kiểm chứng bằng ứng dụng thử nghiệm và ảnh minh họa được chuyển sang Chương 5 và phụ lục.
+
+\section{Tổng quan bài toán và hướng tiếp cận}
 \label{sec:tong-quan-giai-phap}
 
 \subsection{Bài toán cần giải quyết}
 
-Trong mô hình MLS thông thường, Delivery Service đóng vai trò quan trọng trong việc phân phối thông điệp và hỗ trợ sắp xếp thứ tự các Commit. Khi hai thành viên cùng tạo Commit tại cùng một Epoch, một DS nhất quán mạnh có thể quyết định Commit nào được chấp nhận trước, từ đó giúp toàn nhóm duy trì cùng một chuỗi Epoch tuyến tính. Khi loại bỏ DS trong môi trường P2P, hệ thống mất đi điểm tuần tự hóa trung tâm này \cite{rfc9420,rfc9750}.
+Trong mô hình MLS thông thường, Delivery Service không chỉ chuyển tiếp thông điệp mà còn giúp các thành viên nhìn thấy cùng một thứ tự Commit \cite{rfc9420,rfc9750}. Khi chuyển sang môi trường P2P và bỏ điểm tuần tự hóa trung tâm này, hệ thống phải đối mặt với một rủi ro trực tiếp: hai hoặc nhiều thành viên có thể cùng phát hành Commit cho cùng một Epoch. Khi đó, nhóm không còn tiến hóa theo một chuỗi trạng thái duy nhất, mà có thể tách thành nhiều nhánh trạng thái mật mã khác nhau.
 
-Giả sử nhóm đang ở Epoch $E$. Thành viên $A$ tạo Commit $C_A$ để chuyển nhóm sang trạng thái $S_A(E+1)$, trong khi thành viên $B$ đồng thời tạo Commit $C_B$ để chuyển nhóm sang trạng thái $S_B(E+1)$. Nếu một phần các nút nhận và áp dụng $C_A$ trước, còn phần còn lại nhận và áp dụng $C_B$ trước, nhóm sẽ bị tách thành hai nhánh trạng thái khác nhau. Hai nhánh này có thể cùng mang số Epoch $E+1$, nhưng khác tree hash, transcript hash, epoch secret và khóa ứng dụng. Khi đó, các thành viên ở hai nhánh không còn chia sẻ cùng trạng thái mật mã và không thể xử lý thông điệp của nhau một cách hợp lệ \cite{rfc9420,alwen2023fork,kohbrok2025dmls}.
+Giả sử nhóm đang ở Epoch $E$. Nếu thành viên $A$ tạo Commit $C_A$ và thành viên $B$ đồng thời tạo Commit $C_B$, một phần nút có thể áp dụng $C_A$ trước, trong khi phần còn lại áp dụng $C_B$ trước. Kết quả là nhóm có thể sinh ra hai trạng thái $S_A(E+1)$ và $S_B(E+1)$ khác nhau dù cùng mang nhãn Epoch $E+1$. Khi đó, các nút ở hai nhánh không còn cùng tree hash, cùng lịch sử Commit hay cùng khóa ứng dụng, nên cũng không còn xử lý thông điệp của nhau một cách hợp lệ \cite{alwen2023fork,kohbrok2025dmls}.
 
-Do đó, phương pháp đề xuất cần giải quyết bốn yêu cầu chính: (i) giảm tối đa khả năng xuất hiện concurrent commits trong điều kiện mạng liên thông; (ii) mỗi nút phải có khả năng kiểm tra thông điệp đến để tránh áp dụng sai Epoch hoặc áp dụng Commit dựa trên trạng thái không tương thích; (iii) khi phân mảnh mạng (network partition) xảy ra khiến nhiều nhánh xuất hiện, hệ thống phải tự động phát hiện và có quy trình hội tụ trở lại một nhánh hợp lệ duy nhất; (iv) các thông điệp ứng dụng thông thường trong cùng một Epoch vẫn cần được sắp xếp hiển thị ổn định trên các thiết bị mà không phụ thuộc vào đồng hồ vật lý đồng bộ tuyệt đối.
+Vì vậy, phương pháp đề xuất trong đồ án phải đồng thời đáp ứng bốn yêu cầu: (i) giảm mạnh khả năng xuất hiện concurrent commits khi mạng còn liên thông; (ii) buộc mỗi nút chỉ xử lý thông điệp trên trạng thái MLS tương thích với epoch cục bộ của nó; (iii) phát hiện được sự phân kỳ trạng thái khi network partition xảy ra và hỗ trợ hội tụ trở lại một nhánh hợp lệ; (iv) giữ được một thứ tự hiển thị ổn định cho các thông điệp ứng dụng trong cùng một Epoch mà không nhầm lẫn vai trò đó với thứ tự Commit.
 
-\subsection{Kiến trúc tổng thể}
+\subsection{Kiến trúc logic của giải pháp}
 
-Giải pháp đề xuất được tổ chức theo kiến trúc hai lớp, gồm Go Host và Rust OpenMLS Sidecar. Go Host là tiến trình chính của ứng dụng, chịu trách nhiệm giao diện người dùng, lưu trữ cục bộ, mạng ngang hàng và logic điều phối. Rust Sidecar là tiến trình mật mã chuyên biệt, chịu trách nhiệm thực thi các thao tác MLS bằng thư viện OpenMLS. Sơ đồ kiến trúc triển khai chi tiết được thể hiện trong Hình \ref{fig:detailed_architecture}.
+Ở mức logic, phương pháp được tổ chức thành hai tầng trách nhiệm. Tầng thứ nhất là tầng điều phối, chịu trách nhiệm quyết định khi nào một nút được quyền tạo Commit, cách phân loại thông điệp theo epoch, cách đối chiếu trạng thái nhánh và cách khôi phục sau phân mảnh mạng. Tầng thứ hai là tầng MLS, chịu trách nhiệm xử lý Proposal, Commit, Welcome, External Join, cũng như mã hóa và giải mã thông điệp theo đúng quy tắc của MLS \cite{rfc9420}.
+
+Sơ đồ triển khai tổng thể được thể hiện trong Hình~\ref{fig:detailed_architecture}. Ở góc độ phương pháp, hình này cần được đọc như một sơ đồ phân chia trách nhiệm: lớp điều phối không tự cài lại MLS, còn lõi MLS không tự quyết định thứ tự điều phối trong môi trường phân tán. Cách tách này cho phép đồ án giữ nguyên các bảo đảm mật mã của MLS, đồng thời bổ sung lớp điều phối cần thiết cho bối cảnh P2P.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{Hinh/chuong3_architecture.png}
-\caption{Kiến trúc triển khai chi tiết của Go Host và Rust Sidecar}
+\caption{Kiến trúc logic của giải pháp và ranh giới trách nhiệm giữa lớp điều phối với lớp MLS}
 \label{fig:detailed_architecture}
 \end{figure}
 
-Trong kiến trúc này, Go Host là nguồn quyết định về thứ tự điều phối ở tầng ứng dụng. Rust Sidecar không tự quyết định Commit nào là hợp lệ về mặt phân tán; nó chỉ kiểm tra và xử lý thông điệp theo logic mật mã của MLS. Ngược lại, Go Host không tự triển khai mật mã MLS; nó chỉ gọi Rust Sidecar khi cần tạo Proposal, Commit, Welcome, External Commit, hoặc mã hóa/giải mã application message.
+\subsection{Các cơ chế chính của phương pháp}
 
-Một điểm quan trọng trong thiết kế là Rust Sidecar được giữ phi trạng thái từ góc nhìn của Go Host. Go Host lưu trạng thái nhóm bền vững trong SQLite, lấy snapshot \texttt{GroupState} hiện tại khi cần xử lý, gửi snapshot đó sang Rust qua gRPC, sau đó lưu lại \texttt{GroupState} mới do Rust trả về. Cách tổ chức này làm rõ nguồn sự thật của hệ thống và giúp quá trình khôi phục sau khi ứng dụng hoặc sidecar khởi động lại trở nên trực tiếp hơn.
+Phương pháp đề xuất gồm bốn cơ chế gắn chặt với nhau. Cơ chế thứ nhất là người ghi duy nhất theo epoch, nhằm giới hạn quyền phát hành Commit. Cơ chế thứ hai là kiểm tra nhất quán epoch, nhằm ngăn nút xử lý thông điệp trên một trạng thái MLS không tương thích. Cơ chế thứ ba là phát hiện và hàn gắn phân nhánh, nhằm đưa các nút hội tụ trở lại sau network partition. Cơ chế cuối cùng là đồng hồ logic lai HLC, dùng để sắp xếp thông điệp ứng dụng sau khi các thông điệp đó đã đi qua lớp kiểm tra và xử lý của MLS.
 
-\subsection{Các thành phần chính của giao thức}
-
-Giao thức điều phối phi tập trung của đồ án gồm bốn cơ chế chính. Thứ nhất là cơ chế người ghi duy nhất theo epoch nhằm kiểm soát quyền tạo Commit. Thứ hai là cơ chế kiểm tra nhất quán epoch để bảo vệ tính đơn điệu của trạng thái cục bộ. Thứ ba là cơ chế hàn gắn phân nhánh nhằm phát hiện và xử lý sự phân kỳ trạng thái khi mạng bị chia cắt. Thứ tư là cơ chế sắp xếp thông điệp ứng dụng bằng đồng hồ logic lai HLC. Bốn cơ chế này phối hợp với nhau để hình thành lớp điều phối của hệ thống.
-
-\subsection{Luồng hoạt động tổng thể}
-
-Khi người dùng gửi một tin nhắn ứng dụng thông thường, Go Host lấy trạng thái nhóm hiện tại, sinh dấu thời gian HLC, gọi Rust Sidecar để mã hóa nội dung theo MLS, sau đó đóng gói bản mã vào lớp bao điều phối và phát tán qua GossipSub. Vì loại tin nhắn này không làm thay đổi tập thành viên hay trạng thái cây MLS, nó không cần đi qua cơ chế người ghi duy nhất.
-
-Khi người dùng thực hiện thao tác thay đổi nhóm, chẳng hạn thêm thành viên, xóa thành viên hoặc cập nhật khóa, Go Host tạo Proposal và phát tán qua mạng. Mọi thành viên hợp lệ đều có thể gửi Proposal, nhưng chỉ thành viên đang nắm quyền ghi ở epoch hiện tại, gọi là Token Holder, mới được phép thu thập các Proposal hợp lệ để tạo Commit. Sau khi Commit được phát tán và được các nút áp dụng thành công, nhóm chuyển sang epoch mới, đồng thời Token Holder của epoch tiếp theo được tính lại.
-
-Xét theo luồng logic, tiến trình Commit của hệ thống diễn ra như sau. Trước hết, một hoặc nhiều thành viên tạo Proposal tại Epoch $E$ và phát tán các Proposal này qua mạng ngang hàng. Tiếp đó, Token Holder của Epoch $E$ thu thập các Proposal hợp lệ từ hàng đợi cục bộ rồi gọi Rust Sidecar để tạo Commit. Commit sau khi được tạo sẽ được đóng gói trong envelope của lớp điều phối và phát tán qua GossipSub. Ở phía nhận, các nút tiến hành kiểm tra epoch, chữ ký, trạng thái nhóm và confirmation tag; nếu Commit hợp lệ, chúng cập nhật cây mật mã cục bộ, chuyển sang Epoch $E+1$ và tự tính lại Token Holder của epoch mới bằng cùng một hàm tất định cục bộ.
-
-
-Luồng trên cho thấy sự phân chia trách nhiệm giữa hai lớp của hệ thống. MLS vẫn chịu trách nhiệm về tính hợp lệ mật mã của Commit, còn lớp điều phối quyết định nút nào được quyền tạo Commit và thông điệp nào được phép đi vào lõi mật mã ở từng thời điểm.
+Điểm quan trọng là bốn cơ chế này không thay thế MLS. Chúng chỉ tạo ra một lớp bao quanh MLS để bù vào vai trò mà Delivery Service thường đảm nhiệm trong mô hình tập trung. Vì vậy, đóng góp của đồ án không nằm ở việc sửa đổi thuật toán mật mã cốt lõi, mà nằm ở cách tổ chức lớp điều phối để MLS vẫn vận hành được trong môi trường P2P.
 
 \section{Giao thức người ghi duy nhất theo Epoch}
 \label{sec:single-writer}
 
 \subsection{Mục tiêu thiết kế}
 
-Hiện tượng nhiều Commit cùng xuất hiện tại một epoch là nguyên nhân trực tiếp dẫn đến phân nhánh trạng thái mật mã trong MLS trên P2P. Một hướng tiếp cận là cho phép nhiều Commit xuất hiện rồi xử lý xung đột về sau. Tuy nhiên, cách này đẩy độ phức tạp vào lõi mật mã và có thể yêu cầu giữ nhiều trạng thái tạm thời, từ đó làm suy yếu phần nào thuộc tính bảo mật xuôi \cite{alwen2023fork,kohbrok2025dmls}. Đồ án lựa chọn hướng ngược lại: giảm khả năng xung đột ngay từ nguồn bằng cách giới hạn quyền tạo Commit tại mỗi epoch.
+Nguyên nhân trực tiếp của phân nhánh trạng thái trong MLS trên P2P là việc nhiều Commit hợp lệ cùng xuất hiện tại một epoch. Một hướng tiếp cận là chấp nhận cho nhiều Commit xuất hiện rồi xử lý xung đột về sau. Tuy nhiên, cách đó làm tăng độ phức tạp ở tầng trạng thái và khiến hệ thống phải đối mặt với nhiều trạng thái tạm thời hơn \cite{alwen2023fork,kohbrok2025dmls}. Đồ án chọn hướng ngược lại: cố gắng hạn chế xung đột ngay từ đầu bằng cách chỉ cho phép một thành viên phát hành Commit trong mỗi epoch.
 
-Giao thức người ghi duy nhất đặt ra quy tắc sau: tại một epoch $E$, chỉ một thành viên trong tập ứng viên hợp lệ được quyền tạo Commit. Thành viên này được gọi là Token Holder, ký hiệu là $TH(E)$. Các thành viên khác vẫn được quyền tạo Proposal, nhưng không được tự ý tạo Commit nếu không phải là Token Holder. Cơ chế này chuyển bài toán từ chỗ nhiều nút cùng ghi vào trạng thái nhóm sang chỗ nhiều nút gửi yêu cầu nhưng chỉ một nút được quyền ghi. Trong điều kiện mạng còn liên thông và góc nhìn về tập thành viên hoạt động đủ gần nhau, các nút sẽ tính ra cùng một Token Holder, từ đó giảm mạnh khả năng xuất hiện concurrent commits mà không cần một máy chủ trung tâm.
+Ý tưởng trung tâm của cơ chế này là tách vai trò Proposal và Commit. Thành viên hợp lệ nào cũng có thể phát biểu mong muốn thay đổi nhóm dưới dạng Proposal, nhưng chỉ một thành viên duy nhất trong tập ứng viên hợp lệ mới được quyền gom các Proposal đó để tạo Commit. Thành viên này được gọi là Token Holder của Epoch đang xét.
 
 \subsection{Tập ứng viên hợp lệ}
 
-Token Holder không được chọn từ toàn bộ các nút đang nhìn thấy trên mạng, mà chỉ được chọn từ tập ứng viên hợp lệ của nhóm. Tập này được xác định dựa trên ba yếu tố: trạng thái thành viên theo MLS, trạng thái hoạt động quan sát được của các nút và chính sách quyền của ứng dụng. Cụ thể:
+Token Holder không được chọn từ toàn bộ các nút mà hệ thống nhìn thấy trên mạng, mà chỉ được chọn từ tập ứng viên hợp lệ của nhóm. Tập này được xác định bởi ba loại điều kiện: tư cách thành viên trong trạng thái MLS, tình trạng còn hoạt động trên mạng và chính sách quyền của ứng dụng. Ở mức khái niệm, tập ứng viên tại Epoch $E$ được mô tả như sau:
 
 \begin{equation}
 \label{eq:eligible_set}
 Eligible(E) = \mathcal{M}(E) \cap \mathcal{A}(E) \cap \mathcal{C}(E) \setminus \mathcal{S}(E)
 \end{equation}
 
-Trong đó, $\mathcal{M}(E)$ là tập thành viên hợp lệ của nhóm theo trạng thái MLS tại epoch $E$. Tập $\mathcal{A}(E)$ là tập các thành viên được quan sát là còn hoạt động thông qua nhịp tim trạng thái hoặc các tín hiệu kết nối gần đây. Tập $\mathcal{C}(E)$ là tập các thành viên được chính sách ứng dụng cho phép tạo Commit. Cuối cùng, $\mathcal{S}(E)$ là tập các nút bị tạm loại khỏi quá trình điều phối do ngoại tuyến quá lâu, bị phát hiện lỗi hoặc bị chính sách nhóm loại trừ tạm thời.
+Trong đó, $\mathcal{M}(E)$ là tập thành viên mà trạng thái MLS còn xem là hợp lệ ở Epoch $E$; $\mathcal{A}(E)$ là tập thành viên đang được quan sát là còn hoạt động; $\mathcal{C}(E)$ là tập thành viên mà chính sách ứng dụng cho phép tham gia tạo Commit; còn $\mathcal{S}(E)$ là tập thành viên tạm thời bị loại khỏi vai trò điều phối vì lỗi, ngoại tuyến quá lâu hoặc bị chính sách ứng dụng đình chỉ.
 
-Việc tách tập thành viên đang hoạt động khỏi tập thành viên theo MLS là cần thiết. Một thành viên có thể vẫn nằm trong Ratchet Tree nhưng đang ngoại tuyến, do đó không thể đóng vai trò Token Holder trong thực tế. Ngược lại, một nút đang trực tuyến nhưng không phải thành viên MLS của nhóm thì cũng không được tham gia tạo Commit. Vì vậy, chỉ phần giao của các tập trên mới có ý nghĩa đối với bài toán điều phối.
+Cách mô hình hóa này giúp phân biệt rõ hai chuyện thường bị trộn lẫn. Một thành viên có thể vẫn còn trong nhóm ở tầng MLS nhưng đang ngoại tuyến, nên không thích hợp giữ vai trò Token Holder. Ngược lại, một nút đang trực tuyến nhưng không thuộc trạng thái nhóm cũng không có quyền tham gia quyết định Commit. Do đó, chỉ phần giao của các điều kiện trên mới có ý nghĩa đối với bài toán điều phối.
 
 \subsection{Hàm bầu chọn Token Holder}
 
-Token Holder được chọn bằng cách tính hàm băm trên định danh nhóm, số epoch và định danh nút của từng ứng viên. Ứng viên có giá trị băm nhỏ nhất theo thứ tự từ điển được chọn làm Token Holder:
+Sau khi xác định được tập ứng viên hợp lệ, mỗi nút tự tính Token Holder bằng cùng một quy tắc tất định cục bộ. Thành viên có giá trị băm nhỏ nhất khi ghép định danh nhóm, số epoch và định danh nút sẽ được chọn:
 
 \begin{equation}
 \label{eq:token_holder_hash}
 TH(E) = \operatorname{argmin}_{n \in Eligible(E)} H(group\_id \parallel E \parallel n)
 \end{equation}
 
-Trong đó $H$ là hàm băm mật mã SHA-256. Việc đưa $group\_id$ vào đầu vào của hàm băm giúp cùng một nút không nhất thiết nắm quyền ghi ở mọi nhóm. Việc đưa epoch vào hàm băm giúp quyền Token Holder thay đổi sau mỗi lần Commit, tránh tình trạng một nút luôn giữ quyền ghi quá lâu. Việc đưa định danh nút vào hàm băm giúp kết quả có tính tất định cục bộ mà không phụ thuộc vào thứ tự lưu trữ danh sách thành viên. Thuật toán bầu chọn Token Holder được mô tả trong Thuật toán \ref{alg:compute_token_holder}.
+Ở đây, $H$ là hàm băm mật mã như SHA-256. Việc đưa $group\_id$ vào đầu vào giúp một nút không mặc nhiên giữ ưu thế ở mọi nhóm; việc đưa $E$ vào đầu vào giúp quyền giữ Token thay đổi theo từng epoch; còn định danh nút bảo đảm mọi nút đang có cùng góc nhìn về tập ứng viên sẽ đi tới cùng kết quả. Thuật toán bầu chọn được mô tả trong Thuật toán~\ref{alg:compute_token_holder}.
 
-\begin{algorithm}[H]
+\begin{algorithm}[htbp]
+\small
 \SetAlgoLined
 \SetKwInOut{Input}{Đầu vào}
 \SetKwInOut{Output}{Đầu ra}
-\Input{$groupID$: định danh nhóm; $epoch$: Epoch hiện tại; $members$: tập thành viên MLS; $activeView$: tập thành viên hoạt động; $authorized$: tập thành viên có quyền tạo Commit; $suspended$: tập thành viên bị đình chỉ.}
+\Input{$groupID$: định danh nhóm; $epoch$: Epoch hiện tại; $members$: tập thành viên MLS; $activeView$: tập thành viên đang hoạt động; $authorized$: tập thành viên có quyền tạo Commit; $suspended$: tập thành viên bị đình chỉ tạm thời.}
 \Output{$holderID$: định danh Token Holder được chọn.}
 \BlankLine
 $eligible \leftarrow members \cap activeView \cap authorized \setminus suspended$\;
@@ -105,320 +97,224 @@ $bestHash \leftarrow \text{MAX\_HASH}$\;
 \label{alg:compute_token_holder}
 \end{algorithm}
 
-Thuật toán này không yêu cầu các nút trao đổi phiếu bầu. Nếu các nút có cùng trạng thái nhóm và cùng tập ứng viên hoạt động, chúng sẽ tính ra cùng một Token Holder. Do đó, bước bầu chọn không phát sinh thêm thông điệp mạng; chi phí chủ yếu nằm ở phép tính cục bộ, tăng tuyến tính theo số lượng ứng viên $O(k)$ với $k = |Eligible(E)|$.
+Ưu điểm chính của cách chọn này là không cần thêm một vòng bỏ phiếu mạng cho mỗi Commit. Nếu các nút có cùng trạng thái nhóm và cùng góc nhìn về tập ứng viên, chúng sẽ tự tính ra cùng một Token Holder. Chi phí của bước bầu chọn vì thế chủ yếu là chi phí cục bộ, tăng tuyến tính theo số lượng ứng viên hợp lệ.
 
 \subsection{Tạo Proposal và Commit}
 
-Giao thức phân biệt rõ Proposal và Commit. Proposal là yêu cầu thay đổi nhóm, còn Commit là thao tác thực sự chuyển nhóm sang Epoch mới \cite{rfc9420}. Mọi thành viên hợp lệ đều có thể tạo Proposal, nhưng chỉ Token Holder được tạo Commit.
+Trong cơ chế đề xuất, Proposal là yêu cầu thay đổi nhóm, còn Commit là thao tác thực sự làm nhóm chuyển sang Epoch mới \cite{rfc9420}. Tất cả thành viên hợp lệ đều có thể tạo Proposal. Tuy nhiên, chỉ Token Holder của Epoch hiện tại mới có quyền gom các Proposal hợp lệ để phát hành Commit.
 
-Khi một nút muốn thêm thành viên, xóa thành viên hoặc cập nhật khóa, nó gọi Rust Sidecar để tạo Proposal hợp lệ theo MLS, sau đó phát tán Proposal qua GossipSub. Các nút nhận Proposal sẽ kiểm tra chữ ký, kiểm tra Epoch và đưa Proposal vào hàng đợi cục bộ nếu hợp lệ. Token Holder của Epoch hiện tại định kỳ gom các Proposal hợp lệ để tạo Commit. Khoảng thời gian gom Proposal được cấu hình bằng tham số trì hoãn $batch\_delay$. Việc gom Proposal giúp giảm số lần tăng Epoch không cần thiết khi nhiều thay đổi xảy ra gần nhau và giảm khả năng Proposal bị bỏ sót \cite{rfc9420}. Quy trình tạo Commit của Token Holder được mô tả trong Thuật toán \ref{alg:commit_by_token_holder}.
+Quy tắc này cho phép hệ thống chấp nhận nhiều ý định thay đổi cùng lúc nhưng vẫn duy trì một điểm chốt duy nhất cho mỗi epoch. Khi mạng còn liên thông, các nút sẽ có cùng Token Holder và vì thế giảm mạnh khả năng sinh concurrent commits. Quy trình tạo Commit của Token Holder được mô tả trong Thuật toán~\ref{alg:commit_by_token_holder}.
 
 \begin{algorithm}[H]
 \SetAlgoLined
 \SetKwInOut{Input}{Đầu vào}
 \SetKwInOut{Output}{Đầu ra}
-\Input{$localState$: trạng thái MLS cục bộ tại Epoch $E$; $proposalQueue$: hàng đợi Proposal đã nhận; $holderID$: Token Holder tại Epoch $E$; $selfID$: định danh nút cục bộ.}
+\Input{$localState$: trạng thái MLS cục bộ tại Epoch $E$; $proposalQueue$: hàng đợi Proposal hợp lệ; $holderID$: Token Holder tại Epoch $E$; $selfID$: định danh nút cục bộ.}
 \Output{Bản tin Commit được phát tán nếu nút cục bộ là Token Holder.}
 \BlankLine
 \If{$selfID \neq holderID$}{
-    Kết thúc (Không có quyền tạo Commit)\;
-}
-Chọn tập Proposal hợp lệ $P$ từ $proposalQueue$\;
-\If{$P$ rỗng và không có yêu cầu cập nhật khóa cục bộ}{
     Kết thúc\;
 }
-Gửi yêu cầu $CreateCommit(localState, P)$ tới Rust Sidecar\;
-\If{Rust Sidecar trả về Commit hợp lệ}{
-    Đóng gói Commit vào CoordinationEnvelope\;
-    Lưu trạng thái pending commit cục bộ\;
-    Phát tán bản tin Commit qua GossipSub\;
+Chọn tập Proposal hợp lệ $P$ từ $proposalQueue$\;
+\If{$P$ rỗng và không có nhu cầu cập nhật cục bộ}{
+    Kết thúc\;
+}
+Tạo Commit từ $localState$ và $P$ bằng lớp MLS\;
+\If{Commit hợp lệ}{
+    Phát tán Commit cho toàn nhóm\;
 }
 \Else{
-    Ghi nhận lỗi và loại bỏ các Proposal không hợp lệ khỏi hàng đợi\;
+    Loại bỏ các Proposal không còn hợp lệ và ghi nhận lỗi\;
 }
 \caption{Quy trình tạo Commit của Token Holder ($CommitByTokenHolder$)}
 \label{alg:commit_by_token_holder}
 \end{algorithm}
 
+Trong nguyên lý này, MLS chịu trách nhiệm kiểm tra tính hợp lệ mật mã của Commit, còn lớp điều phối chịu trách nhiệm quyết định ai được quyền phát hành Commit ở Epoch đó. Việc tách ranh giới như vậy giúp giữ rõ trách nhiệm của từng tầng.
+
 \subsection{Chuyển quyền và failover}
 
-Sau khi Commit hợp lệ được áp dụng, nhóm chuyển sang Epoch $E+1$. Vì hàm bầu chọn phụ thuộc vào Epoch, Token Holder mới sẽ được tính lại tự động. Cơ chế này giúp quyền ghi được luân chuyển giữa các thành viên, tránh phụ thuộc lâu dài vào một nút.
+Sau mỗi Commit hợp lệ, nhóm chuyển sang Epoch $E+1$ và mọi nút tự tính lại Token Holder từ trạng thái mới. Vì quy tắc chọn phụ thuộc vào epoch, quyền phát hành Commit có thể luân chuyển giữa các thành viên thay vì gắn cố định vào một nút.
 
-Trong mạng P2P, Token Holder có thể ngoại tuyến hoặc mất kết nối trước khi tạo Commit. Để tránh bế tắc, mỗi nút duy trì heartbeat và ActiveView. Nếu Token Holder hiện tại không gửi heartbeat hoặc không tạo Commit trong khoảng thời gian vượt quá $holder\_timeout$, các nút có thể đánh dấu Token Holder đó là tạm thời không hoạt động và tính lại tập $Eligible(E)$. Khi tập ứng viên thay đổi, hàm băm sẽ chọn ra Token Holder mới.
+Trong mạng P2P, Token Holder có thể ngoại tuyến hoặc không kịp phát hành Commit. Để tránh bế tắc, các nút duy trì góc nhìn hoạt động cục bộ của nhóm. Nếu Token Holder hiện tại không còn được quan sát là đang hoạt động hoặc vượt quá thời gian chờ hợp lý, các nút sẽ loại nó khỏi tập ứng viên của Epoch đó và tính lại Token Holder.
 
-Cơ chế failover này không phải đồng thuận Byzantine đầy đủ. Trong trường hợp mạng bị phân mảnh, các phân vùng khác nhau có thể có ActiveView khác nhau và tính ra Token Holder khác nhau. Đồ án chấp nhận đây là hệ quả tự nhiên của network partition. Mục tiêu của Single-Writer không phải ngăn mọi fork trong mọi điều kiện vật lý, mà là loại bỏ concurrent commits trong điều kiện mạng liên thông và biến fork thành một tình huống ngoại lệ có thể phát hiện, sau đó xử lý bằng Fork Healing.
+Cần nhấn mạnh rằng failover này không phải là một cơ chế đồng thuận Byzantine đầy đủ. Khi network partition xảy ra, các phân vùng khác nhau có thể có các $ActiveView$ khác nhau, dẫn tới các Token Holder khác nhau. Do đó, vai trò đúng của Single-Writer là giảm mạnh nguy cơ concurrent commits khi các nút còn có cùng góc nhìn, chứ không phải xóa bỏ hoàn toàn mọi khả năng fork trong mọi điều kiện mạng.
 
 \section{Kiểm tra nhất quán Epoch}
 \label{sec:epoch-checks}
 
 \subsection{Mục tiêu thiết kế}
 
-MLS yêu cầu mỗi Commit phải được áp dụng trên đúng trạng thái mà nó được tạo ra. Nếu một Commit được sinh từ epoch $E$ nhưng lại bị áp dụng lên trạng thái khác, kết quả xử lý sẽ không còn đúng. Vì vậy, mỗi nút cần một lớp kiểm tra trước khi đưa thông điệp vào Rust Sidecar. Cơ chế kiểm tra nhất quán epoch có nhiệm vụ bảo vệ ranh giới giữa mạng P2P bất đồng bộ và lõi mật mã MLS. Trong môi trường này, thông điệp có thể đến muộn, đến sớm, lặp lại hoặc đến sai thứ tự. Lớp điều phối vì thế phải phân loại các thông điệp thành thông điệp hiện tại, thông điệp cũ, thông điệp tương lai hoặc thông điệp có dấu hiệu phân nhánh \cite{rfc9420,rfc9750}.
+MLS yêu cầu mỗi Commit và mỗi thông điệp liên quan phải được xử lý trên đúng trạng thái nhóm mà nó thuộc về \cite{rfc9420}. Nếu một nút áp dụng bản tin trên một trạng thái MLS không còn tương thích, kết quả có thể là lỗi giải mã, lỗi xác thực hoặc tệ hơn là làm hỏng tiến trình tiến hóa trạng thái cục bộ. Vì vậy, đồ án đặt một lớp kiểm tra ở bên ngoài MLS để phân loại thông điệp trước khi chuyển chúng xuống tầng mật mã.
 
-\subsection{Lớp bao điều phối (Coordination Envelope)}
+Trong môi trường P2P bất đồng bộ, một thông điệp có thể đến chậm, đến sớm, bị lặp hoặc đến sai thứ tự. Do đó, lớp điều phối phải trả lời được ba câu hỏi rất cơ bản trước khi xử lý một bản tin: nó thuộc epoch hiện tại, thuộc quá khứ hay đến từ tương lai. Chỉ sau bước phân loại này, nút mới quyết định chuyển bản tin xuống MLS, từ chối, hay đệm lại để đồng bộ hóa trạng thái.
 
-Mọi thông điệp MLS khi truyền qua P2P đều được bọc trong một lớp bao điều phối, gọi là Coordination Envelope. Lớp bao này không thay thế bản tin MLS, mà chỉ bổ sung các thông tin phụ trợ phục vụ định tuyến, kiểm tra epoch và phục hồi trạng thái. Cấu trúc khái niệm của Coordination Envelope được thể hiện trong Mã nguồn \ref{lst:coordination_envelope}.
+\subsection{Lớp bao điều phối ở mức khái niệm}
 
-\begin{lstlisting}[language=Go, caption={Cấu trúc Coordination Envelope ở lớp điều phối Go}, label={lst:coordination_envelope}]
+Để mô tả quá trình phân loại thông điệp, đồ án dùng một lớp bao điều phối ở mức khái niệm như trong Mã nguồn~\ref{lst:coordination_envelope}. Cần nhấn mạnh rằng đây là mô hình khái niệm của lớp điều phối, dùng để giải thích vai trò của từng trường thông tin trong lập luận. Ứng dụng thử nghiệm có thể mã hóa chi tiết khác đi, miễn là vẫn giữ các ý nghĩa logic tương ứng.
+
+\begin{lstlisting}[language=Go, caption={Mô hình khái niệm của lớp bao điều phối}, label={lst:coordination_envelope}]
 type CoordinationEnvelope struct {
-    GroupID       []byte    // Dinh danh nhom MLS
-    SenderID      PeerID    // Dinh danh nut gui o tang P2P
-    MessageID     []byte    // Chong xu ly lap lai tin nhan
-    ContentType   Type      // Proposal | Commit | Application | Heartbeat | StateSync
-    Epoch         uint64    // Epoch tai thoi diem tao payload
-    HLCTimestamp  HLC       // Dong ho logic lai HLC cho tin nhan ung dung
-    TreeHashHint  []byte    // Tree hash cuc bo cua nguoi gui (tuy chon)
-    CommitHash    []byte    // Commit hash tuong ung (tuy chon)
-    Payload       []byte    // Du lieu ciphertext/plaintext MLS
-    Signature     []byte    // Chu ky xac thuc lop dieu phoi
+    GroupID    []byte
+    SenderID   PeerID
+    Type       MessageType
+    Epoch      uint64
+    Timestamp  HLCTimestamp
+    Payload    []byte
 }
 \end{lstlisting}
 
-Trường $group\_id$ xác định nhóm MLS tương ứng. Trường $sender\_id$ xác định nút gửi ở tầng P2P. Trường $message\_id$ dùng để tránh xử lý lặp lại cùng một lớp bao. Trường $content\_type$ giúp lớp điều phối phân biệt thông điệp bắt tay và thông điệp ứng dụng. Trường $epoch$ cho biết payload được tạo ra ở phiên bản trạng thái nào của nhóm. Trường $hlc\_timestamp$ chỉ phục vụ việc sắp xếp thông điệp ứng dụng. Các trường như $tree\_hash\_hint$ hoặc $commit\_hash$ hỗ trợ phát hiện phân nhánh và đồng bộ trạng thái. Trường $payload$ chứa bản tin MLS thực sự. Cuối cùng, trường $signature$ xác thực phần metadata của lớp điều phối, trong khi bản thân payload MLS vẫn được bảo vệ bởi cơ chế xác thực riêng của MLS.
+Trong mô hình này, $groupID$ cho biết bản tin thuộc nhóm nào, $senderID$ cho biết nút gửi, $type$ cho biết đây là Proposal, Commit hay application message, còn $epoch$ cho biết trạng thái MLS mà bản tin được tạo ra từ đó. Trường $timestamp$ chỉ có ý nghĩa với việc sắp thứ tự thông điệp ứng dụng; nó không được dùng để quyết định Commit nào hợp lệ.
 
 \subsection{Phân loại thông điệp theo Epoch}
 
-Khi nhận một Coordination Envelope, Go Host lấy epoch cục bộ của nhóm tương ứng và so sánh với $env.epoch$. Có ba trường hợp chính.
+Khi nhận một bản tin, nút cục bộ không xử lý ngay mà trước hết so sánh $env.epoch$ với epoch cục bộ của nhóm tương ứng. Có ba tình huống chính. Nếu hai giá trị bằng nhau, bản tin thuộc về trạng thái hiện tại và có thể được xử lý theo luồng bình thường. Nếu $env.epoch$ nhỏ hơn epoch cục bộ, bản tin thuộc về quá khứ và không được phép kéo trạng thái nhóm lùi lại. Nếu $env.epoch$ lớn hơn epoch cục bộ, nút cục bộ được xem là đang đi sau và phải thực hiện đồng bộ hóa thay vì tăng epoch một cách nhảy cóc.
 
-Thứ nhất, nếu $env.epoch = localEpoch$, thông điệp thuộc về epoch hiện tại. Trong trường hợp này, nếu các dấu hiệu trạng thái như $tree\_hash\_hint$ hoặc $epoch\_authenticator$ không tương thích với trạng thái cục bộ, Go Host kích hoạt cơ chế phát hiện phân nhánh. Ngược lại, nếu đây là Proposal hoặc Commit thì payload được chuyển cho Rust Sidecar để xử lý phần bắt tay; còn nếu là thông điệp ứng dụng thì payload được chuyển cho Rust Sidecar để giải mã rồi đưa vào hàng đợi hiển thị theo HLC.
-
-Thứ hai, nếu $env.epoch < localEpoch$, thông điệp thuộc về quá khứ. Với Commit hoặc Proposal cũ, nút cục bộ không áp dụng lại. Với thông điệp ứng dụng cũ, hệ thống chỉ thử giải mã nếu chính sách giữ khóa cũ trong một khoảng hữu hạn cho phép.
-
-Thứ ba, nếu $env.epoch > localEpoch$, thông điệp thuộc về tương lai, cho thấy nút cục bộ đã bỏ lỡ một hoặc nhiều Commit trung gian. Khi đó, Go Host đưa envelope vào vùng đệm thông điệp tương lai và kích hoạt quy trình đồng bộ trạng thái còn thiếu.
-
-Quy trình xử lý này được mô tả trong Thuật toán \ref{alg:process_incoming_envelope}.
+Thuật toán~\ref{alg:process_incoming_envelope} mô tả bước phân loại cơ bản này.
 
 \begin{algorithm}[H]
 \SetAlgoLined
 \SetKwInOut{Input}{Đầu vào}
 \SetKwInOut{Output}{Đầu ra}
-\Input{$env$: bản tin CoordinationEnvelope nhận được; $localState$: trạng thái nhóm cục bộ.}
-\Output{Hành động xử lý tương ứng cục bộ.}
+\Input{$env$: một bản tin ở tầng điều phối; $localEpoch$: epoch cục bộ của nhóm.}
+\Output{Hành động xử lý tương ứng.}
 \BlankLine
-\If{$env.message\_id$ da duoc xu ly}{
-    Bỏ qua envelope\;
-    Kết thúc\;
-}
-\If{$env.groupID$ khong ton tai cuc bo}{
-    Bỏ qua hoặc đưa vào hàng đợi xử lý gia nhập\;
-    Kết thúc\;
-}
-$localEpoch \leftarrow localState.epoch$\;
-\If{$env.epoch == localEpoch$}{
-    \If{$env.tree\_hash\_hint \neq localState.tree\_hash$}{
-        Kích hoạt $ForkDetection(env)$\;
-        Kết thúc\;
-    }
-    \If{$env.contentType$ la Proposal hoac Commit}{
-        Chuyển $env.payload$ sang Rust Sidecar để xử lý handshake\;
-    }
-    \If{$env.contentType$ la Application}{
-        Chuyển $env.payload$ sang Rust Sidecar để giải mã\;
-        Đưa tin nhắn giải mã vào hàng đợi hiển thị theo HLC\;
+\eIf{$env.epoch < localEpoch$}{
+    Từ chối áp dụng bản tin lên trạng thái hiện tại\;
+}{
+    \eIf{$env.epoch > localEpoch$}{
+        Đưa bản tin vào bộ đệm thông điệp tương lai\;
+        Kích hoạt quá trình đồng bộ trạng thái\;
+    }{
+        Chuyển bản tin sang luồng xử lý tương ứng với loại của nó\;
     }
 }
-\ElseIf{$env.epoch < localEpoch$}{
-    \If{$env.contentType$ la Application va thuoc stale window}{
-        Thử giải mã bằng khóa cũ được lưu giữ\;
-    }
-    \ElseIf{$env.contentType$ la Proposal}{
-        Gửi yêu cầu $RePropose$ cho người gửi hoặc bỏ qua\;
-    }
-    \Else{
-        Bỏ qua envelope\;
-    }
-}
-\Else{
-    Đưa $env$ vào $future\_buffer$\;
-    Kích hoạt $StateSync(env.groupID, localEpoch, env.epoch, env.senderID)$\;
-}
-\caption{Quy trình phân loại và xử lý Envelope đến ($ProcessIncomingEnvelope$)}
+\caption{Phân loại bản tin theo epoch ($ProcessIncomingEnvelope$)}
 \label{alg:process_incoming_envelope}
 \end{algorithm}
 
+Cách phân loại này giữ cho epoch cục bộ của mỗi nút là một đại lượng đơn điệu không giảm. Nút không tự ý tăng epoch chỉ vì nhìn thấy bản tin từ tương lai, mà chỉ tăng epoch sau khi đã xử lý thành công các bước chuyển trạng thái cần thiết.
+
 \subsection{Đồng bộ trạng thái khi gặp thông điệp tương lai}
 
-Khi một nút nhận thông điệp tương lai, nó không tự ý tăng epoch cục bộ. Epoch chỉ được tăng khi Rust Sidecar xử lý thành công một Commit hợp lệ. Do đó, quy trình đồng bộ trạng thái phải lấy được chuỗi Commit còn thiếu thay vì nhảy cóc trạng thái.
+Một thông điệp đến từ tương lai không tự nó là bằng chứng của phân nhánh. Trong nhiều trường hợp, điều đó chỉ cho thấy nút cục bộ đã bỏ lỡ một hoặc nhiều Commit trung gian. Vì vậy, phản ứng đúng của lớp điều phối không phải là kết luận ngay rằng hệ thống đã fork, mà là trước hết thử bắt kịp trạng thái còn thiếu.
 
-Quy trình đồng bộ trạng thái hoạt động theo hai chế độ. Ở chế độ thứ nhất, nút yêu cầu các bản tin Commit còn thiếu từ epoch hiện tại đến epoch đích. Nếu các Commit này còn được lưu trong lịch sử và có thể kiểm tra tuần tự, nút áp dụng từng Commit để bắt kịp trạng thái. Ở chế độ thứ hai, nếu lịch sử bị khuyết thiếu đáng kể hoặc trạng thái đã rẽ nhánh phức tạp, nút yêu cầu thông tin nhóm đầy đủ như $GroupInfo$ hoặc $Welcome$, hoặc thực hiện quy trình gia nhập lại từ bên ngoài. Việc không tự động áp dụng thông điệp tương lai giúp bảo vệ tính toàn vẹn của máy trạng thái mật mã \cite{rfc9420}.
+Ở mức nguyên lý, quá trình bắt kịp có thể đi theo hai hướng. Hướng thứ nhất là lấy chuỗi Commit còn thiếu và áp dụng tuần tự nếu lịch sử còn đủ để tái hiện. Hướng thứ hai là lấy một ảnh chụp trạng thái nhóm mới hơn rồi gia nhập lại vào trạng thái đó bằng cơ chế hợp lệ của MLS. Cả hai cách đều dựa trên cùng một nguyên tắc: một nút không được nhảy cóc sang trạng thái mới nếu chưa có một con đường hợp lệ để đi từ trạng thái hiện tại của nó sang trạng thái đó.
 
-\subsection{Xử lý Proposal bị bỏ sót}
+\subsection{Xử lý thao tác bị bỏ lỡ}
 
-Một dị thường quan trọng trong môi trường P2P là Proposal bị bỏ sót do Commit đã xảy ra trước khi Proposal đến được Token Holder. Ví dụ, tại Epoch $E$, nút $A$ gửi Proposal $P_A$, nút $B$ gửi Proposal $P_B$. Token Holder nhận $P_A$ trước, tạo Commit đưa nhóm lên $E+1$. Sau đó $P_B$ mới đến và trở thành Proposal cũ.
+Trong mạng bất đồng bộ, một Proposal do người dùng tạo ra có thể không được đưa vào Commit của Epoch mà nó hướng tới, chẳng hạn vì Token Holder đã chốt một Commit khác trước đó. Đồ án xử lý tình huống này theo nguyên tắc đề xuất lại có điều kiện. Cụ thể, nếu sau khi nhóm chuyển sang Epoch mới mà thao tác của người dùng vẫn còn hợp lệ về mặt ngữ nghĩa, nút cục bộ có thể tạo lại Proposal trên trạng thái mới rồi phát tán lại. Nếu thao tác không còn hợp lệ nữa, ứng dụng phải báo rõ cho người dùng thay vì tiếp tục giữ một ý định đã lỗi thời.
 
-Để tránh làm mất thao tác của người dùng, giao thức sử dụng cơ chế đề xuất lại, gọi là Re-Propose. Khi một nút phát hiện Proposal của mình không được đưa vào Commit của epoch tương ứng, nó kiểm tra xem thao tác đó còn hợp lệ trong epoch mới hay không. Nếu còn hợp lệ, nút tạo lại Proposal trên trạng thái mới và phát tán lại. Nếu không còn hợp lệ, ứng dụng hiển thị thông báo lỗi rõ ràng cho người dùng. Quy trình này được mô tả trong Thuật toán \ref{alg:repropose_if_dropped}.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\SetKwInOut{Input}{Đầu vào}
-\SetKwInOut{Output}{Đầu ra}
-\Input{$localProposal$: Proposal do nút cục bộ tạo tại Epoch $E$; $appliedCommit$: Commit đã được áp dụng để chuyển sang Epoch $E+1$; $newState$: trạng thái nhóm sau Commit.}
-\BlankLine
-\If{$localProposal$ nam trong $appliedCommit$}{
-    Đánh dấu Proposal đã hoàn thành và áp dụng\;
-    Kết thúc\;
-}
-\If{$localProposal$ khong con hop le trong $newState$}{
-    Đánh dấu Proposal thất bại và thông báo cho người dùng\;
-    Kết thúc\;
-}
-Tạo Proposal mới tương đương tại Epoch $E+1$\;
-Phát tán Proposal mới qua GossipSub\;
-\caption{Quy trình Re-Propose cho Proposal bị bỏ sót ($ReProposeIfDropped$)}
-\label{alg:repropose_if_dropped}
-\end{algorithm}
+Nguyên tắc này giúp tránh việc đánh đồng giữa một Proposal bị bỏ lỡ và một thao tác phải bị hủy bỏ vĩnh viễn. Đồng thời, nó cũng giữ cho quyền quyết định Commit vẫn nằm ở Token Holder của từng epoch, thay vì cho phép các thao tác cũ tự ý chen vào một trạng thái nhóm đã thay đổi.
 
 \section{Cơ chế phục hồi phân nhánh trạng thái}
 \label{sec:fork-healing}
 
 \subsection{Bối cảnh network partition}
 
-Single-Writer hoạt động tốt khi các nút có cùng góc nhìn về tập thành viên đang hoạt động. Tuy nhiên, trong mạng P2P, phân mảnh mạng (network partition) có thể chia nhóm thành nhiều phân vùng không thể liên lạc với nhau. Mỗi phân vùng khi đó có thể loại các nút ngoài phân vùng khỏi góc nhìn hoạt động cục bộ và tính ra Token Holder riêng. Kết quả là nhiều phân vùng có thể tạo các Commit khác nhau dựa trên cùng một epoch gốc. Đây là giới hạn nền tảng của hệ phân tán bất đồng bộ. Vấn đề quan trọng là khi mạng được kết nối lại, hệ thống phải phát hiện được phân nhánh và đưa nhóm hội tụ trở lại một trạng thái duy nhất \cite{gilbert2002brewers,kohbrok2025dmls}.
+Single-Writer hoạt động tốt nhất khi các nút còn có cùng góc nhìn về nhóm. Tuy nhiên, trong mạng P2P, network partition có thể chia nhóm thành nhiều phân vùng không liên lạc được với nhau. Khi đó, mỗi phân vùng chỉ quan sát được một phần thành viên đang hoạt động và có thể tính ra các Token Holder khác nhau. Nếu các phân vùng tiếp tục tiến hóa độc lập, hệ thống có thể xuất hiện nhiều nhánh trạng thái MLS khác nhau.
 
-\subsection{Phát hiện fork bằng heartbeat trạng thái}
+Đồ án không xem đây là một ngoại lệ hiếm có thể bỏ qua, mà xem đó là trường hợp phải được xử lý ngay từ thiết kế. Câu hỏi cần trả lời không phải là làm sao ngăn hoàn toàn mọi phân nhánh trong một môi trường bất đồng bộ, mà là làm sao nhận ra sự phân kỳ đó và đưa hệ thống hội tụ trở lại sau khi các phân vùng nối lại với nhau.
 
-Mỗi nút định kỳ phát một thông điệp thông báo trạng thái nhóm, gọi là \texttt{GroupStateAnnouncement}, cho các nhóm mà nó tham gia qua kênh GossipSub. Thông điệp này không chứa bí mật mật mã, mà chỉ mang các định danh trạng thái công khai cần thiết cho việc đối chiếu. Cấu trúc của thông điệp được thể hiện trong Mã nguồn \ref{lst:state_announcement}.
+\subsection{Phát hiện nghi vấn phân nhánh và đối chiếu trạng thái}
 
-\begin{lstlisting}[language=Go, caption={Cấu trúc thông điệp State Announcement để phát hiện Fork}, label={lst:state_announcement}]
+Để nhận biết tình trạng phân kỳ, mỗi nút định kỳ công bố một bản tóm tắt trạng thái nhánh đang giữ. Ở mức khái niệm, bản tóm tắt này có thể được mô tả như Mã nguồn~\ref{lst:state_announcement}.
+
+\begin{lstlisting}[language=Go, caption={Bản tóm tắt trạng thái nhánh dùng cho đối chiếu}, label={lst:state_announcement}]
 type GroupStateAnnouncement struct {
-    GroupID           []byte    // Dinh danh nhom
-    SenderID          PeerID    // Dinh danh nut gui o tang P2P
-    Epoch             uint64    // Epoch cuc bo hien tai cua nut
-    TreeHash          []byte    // Tree hash tuong ung cua cay TreeKEM
-    EpochAuthenticator []byte   // Gia tri xac thuc Epoch hien tai
-    LastCommitHash    []byte    // Ma bam Commit cuoi cung duoc ap dung
-    ActiveMemberCount uint32    // So thanh vien dang hoat dong trong ActiveView
-    HLCTimestamp      HLC       // Thoi gian logic lai HLC
-    Signature         []byte    // Chu ky xac thuc cua nguoi gui
+    GroupID           []byte
+    Epoch             uint64
+    TreeHash          []byte
+    LastCommitHash    []byte
+    ActiveMemberCount uint32
 }
 \end{lstlisting}
 
-Khi nhận được thông điệp này, nút cục bộ so sánh các dấu hiệu trạng thái với trạng thái của chính mình. Nếu định danh nhóm giống nhau nhưng $tree\_hash$ hoặc $epoch\_authenticator$ khác nhau tại cùng một epoch, hệ thống kết luận rằng hai nút không còn ở cùng trạng thái mật mã và kích hoạt cơ chế Fork Healing. Việc so sánh các giá trị này giúp phát hiện hiệu quả những trường hợp trạng thái đã rẽ nhánh \cite{rfc9420,kohbrok2025dmls}.
+Ý nghĩa của thông điệp này không phải là thay thế toàn bộ trạng thái MLS, mà là cung cấp một dấu vết đủ ngắn gọn để lớp điều phối có thể so sánh các nhánh với nhau. Trong đó, epoch cho biết mức tiến hóa của nhánh, tree hash phản ánh trạng thái cây MLS, còn last commit hash đóng vai trò một fingerprint phụ trợ cho lịch sử chuyển trạng thái gần nhất.
+
+Tuy nhiên, một announcement khác với trạng thái cục bộ chưa đủ để kết luận ngay rằng phải hàn gắn phân nhánh. Nếu phía từ xa đang ở epoch cao hơn, khả năng đầu tiên cần kiểm tra là nút cục bộ chỉ đang đi sau và chưa kịp đồng bộ. Vì vậy, đồ án tách quá trình này thành ba bước. Bước thứ nhất là phát hiện nghi vấn phân nhánh từ bản tóm tắt trạng thái. Bước thứ hai là thử bắt kịp trạng thái còn thiếu nếu dấu hiệu chủ yếu là chênh lệch epoch. Bước thứ ba là chỉ kết luận có phân nhánh thực sự khi sự khác biệt vẫn tồn tại sau bước đối chiếu hoặc khi hai nút cùng ở một epoch nhưng tree hash hay dấu vết Commit không còn khớp nhau.
+
+Cách tổ chức này giúp tránh một ngộ nhận dễ gặp: khác trạng thái tạm thời do chưa đồng bộ không đồng nghĩa ngay với phân nhánh thật. Do đó, announcement nên được xem là công cụ phát hiện sớm và đối chiếu trạng thái, chứ không phải một bằng chứng tuyệt đối đứng một mình trong mọi bối cảnh mạng.
 
 \subsection{Hàm trọng số nhánh}
 
-Sau khi phát hiện fork, các nút cần chọn một nhánh làm nhánh thắng cuộc để hội tụ. Đồ án đề xuất sử dụng hàm trọng số nhánh có thứ tự ưu tiên từ cao xuống thấp:
+Khi hệ thống đã xác định rằng đang tồn tại nhiều nhánh khác nhau của cùng một nhóm, nó cần một quy tắc tất định để chọn nhánh tiếp tục. Đồ án dùng một hàm trọng số nhánh với thứ tự ưu tiên từ trái sang phải như sau:
 
 \begin{equation}
 \label{eq:branch_weight}
-W(B) = (C_{active}(B), E(B), H_{commit}(B))
+W(B) = \left(C_{active}(B), E(B), H_{commit}(B)\right)
 \end{equation}
 
-Trong biểu thức trên, $C_{active}(B)$ là số thành viên đang hoạt động và cùng xác nhận nhánh $B$; $E(B)$ là epoch hiện tại của nhánh; còn $H_{commit}(B)$ là mã băm của Commit cuối cùng trên nhánh đó, được dùng làm tiêu chí phá hòa tất định khi các tiêu chí trước chưa đủ để phân biệt.
+Trong đó, $C_{active}(B)$ là số thành viên đang hoạt động quan sát được trên nhánh $B$, $E(B)$ là epoch hiện tại của nhánh, còn $H_{commit}(B)$ là giá trị băm của Commit gần nhất gắn với nhánh đó. Các nhánh được so sánh theo thứ tự từ điển. Nhánh có nhiều thành viên hoạt động hơn được ưu tiên trước; nếu bằng nhau, nhánh có epoch cao hơn được ưu tiên; nếu vẫn bằng nhau, giá trị băm Commit đóng vai trò phá hòa tất định.
 
-Hai nhánh được so sánh theo thứ tự từ trái sang phải. Nhánh có nhiều thành viên hoạt động hơn được ưu tiên nhằm giảm thiểu số lượng thiết bị phải thực hiện gia nhập lại và bảo vệ trải nghiệm của đa số thành viên đang online. Nếu bằng nhau, nhánh có Epoch cao hơn được chọn vì phản ánh mức tiến hóa trạng thái lớn hơn. Nếu vẫn bằng nhau, mã băm Commit được so sánh từ điển để phá hòa một cách tất định cục bộ. Quy trình so sánh được mô tả trong Thuật toán \ref{alg:compare_branch_weight}.
+Thuật toán~\ref{alg:compare_branch_weight} mô tả quy tắc so sánh này.
 
 \begin{algorithm}[H]
 \SetAlgoLined
 \SetKwInOut{Input}{Đầu vào}
 \SetKwInOut{Output}{Đầu ra}
-\Input{$localBranch$: thông tin nhánh cục bộ; $remoteBranch$: thông tin nhánh nhận từ mạng.}
-\Output{Kết quả so sánh: $BranchLocal$ (Nhánh cục bộ thắng), $BranchRemote$ (Nhánh từ mạng thắng) hoặc $BranchEqual$ (Bằng nhau).}
+\Input{$B_a$, $B_b$: hai nhánh cần so sánh.}
+\Output{Nhánh được chọn làm nhánh tiếp tục.}
 \BlankLine
-\If{$localBranch.tree\_hash == remoteBranch.tree\_hash$ \textbf{and} $localBranch.epoch\_authenticator == remoteBranch.epoch\_authenticator$}{
-    \Return{BranchEqual}\;
+\If{$C_{active}(B_a) \neq C_{active}(B_b)$}{
+    Chọn nhánh có $C_{active}$ lớn hơn\;
+    Kết thúc\;
 }
-\If{$localBranch.active\_count \neq remoteBranch.active\_count$}{
-    \If{$localBranch.active\_count > remoteBranch.active\_count$}{
-        \Return{BranchLocal}\;
-    }
-    \Else{
-        \Return{BranchRemote}\;
-    }
+\If{$E(B_a) \neq E(B_b)$}{
+    Chọn nhánh có epoch lớn hơn\;
+    Kết thúc\;
 }
-\If{$localBranch.epoch \neq remoteBranch.epoch$}{
-    \If{$localBranch.epoch > remoteBranch.epoch$}{
-        \Return{BranchLocal}\;
-    }
-    \Else{
-        \Return{BranchRemote}\;
-    }
-}
-\If{$localBranch.last\_commit\_hash < remoteBranch.last\_commit\_hash$}{
-    \Return{BranchLocal}\;
-}
-\Else{
-    \Return{BranchRemote}\;
-}
-\caption{Thuật toán so sánh trọng số nhánh để giải quyết Fork ($CompareBranchWeight$)}
+Chọn nhánh có $H_{commit}$ lớn hơn theo thứ tự từ điển\;
+\caption{So sánh trọng số nhánh ($CompareBranchWeight$)}
 \label{alg:compare_branch_weight}
 \end{algorithm}
 
-Hàm trọng số này là một chính sách hội tụ tất định trong bối cảnh các nút trung thực nhưng bị phân mảnh mạng. Đối với các kịch bản có nút cố tình giả mạo thông tin, hệ thống vẫn cần bổ sung thêm các cơ chế xác thực quyền hạn và các chính sách bảo mật khác.
+Quy tắc này không khẳng định rằng nhánh được chọn là nhánh ``đúng'' theo một nghĩa tuyệt đối ngoài hệ thống. Vai trò của nó khiêm tốn hơn: bảo đảm rằng nếu các nút cuối cùng quan sát được cùng tập nhánh và cùng áp dụng một quy tắc tất định, chúng sẽ hội tụ về cùng một quyết định phục hồi.
 
-\subsection{Quy trình Fork Healing}
+\subsection{Quy trình hàn gắn phân nhánh}
 
-Sau khi xác định nhánh thắng, các nút thuộc nhánh thua thực hiện quy trình hàn gắn theo bốn bước logic liên tiếp. Thứ nhất, nút đóng băng nhánh thua, tức dừng tạo Commit và dừng gửi các tin nhắn ứng dụng mới trên trạng thái đó; những tin nhắn cục bộ chưa gửi được đưa vào hàng đợi phục hồi. Thứ hai, các bí mật mật mã không còn thuộc nhánh được chọn phải được xóa sạch khỏi bộ nhớ nhằm bảo toàn tính bảo mật xuôi. Thứ ba, nút lấy thông tin nhóm từ nhánh thắng, chẳng hạn $GroupInfo$ hoặc $Welcome$, xác thực các thông tin cần thiết và thực hiện quy trình gia nhập lại thông qua cơ chế $External\ Join$ của MLS. Thứ tư, nếu chính sách ứng dụng cho phép phục hồi, các tin nhắn ứng dụng do chính nút đó tạo trong thời gian phân mảnh mạng nhưng chưa xuất hiện trên nhánh thắng sẽ được mã hóa lại và phát lại dưới epoch mới của nhánh thắng. Nút tuyệt đối không phát lại tin nhắn của nút khác nhằm bảo toàn tính xác thực của nguồn gửi \cite{rfc9420}.
+Sau khi một nhánh thắng đã được chọn, hệ thống không cố gắng hợp nhất trực tiếp hai trạng thái MLS đã phân kỳ. Việc trộn khóa, trộn transcript hay ghép thủ công hai trạng thái như vậy nằm ngoài mô hình vận hành hợp lệ của MLS. Thay vào đó, nút ở nhánh thua sẽ lấy thông tin cần thiết của nhánh thắng rồi gia nhập lại bằng cơ chế hợp lệ của MLS, cụ thể là External Join \cite{rfc9420}.
 
-Quy trình Fork Healing tổng quát được mô tả trong Thuật toán \ref{alg:fork_healing}.
+Quy trình tổng quát được mô tả trong Thuật toán~\ref{alg:fork_healing}.
 
 \begin{algorithm}[H]
 \SetAlgoLined
 \SetKwInOut{Input}{Đầu vào}
 \SetKwInOut{Output}{Đầu ra}
-\Input{$localBranch$: thông tin nhánh cục bộ; $winningBranch$: thông tin nhánh thắng cuộc; $outbox$: hàng đợi tin nhắn cục bộ chưa gửi trong thời gian phân mảnh.}
+\Input{$Branches$: tập các nhánh đang được quan sát sau khi đã đối chiếu trạng thái.}
+\Output{Một trạng thái MLS hợp lệ chung để nhóm tiếp tục vận hành.}
 \BlankLine
-\If{$localBranch == winningBranch$}{
-    Tiếp tục hoạt động bình thường\;
-    Kết thúc\;
+$winningBranch \leftarrow SelectBranch(Branches)$\;
+\For{mỗi nút đang ở nhánh thua}{
+    Lấy thông tin nhóm từ $winningBranch$\;
+    Gia nhập lại bằng cơ chế $ExternalJoin$\;
+    Hủy bỏ trạng thái MLS cũ của nhánh thua\;
 }
-Phong tỏa các thao tác ghi và gửi tin nhắn trên $localBranch$\;
-Lưu danh sách tin nhắn do chính mình tạo trong outbox\;
-Tiêu hủy tức thời các bí mật mật mã liên quan đến $localBranch$\;
-Lấy thông tin nhóm ($GroupInfo$) mới nhất từ $winningBranch$\;
-Xác thực danh tính và tính hợp lệ của $winningBranch$\;
-Gửi yêu cầu $ExternalJoin$ tới Rust Sidecar để gia nhập nhánh thắng cuộc\;
-\If{Gia nhập thành công}{
-    Cập nhật trạng thái MLS cục bộ sang nhánh mới\;
-    \For{mỗi $msg$ trong outbox do chính mình tạo}{
-        Mã hóa lại $msg$ dưới Epoch mới của nhóm\;
-        Phát tán tin nhắn qua GossipSub\;
-    }
-}
-\Else{
-    Đánh dấu trạng thái lỗi và yêu cầu can thiệp đồng bộ thủ công\;
-}
-\caption{Quy trình hàn gắn phân nhánh mật mã ($ForkHealing$)}
+\caption{Quy trình hàn gắn phân nhánh ($ForkHealing$)}
 \label{alg:fork_healing}
 \end{algorithm}
 
-\subsection{Lưu trạng thái bền vững trong quá trình hàn gắn}
-
-Fork Healing là quy trình có nhiều bước và có thể bị gián đoạn bởi sự cố thiết bị hoặc mất điện. Để bảo đảm tính bền vững, Go Host lưu trạng thái phục hồi vào SQLite dưới dạng một thực thể trạng thái, được minh họa trong Mã nguồn \ref{lst:healing_state}.
-
-\begin{lstlisting}[language=Go, caption={Cấu trúc HealingState lưu trữ trong cơ sở dữ liệu SQLite}, label={lst:healing_state}]
-type HealingState struct {
-    GroupID          []byte    // Dinh danh nhom MLS
-    OldBranchID      []byte    // Nhanh cu bi co lap
-    WinningBranchID  []byte    // Nhanh thang cuoc duoc chon de hoi tu
-    Phase            string    // Detecting | Freezing | Joining | Replaying | Completed | Failed
-    PendingMessages  [][]byte  // Hang doi tin nhan cuc bo can replay
-    LastError        string    // Ghi nhan loi he thong neu co
-    UpdatedAt        time.Time // Thoi gian cap nhat trang thai gan nhat
-}
-\end{lstlisting}
-
-Khi ứng dụng khởi động lại, Go Host kiểm tra bảng trạng thái phục hồi này. Nếu ghi nhận nhóm đang ở pha $Joining$ hoặc $Replaying$, hệ thống sẽ tự động tiếp tục quy trình từ bước tương ứng thay vì bắt đầu lại từ đầu, đảm bảo tính sẵn sàng và an toàn cho dữ liệu người dùng.
+Nếu chính sách ứng dụng cho phép phục hồi thông điệp đã phát sinh ở nhánh thua, nút chỉ được phát lại các thông điệp do chính nó tạo ra và phải mã hóa lại chúng dưới trạng thái MLS mới. Quy tắc này giữ cho quá trình phục hồi dữ liệu ứng dụng không xâm phạm ranh giới trách nhiệm của MLS và cũng không cho phép một nút tự ý đại diện cho thông điệp của nút khác.
 
 \section{Thứ tự thông điệp ứng dụng bằng Hybrid Logical Clock}
 \label{sec:hlc-ordering}
 
 \subsection{Lý do cần HLC}
 
-Epoch trong MLS chỉ phản ánh thứ tự thay đổi trạng thái mật mã (handshake). Nó không cung cấp thứ tự toàn phần cho các tin nhắn ứng dụng được gửi song song trong cùng một Epoch. Alice và Bob có thể gửi tin nhắn đồng thời và các nút khác nhau nhận được chúng theo thứ tự ngược nhau do độ trễ truyền dẫn mạng. Nếu ứng dụng hiển thị theo thời điểm nhận cục bộ, người dùng trên các thiết bị khác nhau sẽ quan sát thấy lịch sử hội thoại không nhất quán.
+Epoch trong MLS chỉ quyết định thứ tự thay đổi trạng thái mật mã. Nó không tạo ra một thứ tự toàn phần cho các thông điệp ứng dụng được gửi gần đồng thời trong cùng một Epoch. Trong môi trường P2P, hai thiết bị có thể nhận các thông điệp đó theo thứ tự khác nhau do độ trễ mạng, dù cả hai cuối cùng đều giải mã được đầy đủ.
 
-Sử dụng đồng hồ vật lý cục bộ không khả thi trong mạng P2P vì các thiết bị thường bị lệch giờ hoặc không đồng bộ NTP. Do đó, đồ án sử dụng đồng hồ logic lai HLC để gán nhãn thời gian cho các thông điệp ứng dụng. HLC kết hợp thời gian vật lý và bộ đếm logic, biểu diễn dưới dạng bộ ba \cite{kulkarni2014hlc}:
+Nếu giao diện chỉ hiển thị theo thời điểm nhận cục bộ, hai người dùng có thể nhìn thấy lịch sử hội thoại theo hai thứ tự khác nhau. Để giảm tình huống đó, đồ án dùng đồng hồ logic lai HLC. HLC kết hợp thành phần thời gian gần với đồng hồ vật lý với một bộ đếm logic, từ đó tạo ra một khóa sắp thứ tự ổn định hơn cho các thông điệp ứng dụng \cite{kulkarni2014hlc}.
 
 \begin{equation}
 \label{eq:hlc_tuple}
 HLC = (L, C, N)
 \end{equation}
 
-Trong đó $L$ là thời gian vật lý lớn nhất từng được ghi nhận, $C$ là bộ đếm logic cho các sự kiện đồng thời, và $N$ là định danh nút (PeerID) để phá hòa một cách tất định.
+Trong đó, $L$ là thành phần thời gian logic bám theo thời gian vật lý, $C$ là bộ đếm logic dùng khi nhiều sự kiện có cùng $L$, còn $N$ là định danh nút dùng để phá hòa một cách tất định.
 
 \subsection{Tạo timestamp khi gửi tin}
 
-Khi người dùng gửi tin nhắn ứng dụng, Go Host gọi hàm \texttt{HLC\_Now}. Nếu thời gian vật lý hiện tại của hệ thống lớn hơn giá trị $L$ đang lưu, HLC đặt $L$ bằng thời gian vật lý hiện tại và khởi tạo bộ đếm $C = 0$. Ngược lại, nếu thời gian vật lý không tăng, hệ thống tăng bộ đếm $C$ lên 1 để bảo đảm tính đơn điệu của thời gian. Quy trình được mô tả trong Thuật toán \ref{alg:hlc_now}.
+Khi gửi một thông điệp ứng dụng, nút cục bộ lấy thời gian vật lý hiện tại rồi so sánh với giá trị $L$ đang lưu. Nếu thời gian vật lý đã tiến lên, $L$ được cập nhật theo thời gian vật lý đó và bộ đếm $C$ trở về 0. Nếu thời gian vật lý chưa tăng, hệ thống chỉ tăng bộ đếm logic. Thuật toán này được mô tả trong Thuật toán~\ref{alg:hlc_now}.
 
 \begin{algorithm}[H]
 \SetAlgoLined
@@ -427,7 +323,7 @@ Khi người dùng gửi tin nhắn ứng dụng, Go Host gọi hàm \texttt{HLC
 \Input{$hlc$: trạng thái HLC cục bộ; $nodeID$: định danh nút cục bộ.}
 \Output{Timestamp HLC mới $(L, C, nodeID)$.}
 \BlankLine
-$pt \leftarrow$ thời gian vật lý hiện tại (mili-giây)\;
+$pt \leftarrow$ thời gian vật lý hiện tại\;
 \If{$pt > hlc.L$}{
     $hlc.L \leftarrow pt$\;
     $hlc.C \leftarrow 0$\;
@@ -436,15 +332,13 @@ $pt \leftarrow$ thời gian vật lý hiện tại (mili-giây)\;
     $hlc.C \leftarrow hlc.C + 1$\;
 }
 \Return{$(hlc.L, hlc.C, nodeID)$}\;
-\caption{Thuật toán sinh thời gian logic lai ($HLC\_Now$)}
+\caption{Sinh thời gian logic lai ($HLC\_Now$)}
 \label{alg:hlc_now}
 \end{algorithm}
 
-Dấu thời gian này được đóng gói vào Coordination Envelope ở phần metadata bên ngoài payload của bản tin.
-
 \subsection{Cập nhật HLC khi nhận tin}
 
-Khi nhận một envelope có chứa timestamp HLC từ mạng, nút cục bộ tiến hành cập nhật HLC của mình dựa trên thời gian vật lý cục bộ và HLC nhận được để đảm bảo đồng hồ logic tiến lên một cách nhất quán. Quy trình cập nhật được mô tả trong Thuật toán \ref{alg:hlc_update}.
+Khi nhận một thông điệp ứng dụng mang timestamp HLC, nút cục bộ cập nhật đồng hồ của mình theo giá trị lớn nhất giữa đồng hồ cục bộ, timestamp nhận được và thời gian vật lý hiện tại. Cách cập nhật này bảo toàn thứ tự nhân quả cơ bản mà không buộc các thiết bị phải đồng bộ đồng hồ tuyệt đối. Thuật toán tương ứng được mô tả trong Thuật toán~\ref{alg:hlc_update}.
 
 \begin{algorithm}[H]
 \SetAlgoLined
@@ -453,11 +347,7 @@ Khi nhận một envelope có chứa timestamp HLC từ mạng, nút cục bộ 
 \Input{$hlc$: trạng thái HLC cục bộ; $msg$: timestamp HLC nhận được $(msg.L, msg.C, msg.NodeID)$.}
 \Output{Trạng thái HLC cục bộ sau khi cập nhật.}
 \BlankLine
-$pt \leftarrow$ thời gian vật lý hiện tại (mili-giây)\;
-\If{$msg.L - pt > \text{MAX\_DRIFT\_MS}$}{
-    Đánh dấu thông điệp nghi vấn clock drift lớn và xử lý theo chính sách\;
-    Kết thúc\;
-}
+$pt \leftarrow$ thời gian vật lý hiện tại\;
 $newL \leftarrow \max(hlc.L, msg.L, pt)$\;
 \If{$newL == hlc.L$ \textbf{and} $newL == msg.L$}{
     $hlc.C \leftarrow \max(hlc.C, msg.C) + 1$\;
@@ -473,97 +363,40 @@ $newL \leftarrow \max(hlc.L, msg.L, pt)$\;
 }
 $hlc.L \leftarrow newL$\;
 \Return{$hlc$}\;
-\caption{Thuật toán cập nhật đồng hồ logic lai ($HLC\_Update$)}
+\caption{Cập nhật đồng hồ logic lai ($HLC\_Update$)}
 \label{alg:hlc_update}
 \end{algorithm}
 
-Hằng số $MAX\_DRIFT\_MS$ được sử dụng để phát hiện các thông điệp có timestamp sai lệch đáng kể so với đồng hồ cục bộ nhằm ngăn chặn hành vi cố tình đẩy timestamp về tương lai để làm xáo trộn thứ tự dòng chat.
+\subsection{Vai trò của HLC trong hệ thống}
 
-\subsection{Thứ tự hiển thị tất định}
+HLC chỉ được dùng để sắp thứ tự hiển thị các thông điệp ứng dụng đã vượt qua bước kiểm tra epoch và đã được MLS xử lý hợp lệ. Nó không quyết định Commit nào đúng, không thay thế lớp điều phối ở tầng trạng thái và không được phép ảnh hưởng tới key schedule của MLS. Sự tách vai trò này là điều kiện cần để hệ thống vừa giữ đúng mô hình bảo mật của MLS, vừa có một thứ tự hiển thị ổn định hơn ở tầng ứng dụng.
 
-Tin nhắn ứng dụng sau khi giải mã được sắp xếp hiển thị dựa trên khóa thứ tự:
+\section{Hiện thực ứng dụng thử nghiệm phục vụ kiểm chứng}
+\label{sec:prototype-demo}
 
-\begin{equation}
-\label{eq:order_key}
-OrderKey = (epoch, HLC.L, HLC.C, senderID, messageID)
-\end{equation}
+\subsection{Ranh giới trách nhiệm trong ứng dụng thử nghiệm}
 
-Quy tắc sắp xếp tuân theo: trước hết phân loại theo Epoch của nhóm mật mã; trong cùng Epoch, sắp xếp theo thời gian logic lai $L$ và bộ đếm $C$; nếu trùng, sử dụng định danh người gửi và định danh tin nhắn để phá hòa một cách tất định. Nhờ đó, tất cả các thiết bị trong nhóm nhận cùng một tập tin nhắn sẽ hiển thị hội thoại theo một thứ tự hoàn toàn đồng nhất.
+Ở mức hiện thực ứng dụng thử nghiệm, các nguyên tắc trên được ánh xạ thành một kiến trúc hai tầng gồm một tiến trình chủ chịu trách nhiệm điều phối và một thành phần MLS chịu trách nhiệm xử lý mật mã. Trạng thái bền vững của nhóm được lưu ở phía host; khi cần xử lý Proposal, Commit, External Join hoặc application message, host lấy trạng thái hiện tại, chuyển nó cho tầng MLS xử lý rồi ghi lại trạng thái mới sau khi thao tác hoàn tất.
 
-\section{Quản lý trạng thái Go-Rust và lưu trữ cục bộ}
-\label{sec:go-rust-state}
+Cách hiện thực này có ý nghĩa chủ yếu ở mặt phương pháp. Nó cho phép ứng dụng thử nghiệm giữ đúng ranh giới mà chương này đã nêu: quyết định điều phối nằm ở tầng ngoài, còn MLS chỉ xử lý các phép biến đổi trạng thái hợp lệ của chính nó. Vì vậy, việc ứng dụng này dùng công nghệ nào ở tầng giao diện không làm thay đổi bản chất của đóng góp nghiên cứu.
 
-\subsection{Lý do sử dụng Rust Sidecar phi trạng thái}
+\subsection{Vai trò của ứng dụng desktop}
 
-Trong nguyên mẫu hiện tại, Go Host lưu toàn bộ trạng thái MLS bền vững trong SQLite. Mỗi lần cần mã hóa, giải mã hoặc tạo Commit, Go Host lấy trạng thái nhóm hiện tại, gửi sang Rust Sidecar qua gRPC và nhận lại trạng thái mới sau khi OpenMLS xử lý. Cách tổ chức này có chi phí tuần tự hóa và truyền dữ liệu qua kênh liên tiến trình, nhưng đổi lại giúp trách nhiệm lưu trữ và khôi phục trạng thái được phân định rõ ràng.
+Trong ứng dụng thử nghiệm của đồ án, ứng dụng desktop không được xem là phần đóng góp thuật toán mới. Vai trò của nó là hiện thực hóa các luồng thao tác quan trọng nhất để kiểm chứng phương pháp: tham gia hệ thống bằng bundle, tạo và quản trị nhóm, và trao đổi thông điệp trên nhiều nút.
 
-Do đó, Rust Sidecar được thiết kế như một lớp xử lý mật mã thuần túy: Rust không quyết định ordering, không lưu trạng thái nhóm lâu dài và không trở thành nguồn sự thật của ứng dụng. Mọi quyết định về epoch, Token Holder, lưu lịch sử và phục hồi sau sự cố đều nằm ở Go Host cùng cơ sở dữ liệu cục bộ.
-
-\subsection{Phân chia trách nhiệm giữa SQLite và Rust Sidecar}
-
-SQLite đóng vai trò là kho lưu trữ dữ liệu bền vững của Go Host, đảm bảo dữ liệu không bị mất khi ứng dụng tắt hoặc thiết bị mất điện. SQLite lưu trữ lịch sử tin nhắn, trạng thái điều phối, hàng đợi tin nhắn chưa gửi và snapshot trạng thái MLS. Rust Sidecar nhận snapshot này như dữ liệu đầu vào, thực hiện thao tác OpenMLS tương ứng, rồi trả lại kết quả để Go Host lưu xuống SQLite.
-
-\subsection{Luồng xử lý khi gửi tin nhắn ứng dụng}
-
-Quy trình gửi tin nhắn ứng dụng được mô tả chi tiết trong Thuật toán \ref{alg:send_app_message}.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\SetKwInOut{Input}{Đầu vào}
-\SetKwInOut{Output}{Đầu ra}
-\Input{$groupID$: định danh nhóm; $plaintext$: nội dung tin nhắn dạng rõ.}
-\BlankLine
-$localState \leftarrow$ lấy trạng thái nhóm cục bộ từ SQLite\;
-$timestamp \leftarrow HLC\_Now()$\;
-Gọi Rust Sidecar: $EncryptApplicationMessage(localState.groupState, plaintext)$\;
-Nhận về bản mã $mlsCiphertext$ và trạng thái nhóm mới từ Sidecar\;
-Lưu trạng thái nhóm mới vào SQLite\;
-Tạo $CoordinationEnvelope$ mang $groupID$, $epoch = localState.epoch$, $hlc\_timestamp = timestamp$ và $payload = mlsCiphertext$\;
-Lưu tin nhắn vào SQLite ở trạng thái chờ gửi ($pending$)\;
-Phát tán envelope qua GossipSub mạng lưới P2P\;
-\caption{Quy trình gửi tin nhắn ứng dụng ($SendApplicationMessage$)}
-\label{alg:send_app_message}
-\end{algorithm}
-
-Tin nhắn ứng dụng không làm thay đổi Epoch mật mã nên không yêu cầu quyền Token Holder, nhưng vẫn phải mang Epoch hiện tại để nút nhận xác định đúng khóa giải mã.
-
-\subsection{Luồng xử lý khi thay đổi thành viên}
-
-Quy trình xử lý khi người dùng muốn thêm hoặc xóa thành viên được mô tả trong Thuật toán \ref{alg:request_membership_change}.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\SetKwInOut{Input}{Đầu vào}
-\SetKwInOut{Output}{Đầu ra}
-\Input{$groupID$: định danh nhóm; $operation$: loại thao tác (Add/Remove); $targetMember$: thành viên mục tiêu.}
-\BlankLine
-Gọi Rust Sidecar để tạo đối tượng Proposal tương ứng với thao tác\;
-Tạo $CoordinationEnvelope$ mang loại $Proposal$, $epoch = localEpoch$ và $payload = proposal$\;
-Lưu Proposal vào hàng đợi cục bộ $proposalQueue$\;
-Phát tán Proposal qua GossipSub mạng P2P\;
-\If{Bản thân nút cục bộ là Token Holder của Epoch hiện tại}{
-    Thiết lập bộ đếm thời gian gửi Commit sau khoảng trì hoãn $batch\_delay$\;
-}
-\caption{Quy trình yêu cầu thay đổi thành viên ($RequestMembershipChange$)}
-\label{alg:request_membership_change}
-\end{algorithm}
-
-Việc tách biệt Proposal và Commit cho phép nhiều thành viên đề xuất thay đổi cùng lúc mà không phá vỡ nguyên tắc một người ghi duy nhất (Single-Writer) tại mỗi Epoch.
+Vì lý do đó, các màn hình cụ thể, ảnh chụp ứng dụng và kịch bản demo không được trình bày chi tiết ngay trong Chương 3. Thay vào đó, Chương 5 sẽ dùng ứng dụng thử nghiệm như một môi trường kiểm chứng đầu cuối, còn phụ lục sẽ tập hợp đầy đủ các hình minh họa cần thiết cho việc đối chiếu.
 
 \section{Tính đúng đắn trực giác của phương pháp}
 \label{sec:correctness-intuition}
 
-Tính đúng đắn trực giác của giao thức điều phối đề xuất có thể được lý giải qua bốn luận điểm chính. Trước hết, trong điều kiện mạng liên thông, cơ chế Single-Writer làm giảm mạnh khả năng xuất hiện concurrent commits vì tại mỗi Epoch chỉ Token Holder mới được phép sinh bản tin Commit để nâng trạng thái nhóm. Tiếp theo, lớp Epoch Checks hoạt động như một bộ lọc biên, ngăn các thông điệp đến sai thứ tự hoặc không đồng bộ đi thẳng vào lõi MLS, từ đó giúp máy trạng thái cục bộ tiếp tục tiến hóa theo chuỗi Epoch đơn điệu và tránh những lỗi do xử lý Commit ngoài luồng.
+Trong điều kiện các nút còn có cùng góc nhìn gần đúng về nhóm, Single-Writer giúp giảm mạnh khả năng xuất hiện concurrent commits vì mỗi Epoch chỉ có một Token Holder được quyền phát hành Commit. Kết hợp với lớp kiểm tra epoch, cơ chế này buộc mọi bước tiến hóa của trạng thái cục bộ phải đi qua một chuỗi Commit hợp lệ thay vì cho phép các nút tự ý xử lý bản tin trên các trạng thái không tương thích.
 
-Trong trường hợp mạng bị phân mảnh, các phân vùng có thể tiến hóa độc lập và tạo ra những nhánh trạng thái khác nhau. Khi đó, quy trình Fork Healing cùng hàm trọng số nhánh tất định cho phép hệ thống lựa chọn một nhánh tiếp tục và đưa các nút ở nhánh còn lại gia nhập lại nhánh được chọn thông qua cơ chế hợp lệ của MLS. Cách xử lý này không loại bỏ hoàn toàn mọi hệ quả của network partition, nhưng giúp hệ thống có cơ chế hội tụ an toàn sau khi kết nối được khôi phục, đồng thời hạn chế việc kéo dài vòng đời của vật liệu khóa thuộc nhánh cũ.
+Khi network partition xảy ra, phương pháp không giả định rằng hệ thống vẫn giữ được một trạng thái duy nhất tại mọi thời điểm. Thay vào đó, nó chấp nhận khả năng phân kỳ tạm thời, nhưng yêu cầu lớp điều phối phải nhận ra sự khác biệt giữa các nhánh, thử bắt kịp trạng thái khi cần, rồi cuối cùng chọn một nhánh để hội tụ trở lại bằng cơ chế hợp lệ của MLS. Điểm cốt lõi ở đây là hệ thống không cố gắng hợp nhất trực tiếp hai trạng thái MLS đã rẽ nhánh.
 
-Cuối cùng, đối với các thông điệp ứng dụng được gửi song song trong cùng một Epoch, đồng hồ logic lai HLC cung cấp một quy tắc sắp xếp hiển thị ổn định giữa các thiết bị. Nhờ đó, lớp ứng dụng có thể duy trì một lịch sử hội thoại nhất quán hơn về mặt quan sát mà không can thiệp vào tiến trình mật mã của MLS.
+Cuối cùng, HLC giúp giữ một thứ tự hiển thị ổn định hơn cho các thông điệp ứng dụng sau khi các thông điệp đó đã được xử lý hợp lệ. Nhờ vậy, phương pháp đề xuất không chỉ quan tâm tới nhất quán trạng thái mật mã, mà còn quan tâm tới tính quan sát được của hệ thống ở tầng ứng dụng, nhưng vẫn giữ rõ ranh giới giữa hai loại ordering.
 
-\section{Kết chương}
-\label{sec:ket-chuong-3}
+Kết chương. Chương 3 đã trình bày lớp điều phối phi tập trung mà đồ án đề xuất cho MLS trên mạng ngang hàng. Phần cốt lõi của phương pháp gồm bốn cơ chế: người ghi duy nhất theo epoch để hạn chế concurrent commits, kiểm tra nhất quán epoch để bảo vệ trạng thái cục bộ, phát hiện và hàn gắn phân nhánh để hỗ trợ hội tụ sau network partition, và HLC để sắp thứ tự thông điệp ứng dụng.
 
-Chương 3 đã trình bày chi tiết giao thức điều phối phi tập trung được đề xuất cho MLS trên mạng ngang hàng. Trên cơ sở kiến trúc hai lớp Go--Rust Sidecar, chương đã mô tả bốn cơ chế cốt lõi của giải pháp, gồm cơ chế người ghi duy nhất để kiểm soát quyền tạo Commit, cơ chế kiểm tra nhất quán epoch để bảo vệ trạng thái cục bộ, cơ chế hàn gắn phân nhánh để hỗ trợ hội tụ sau khi mạng bị chia cắt, và cơ chế sắp xếp thông điệp ứng dụng bằng HLC. Các cơ chế này kết hợp với nhau để hình thành một hướng tiếp cận không phụ thuộc vào Delivery Service tập trung, đồng thời tránh phải sử dụng các thuật toán đồng thuận nặng cho mọi Commit.
-
-Những đề xuất thiết kế và các thuật toán logic trình bày trong chương này là cơ sở trực tiếp để Chương 4 tiến hành phân tích lý thuyết sâu hơn về tính nhất quán trạng thái mật mã, chi phí tính toán, chi phí truyền thông và phạm vi bảo vệ an toàn thông tin của hệ thống.
+Các cơ chế trên tạo thành phần nghiên cứu trung tâm của đồ án. Ứng dụng thử nghiệm chỉ đóng vai trò hiện thực hóa và kiểm chứng các nguyên tắc đó trong một hệ thống chạy được. Trên cơ sở này, Chương 4 sẽ tiếp tục phân tích các bất biến và giới hạn lý thuyết của phương pháp trước khi Chương 5 chuyển sang phần kiểm chứng bằng ứng dụng thử nghiệm và thực nghiệm.
 
 \end{document}

@@ -1,0 +1,126 @@
+\documentclass[../DoAn.tex]{subfiles}
+\begin{document}
+
+Tổng quan chương.
+
+Phụ lục này tập hợp các hình minh họa cho ứng dụng desktop thử nghiệm đã được nhắc tới ở Chương 3 và dùng trong Chương 5 để đối chiếu với phần thực nghiệm. Tuy nhiên, mục đích của phụ lục không chỉ là bổ sung hình. Phần này còn cần làm rõ rằng ứng dụng của đồ án không phải chỉ là vài màn hình để trình diễn, mà là một phần triển khai tương đối đầy đủ cho các luồng chính của hệ thống.
+
+Nếu chỉ nhìn nhanh phần thân bài, người đọc dễ có cảm giác ứng dụng này chủ yếu được dùng để chụp vài hình chat. Trên thực tế, để đi từ ý tưởng giao thức đến một bản chạy được, đồ án phải làm cả luồng tạo định danh, cấp bundle, vào không gian làm việc, tạo nhóm, thêm thành viên, trao đổi tin nhắn, theo dõi hoạt động và quan sát trạng thái mạng. Vì vậy, phụ lục này vừa minh họa giao diện, vừa ghi lại phần việc đã được triển khai ở mức ứng dụng.
+
+\section{Những phần đã triển khai trong ứng dụng desktop}
+
+Ở mức mã nguồn, phần giao diện của ứng dụng được tách theo từng nhóm chức năng như \path{app/frontend/src/features/onboarding}, \path{app/frontend/src/features/chat}, \path{app/frontend/src/features/activity}, \path{app/frontend/src/features/admin} và \path{app/frontend/src/features/settings}. Cách tổ chức này cho thấy phần ứng dụng không được dựng từ một màn hình duy nhất rồi nối thêm chức năng về sau, mà đã được chia thành các luồng tương đối rõ ngay từ đầu.
+
+Không gian làm việc chính của ứng dụng cũng không chỉ là một vùng nhắn tin. Bên trong đó còn có thanh điều hướng, danh sách nhóm, vùng hội thoại, bảng thông tin phòng, hộp thoại tạo nhóm, hộp thoại thêm thành viên, bảng hoạt động, khu vực quản trị và phần cài đặt. Mỗi phần trong số đó đều phải đọc dữ liệu từ phía sau, giữ trạng thái hiển thị riêng và xử lý thao tác người dùng theo đúng bối cảnh của từng màn hình.
+
+Một điểm cần nói rõ là giao diện không tự quyết định các vấn đề thuộc về giao thức. Trong cách triển khai của đồ án, giao diện gọi các hàm ở lớp Runtime phía Go, nhận các sự kiện cập nhật rồi hiển thị lại kết quả cho người dùng. Nhờ đó, ứng dụng desktop này vừa đủ gần với người dùng để làm phần demo, vừa đủ bám sát kiến trúc thật của hệ thống để có giá trị kiểm chứng.
+
+\section{Chuỗi tham gia hệ thống và cấp bundle}
+
+Nhóm hình đầu tiên tập trung vào lúc một thiết bị mới bắt đầu đi vào hệ thống. Hình~\ref{fig:appendix_onboarding_start} đặt cạnh nhau màn hình tạo định danh ở phía thành viên và màn hình tạo tổ chức gốc ở phía quản trị. Cách đặt này giúp người đọc thấy rõ hai việc tách biệt: thiết bị tự sinh định danh trên máy cục bộ, còn quyền mở tổ chức và cấp quyền tham gia vẫn nằm ở phía quản trị.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_01_welcome.png}{Màn hình khởi tạo định danh cục bộ}{Vị trí đặt ảnh Welcome}
+\hfill
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_15_admin_quick_setup.png}{Màn hình tạo tổ chức gốc của quản trị viên}{Vị trí đặt ảnh Admin Quick Setup}
+\caption{Khởi tạo định danh và tạo tổ chức gốc trong ứng dụng thử nghiệm}
+\label{fig:appendix_onboarding_start}
+\end{figure}
+
+Để có được hai điểm bắt đầu tưởng như đơn giản đó, phần ứng dụng phải xử lý khá nhiều trạng thái trung gian như sinh khóa, giữ thông tin PeerID, tạo tệp yêu cầu tham gia và chuyển màn hình theo từng bước. Vì vậy, ngay từ khâu vào hệ thống, phần demo đã không còn là một nút bấm minh họa đơn lẻ.
+
+Sau bước khởi tạo, thiết bị thành viên chuyển sang trạng thái chờ bundle, còn quản trị viên dùng bảng điều khiển để phát hành bundle tương ứng. Hình~\ref{fig:appendix_bundle_flow} ghi lại đầy đủ hai đầu của quy trình này. Điểm cần chú ý là bundle không xuất hiện tự động ở phía thành viên, mà phải đi qua bước kiểm tra và cấp phát từ phía quản trị.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Thiết bị thành viên ở trạng thái chờ bundle}{Vị trí đặt ảnh Awaiting Bundle của Alice}
+\hfill
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Bảng điều khiển quản trị phát hành bundle}{Vị trí đặt ảnh Admin Panel cấp bundle}
+\caption{Chuỗi cấp bundle cho thiết bị mới trong ứng dụng thử nghiệm}
+\label{fig:appendix_bundle_flow}
+\end{figure}
+
+Ở mức triển khai, luồng này còn kéo theo việc đọc nội dung yêu cầu, ký bundle, lưu lại lịch sử cấp phát và đổi trạng thái giao diện sau khi nhập bundle thành công. Những chi tiết đó không cần đưa hết vào thân bài, nhưng nên được nhắc ở phụ lục để phản ánh đúng khối lượng phần việc đã làm.
+
+\section{Không gian làm việc và cộng tác}
+
+Sau khi gia nhập thành công, người dùng đi vào giao diện chính của ứng dụng. Hình~\ref{fig:appendix_workspace_overview} cho thấy bố cục mà ứng dụng đang dùng để đặt các khu vực hoạt động, trò chuyện, quản trị và cài đặt lên cùng một không gian làm việc. Đây cũng là hình giúp đối chiếu trực tiếp với phần mô tả ứng dụng ở Chương 3.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoGraphic{Hinh/app_demo/app_04_workspace_overview_alice.png}{Vị trí đặt ảnh giao diện chính tổng quan của Alice}
+\caption{Tổng quan không gian làm việc của ứng dụng desktop thử nghiệm}
+\label{fig:appendix_workspace_overview}
+\end{figure}
+
+Không gian làm việc ở Hình~\ref{fig:appendix_workspace_overview} là chỗ nhiều phần việc gặp nhau nhất. Từ đây, người dùng vừa theo dõi trạng thái kết nối, vừa chuyển giữa các nhóm, mở kênh, xem hoạt động và đi tới khu vực quản trị hoặc cài đặt. Việc ghép các phần đó vào cùng một màn hình cho thấy ứng dụng đã được làm theo hướng dùng được trong buổi demo thật, chứ không chỉ mở từng cửa sổ rời cho từng chức năng.
+
+Kịch bản cộng tác quan trọng nhất của ứng dụng là trao đổi tin nhắn trong một nhóm đã được đồng bộ trên các thiết bị khác nhau. Hình~\ref{fig:appendix_multinode_chat} giữ lại các cửa sổ của Admin, Alice và Bob để người đọc quan sát trạng thái hội thoại sau khi danh sách thành viên đã ổn định. Cách trình bày này giúp đối chiếu nội dung trao đổi và trạng thái nhóm giữa các phía tham gia.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_admin.png}{Cửa sổ nhóm trên thiết bị Admin}{Vị trí đặt ảnh group chat của Admin}
+\hfill
+\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_alice.png}{Cửa sổ nhóm trên thiết bị Alice}{Vị trí đặt ảnh group chat của Alice}
+\hfill
+\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_bob.png}{Cửa sổ nhóm trên thiết bị Bob}{Vị trí đặt ảnh group chat của Bob}
+\caption{Trao đổi tin nhắn trong cùng một nhóm ở các thiết bị khác nhau}
+\label{fig:appendix_multinode_chat}
+\end{figure}
+
+Phần trao đổi tin nhắn cũng có một lượng việc phía sau mà một hình chụp khó thể hiện hết. Ứng dụng phải nạp lịch sử, nhận sự kiện tin nhắn mới, cập nhật thứ tự hiển thị, giữ vùng soạn tin và đồng thời mở được bảng thông tin nhóm ở bên phải. Khi nhìn một màn chat hoàn chỉnh, người đọc thường chỉ thấy phần bề mặt; còn ở mức làm ứng dụng, đó là kết quả của việc nối nhiều luồng dữ liệu và thao tác với nhau.
+
+Bên cạnh nhóm trò chuyện tuyến tính, ứng dụng còn có bảng hoạt động và không gian kênh theo dạng bài viết -- phản hồi. Hình~\ref{fig:appendix_activity_channel} minh họa hai màn hình này để cho thấy ứng dụng không chỉ dừng ở một luồng nhắn tin, mà đã có thêm các dạng tương tác khác phục vụ cộng tác nội bộ.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_07_activity_alice.png}{Màn hình hoạt động và thông báo}{Vị trí đặt ảnh Activity của Alice}
+\hfill
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_10_channel_post_alice.png}{Không gian kênh theo mô hình bài viết -- phản hồi}{Vị trí đặt ảnh Channel Post View của Alice}
+\caption{Bảng hoạt động và không gian kênh của ứng dụng thử nghiệm}
+\label{fig:appendix_activity_channel}
+\end{figure}
+
+Hai màn hình này buộc phần giao diện phải xử lý nhiều kiểu dữ liệu hơn một dòng hội thoại thuần túy, đồng thời cho thấy người làm đồ án đã cố gắng đi xa hơn mức tối thiểu cần có để chứng minh giao thức. Đây là điểm nên được giữ lại trong phụ lục, vì nó phản ánh khá rõ công sức hiện thực của phần ứng dụng.
+
+Việc hình thành nhóm mới và mở rộng thành viên được phản ánh qua các hộp thoại thao tác ở mức người dùng. Hình~\ref{fig:appendix_group_creation} minh họa hai bước này, qua đó giúp người đọc quan sát quan hệ giữa việc tạo nhóm, tạo kênh và việc mời thêm thành viên từ danh sách định danh hiện có.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_11_create_group_modal_alice.png}{Hộp thoại tạo nhóm, DM hoặc kênh}{Vị trí đặt ảnh Create Group Modal của Alice}
+\hfill
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_12_add_member_modal_alice.png}{Hộp thoại mời thêm thành viên vào nhóm}{Vị trí đặt ảnh Add Member Modal của Alice}
+\caption{Các hộp thoại tạo nhóm và thêm thành viên}
+\label{fig:appendix_group_creation}
+\end{figure}
+
+Nhóm các hộp thoại ở Hình~\ref{fig:appendix_group_creation} nhìn qua khá nhỏ, nhưng lại là chỗ nối trực tiếp giữa thao tác người dùng và thay đổi danh sách thành viên của nhóm. Việc tách riêng bước tạo nhóm, tạo kênh và mời thành viên giúp luồng dùng rõ ràng hơn, đồng thời cho thấy phần demo này đã được chăm chút cả ở các thao tác phụ, không chỉ ở màn hình chính.
+
+\section{Quản trị nhóm và chẩn đoán}
+
+Phần quản trị nhóm là nơi ứng dụng lộ rõ nhất lượng việc ở phía sau. Tại đây, người dùng không chỉ xem danh sách thành viên mà còn phải đọc được vai trò, tình trạng và chính sách mời hiện hành của nhóm. Điều này quan trọng với đồ án vì các thay đổi tưởng như đơn giản ở giao diện thực ra đều chạm vào tiến trình Proposal và Commit ở tầng dưới. Hình~\ref{fig:appendix_group_management} minh họa màn hình quản trị đó.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoGraphic{Hinh/app_demo/app_06_group_management_alice.png}{Vị trí đặt ảnh Room Panel hoặc Group Settings của Alice}
+\caption{Màn hình quản trị thành viên và chính sách mời của nhóm}
+\label{fig:appendix_group_management}
+\end{figure}
+
+Cuối cùng, ứng dụng còn dành chỗ cho các thông tin chẩn đoán ở mức mạng và mức nhóm. Hình~\ref{fig:appendix_diagnostics} minh họa hai màn hình này. Chúng cho phép người đọc quan sát trực tiếp PeerID cục bộ, trạng thái kết nối và một phần thông tin nội bộ của nhóm trong quá trình vận hành.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_13_diagnostics_network_alice.png}{Màn hình chẩn đoán mạng và trạng thái cục bộ}{Vị trí đặt ảnh Settings > Diagnostics của Alice}
+\hfill
+\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_14_group_diagnostics_alice.png}{Màn hình chẩn đoán nhóm hoặc lịch sử fork-heal}{Vị trí đặt ảnh Group Diagnostics của Alice}
+\caption{Các màn hình theo dõi trạng thái mạng và trạng thái nhóm}
+\label{fig:appendix_diagnostics}
+\end{figure}
+
+Các màn hình chẩn đoán không được đưa vào chỉ để làm ứng dụng trông đầy đủ hơn. Trong quá trình làm đồ án, đây là phần khá hữu ích để theo dõi kết nối, trạng thái nhóm và các dấu hiệu bất thường khi thử nhiều nút. Nói cách khác, phần này không trực tiếp làm tăng đóng góp nghiên cứu, nhưng nó cho thấy phần triển khai đã đi tới mức có công cụ tự quan sát và tự kiểm tra, chứ không chỉ dừng ở việc gửi được một vài tin nhắn.
+
+Kết chương. Phụ lục này cho thấy phần ứng dụng desktop của đồ án không chỉ là chỗ đặt thêm ảnh màn hình. Từ luồng vào hệ thống, cấp bundle, tạo nhóm, thêm thành viên, trao đổi tin nhắn cho đến phần hoạt động, quản trị và chẩn đoán, ứng dụng đã được làm thành một chuỗi sử dụng tương đối trọn vẹn. Nhờ đó, phần demo không đứng tách khỏi phần nghiên cứu, mà trở thành nơi để kiểm tra xem các cơ chế điều phối được đề xuất có thật sự đi vào hành vi sử dụng cụ thể hay không.
+
+\end{document}

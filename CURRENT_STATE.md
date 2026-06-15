@@ -159,7 +159,7 @@ This document serves as a short-term memory for the AI Agent.
 ### Latest Delta (2026-05-17) ✅ — Group Fork Healing Epoch-based weight logic + Autonomous Replay verification
 
 - **Group Fork Healing [COMPLETED]:**
-    - **Formula:** Branch weight comparison strictly uses $W = (C_{members}, E, H_{commit})$. The `Epoch` ($E$) field was formally introduced to `GroupStateAnnouncement` to act as the primary evolutionary indicator when member counts are equal. Tie-breaker ensures deterministic convergence across all partitioned nodes without extra communication.
+    - **Formula:** Branch weight comparison strictly uses $W = (C_{members}, E, H_{commit})$. The `Epoch` ($E$) field acts as the primary evolutionary indicator when member counts are equal.
     - **Autonomous Replay:** Verified implementation where nodes merging into a winning branch automatically re-encrypt their partition-window messages using the newly acquired cryptographic state (Epoch/Key) and re-broadcast them. This ensures zero-data-loss and preserves Forward Secrecy. Strict non-repudiation is maintained (nodes only replay messages they authored).
 - **Validation:**
     - `go test -v ./app/coordination/...` PASS (62 tests), including specific TDD cases for Epoch weight and Autonomous Replay.
@@ -863,7 +863,7 @@ Phiên bản cũ dùng "Deterministic Conflict Resolution" — cho phép xung đ
 *   `active_view.go` — ActiveView: heartbeat tracking, liveness check, eviction, sorted members, onChange
 *   `single_writer.go` — ComputeTokenHolder (argmin SHA-256(nodeID||epoch)), BufferProposal, DrainProposals
 *   `epoch.go` — ValidateEpoch, EpochTracker, future buffer with defensive copies, Advance returns buffered
-*   `fork_healing.go` — CompareBranchWeight (W = MemberCount > CommitHash > TreeHash), ForkDetector
+*   `fork_healing.go` — CompareBranchWeight `(MemberCount > Epoch > CommitHash)`; ForkDetector
 *   `coordinator.go` — Central orchestrator: ties ActiveView + SingleWriter + EpochTracker + ForkDetector + HLC into message processing pipeline. Public API: CreateGroup, Start, Stop, SendMessage, ProposeAdd/Remove/Update
 *   **MLS ↔ gRPC:** `GrpcMLSEngine` nằm ở `app/adapter/sidecar/engine.go` (implements `coordination.MLSEngine`) — không còn file `app/coordination/mls_adapter.go`.
 *   `testutil_test.go` — FakeNetwork (queue + DrainAll), FakeTransport, MockMLSEngine, MockStorage

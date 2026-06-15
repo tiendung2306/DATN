@@ -118,9 +118,11 @@ def generate_and_plot_overhead():
 
     # Add text-based caption box emphasizing the message
     total_1024 = crypto[-1] + storage[-1] + coord[-1]
+    coord_pct_last = (coord[-1] / total_1024) * 100 if total_1024 > 0 else 0.0
     plt.figtext(0.5, -0.05, 
-                f"Thông điệp chính: Coordinator Decision chỉ chiếm dưới 1% tổng thời gian xử lý phần mềm cục bộ (ví dụ: chỉ {coord[-1]:.2f}ms trên tổng {total_1024:.1f}ms ở nhóm 1024 node).\n"
-                "Overhead của cơ chế Single-Writer hoàn toàn chấp nhận được, chi phí chủ yếu nằm ở tính toán mật mã OpenMLS và lưu trữ SQLite ở quy mô lớn.", 
+                f"Thông điệp chính: phần điều phối chỉ chiếm một tỷ lệ nhỏ trong tổng chi phí xử lý cục bộ ở nhóm lớn "
+                f"(ví dụ: {coord[-1]:.2f}ms trên tổng {total_1024:.1f}ms, tức khoảng {coord_pct_last:.2f}% ở nhóm 1024 node).\n"
+                "Chi phí chủ yếu vẫn nằm ở xử lý OpenMLS và phần lưu trữ, tuần tự hóa trạng thái khi quy mô nhóm tăng.", 
                 ha="center", fontsize=9.5, bbox={"facecolor":"#FFF9E6", "alpha":0.8, "pad":8, "edgecolor":"#FFE0B2", "linewidth":1}, fontstyle="italic")
 
     # Add text annotations dynamically on bars

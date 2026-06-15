@@ -263,7 +263,7 @@
 - **Security Analysis:**
   - Forward Secrecy: Preserved — losing branch keys are destroyed (crypto-shredding).
   - PCS: Temporarily weakened during partition, restored immediately after External Join.
-- **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` (W = MemberCount > CommitHash > TreeHash), `ForkDetector` with ProcessRemote/UpdateLocal. **10 tests PASS.**
+- **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` with core policy `(MemberCount > Epoch > CommitHash)`; `ForkDetector` with ProcessRemote/UpdateLocal. **10 tests PASS.**
 - **Hardening and Crash Safety (Milestone 5 - Completed 2026-05-31):** Redesigned the fork healing orchestrator into a senior-grade crash-safe state machine. Replaced sequential `group_id` constraints with unique `job_id` keys, isolated multi-fork events with compound indices, hardened the branch matcher via exact Epoch + TreeHash validation, fixed phase resume ordering, and made external-join data recovery offline-capable. Added 12 new coordinator tests and 24 SQLite integration tests. All green.
 
 ### 4.6. Group Operations Integration (End-to-End Flow) [COMPLETED ✅]
