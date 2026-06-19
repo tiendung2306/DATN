@@ -234,12 +234,15 @@
       GroupID    string
       TreeHash   []byte
       Epoch      uint64
+      HistoryHash []byte // rolling prefix summary R(E) = H(R(E-1) || CommitHash(E))
       MemberCount int    // online members in this branch
       CommitHash []byte  // hash of last Commit
   }
   ```
   - Broadcast periodically (e.g., every 5 seconds) on topic `{group_id}/heartbeat`.
-  - Receiving a `GroupStateAnnouncement` with different `TreeHash` at higher or equal epoch → partition detected.
+  - A single heartbeat is only a suspicion signal. If the remote peer is ahead, the slower node must request `HistoryHash` at its own local epoch and compare prefixes.
+  - `remote.HistoryHash(localEpoch) == local.HistoryHash(localEpoch)` means the remote is on the same branch but further ahead.
+  - `remote.HistoryHash(localEpoch) != local.HistoryHash(localEpoch)` means a fork has already occurred at or before `localEpoch`.
 - **Task: Branch Weight Comparison Function:**
   ```go
   // W = (C_members, E, H_commit) — compared lexicographically
@@ -263,7 +266,7 @@
 - **Security Analysis:**
   - Forward Secrecy: Preserved — losing branch keys are destroyed (crypto-shredding).
   - PCS: Temporarily weakened during partition, restored immediately after External Join.
-- **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` with core policy `(MemberCount > Epoch > CommitHash)`; `ForkDetector` with ProcessRemote/UpdateLocal. **10 tests PASS.**
+- **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` with core policy `(MemberCount > Epoch > CommitHash)`; `ForkDetector` with ProcessRemote/UpdateLocal. For future hardening, fork detection should prefer `HistoryHash` prefix comparison to distinguish `same-branch-but-ahead` from `true-divergence`, while keeping the winner rule unchanged. **10 tests PASS.**
 - **Hardening and Crash Safety (Milestone 5 - Completed 2026-05-31):** Redesigned the fork healing orchestrator into a senior-grade crash-safe state machine. Replaced sequential `group_id` constraints with unique `job_id` keys, isolated multi-fork events with compound indices, hardened the branch matcher via exact Epoch + TreeHash validation, fixed phase resume ordering, and made external-join data recovery offline-capable. Added 12 new coordinator tests and 24 SQLite integration tests. All green.
 
 ### 4.6. Group Operations Integration (End-to-End Flow) [COMPLETED ✅]

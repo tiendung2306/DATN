@@ -93,7 +93,7 @@ This guarantees no MLS operation is ever applied to an inconsistent Ratchet Tree
 
 When a physical network partition occurs, each partition evolves independently. On reconnection:
 
-1.  **Detection:** Gossip Heartbeat — each node periodically broadcasts `GroupStateAnnouncement { W, TreeHash }`.
+1.  **Detection:** Gossip Heartbeat — each node periodically broadcasts a compact `GroupStateAnnouncement` containing at least the current epoch, `TreeHash`, and a rolling history summary `HistoryHash = R(E)` where `R(0)=r0` and `R(e)=H(R(e-1)||CommitHash(e))`. If a remote peer is ahead, the slower node performs one extra prefix-check round trip to request `R(local_epoch)` from that peer. A mismatch at the lower epoch means the two sides have already diverged; a match means the remote is only further ahead on the same branch.
 2.  **Branch Weight Function (multi-variable, ordered by priority):**
     ```
     W = (C_members, E, H_commit)

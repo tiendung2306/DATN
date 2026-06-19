@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  14 JUN 2026 23:08
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  16 JUN 2026 09:46
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1978,13 +1978,13 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.84 ...ch chi phÃ­ lÃ½ thuyáº¿t}{38}{section.4.8}
+l.84 ...ch chi phÃ­ lÃ½ thuyáº¿t}{39}{section.4.8}
                                                   % [3]
 pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.110 ...}HÆ°á»›ng phÃ¡t triá»ƒn}{54}{section.6.3}
+l.110 ...}HÆ°á»›ng phÃ¡t triá»ƒn}{55}{section.6.3}
                                                   % [4])
 \tf@toc=\write7
 \openout7 = `DoAn.toc'.
@@ -2039,7 +2039,7 @@ Ch\uhorn \ohorn ng 3.
 (Chuong/3_De_xuat.tex [15
 
 ]
-<Hinh/chuong3_architecture.png, id=919, 5595.90625pt x 2983.145pt>
+<Hinh/chuong3_architecture.png, id=918, 5595.90625pt x 2983.145pt>
 File: Hinh/chuong3_architecture.png Graphic file (type png)
 <use Hinh/chuong3_architecture.png>
 Package pdftex.def Info: Hinh/chuong3_architecture.png  used on input line 29.
@@ -2111,21 +2111,27 @@ Ch\uhorn \ohorn ng 4.
 (Chuong/4_Phan_tich_ly_thuyet.tex [31
 
 ] [32] [33] [34] [35] [36] [37] [38]
-Underfull \hbox (badness 10000) in paragraph at lines 264--264
+[39]
+Underfull \hbox (badness 10000) in paragraph at lines 288--288
 []|\T5/ptm/m/n/11.86258 B£n tâm t­t tr¤ng th¡i,
  []
 
 
-Underfull \hbox (badness 3965) in paragraph at lines 264--264
+Underfull \hbox (badness 1242) in paragraph at lines 288--288
+\OML/cmm/m/it/12 treeHash$\T5/ptm/m/n/11.86258 , cam k¸t ti·n tè
+ []
+
+
+Underfull \hbox (badness 3965) in paragraph at lines 288--288
 []|\T5/ptm/m/n/11.86258 Khæng gëp trüc ti¸p
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 264--264
+Underfull \hbox (badness 10000) in paragraph at lines 288--288
 []|\T5/ptm/m/n/11.86258 T¡ch application ordering
  []
 
-[39]) [40]
+[40]) [41]
 Ch\uhorn \ohorn ng 5.
 (Chuong/5_Thuc_nghiem.tex
 Underfull \hbox (badness 1436) in paragraph at lines 27--27
@@ -2137,42 +2143,42 @@ Underfull \hbox (badness 4569) in paragraph at lines 31--31
 []|\T5/ptm/m/n/13 Thíi gian phöc hçi
  []
 
-[41
+[42
 
-] [42] [43] [44]
-<Hinh/chuong5/chaos_convergence.png, id=1122, 945.2916pt x 537.6888pt>
+] [43] [44] [45]
+<Hinh/chuong5/chaos_convergence.png, id=1125, 945.2916pt x 537.6888pt>
 File: Hinh/chuong5/chaos_convergence.png Graphic file (type png)
 <use Hinh/chuong5/chaos_convergence.png>
 Package pdftex.def Info: Hinh/chuong5/chaos_convergence.png  used on input line
  114.
 (pdftex.def)             Requested size: 405.45047pt x 230.61916pt.
-<Hinh/chuong5/partition_recovery.png, id=1126, 715.2321pt x 496.4949pt>
+<Hinh/chuong5/partition_recovery.png, id=1129, 715.2321pt x 496.4949pt>
 File: Hinh/chuong5/partition_recovery.png Graphic file (type png)
 <use Hinh/chuong5/partition_recovery.png>
 Package pdftex.def Info: Hinh/chuong5/partition_recovery.png  used on input lin
 e 147.
 (pdftex.def)             Requested size: 384.1096pt x 266.6411pt.
- [45 <./Hinh/chuong5/chaos_convergence.png>] [46 <./Hinh/chuong5/partition_reco
+ [46 <./Hinh/chuong5/chaos_convergence.png>] [47 <./Hinh/chuong5/partition_reco
 very.png>]
-<Hinh/chuong5/concurrency_batching.png, id=1137, 1145.2386pt x 518.1759pt>
+<Hinh/chuong5/concurrency_batching.png, id=1140, 1145.2386pt x 518.1759pt>
 File: Hinh/chuong5/concurrency_batching.png Graphic file (type png)
 <use Hinh/chuong5/concurrency_batching.png>
 Package pdftex.def Info: Hinh/chuong5/concurrency_batching.png  used on input l
 ine 188.
 (pdftex.def)             Requested size: 384.1096pt x 173.78964pt.
- [47 <./Hinh/chuong5/concurrency_batching.png>]
-[48] [49]
-<Hinh/chuong5/coordinator_overhead.png, id=1159, 853.2678pt x 533.8344pt>
+ [48 <./Hinh/chuong5/concurrency_batching.png>]
+[49] [50]
+<Hinh/chuong5/coordinator_overhead.png, id=1162, 853.2678pt x 533.8344pt>
 File: Hinh/chuong5/coordinator_overhead.png Graphic file (type png)
 <use Hinh/chuong5/coordinator_overhead.png>
 Package pdftex.def Info: Hinh/chuong5/coordinator_overhead.png  used on input l
 ine 285.
 (pdftex.def)             Requested size: 384.1096pt x 240.31285pt.
- [50 <./Hinh/chuong5/coordinator_overhead.png>] [51]) [52]
+ [51 <./Hinh/chuong5/coordinator_overhead.png>] [52]) [53]
 Ch\uhorn \ohorn ng 6.
-(Chuong/6_Ket_luan.tex [53
+(Chuong/6_Ket_luan.tex [54
 
-] [54]) [55]
+] [55]) [56]
 
 Package biblatex Warning: Bibliography string 'and' untranslated
 (biblatex)                at entry 'rfc9420' on input line 328.
@@ -2403,7 +2409,7 @@ Underfull \hbox (badness 1354) in paragraph at lines 329--329
 m/m/it/13 ACM SIGACT
  []
 
-[56
+[57
 
 ]
 
@@ -2456,13 +2462,13 @@ Underfull \hbox (badness 3884) in paragraph at lines 329--329
 /pcr/m/n/13 https :
  []
 
-[57] [58
+[58] [59
 
 ]
 PHá»¤ Lá»¤C A.
-(Chuong/Phu_luc_Ung_dung_demo.tex [59
+(Chuong/Phu_luc_Ung_dung_demo.tex [60
 
-] [60] [61] [62] [63]) [64] (DoAn.aux)
+] [61] [62] [63] [64]) [65] (DoAn.aux)
  ***********
 LaTeX2e <2026-06-01>
 L3 programming layer <2026-05-26>
@@ -2476,7 +2482,7 @@ LaTeX Font Warning: Size substitutions with differences
 LaTeX Warning: There were undefined references.
 
 Package rerunfilecheck Info: File `DoAn.out' has not changed.
-(rerunfilecheck)             Checksum: 18913D79B48ECDC0030F5C36B7661527;27600.
+(rerunfilecheck)             Checksum: 79CE09C50E8220A42A45FF6A8D4262E9;27667.
 
 Package biblatex Warning: Please (re)run BibTeX on the file(s):
 (biblatex)                DoAn
@@ -2487,9 +2493,9 @@ Package logreq Info: Writing requests to 'DoAn.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 46705 strings out of 467509
- 922202 string characters out of 5405379
- 1781198 words of memory out of 5000000
+ 46706 strings out of 467509
+ 922209 string characters out of 5405379
+ 1781144 words of memory out of 5000000
  74888 multiletter control sequences out of 15000+600000
  699528 words of font info for 116 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
@@ -2510,9 +2516,9 @@ AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.pfb><C:/Users/tie
 ndung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmr8v.pfb><C:/
 Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmri8
 v.pfb>
-Output written on DoAn.pdf (77 pages, 2503778 bytes).
+Output written on DoAn.pdf (78 pages, 2507289 bytes).
 PDF statistics:
- 1375 PDF objects out of 1440 (max. 8388607)
- 263 named destinations out of 1000 (max. 500000)
+ 1378 PDF objects out of 1440 (max. 8388607)
+ 264 named destinations out of 1000 (max. 500000)
  910 words of extra memory for PDF output out of 10000 (max. 10000000)
 

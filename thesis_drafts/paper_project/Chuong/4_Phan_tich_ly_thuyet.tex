@@ -104,31 +104,55 @@ Trong MLS, Commit là thao tác làm thay đổi trạng thái nhóm và đưa n
 
 Điều cần nhấn mạnh là bất biến trên chỉ đúng khi các nút đang có cùng góc nhìn về nhóm. Nếu hai phân vùng giữ hai $ActiveView$ khác nhau, chúng có thể hình thành hai tập $Eligible(E)$ khác nhau và từ đó chọn ra hai Token Holder khác nhau. Vì vậy, Single-Writer không phải là lời hứa rằng hệ thống không bao giờ phân nhánh; vai trò đúng của nó là giảm mạnh khả năng sinh concurrent commits khi mạng còn đủ liên thông để các nút chia sẻ cùng một view.
 
-\section{Bất biến 3: Dấu hiệu phân nhánh phải quan sát được trong phạm vi giả định}
+\section{Bất biến 3: Phân nhánh phải được nhận biết sau bước đối chiếu lịch sử}
 \label{sec:bat_bien_fork_detection}
 
 \subsection{Phân biệt chậm đồng bộ và phân nhánh thực sự}
 
-Trong mạng ngang hàng, không phải mọi khác biệt quan sát được đều là phân nhánh. Nếu một nút có epoch thấp hơn nút khác, khả năng cao hơn là nó đang chậm đồng bộ. Ngay cả khi hai nút cùng mang một số epoch, khác biệt tạm thời về dữ liệu quan sát được vẫn cần được đối chiếu cẩn thận trước khi kết luận có fork. Vì vậy, quá trình phát hiện phân nhánh trong đồ án được đặt trên ba bước liên tiếp: nhận diện dấu hiệu nghi ngờ, đối chiếu trạng thái và thử bắt kịp đồng bộ, rồi mới kết luận cần hàn gắn nếu khác biệt vẫn còn tồn tại.
+Trong mạng ngang hàng, khác biệt quan sát được giữa hai nút chưa đủ để kết luận rằng nhóm đã phân nhánh. Nếu một nút có epoch thấp hơn nút khác, khả năng tự nhiên hơn là nó chỉ đang chậm đồng bộ. Ngay cả khi hai nút đều công bố những fingerprint trạng thái khác nhau, kết luận có fork vẫn chỉ nên được đưa ra sau khi đã kiểm tra xem một bên có còn là phần kéo dài hợp lệ của bên kia hay không. Vì vậy, bài toán ở đây không đơn thuần là so sánh hai trạng thái hiện tại, mà là đối chiếu lịch sử Commit mà mỗi nút đã chấp nhận.
 
-\subsection{Fingerprint trạng thái}
+\subsection{Tóm tắt phần lịch sử Commit đã đi qua}
 
-Để phục vụ bước đối chiếu, các nút công bố định kỳ một bản tóm tắt trạng thái ngắn gọn:
+Ký hiệu $C_i(e)$ là giá trị băm của Commit mà nút $i$ đã chấp nhận tại epoch $e$. Từ dãy các Commit này, mỗi nút tính một giá trị tóm tắt cho toàn bộ phần lịch sử mà nó đã đi qua:
+
+\[
+R_i(0) = r_0
+\]
+
+\[
+R_i(e) = H(R_i(e - 1) \parallel C_i(e))
+\]
+
+trong đó $r_0$ là hằng khởi tạo chung, còn $H$ là hàm băm mật mã. Giá trị $R_i(e)$ không chỉ phản ánh Commit gần nhất, mà còn gói lại toàn bộ chuỗi Commit từ epoch $1$ đến epoch $e$. Nếu hai nút có cùng $R(e)$ tại cùng một mốc $e$, thì trong phạm vi giả định rằng các Commit được chuẩn hóa và được băm theo cùng một quy tắc, có thể xem như chúng đã đi qua cùng một đoạn lịch sử đến mốc đó.
+
+Để phục vụ bước đối chiếu, mỗi nút công bố định kỳ một bản tóm tắt trạng thái ngắn gọn:
 
 \[
 \begin{split}
 StateSummary =\ & (groupID, E, treeHash, \\
-                & commitHash)
+                & historyHash)
 \end{split}
 \]
 
-Trong đó, $treeHash$ phản ánh trạng thái cây MLS hiện tại, còn $commitHash$ là giá trị băm của Commit gần nhất mà lớp điều phối gắn với nhánh đang xét. Bản tóm tắt này không thay thế trạng thái MLS đầy đủ, nhưng đủ để làm tín hiệu so sánh giữa các nút.
+Trong đó, $treeHash$ phản ánh trạng thái cây MLS hiện tại, còn $historyHash$ chính là $R(E)$. Bản tóm tắt này không thay thế trạng thái MLS đầy đủ, nhưng đủ để làm tín hiệu ban đầu cho bước đối chiếu. Nếu hai nút đang ở cùng epoch, việc so sánh trực tiếp hai giá trị $R(E)$ là đủ để biết chúng có cùng lịch sử Commit đến epoch đó hay không. Nếu một nút $A$ đang ở epoch $E_A$ thấp hơn nút $B$ ở epoch $E_B$, nút $A$ chưa thể kết luận gì chỉ từ $R_B(E_B)$. Khi đó, $A$ cần thêm một lượt hỏi--đáp để lấy đúng giá trị $R_B(E_A)$ rồi mới đối chiếu với $R_A(E_A)$.
 
-\textbf{Mệnh đề 3.} Trong phạm vi giả định của đồ án, nếu hai nút đã trao đổi đủ thông tin so sánh mà vẫn công bố cùng $groupID$, cùng epoch nhưng khác $treeHash$ hoặc khác $commitHash$, thì lớp điều phối có cơ sở để kết luận rằng chúng không còn đứng trên cùng một nhánh trạng thái.
+\textbf{Mệnh đề 3.} Trong phạm vi giả định của đồ án, giả sử hai nút $A$ và $B$ thuộc cùng một nhóm và $E_A \leq E_B$. Sau khi $A$ nhận được $StateSummary$ của $B$ và, nếu cần, lấy thêm giá trị $R_B(E_A)$ qua một lượt đối chiếu bổ sung, nếu
 
-\textit{Lập luận.} Khi chỉ có chậm đồng bộ đơn thuần, sự khác biệt thường xuất hiện dưới dạng một nút đi sau về epoch hoặc thiếu một đoạn lịch sử gần đây. Trong trường hợp đó, bước đồng bộ sẽ giúp nút đi sau bắt kịp và hai phía quay về cùng trạng thái. Ngược lại, nếu sau bước đối chiếu mà hai nút vẫn giữ cùng epoch nhưng khác $treeHash$ hoặc khác $commitHash$, thì khác biệt đó không còn được giải thích bằng việc một phía đơn thuần nhận tin chậm. Nó cho thấy hai bên đã đi qua hai chuỗi Commit khác nhau hoặc đã duy trì hai trạng thái cây khác nhau ở cùng một mức tiến hóa logic.
+\[
+R_B(E_A) \neq R_A(E_A)
+\]
 
-Lập luận trên cố ý không xem một announcement đơn lẻ là bằng chứng tuyệt đối. Giá trị của nó nằm ở chỗ tạo ra tín hiệu đủ mạnh để lớp điều phối biết khi nào cần chuyển từ chế độ bắt kịp đồng bộ sang chế độ phục hồi phân nhánh.
+thì lớp điều phối có cơ sở để kết luận rằng $A$ và $B$ không còn đứng trên cùng một chuỗi Commit. Ngược lại, nếu
+
+\[
+R_B(E_A) = R_A(E_A)
+\]
+
+thì khác biệt quan sát được vẫn còn có thể giải thích bằng việc $A$ đang chậm đồng bộ và lịch sử của $A$ chỉ là một tiền tố của lịch sử ở $B$.
+
+\textit{Lập luận.} Do $R_i(e)$ được xây dựng bằng cách băm lũy tiến trên toàn bộ dãy Commit từ $1$ đến $e$, nên điều kiện $R_B(E_A) = R_A(E_A)$ có nghĩa là hai nút đã chấp nhận cùng một đoạn lịch sử đến epoch $E_A$. Nếu $B$ còn đi xa hơn sau mốc đó, thì sự khác biệt hiện tại chỉ phản ánh việc $B$ đã xử lý thêm các Commit mới mà $A$ chưa kịp nhận. Ngược lại, nếu $R_B(E_A) \neq R_A(E_A)$, thì phải tồn tại ít nhất một epoch không vượt quá $E_A$ mà hai bên đã chấp nhận hai Commit khác nhau, hoặc đã đi qua hai đoạn lịch sử khác nhau. Khi đó, khác biệt quan sát được không còn là chậm đồng bộ đơn thuần mà đã trở thành khác biệt về lịch sử tiến hóa của trạng thái nhóm.
+
+Trong lập luận này, $treeHash$ vẫn giữ vai trò một fingerprint ngắn gọn của trạng thái MLS hiện hành và vẫn hữu ích trong bước đối chiếu trạng thái hoặc giai đoạn phục hồi sau phân nhánh. Tuy nhiên, tín hiệu quyết định để phân biệt giữa ``đi sau trên cùng một nhánh'' và ``đã tách sang nhánh khác'' là phép kiểm tra tính trùng khớp của tiền tố lịch sử Commit tại epoch nhỏ hơn, chứ không phải chỉ là so sánh Commit gần nhất ở đỉnh hiện tại.
 
 \section{Bất biến 4: Không hợp nhất trực tiếp hai trạng thái MLS đã phân nhánh}
 \label{sec:bat_bien_khong_hop_nhat_truc_tiep}
@@ -229,7 +253,7 @@ Single-Writer không yêu cầu một vòng đồng thuận mạng riêng để 
 
 Kiểm tra epoch chỉ yêu cầu so sánh một số trường metadata như $groupID$, loại thông điệp và epoch trước khi quyết định hướng xử lý. Nếu chỉ xét riêng lớp điều phối, chi phí này có thể xem là $O(1)$ trên mỗi thông điệp.
 
-Đối chiếu trạng thái để nhận biết phân nhánh đòi hỏi các nút trao đổi một bản tóm tắt ngắn chứa số epoch, $treeHash$ và $commitHash$. Kích thước của bản tóm tắt là hằng số theo kích thước nhóm, nên chi phí của một lần công bố trạng thái đơn lẻ cũng ở mức $O(1)$ theo số trường cần gửi. Ở quy mô toàn hệ thống, chi phí mạng của cơ chế này phụ thuộc thêm vào tần suất công bố và số kết nối mà mỗi nút duy trì.
+Đối chiếu trạng thái để nhận biết phân nhánh đòi hỏi các nút trao đổi một bản tóm tắt ngắn chứa số epoch, $treeHash$ và giá trị tóm tắt lịch sử $R(E)$. Kích thước của bản tóm tắt này vẫn là hằng số theo kích thước nhóm, nên chi phí của một lần công bố trạng thái đơn lẻ vẫn ở mức $O(1)$ theo số trường cần gửi. Khi xuất hiện nghi ngờ rằng một nút đang đi trước nhưng có thể đã tách nhánh, hai bên cần thêm một lượt hỏi--đáp để đối chiếu giá trị $R(e)$ tại epoch nhỏ hơn. Chi phí phụ thêm này không nằm trên mọi thông điệp, mà chỉ phát sinh khi lớp điều phối cần phân biệt giữa chậm đồng bộ và phân nhánh thực sự.
 
 \subsection{Chi phí của Fork Healing}
 
@@ -254,7 +278,7 @@ Bảng~\ref{tab:invariant_summary} tóm tắt các bất biến chính đã đư
 		\hline
 		Một Token Holder trong cùng view & Single-Writer theo epoch & Giảm concurrent commits khi các nút có cùng góc nhìn về nhóm. \\
 		\hline
-		Dấu hiệu phân nhánh có thể quan sát được & Bản tóm tắt trạng thái, $treeHash$, $commitHash$ & Cho phép phân biệt giữa chậm đồng bộ và phân nhánh thực sự sau bước đối chiếu. \\
+		Dấu hiệu phân nhánh có thể quan sát được & Bản tóm tắt trạng thái, $treeHash$, giá trị tóm tắt lịch sử Commit & Cho phép phân biệt giữa chậm đồng bộ và phân nhánh thực sự sau bước đối chiếu. \\
 		\hline
 		Không gộp trực tiếp trạng thái MLS đã tách nhánh & Chọn nhánh và gia nhập lại theo luồng MLS hợp lệ & Tránh tự tạo ra trạng thái mật mã ngoài mô hình MLS. \\
 		\hline

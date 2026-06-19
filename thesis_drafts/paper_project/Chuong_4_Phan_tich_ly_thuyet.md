@@ -42,9 +42,21 @@ Trong đó $L$ là thời gian vật lý theo mili-giây, $C$ là bộ đếm lo
 
 ## 4.2. Phân tích Fork Healing và bảo toàn thuộc tính bảo mật
 
+### 4.2.0. Nhận biết nhánh đi trước và nhánh đã phân kỳ
+
+Trong mạng P2P, việc thấy một peer có epoch cao hơn chưa đủ để kết luận đã có fork, vì đó có thể chỉ là trường hợp peer đó đang đi trước trên cùng một nhánh. Do đó, cách so sánh đơn thuần theo kiểu "cùng epoch nhưng khác `CommitHash`" là chưa đủ chặt khi hai nhánh tiến với tốc độ khác nhau.
+
+Một cách phù hợp hơn là để mỗi nút lưu thêm một giá trị tóm tắt cho phần lịch sử Commit đã đi qua, chẳng hạn:
+
+$$
+R(0)=r_0,\qquad R(e)=H(R(e-1)\parallel CommitHash(e))
+$$
+
+Khi đó, `StateSummary` không chỉ mang `Epoch` và `TreeHash`, mà còn mang `R(E)` của epoch hiện tại. Nếu node A ở epoch thấp hơn node B, A sẽ cần thêm một lượt hỏi--đáp để lấy `R_B(E_A)`. Nếu `R_B(E_A)=R_A(E_A)` thì B chỉ đang đi trước trên cùng một nhánh; còn nếu hai giá trị khác nhau thì có thể kết luận rằng hai bên đã đi qua hai lịch sử Commit khác nhau và fork đã thực sự xuất hiện.
+
 ### 4.2.1. Lựa chọn nhánh thắng
 
-Khi các nút phát hiện `TreeHash` hoặc `CommitHash` khác nhau trong cùng nhóm, hệ thống xem đó là dấu hiệu phân nhánh. Hàm trọng số cơ bản dùng để so sánh hai nhánh là:
+Sau khi bước đối chiếu lịch sử cho thấy hai phía không còn nằm trên cùng một chuỗi Commit, hệ thống mới xem đó là phân nhánh thực sự. Hàm trọng số cơ bản dùng để so sánh hai nhánh là:
 
 $$
 W = (C_{support}, C_{members}, E, H_{commit}, H_{tree})
@@ -106,7 +118,7 @@ Các bất biến ở chương này được ánh xạ trực tiếp vào các t
 | Single-Writer | Bầu Token Holder quyết định theo `groupID`, epoch và `ActiveView`; chỉ Token Holder được phát hành Commit | Test proposal đồng thời và batching; các test Single-Writer trong `app/coordination` |
 | Epoch monotonicity | Envelope mang epoch; `EpochTracker` từ chối stale epoch và đệm future epoch | Chaos test hội tụ epoch; test epoch convergence sweep |
 | TreeHash convergence | Mỗi Commit cập nhật `TreeHash`; sau heal các node phải hội tụ về cùng `TreeHash` | `TestIntegration_Chaos_Convergence` đã kiểm tra cả epoch và `TreeHash` cuối |
-| Fork Healing | So sánh trọng số nhánh, nhánh thua External Join vào nhánh thắng | Test fork-heal integration và crash-safety |
+| Fork Healing | Đối chiếu lịch sử Commit, so sánh trọng số nhánh, nhánh thua External Join vào nhánh thắng | Test fork-heal integration và crash-safety |
 | Non-repudiation trong replay | Autonomous Replay chỉ phát lại thông điệp do chính node tạo ra | Các test replay/fork-heal kiểm tra không replay hộ người khác |
 | Forward secrecy sau remove member | Rust sidecar xử lý MLS state thật; member bị xóa không có khóa epoch tương lai | `TestBusinessP1_E2E_RealSidecar_ForwardSecrecy` |
 | Tách lớp phối hợp và mật mã | Go xử lý ordering/election/fork-heal; Rust chỉ xử lý MLS stateless | Test service/coordination và benchmark MLS sidecar |

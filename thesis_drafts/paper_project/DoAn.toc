@@ -69,52 +69,52 @@
 \contentsline {section}{\numberline {4.3}Bất biến 2: Với cùng một view, chỉ có một Token Holder}{33}{section.4.3}%
 \contentsline {subsection}{\numberline {4.3.1}Phát biểu bất biến}{33}{subsection.4.3.1}%
 \contentsline {subsection}{\numberline {4.3.2}Ý nghĩa đối với concurrent commits}{34}{subsection.4.3.2}%
-\contentsline {section}{\numberline {4.4}Bất biến 3: Dấu hiệu phân nhánh phải quan sát được trong phạm vi giả định}{34}{section.4.4}%
+\contentsline {section}{\numberline {4.4}Bất biến 3: Phân nhánh phải được nhận biết sau bước đối chiếu lịch sử}{34}{section.4.4}%
 \contentsline {subsection}{\numberline {4.4.1}Phân biệt chậm đồng bộ và phân nhánh thực sự}{34}{subsection.4.4.1}%
-\contentsline {subsection}{\numberline {4.4.2}Fingerprint trạng thái}{34}{subsection.4.4.2}%
-\contentsline {section}{\numberline {4.5}Bất biến 4: Không hợp nhất trực tiếp hai trạng thái MLS đã phân nhánh}{35}{section.4.5}%
-\contentsline {subsection}{\numberline {4.5.1}Vì sao không thể gộp trực tiếp hai nhánh}{35}{subsection.4.5.1}%
-\contentsline {subsection}{\numberline {4.5.2}Quy tắc chọn nhánh}{35}{subsection.4.5.2}%
-\contentsline {subsection}{\numberline {4.5.3}External Join như cơ chế hội tụ}{36}{subsection.4.5.3}%
-\contentsline {section}{\numberline {4.6}Xử lý thông điệp phát sinh ở nhánh thua}{36}{section.4.6}%
-\contentsline {section}{\numberline {4.7}Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}{37}{section.4.7}%
-\contentsline {subsection}{\numberline {4.7.1}Phân biệt hai loại thứ tự}{37}{subsection.4.7.1}%
-\contentsline {subsection}{\numberline {4.7.2}Cơ sở của HLC}{37}{subsection.4.7.2}%
+\contentsline {subsection}{\numberline {4.4.2}Cam kết cho tiền tố lịch sử Commit}{34}{subsection.4.4.2}%
+\contentsline {section}{\numberline {4.5}Bất biến 4: Không hợp nhất trực tiếp hai trạng thái MLS đã phân nhánh}{36}{section.4.5}%
+\contentsline {subsection}{\numberline {4.5.1}Vì sao không thể gộp trực tiếp hai nhánh}{36}{subsection.4.5.1}%
+\contentsline {subsection}{\numberline {4.5.2}Quy tắc chọn nhánh}{36}{subsection.4.5.2}%
+\contentsline {subsection}{\numberline {4.5.3}External Join như cơ chế hội tụ}{37}{subsection.4.5.3}%
+\contentsline {section}{\numberline {4.6}Xử lý thông điệp phát sinh ở nhánh thua}{37}{section.4.6}%
+\contentsline {section}{\numberline {4.7}Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}{38}{section.4.7}%
+\contentsline {subsection}{\numberline {4.7.1}Phân biệt hai loại thứ tự}{38}{subsection.4.7.1}%
+\contentsline {subsection}{\numberline {4.7.2}Cơ sở của HLC}{38}{subsection.4.7.2}%
 \contentsline {subsection}{\numberline {4.7.3}Giới hạn của HLC}{38}{subsection.4.7.3}%
-\contentsline {section}{\numberline {4.8}Phân tích chi phí lý thuyết}{38}{section.4.8}%
-\contentsline {subsection}{\numberline {4.8.1}Chi phí gửi application message}{38}{subsection.4.8.1}%
-\contentsline {subsection}{\numberline {4.8.2}Chi phí cập nhật thành viên và rekey}{38}{subsection.4.8.2}%
-\contentsline {subsection}{\numberline {4.8.3}Chi phí của Single-Writer}{38}{subsection.4.8.3}%
+\contentsline {section}{\numberline {4.8}Phân tích chi phí lý thuyết}{39}{section.4.8}%
+\contentsline {subsection}{\numberline {4.8.1}Chi phí gửi application message}{39}{subsection.4.8.1}%
+\contentsline {subsection}{\numberline {4.8.2}Chi phí cập nhật thành viên và rekey}{39}{subsection.4.8.2}%
+\contentsline {subsection}{\numberline {4.8.3}Chi phí của Single-Writer}{39}{subsection.4.8.3}%
 \contentsline {subsection}{\numberline {4.8.4}Chi phí của kiểm tra epoch và đối chiếu trạng thái}{39}{subsection.4.8.4}%
-\contentsline {subsection}{\numberline {4.8.5}Chi phí của Fork Healing}{39}{subsection.4.8.5}%
-\contentsline {section}{\numberline {4.9}Tổng hợp các bất biến và cơ chế bảo toàn}{39}{section.4.9}%
-\contentsline {section}{\numberline {4.10}Giới hạn lý thuyết của phương pháp}{39}{section.4.10}%
-\contentsline {chapter}{\numberline {5}ĐÁNH GIÁ THỰC NGHIỆM}{41}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Mục tiêu và phạm vi đánh giá}{41}{section.5.1}%
-\contentsline {section}{\numberline {5.2}Môi trường và phương pháp thí nghiệm}{41}{section.5.2}%
-\contentsline {section}{\numberline {5.3}Đối chiếu trên ứng dụng desktop}{42}{section.5.3}%
-\contentsline {subsection}{\numberline {5.3.1}Tạo tổ chức và cấp bundle}{43}{subsection.5.3.1}%
-\contentsline {subsection}{\numberline {5.3.2}Thiết bị mới vào hệ thống}{43}{subsection.5.3.2}%
-\contentsline {subsection}{\numberline {5.3.3}Trao đổi tin nhắn trong nhóm}{43}{subsection.5.3.3}%
-\contentsline {section}{\numberline {5.4}Đánh giá hội tụ trong điều kiện mạng hỗn loạn}{45}{section.5.4}%
-\contentsline {section}{\numberline {5.5}Đánh giá khả năng phục hồi sau phân vùng mạng}{45}{section.5.5}%
-\contentsline {section}{\numberline {5.6}Đánh giá cơ chế một người ghi và gom đề xuất}{47}{section.5.6}%
-\contentsline {section}{\numberline {5.7}Đánh giá khả năng mở rộng của thao tác thành viên}{48}{section.5.7}%
-\contentsline {section}{\numberline {5.8}Đánh giá chi phí mật mã MLS}{48}{section.5.8}%
-\contentsline {section}{\numberline {5.9}Chi phí phụ trợ của lớp điều phối}{50}{section.5.9}%
-\contentsline {section}{\numberline {5.10}Kiểm chứng Forward Secrecy bằng thành phần MLS thật}{51}{section.5.10}%
-\contentsline {section}{\numberline {5.11}Nhận xét và giới hạn đánh giá}{51}{section.5.11}%
-\contentsline {chapter}{\numberline {6}KẾT LUẬN}{53}{chapter.6}%
-\contentsline {section}{\numberline {6.1}Kết luận chung}{53}{section.6.1}%
-\contentsline {section}{\numberline {6.2}Giới hạn của đồ án}{54}{section.6.2}%
-\contentsline {section}{\numberline {6.3}Hướng phát triển}{54}{section.6.3}%
-\contentsline {chapter}{TÀI LIỆU THAM KHẢO}{57}{section*.26}%
-\contentsline {chapter}{PHỤ LỤC}{59}{section*.27}%
+\contentsline {subsection}{\numberline {4.8.5}Chi phí của Fork Healing}{40}{subsection.4.8.5}%
+\contentsline {section}{\numberline {4.9}Tổng hợp các bất biến và cơ chế bảo toàn}{40}{section.4.9}%
+\contentsline {section}{\numberline {4.10}Giới hạn lý thuyết của phương pháp}{41}{section.4.10}%
+\contentsline {chapter}{\numberline {5}ĐÁNH GIÁ THỰC NGHIỆM}{42}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Mục tiêu và phạm vi đánh giá}{42}{section.5.1}%
+\contentsline {section}{\numberline {5.2}Môi trường và phương pháp thí nghiệm}{42}{section.5.2}%
+\contentsline {section}{\numberline {5.3}Đối chiếu trên ứng dụng desktop}{43}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}Tạo tổ chức và cấp bundle}{44}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}Thiết bị mới vào hệ thống}{44}{subsection.5.3.2}%
+\contentsline {subsection}{\numberline {5.3.3}Trao đổi tin nhắn trong nhóm}{44}{subsection.5.3.3}%
+\contentsline {section}{\numberline {5.4}Đánh giá hội tụ trong điều kiện mạng hỗn loạn}{46}{section.5.4}%
+\contentsline {section}{\numberline {5.5}Đánh giá khả năng phục hồi sau phân vùng mạng}{46}{section.5.5}%
+\contentsline {section}{\numberline {5.6}Đánh giá cơ chế một người ghi và gom đề xuất}{48}{section.5.6}%
+\contentsline {section}{\numberline {5.7}Đánh giá khả năng mở rộng của thao tác thành viên}{49}{section.5.7}%
+\contentsline {section}{\numberline {5.8}Đánh giá chi phí mật mã MLS}{49}{section.5.8}%
+\contentsline {section}{\numberline {5.9}Chi phí phụ trợ của lớp điều phối}{51}{section.5.9}%
+\contentsline {section}{\numberline {5.10}Kiểm chứng Forward Secrecy bằng thành phần MLS thật}{52}{section.5.10}%
+\contentsline {section}{\numberline {5.11}Nhận xét và giới hạn đánh giá}{52}{section.5.11}%
+\contentsline {chapter}{\numberline {6}KẾT LUẬN}{54}{chapter.6}%
+\contentsline {section}{\numberline {6.1}Kết luận chung}{54}{section.6.1}%
+\contentsline {section}{\numberline {6.2}Giới hạn của đồ án}{55}{section.6.2}%
+\contentsline {section}{\numberline {6.3}Hướng phát triển}{55}{section.6.3}%
+\contentsline {chapter}{TÀI LIỆU THAM KHẢO}{58}{section*.26}%
+\contentsline {chapter}{PHỤ LỤC}{60}{section*.27}%
 \ttl@change@i {\@ne }{chapter}{0.0cm}{\bfseries \vspace {0.3cm}}{{\bfseries {\scshape } \thecontentslabel .\ }}{}{\titlerule *[0.3pc]{.}\contentspage }\relax 
 \ttl@change@v {chapter}{}{}{}\relax 
-\contentsline {chapter}{\numberline {A}ỨNG DỤNG DEMO VÀ KỊCH BẢN MINH HỌA}{59}{chapter.A}%
-\contentsline {section}{\numberline {A.1}Những phần đã triển khai trong ứng dụng desktop}{59}{section.A.1}%
-\contentsline {section}{\numberline {A.2}Chuỗi tham gia hệ thống và cấp bundle}{60}{section.A.2}%
-\contentsline {section}{\numberline {A.3}Không gian làm việc và cộng tác}{61}{section.A.3}%
-\contentsline {section}{\numberline {A.4}Quản trị nhóm và chẩn đoán}{63}{section.A.4}%
+\contentsline {chapter}{\numberline {A}ỨNG DỤNG DEMO VÀ KỊCH BẢN MINH HỌA}{60}{chapter.A}%
+\contentsline {section}{\numberline {A.1}Những phần đã triển khai trong ứng dụng desktop}{60}{section.A.1}%
+\contentsline {section}{\numberline {A.2}Chuỗi tham gia hệ thống và cấp bundle}{61}{section.A.2}%
+\contentsline {section}{\numberline {A.3}Không gian làm việc và cộng tác}{62}{section.A.3}%
+\contentsline {section}{\numberline {A.4}Quản trị nhóm và chẩn đoán}{64}{section.A.4}%
 \contentsfinish 

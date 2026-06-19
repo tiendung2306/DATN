@@ -16,6 +16,18 @@ This document serves as a short-term memory for the AI Agent.
 
 ## 2. Completed Tasks
 
+### Latest Delta (2026-06-16) ✅ — Fork Detection Theory Direction Clarified for Future Code Work
+
+- **Theory/documentation clarification completed:** Bất biến phát hiện fork trong Chương 4 không nên tiếp tục diễn đạt theo kiểu "cùng epoch nhưng khác `CommitHash`/`TreeHash`". Lập luận đó không đủ mạnh khi một nhánh đi trước nhanh hơn nhánh còn lại.
+- **Chosen direction for future code alignment:**
+  - Mỗi node nên lưu thêm một **rolling history summary** cho lịch sử Commit, ví dụ `R(0)=r0`, `R(e)=H(R(e-1) || CommitHash(e))`.
+  - `StateSummary`/`GroupStateAnnouncement` vẫn nên giữ nhỏ và mang ít nhất `Epoch`, `TreeHash`, `CommitHash`, và `HistoryHash = R(E)`.
+  - Khi peer remote ở epoch cao hơn, node local **không kết luận fork ngay**; local cần thêm một round trip để yêu cầu `R(localEpoch)` từ remote.
+  - Nếu `remote.R(localEpoch) == local.R(localEpoch)` thì remote chỉ đang đi trước trên cùng nhánh.
+  - Nếu hai giá trị khác nhau thì fork đã xuất hiện tại hoặc trước `localEpoch`.
+- **Important design boundary:** Winner rule hiện tại **không đổi**. Detection dùng `HistoryHash` prefix comparison; selection vẫn dùng branch weight `(support/member count > epoch > commit hash/tree hash tiebreakers)` theo tài liệu hiện tại.
+- **Docs synchronized:** Updated `README.md`, `PROJECT_PLAN.md`, `thesis_drafts/Chuong_3_De_xuat.md`, `thesis_drafts/Chuong_4_Phan_tich_ly_thuyet.md`, `thesis_drafts/paper_project/Chuong_4_Phan_tich_ly_thuyet.md`, và bản LaTeX của Chương 4 để phản ánh hướng này trước khi code được cập nhật.
+
 ### Latest Delta (2026-06-05) ✅ — Replay/Duplicate Hardening for Late-Join + Fork-Heal
 
 - **Problem investigated:** Khi node join muộn hoặc sau fork-heal, máy local có thể thấy duplicate message của chính mình. Root cause không nằm ở render thuần túy mà ở semantics replay: mapping cũ chỉ nối `replayed -> previous copy`, không đảm bảo `replayed -> root original`.

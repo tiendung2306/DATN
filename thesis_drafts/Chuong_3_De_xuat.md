@@ -139,7 +139,7 @@ Kết thúc
 ```
 
 **Quy trình hội tụ:**
-1. **Phát hiện:** Các nút định kỳ phát sóng `GroupStateAnnouncement`. Nếu nhận thấy TreeHash khác nhau, thuật toán 3 sẽ được gọi để xác định "Nhánh thắng" (Winning Branch).
+1. **Phát hiện:** Các nút định kỳ phát sóng `GroupStateAnnouncement`. Ngoài các trường như `Epoch`, `TreeHash`, `CommitHash` và `MemberCount`, mỗi nút còn duy trì một giá trị tóm tắt lịch sử Commit dạng cuộn, chẳng hạn $R(0)=r_0$ và $R(e)=H(R(e-1)\parallel CommitHash(e))$. Nếu một nút nhận thấy peer khác đang ở epoch cao hơn hoặc có fingerprint trạng thái khác thường, nó chưa kết luận fork ngay mà phải hỏi thêm giá trị $R(E_{local})$ của peer đó để đối chiếu với lịch sử cục bộ. Chỉ khi hai giá trị này không trùng nhau thì hệ thống mới xem như đã xuất hiện fork thực sự.
 2. **External Join:** Các nút thuộc "Nhánh thua" hủy bỏ toàn bộ cây trạng thái hiện tại. Chúng xác minh chữ ký chứng chỉ X.509 của Nhánh thắng và thực hiện quy trình gia nhập ngoại lai (External Join) để đồng bộ.
 3. **Autonomous Replay (Phát lại tự chủ):** Các nút gia nhập nhánh thắng thực hiện mã hóa và phát lại những tin nhắn văn bản chưa được đồng bộ thuộc nhánh cũ. Chú ý: *mỗi nút chỉ tự động phát lại tin nhắn do chính mình tạo ra* nhằm bảo đảm tính ẩn danh tiến về phía trước (Forward Secrecy).
 

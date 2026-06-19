@@ -6,22 +6,22 @@
 \contentsline {figure}{\numberline {3.1}{\ignorespaces Kiến trúc logic của giải pháp và ranh giới trách nhiệm giữa lớp điều phối với lớp MLS}}{16}{figure.caption.9}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {5.1}{\ignorespaces Cấp bundle cho thiết bị mới trên ứng dụng desktop}}{43}{figure.caption.13}%
-\contentsline {figure}{\numberline {5.2}{\ignorespaces Trao đổi tin nhắn trong nhóm}}{44}{figure.caption.14}%
-\contentsline {figure}{\numberline {5.3}{\ignorespaces Màn hình quản trị thành viên của nhóm}}{44}{figure.caption.15}%
-\contentsline {figure}{\numberline {5.4}{\ignorespaces Hội tụ epoch của các nút trong chaos test}}{45}{figure.caption.16}%
-\contentsline {figure}{\numberline {5.5}{\ignorespaces Thời gian phục hồi khi độ dài phân vùng thay đổi}}{46}{figure.caption.18}%
-\contentsline {figure}{\numberline {5.6}{\ignorespaces Hiệu quả của cơ chế gom đề xuất khi mức đồng thời tăng}}{47}{figure.caption.20}%
-\contentsline {figure}{\numberline {5.7}{\ignorespaces Phân rã chi phí xử lý cục bộ giữa phần MLS, phần lưu trữ và phần điều phối}}{50}{figure.caption.24}%
+\contentsline {figure}{\numberline {5.1}{\ignorespaces Cấp bundle cho thiết bị mới trên ứng dụng desktop}}{44}{figure.caption.13}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces Trao đổi tin nhắn trong nhóm}}{45}{figure.caption.14}%
+\contentsline {figure}{\numberline {5.3}{\ignorespaces Màn hình quản trị thành viên của nhóm}}{45}{figure.caption.15}%
+\contentsline {figure}{\numberline {5.4}{\ignorespaces Hội tụ epoch của các nút trong chaos test}}{46}{figure.caption.16}%
+\contentsline {figure}{\numberline {5.5}{\ignorespaces Thời gian phục hồi khi độ dài phân vùng thay đổi}}{47}{figure.caption.18}%
+\contentsline {figure}{\numberline {5.6}{\ignorespaces Hiệu quả của cơ chế gom đề xuất khi mức đồng thời tăng}}{48}{figure.caption.20}%
+\contentsline {figure}{\numberline {5.7}{\ignorespaces Phân rã chi phí xử lý cục bộ giữa phần MLS, phần lưu trữ và phần điều phối}}{51}{figure.caption.24}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {A.1}{\ignorespaces Khởi tạo định danh và tạo tổ chức gốc trong ứng dụng thử nghiệm}}{60}{figure.caption.28}%
-\contentsline {figure}{\numberline {A.2}{\ignorespaces Chuỗi cấp bundle cho thiết bị mới trong ứng dụng thử nghiệm}}{60}{figure.caption.29}%
-\contentsline {figure}{\numberline {A.3}{\ignorespaces Tổng quan không gian làm việc của ứng dụng desktop thử nghiệm}}{61}{figure.caption.30}%
-\contentsline {figure}{\numberline {A.4}{\ignorespaces Trao đổi tin nhắn trong cùng một nhóm ở các thiết bị khác nhau}}{62}{figure.caption.31}%
-\contentsline {figure}{\numberline {A.5}{\ignorespaces Bảng hoạt động và không gian kênh của ứng dụng thử nghiệm}}{62}{figure.caption.32}%
-\contentsline {figure}{\numberline {A.6}{\ignorespaces Các hộp thoại tạo nhóm và thêm thành viên}}{63}{figure.caption.33}%
-\contentsline {figure}{\numberline {A.7}{\ignorespaces Màn hình quản trị thành viên và chính sách mời của nhóm}}{63}{figure.caption.34}%
-\contentsline {figure}{\numberline {A.8}{\ignorespaces Các màn hình theo dõi trạng thái mạng và trạng thái nhóm}}{64}{figure.caption.35}%
+\contentsline {figure}{\numberline {A.1}{\ignorespaces Khởi tạo định danh và tạo tổ chức gốc trong ứng dụng thử nghiệm}}{61}{figure.caption.28}%
+\contentsline {figure}{\numberline {A.2}{\ignorespaces Chuỗi cấp bundle cho thiết bị mới trong ứng dụng thử nghiệm}}{61}{figure.caption.29}%
+\contentsline {figure}{\numberline {A.3}{\ignorespaces Tổng quan không gian làm việc của ứng dụng desktop thử nghiệm}}{62}{figure.caption.30}%
+\contentsline {figure}{\numberline {A.4}{\ignorespaces Trao đổi tin nhắn trong cùng một nhóm ở các thiết bị khác nhau}}{63}{figure.caption.31}%
+\contentsline {figure}{\numberline {A.5}{\ignorespaces Bảng hoạt động và không gian kênh của ứng dụng thử nghiệm}}{63}{figure.caption.32}%
+\contentsline {figure}{\numberline {A.6}{\ignorespaces Các hộp thoại tạo nhóm và thêm thành viên}}{64}{figure.caption.33}%
+\contentsline {figure}{\numberline {A.7}{\ignorespaces Màn hình quản trị thành viên và chính sách mời của nhóm}}{64}{figure.caption.34}%
+\contentsline {figure}{\numberline {A.8}{\ignorespaces Các màn hình theo dõi trạng thái mạng và trạng thái nhóm}}{65}{figure.caption.35}%
 \contentsfinish 
 \contentsfinish 
