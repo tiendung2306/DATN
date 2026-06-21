@@ -54,27 +54,14 @@ def plot_recovery():
     plt.grid(True, which="both", linestyle='--', alpha=0.5, color='#CCCCCC')
     plt.legend(loc='upper left', fontsize=10, frameon=True, framealpha=0.95, edgecolor='#CCCCCC')
 
-    # Add text-based caption box emphasizing the message
-    plt.figtext(0.5, -0.05, 
-                "Thông điệp chính: Thời gian khôi phục (Recovery Time) duy trì ổn định tuyệt đối quanh mức 1.25s - 1.35s,\n"
-                "hoàn toàn độc lập với thời gian mạng bị ngắt (5s đến 60s). Điều này chứng minh thuật toán Fork Healing tự trị hoạt động cực kỳ bền bỉ,\n"
-                "chỉ phụ thuộc vào chu kỳ Gossip Heartbeat phát hiện reconnect vật lý chứ không tích lũy gánh nặng theo thời gian xảy ra sự cố.", 
-                ha="center", fontsize=9.5, bbox={"facecolor":"#FFF9E6", "alpha":0.8, "pad":8, "edgecolor":"#FFE0B2", "linewidth":1}, fontstyle="italic")
+    # Removed text-based caption box as requested
 
     # Add data labels dynamically next to the points
     for idx, row in df.iterrows():
         plt.text(row['PartitionDurationSec'], row['RecoveryTimeMs'] + 25, f"{int(row['RecoveryTimeMs'])}ms", 
                  ha='center', va='bottom', fontsize=10, color=recovery_color, fontweight='bold')
 
-    # Add background annotations indicating mechanisms
-    plt.text(10, 1150, 
-             "Cơ chế tự phục hồi:\n"
-             "1. Phát hiện Fork qua Gossip Announcement\n"
-             "2. So sánh trọng số (C_members, Epoch, Commit_hash)\n"
-             "3. Nhánh thua tự tiêu hủy khóa cũ (Crypto-shredding)\n"
-             "4. Tự động External Join nhập lại Canonical Branch",
-             bbox=dict(facecolor='#FFF2E6', alpha=0.85, boxstyle='round,pad=0.6', edgecolor='#FFD9B3', linewidth=1),
-             ha='left', va='center', fontsize=9, color='#B35900')
+    # Removed background annotations as requested
 
     plt.tight_layout()
     plt.savefig(OUTPUT_IMAGE, dpi=300, bbox_inches='tight')

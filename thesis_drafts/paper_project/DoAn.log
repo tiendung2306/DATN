@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  16 JUN 2026 09:46
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  21 JUN 2026 22:56
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1964,7 +1964,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.35 ... cá»§a giáº£i phÃ¡p}{16}{subsection.3.1.2}
+l.35 ... cá»§a giáº£i phÃ¡p}{17}{subsection.3.1.2}
                                                   % [1
 
 ]
@@ -1972,19 +1972,19 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.59 ...á»¥c vá»¥ kiá»ƒm chá»©ng}{28}{section.3.6}
+l.59 ...á»¥c vá»¥ kiá»ƒm chá»©ng}{29}{section.3.6}
                                                   % [2]
 pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.84 ...ch chi phÃ­ lÃ½ thuyáº¿t}{39}{section.4.8}
+l.84 ...ch chi phÃ­ lÃ½ thuyáº¿t}{40}{section.4.8}
                                                   % [3]
 pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.110 ...}HÆ°á»›ng phÃ¡t triá»ƒn}{55}{section.6.3}
+l.110 ...i háº¡n cá»§a Ä‘á»“ Ã¡n}{60}{section.6.2}
                                                   % [4])
 \tf@toc=\write7
 \openout7 = `DoAn.toc'.
@@ -2020,6 +2020,32 @@ Package glossaries Info: Preparing to sort glossary `acronym' (total number of
 ] [4]
 Ch\uhorn \ohorn ng 1.
 (Chuong/1_Gioi_thieu.tex
+
+LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 7.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 7.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 9.
+
+
+LaTeX Warning: Citation 'localfirst2019' on page 1 undefined on input line 9.
+
+
+LaTeX Warning: Citation 'perrin2025doubleratchet' on page 1 undefined on input 
+line 11.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 11.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 13.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 13.
+
+
 pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has 
 been already used, duplicate ignored
 <to be read again> 
@@ -2027,31 +2053,244 @@ been already used, duplicate ignored
 l.14 
       [1
 
-] [2] [3] [4]) [5]
+]
+
+LaTeX Warning: Citation 'rfc9750' on page 2 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 2 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 2 undefined on input line 15.
+
+
+
+LaTeX Warning: Citation 'balbas2023senderkeys' on page 2 undefined on input lin
+e 22.
+
+
+LaTeX Warning: Citation 'ginesin2024matrix' on page 2 undefined on input line 2
+2.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 2 undefined on input line 22.
+
+
+LaTeX Warning: Citation 'balbas2023senderkeys' on page 2 undefined on input lin
+e 24.
+
+
+LaTeX Warning: Citation 'ginesin2024matrix' on page 2 undefined on input line 2
+4.
+
+
+LaTeX Warning: Citation 'balbas2023senderkeys' on page 2 undefined on input lin
+e 24.
+
+
+LaTeX Warning: Citation 'ginesin2024matrix' on page 2 undefined on input line 2
+4.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 2 undefined on input line 26.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 2 undefined on input line 26.
+
+[2]
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 3 undefined on input line 28.
+
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 3 undefined on input line 28.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 3 undefined on input line 28.
+
+
+
+LaTeX Warning: Citation 'localfirst2019' on page 3 undefined on input line 35.
+
+[3]
+
+LaTeX Warning: Citation 'gilbert2002brewers' on page 4 undefined on input line 
+39.
+
+[4]) [5]
 Ch\uhorn \ohorn ng 2.
-(Chuong/2_Co_so_ly_thuyet.tex [6
+(Chuong/2_Co_so_ly_thuyet.tex
+
+LaTeX Warning: Citation 'rfc9420' on page 6 undefined on input line 11.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 6 undefined on input line 11.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 6 undefined on input line 13.
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 6 undefined on input line 13.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 6 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 6 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 6 undefined on input line 15.
+
+
+[6
 
 ]
 LaTeX Font Info:    Calculating math sizes for size <11.86258> on input line 95
 .
- [7] [8] [9] [10] [11] [12] [13]) [14]
+
+
+LaTeX Warning: Citation 'rfc9750' on page 7 undefined on input line 100.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 7 undefined on input line 102.
+
+
+LaTeX Warning: Citation 'gilbert2002brewers' on page 7 undefined on input line 
+102.
+
+[7]
+
+LaTeX Warning: Citation 'perrin2025doubleratchet' on page 8 undefined on input 
+line 115.
+
+
+LaTeX Warning: Citation 'balbas2023senderkeys' on page 8 undefined on input lin
+e 115.
+
+[8]
+
+LaTeX Warning: Citation 'ginesin2024matrix' on page 9 undefined on input line 1
+17.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 9 undefined on input line 123.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 9 undefined on input line 125.
+
+[9]
+
+LaTeX Warning: Citation 'gilbert2002brewers' on page 10 undefined on input line
+ 131.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 10 undefined on input line 13
+5.
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 10 undefined on input line 135.
+
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 10 undefined on input line 13
+5.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 10 undefined on input line 144.
+
+[10]
+
+LaTeX Warning: Citation 'rfc9420' on page 11 undefined on input line 150.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 11 undefined on input line 154.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 11 undefined on input line 158.
+
+[11]
+
+LaTeX Warning: Citation 'rfc9420' on page 12 undefined on input line 164.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 12 undefined on input line 170.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 12 undefined on input line 172.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 12 undefined on input line 174.
+
+[12]
+
+LaTeX Warning: Citation 'libp2p2026doc' on page 13 undefined on input line 187.
+
+
+[13]
+
+LaTeX Warning: Citation 'lamport1978' on page 14 undefined on input line 197.
+
+
+LaTeX Warning: Citation 'kulkarni2014hlc' on page 14 undefined on input line 19
+7.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 14 undefined on input line 201.
+
+
+LaTeX Warning: Citation 'libp2p2026doc' on page 14 undefined on input line 201.
+
+
+
+LaTeX Warning: Citation 'kulkarni2014hlc' on page 14 undefined on input line 20
+1.
+
+[14]) [15]
 Ch\uhorn \ohorn ng 3.
-(Chuong/3_De_xuat.tex [15
+(Chuong/3_De_xuat.tex
+
+LaTeX Warning: Citation 'rfc9420' on page 16 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'rfc9750' on page 16 undefined on input line 15.
+
+
+LaTeX Warning: Citation 'alwen2023fork' on page 16 undefined on input line 17.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 16 undefined on input line 17
+.
+
+[16
 
 ]
-<Hinh/chuong3_architecture.png, id=918, 5595.90625pt x 2983.145pt>
+
+LaTeX Warning: Citation 'rfc9420' on page 17 undefined on input line 23.
+
+<Hinh/chuong3_architecture.png, id=884, 5595.90625pt x 2983.145pt>
 File: Hinh/chuong3_architecture.png Graphic file (type png)
 <use Hinh/chuong3_architecture.png>
 Package pdftex.def Info: Hinh/chuong3_architecture.png  used on input line 29.
 (pdftex.def)             Requested size: 426.79135pt x 227.5043pt.
- [16 <./Hinh/chuong3_architecture.png (PNG copy)>]
-[17] [18]
-Underfull \hbox (badness 10000) in paragraph at lines 129--129
+[17 <./Hinh/chuong3_architecture.png (PNG copy)>] [18]
+
+LaTeX Warning: Citation 'rfc9420' on page 19 undefined on input line 106.
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 131--131
 []\T5/ptm/b/n/13 Algorithm 2: \T5/ptm/m/n/13 Quy tr¼nh t¤o Commit cõa Token Hol
 der
  []
 
 [19]
+Overfull \vbox (9.8622pt too high) has occurred while \output is active []
+
+
+[20]
+
+LaTeX Warning: Citation 'rfc9420' on page 21 undefined on input line 150.
+
+[21]
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
 1.sty
 File: lstlang1.sty 2025/11/14 1.11b listings language file
@@ -2063,62 +2302,92 @@ File: lstlang2.sty 2025/11/14 1.11b listings language file
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
 3.sty
 File: lstlang3.sty 2025/11/14 1.11b listings language file
-) [20]
+)
 LaTeX Font Info:    Trying to load font information for T5+pcr on input line 15
-6.
+8.
 
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5pcr.fd
 File: t5ucr.fd 2005/08/24 Fontinst v1.929 font definitions for T5/pcr.
 )
 LaTeX Font Info: \kern \lst@width \kern \lst@width \kern \lst@width Calculating
 \kern \lst@width math\kern \lst@width sizes\kern \lst@width for\kern \lst@width
- size\kern \lst@width <10.83347> on input line 157.
+ size\kern \lst@width <10.83347> on input line 159.
 
 
 LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 157.
+(Font)              size <8> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 157.
+(Font)              size <5> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <7.58339> not available
-(Font)              size <8> substituted on input line 157.
+(Font)              size <8> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <5.41673> not available
-(Font)              size <5> substituted on input line 157.
+(Font)              size <5> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 157.
+(Font)              size <8> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 157.
+(Font)              size <5> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `U/lasy/m/n' in size <7.58339> not available
-(Font)              size <8> substituted on input line 157.
+(Font)              size <8> substituted on input line 159.
 
 
 LaTeX Font Warning: Font shape `U/lasy/m/n' in size <5.41673> not available
-(Font)              size <5> substituted on input line 157.
+(Font)              size <5> substituted on input line 159.
 
-[21] [22] [23] [24] [25] [26] [27] [28] [29]) [30]
+[22] [23] [24] [25]
+
+LaTeX Warning: Citation 'rfc9420' on page 26 undefined on input line 278.
+
+[26]
+
+LaTeX Warning: Citation 'kulkarni2014hlc' on page 27 undefined on input line 30
+8.
+
+[27] [28] [29] [30]) [31]
 Ch\uhorn \ohorn ng 4.
-(Chuong/4_Phan_tich_ly_thuyet.tex [31
+(Chuong/4_Phan_tich_ly_thuyet.tex [32
 
-] [32] [33] [34] [35] [36] [37] [38]
+]
+
+LaTeX Warning: Citation 'rfc9420' on page 33 undefined on input line 38.
+
+[33] [34]
+
+LaTeX Warning: Citation 'rfc9420' on page 35 undefined on input line 103.
+
+[35] [36]
+
+LaTeX Warning: Citation 'rfc9420' on page 37 undefined on input line 162.
+
+[37] [38]
+
+LaTeX Warning: Citation 'rfc9420' on page 39 undefined on input line 210.
+
+
+LaTeX Warning: Citation 'kulkarni2014hlc' on page 39 undefined on input line 22
+1.
+
 [39]
+
+LaTeX Warning: Citation 'rfc9420' on page 40 undefined on input line 240.
+
+
+LaTeX Warning: Citation 'rfc9420' on page 40 undefined on input line 244.
+
+[40]
 Underfull \hbox (badness 10000) in paragraph at lines 288--288
 []|\T5/ptm/m/n/11.86258 B£n tâm t­t tr¤ng th¡i,
- []
-
-
-Underfull \hbox (badness 1242) in paragraph at lines 288--288
-\OML/cmm/m/it/12 treeHash$\T5/ptm/m/n/11.86258 , cam k¸t ti·n tè
  []
 
 
@@ -2131,11 +2400,70 @@ Underfull \hbox (badness 10000) in paragraph at lines 288--288
 []|\T5/ptm/m/n/11.86258 T¡ch application ordering
  []
 
-[40]) [41]
+[41]
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\T5/ptm/b/n/11.86258 ^^^çng thuªn
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+\T5/ptm/b/n/11.86258 Quorum
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\T5/ptm/b/n/11.86258 Gi£i ph¡p ^^_· xu§t
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\T5/ptm/m/n/11.86258 Nh§t qu¡n m¤nh
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\T5/ptm/m/n/11.86258 Nh§t qu¡n m¤nh
+ []
+
+
+Underfull \hbox (badness 3601) in paragraph at lines 323--323
+\T5/ptm/b/n/11.86258 Holder ph¡t sâng mët
+ []
+
+
+Underfull \hbox (badness 4492) in paragraph at lines 323--323
+[]|\T5/ptm/b/n/11.86258 ^^^ë tr¹ x¡c nhªn
+ []
+
+
+Underfull \hbox (badness 5607) in paragraph at lines 323--323
+[]|\T5/ptm/b/n/11.86258 Sü phò hñp cho
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 323--323
+[]|\T5/ptm/m/n/11.86258 K²m (d¹ bà treo
+ []
+
+
+Underfull \hbox (badness 1852) in paragraph at lines 323--323
+\T5/ptm/m/n/11.86258 m¤ng, tèn k²m t i
+ []
+
+[42]
+
+LaTeX Warning: Citation 'gilbert2002brewers' on page 43 undefined on input line
+ 331.
+
+
+LaTeX Warning: Citation 'localfirst2019' on page 43 undefined on input line 331
+.
+
+[43]) [44]
 Ch\uhorn \ohorn ng 5.
 (Chuong/5_Thuc_nghiem.tex
-Underfull \hbox (badness 1436) in paragraph at lines 27--27
-[]|\T5/ptm/m/n/13 Mët ng÷íi ghi trong
+Underfull \hbox (badness 10000) in paragraph at lines 27--27
+[]|\T5/ptm/m/n/13 Single-Writer trong
  []
 
 
@@ -2143,332 +2471,199 @@ Underfull \hbox (badness 4569) in paragraph at lines 31--31
 []|\T5/ptm/m/n/13 Thíi gian phöc hçi
  []
 
-[42
+[45
 
-] [43] [44] [45]
-<Hinh/chuong5/chaos_convergence.png, id=1125, 945.2916pt x 537.6888pt>
+] [46]
+<Hinh/app_demo/app_02_awaiting_bundle_alice.png, id=1074, 954.56625pt x 597.733
+12pt>
+File: Hinh/app_demo/app_02_awaiting_bundle_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_02_awaiting_bundle_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_02_awaiting_bundle_alice.png  used o
+n input line 66.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_03_admin_issue_bundle_admin.png, id=1076, 963.6pt x 602.25pt
+>
+File: Hinh/app_demo/app_03_admin_issue_bundle_admin.png Graphic file (type png)
+
+<use Hinh/app_demo/app_03_admin_issue_bundle_admin.png>
+Package pdftex.def Info: Hinh/app_demo/app_03_admin_issue_bundle_admin.png  use
+d on input line 73.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+ [47 <./Hinh/app_demo/app_02_awaiting_bundle_alice.png>]
+<Hinh/app_demo/app_05_group_chat_admin.png, id=1085, 963.6pt x 602.25pt>
+File: Hinh/app_demo/app_05_group_chat_admin.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_admin.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_admin.png  used on inp
+ut line 92.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+<Hinh/app_demo/app_05_group_chat_alice.png, id=1086, 954.56625pt x 597.73312pt>
+
+File: Hinh/app_demo/app_05_group_chat_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_alice.png  used on inp
+ut line 99.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_05_group_chat_bob.png, id=1087, 954.56625pt x 597.73312pt>
+File: Hinh/app_demo/app_05_group_chat_bob.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_bob.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_bob.png  used on input
+ line 106.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_06_group_management_alice.png, id=1089, 963.6pt x 602.25pt>
+File: Hinh/app_demo/app_06_group_management_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_06_group_management_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_06_group_management_alice.png  used 
+on input line 115.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+ [48 <./Hinh/app_demo/app_03_admin_issue_bundle_admin.png>] [49 <./Hinh/app_dem
+o/app_05_group_chat_admin.png> <./Hinh/app_demo/app_05_group_chat_alice.png>] [
+50 <./Hinh/app_demo/app_05_group_chat_bob.png> <./Hinh/app_demo/app_06_group_ma
+nagement_alice.png>]
+<Hinh/chuong5/chaos_convergence.png, id=1109, 945.2916pt x 537.6888pt>
 File: Hinh/chuong5/chaos_convergence.png Graphic file (type png)
 <use Hinh/chuong5/chaos_convergence.png>
 Package pdftex.def Info: Hinh/chuong5/chaos_convergence.png  used on input line
- 114.
+ 129.
 (pdftex.def)             Requested size: 405.45047pt x 230.61916pt.
-<Hinh/chuong5/partition_recovery.png, id=1129, 715.2321pt x 496.4949pt>
+<Hinh/chuong5/partition_recovery.png, id=1112, 715.2321pt x 459.8781pt>
 File: Hinh/chuong5/partition_recovery.png Graphic file (type png)
 <use Hinh/chuong5/partition_recovery.png>
 Package pdftex.def Info: Hinh/chuong5/partition_recovery.png  used on input lin
-e 147.
-(pdftex.def)             Requested size: 384.1096pt x 266.6411pt.
- [46 <./Hinh/chuong5/chaos_convergence.png>] [47 <./Hinh/chuong5/partition_reco
+e 162.
+(pdftex.def)             Requested size: 384.1096pt x 246.97615pt.
+ [51 <./Hinh/chuong5/chaos_convergence.png>] [52 <./Hinh/chuong5/partition_reco
 very.png>]
-<Hinh/chuong5/concurrency_batching.png, id=1140, 1145.2386pt x 518.1759pt>
+<Hinh/chuong5/concurrency_batching.png, id=1123, 1145.2386pt x 518.1759pt>
 File: Hinh/chuong5/concurrency_batching.png Graphic file (type png)
 <use Hinh/chuong5/concurrency_batching.png>
 Package pdftex.def Info: Hinh/chuong5/concurrency_batching.png  used on input l
-ine 188.
+ine 203.
 (pdftex.def)             Requested size: 384.1096pt x 173.78964pt.
- [48 <./Hinh/chuong5/concurrency_batching.png>]
-[49] [50]
-<Hinh/chuong5/coordinator_overhead.png, id=1162, 853.2678pt x 533.8344pt>
+ [53 <./Hinh/chuong5/concurrency_batching.png>]
+
+LaTeX Warning: Citation 'rfc9420' on page 54 undefined on input line 287.
+
+[54] [55]
+<Hinh/chuong5/coordinator_overhead.png, id=1144, 853.2678pt x 533.8344pt>
 File: Hinh/chuong5/coordinator_overhead.png Graphic file (type png)
 <use Hinh/chuong5/coordinator_overhead.png>
 Package pdftex.def Info: Hinh/chuong5/coordinator_overhead.png  used on input l
-ine 285.
+ine 300.
 (pdftex.def)             Requested size: 384.1096pt x 240.31285pt.
- [51 <./Hinh/chuong5/coordinator_overhead.png>] [52]) [53]
+ [56 <./Hinh/chuong5/coordinator_overhead.png>] [57]) [58]
 Ch\uhorn \ohorn ng 6.
-(Chuong/6_Ket_luan.tex [54
+(Chuong/6_Ket_luan.tex [59
 
-] [55]) [56]
+] [60]) [61]
 
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'rfc9420' on input line 328.
+LaTeX Warning: Empty bibliography on input line 328.
 
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'july' untranslated
-(biblatex)                at entry 'rfc9420' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'rfc9420' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'rfc9750' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'february' untranslated
-(biblatex)                at entry 'rfc9750' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'rfc9750' on input line 328.
-
-
-Underfull \hbox (badness 2591) in paragraph at lines 329--329
-\T5/ptm/m/it/13 Messaging Layer Security (MLS) Architecture\T5/ptm/m/n/13 , RFC
- 9750, []
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'localfirst2019' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'in' untranslated
-(biblatex)                at entry 'localfirst2019' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'jourser' untranslated
-(biblatex)                at entry 'localfirst2019' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'localfirst2019' on input line 328.
-
-
-Underfull \hbox (badness 3557) in paragraph at lines 329--329
-\T5/ptm/m/n/13 ``Local-first software: You own your data, in spite of the cloud
-,''
- []
-
-
-Underfull \hbox (badness 5147) in paragraph at lines 329--329
-[]\T5/ptm/m/it/13 Proceedings of the ACM SIGPLAN International Symposium on
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'perrin2025doubleratchet' on input line 328.
-
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'perrin2025doubleratchet' on input line 328.
-
-
-
-Underfull \hbox (badness 5563) in paragraph at lines 329--329
-[]\T5/ptm/m/n/13 T. Perrin, M. Marlinspike [] R. Schmidt, \T5/ptm/m/it/13 The D
-ouble Ratchet
- []
-
-
-Underfull \hbox (badness 3668) in paragraph at lines 329--329
-\T5/ptm/m/it/13 Algorithm\T5/ptm/m/n/13 , Signal Specifications, Revision 4, Pu
-blished 2025-11-04,
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'in' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'alwen2023fork' on input line 328.
-
-
-Underfull \hbox (badness 1616) in paragraph at lines 329--329
-\T5/ptm/m/n/13 Group Key Agreement,'' []\T5/ptm/m/it/13 Advances in Cryptology 
--- CRYPTO 2023
- []
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'october' untranslated
-(biblatex)                at entry 'kohbrok2025dmls' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'kohbrok2025dmls' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'balbas2023senderkeys' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'balbas2023senderkeys' on input line 328.
-
-
-Underfull \hbox (badness 2961) in paragraph at lines 329--329
-[]\T5/ptm/m/n/13 D. Balb¡s, D. Collins [] P. Gajland, \T5/ptm/m/it/13 Analysis 
-and Improvements
- []
-
-
-Underfull \hbox (badness 3128) in paragraph at lines 329--329
-\T5/ptm/m/it/13 of the Sender Keys Protocol for Group Messaging\T5/ptm/m/n/13 ,
- arXiv preprint
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'ginesin2024matrix' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'ginesin2024matrix' on input line 328.
-
-
-Underfull \hbox (badness 1231) in paragraph at lines 329--329
-[]\T5/ptm/m/n/13 J. Ginesin [] C. Nita-Rotaru, \T5/ptm/m/it/13 The Matrix Reloa
-ded: A Mechanized
- []
-
-
-Underfull \hbox (badness 3271) in paragraph at lines 329--329
-\T5/ptm/m/it/13 Formal Analysis of the Matrix Cryptographic Suite\T5/ptm/m/n/13
- , arXiv preprint
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'jourvol' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'number' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'gilbert2002brewers' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Underfull \hbox (badness 1354) in paragraph at lines 329--329
-\T5/ptm/m/n/13 Consistent, Available, Partition-Tolerant Web Services,'' \T5/pt
-m/m/it/13 ACM SIGACT
- []
-
-[57
-
-]
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'libp2p2026doc' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'jourvol' untranslated
-(biblatex)                at entry 'lamport1978' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'number' untranslated
-(biblatex)                at entry 'lamport1978' on input line 328.
-
-
-Package biblatex Warning: Bibliography string 'pages' untranslated
-(biblatex)                at entry 'lamport1978' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Overfull \hbox (9.20186pt too wide) in paragraph at lines 329--329
-\T5/ptm/m/n/13 System,'' \T5/ptm/m/it/13 Communications of the ACM\T5/ptm/m/n/1
-3 , [] 21, [] 7, [] 558^^U565,
- []
-
-
-Package biblatex Warning: Bibliography string 'and' untranslated
-(biblatex)                at entry 'kulkarni2014hlc' on input line 328.
-
-
-Package biblatex Warning: Using fallback definition for \mkbibdatelong.
-(biblatex)                The command should be defined in the .lbx file.
-(biblatex)                If you see this message, the .lbx file could not be
-(biblatex)                loaded, is faulty or does not contain a definition
-(biblatex)                for \mkbibdatelong.
-
-
-Package biblatex Warning: Bibliography string 'url' untranslated
-(biblatex)                at entry 'kulkarni2014hlc' on input line 328.
-
-
-Underfull \hbox (badness 3884) in paragraph at lines 329--329
-\T5/ptm/m/n/13 Databases,'' University at Buffalo, techreport, 2014. []: []$\T5
-/pcr/m/n/13 https :
- []
-
-[58] [59
+[62
 
 ]
 PHá»¤ Lá»¤C A.
-(Chuong/Phu_luc_Ung_dung_demo.tex [60
+(Chuong/Phu_luc_Ung_dung_demo.tex
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
+6.
 
-] [61] [62] [63] [64]) [65] (DoAn.aux)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
+File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
+) [63
+
+{C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.en
+c}] [64]
+<Hinh/app_demo/app_01_welcome.png, id=1189, 950.55125pt x 592.2125pt>
+File: Hinh/app_demo/app_01_welcome.png Graphic file (type png)
+<use Hinh/app_demo/app_01_welcome.png>
+Package pdftex.def Info: Hinh/app_demo/app_01_welcome.png  used on input line 4
+7.
+(pdftex.def)             Requested size: 384.1096pt x 239.3116pt.
+<Hinh/app_demo/app_15_admin_quick_setup.png, id=1190, 963.6pt x 602.25pt>
+File: Hinh/app_demo/app_15_admin_quick_setup.png Graphic file (type png)
+<use Hinh/app_demo/app_15_admin_quick_setup.png>
+Package pdftex.def Info: Hinh/app_demo/app_15_admin_quick_setup.png  used on in
+put line 54.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+File: Hinh/app_demo/app_02_awaiting_bundle_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_02_awaiting_bundle_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_02_awaiting_bundle_alice.png  used o
+n input line 61.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+File: Hinh/app_demo/app_03_admin_issue_bundle_admin.png Graphic file (type png)
+
+<use Hinh/app_demo/app_03_admin_issue_bundle_admin.png>
+Package pdftex.def Info: Hinh/app_demo/app_03_admin_issue_bundle_admin.png  use
+d on input line 68.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+ [65 <./Hinh/app_demo/app_01_welcome.png> <./Hinh/app_demo/app_15_admin_quick_s
+etup.png>] [66]
+<Hinh/app_demo/app_04_workspace_overview_alice.png, id=1210, 954.56625pt x 597.
+73312pt>
+File: Hinh/app_demo/app_04_workspace_overview_alice.png Graphic file (type png)
+
+<use Hinh/app_demo/app_04_workspace_overview_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_04_workspace_overview_alice.png  use
+d on input line 82.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+File: Hinh/app_demo/app_05_group_chat_admin.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_admin.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_admin.png  used on inp
+ut line 89.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+File: Hinh/app_demo/app_05_group_chat_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_alice.png  used on inp
+ut line 96.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+File: Hinh/app_demo/app_05_group_chat_bob.png Graphic file (type png)
+<use Hinh/app_demo/app_05_group_chat_bob.png>
+Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_bob.png  used on input
+ line 103.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_07_activity_alice.png, id=1211, 954.56625pt x 597.73312pt>
+File: Hinh/app_demo/app_07_activity_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_07_activity_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_07_activity_alice.png  used on input
+ line 110.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_10_channel_post_alice.png, id=1212, 954.56625pt x 597.73312p
+t>
+File: Hinh/app_demo/app_10_channel_post_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_10_channel_post_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_10_channel_post_alice.png  used on i
+nput line 117.
+(pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
+<Hinh/app_demo/app_11_create_group_modal_alice.png, id=1213, 963.6pt x 602.25pt
+>
+File: Hinh/app_demo/app_11_create_group_modal_alice.png Graphic file (type png)
+
+<use Hinh/app_demo/app_11_create_group_modal_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_11_create_group_modal_alice.png  use
+d on input line 124.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+<Hinh/app_demo/app_12_add_member_modal_alice.png, id=1214, 963.6pt x 602.25pt>
+File: Hinh/app_demo/app_12_add_member_modal_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_12_add_member_modal_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_12_add_member_modal_alice.png  used 
+on input line 131.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+ [67
+
+ <./Hinh/app_demo/app_04_workspace_overview_alice.png>] [68] [69 <./Hinh/app_de
+mo/app_07_activity_alice.png>] [70 <./Hinh/app_demo/app_10_channel_post_alice.p
+ng> <./Hinh/app_demo/app_11_create_group_modal_alice.png>] [71 <./Hinh/app_demo
+/app_12_add_member_modal_alice.png>]
+File: Hinh/app_demo/app_06_group_management_alice.png Graphic file (type png)
+<use Hinh/app_demo/app_06_group_management_alice.png>
+Package pdftex.def Info: Hinh/app_demo/app_06_group_management_alice.png  used 
+on input line 143.
+(pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
+ [72
+
+])
+[73
+
+] (DoAn.aux)
  ***********
 LaTeX2e <2026-06-01>
 L3 programming layer <2026-05-26>
@@ -2482,7 +2677,7 @@ LaTeX Font Warning: Size substitutions with differences
 LaTeX Warning: There were undefined references.
 
 Package rerunfilecheck Info: File `DoAn.out' has not changed.
-(rerunfilecheck)             Checksum: 79CE09C50E8220A42A45FF6A8D4262E9;27667.
+(rerunfilecheck)             Checksum: BEFEA211B44739FA90ABB69BC3A8D271;28684.
 
 Package biblatex Warning: Please (re)run BibTeX on the file(s):
 (biblatex)                DoAn
@@ -2493,11 +2688,11 @@ Package logreq Info: Writing requests to 'DoAn.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 46706 strings out of 467509
- 922209 string characters out of 5405379
- 1781144 words of memory out of 5000000
- 74888 multiletter control sequences out of 15000+600000
- 699528 words of font info for 116 fonts, out of 8000000 for 9000
+ 46727 strings out of 467509
+ 922872 string characters out of 5405379
+ 1773571 words of memory out of 5000000
+ 74900 multiletter control sequences out of 15000+600000
+ 693100 words of font info for 115 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  108i,15n,107p,2507b,1638s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
@@ -2505,20 +2700,22 @@ nts/cm/cmmi12.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/ty
 pe1/public/amsfonts/cm/cmmi8.pfb><C:/Users/tiendung2306/AppData/Local/Programs/
 MiKTeX/fonts/type1/public/amsfonts/cm/cmmi9.pfb><C:/Users/tiendung2306/AppData/
 Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Users/tiendu
-ng2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr9.pfb><C
+ng2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb><C
 :/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/
-cm/cmsy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/
-public/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKT
-eX/fonts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/AppData/Local/Prog
-rams/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiendung2306/AppData/L
-ocal/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Users/tiendung2306/
-AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.pfb><C:/Users/tie
-ndung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmr8v.pfb><C:/
-Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmri8
-v.pfb>
-Output written on DoAn.pdf (78 pages, 2507289 bytes).
+cm/cmr9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/pu
+blic/amsfonts/cm/cmsy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTe
+X/fonts/type1/public/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Local
+/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/AppD
+ata/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiendung
+2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Users
+/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.pfb
+><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utm
+r8a.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/
+urwvn/utmr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/typ
+e1/vntex/urwvn/utmri8v.pfb>
+Output written on DoAn.pdf (86 pages, 3241835 bytes).
 PDF statistics:
- 1378 PDF objects out of 1440 (max. 8388607)
- 264 named destinations out of 1000 (max. 500000)
- 910 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 1376 PDF objects out of 1440 (max. 8388607)
+ 271 named destinations out of 1000 (max. 500000)
+ 999 words of extra memory for PDF output out of 10000 (max. 10000000)
 

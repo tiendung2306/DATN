@@ -4,7 +4,7 @@
 	\chapter{Đánh giá thực nghiệm}
 	\label{ch:danh_gia_thuc_nghiem}
 	
-	Chương này trình bày quá trình đánh giá thực nghiệm hệ thống truyền thông phi tập trung sử dụng MLS trên mạng P2P. Mục tiêu của chương không chỉ là đo hiệu năng thuần túy, mà quan trọng hơn là kiểm chứng các thuộc tính cốt lõi đã được đề xuất ở các chương trước: tính an toàn của cơ chế Single-Writer, khả năng hội tụ epoch và TreeHash sau phân mảnh mạng, tính đúng đắn của cơ chế Fork Healing, khả năng sắp xếp thông điệp nhất quán bằng Hybrid Logical Clock, và việc bảo toàn các thuộc tính bảo mật của MLS khi tích hợp vào kiến trúc Go--Rust sidecar.
+	Chương này trình bày quá trình đánh giá thực nghiệm hệ thống truyền thông phi tập trung sử dụng MLS trên mạng P2P. Mục tiêu của chương không chỉ là đo hiệu năng thuần túy, mà quan trọng hơn là kiểm chứng các thuộc tính cốt lõi đã được đề xuất ở các chương trước: tính an toàn của cơ chế Single-Writer, khả năng hội tụ epoch và TreeHash sau phân vùng mạng, tính đúng đắn của cơ chế Fork Healing, khả năng sắp xếp thông điệp nhất quán bằng Hybrid Logical Clock, và việc bảo toàn các thuộc tính bảo mật của MLS khi tích hợp vào kiến trúc Go--Rust sidecar.
 	
 	Các kết quả trong chương được tổng hợp từ các bài kiểm thử tự động trong mã nguồn, các tệp dữ liệu đo đạc trong thư mục \texttt{evaluation/data}, và các biểu đồ được sinh từ những dữ liệu này. Cần nhấn mạnh rằng hệ thống đánh giá được chia thành nhiều tầng: một số bài kiểm thử sử dụng mạng giả lập và MLS giả lập để cô lập logic điều phối; một số bài kiểm thử khác sử dụng Rust sidecar thật để kiểm chứng thuộc tính mật mã. Cách phân tầng này giúp tách bạch rõ ràng giữa kiểm chứng giao thức điều phối và kiểm chứng chi phí mật mã của OpenMLS.
 	

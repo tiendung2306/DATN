@@ -5,14 +5,14 @@
 	
 Sau phần phân tích lý thuyết ở Chương 4, đồ án cần một bước kiểm chứng để trả lời câu hỏi liệu các cơ chế đã đề xuất có vận hành được trên hệ thống thực nghiệm hay không. Vì vậy, chương này trình bày phần đánh giá thực nghiệm của đồ án, trong đó ứng dụng desktop thử nghiệm được dùng như một môi trường kiểm chứng tích hợp, còn các bài kiểm thử tự động và dữ liệu benchmark được dùng để đối chiếu các thuộc tính đã phân tích ở chương trước.
 	
-Chương này tập trung vào ba nhóm nội dung. Nhóm thứ nhất kiểm chứng các kịch bản thao tác trên ứng dụng thử nghiệm để làm rõ rằng các giả định của giao thức đã đi vào luồng sử dụng thật. Nhóm thứ hai đánh giá khả năng hội tụ, phục hồi sau phân vùng mạng và hiệu quả của cơ chế một người ghi trong các bài kiểm thử điều phối. Nhóm thứ ba xem xét chi phí mật mã, chi phí điều phối và thuộc tính bảo mật còn được giữ lại khi hệ thống chạy với thành phần MLS thật.
+Chương này tập trung vào ba nhóm nội dung. Nhóm thứ nhất kiểm chứng các kịch bản thao tác trên ứng dụng thử nghiệm để làm rõ rằng các giả định của giao thức đã đi vào luồng sử dụng thật. Nhóm thứ hai đánh giá khả năng hội tụ, phục hồi sau phân vùng mạng và hiệu quả của cơ chế Single-Writer trong các bài kiểm thử điều phối. Nhóm thứ ba xem xét chi phí mật mã, chi phí điều phối và thuộc tính bảo mật còn được giữ lại khi hệ thống chạy với thành phần MLS thật.
 	
 	\section{Mục tiêu và phạm vi đánh giá}
 	\label{sec:muc_tieu_danh_gia}
 	
-Phần đánh giá của đồ án không chỉ nhằm đo hiệu năng thuần túy, mà trước hết nhằm kiểm chứng các luận điểm đã được xây dựng từ Chương 3 và Chương 4. Câu hỏi cần trả lời là: trong điều kiện mạng ngang hàng có thể mất kết nối, trễ gói và chia cắt, các nút có còn hội tụ về cùng trạng thái MLS hay không; cơ chế một người ghi có còn giảm được xung đột Commit hay không; và việc tách lớp điều phối khỏi lõi MLS có giữ được các thuộc tính bảo mật chính hay không.
+Phần đánh giá của đồ án không chỉ nhằm đo hiệu năng thuần túy, mà trước hết nhằm kiểm chứng các luận điểm đã được xây dựng từ Chương 3 và Chương 4. Câu hỏi cần trả lời là: trong điều kiện mạng ngang hàng có thể mất kết nối, trễ gói và chia cắt, các nút có còn hội tụ về cùng trạng thái MLS hay không; cơ chế Single-Writer có còn giảm được xung đột Commit hay không; và việc tách lớp điều phối khỏi lõi MLS có giữ được các thuộc tính bảo mật chính hay không.
 	
-Từ đó, các mục tiêu đánh giá được chia thành ba hướng. Hướng thứ nhất kiểm tra tính đúng đắn của tiến trình điều phối, trong đó các đại lượng quan trọng là epoch cuối cùng, mã băm cây cuối cùng, số Commit hợp lệ trong mỗi epoch và khả năng phát hiện phân nhánh. Hướng thứ hai xem xét hiệu quả vận hành của cơ chế một người ghi và cơ chế gom đề xuất, tức là xem hệ thống có giảm được các lần tạo Commit cạnh tranh hay không. Hướng thứ ba kiểm tra phần mật mã và an toàn, đặc biệt là thuộc tính Forward Secrecy sau khi một thành viên bị loại khỏi nhóm.
+Từ đó, các mục tiêu đánh giá được chia thành ba hướng. Hướng thứ nhất kiểm tra tính đúng đắn của tiến trình điều phối, trong đó các đại lượng quan trọng là epoch cuối cùng, mã băm cây cuối cùng, số Commit hợp lệ trong mỗi epoch và khả năng phát hiện phân nhánh. Hướng thứ hai xem xét hiệu quả vận hành của cơ chế Single-Writer và cơ chế gom đề xuất, tức là xem hệ thống có giảm được các lần tạo Commit cạnh tranh hay không. Hướng thứ ba kiểm tra phần mật mã và an toàn, đặc biệt là thuộc tính Forward Secrecy sau khi một thành viên bị loại khỏi nhóm.
 	
 	\begin{table}[htbp]
 		\centering
@@ -24,7 +24,7 @@ Từ đó, các mục tiêu đánh giá được chia thành ba hướng. Hướ
 			\hline
 			Hội tụ mã băm cây & Các nút hợp lệ phải có cùng mã băm cây MLS, cho thấy trạng thái mật mã đã hội tụ. \\
 			\hline
-			Một người ghi trong cùng epoch & Không xuất hiện hai Commit hợp lệ cạnh tranh trong cùng một epoch khi các nút có cùng view. \\
+			Single-Writer trong cùng epoch & Không xuất hiện hai Commit hợp lệ cạnh tranh trong cùng một epoch khi các nút có cùng ActiveView. \\
 			\hline
 			Hiệu quả gom đề xuất & Nhiều Proposal gần nhau có thể được gom vào một Commit thay vì sinh nhiều epoch liên tiếp. \\
 			\hline
@@ -59,15 +59,20 @@ Các hình minh họa đầy đủ được đưa xuống Phụ lục~\ref{appen
 
 Kịch bản đầu tiên diễn ra trên hai máy. Ở máy quản trị, người dùng tạo tổ chức và mở phần quản trị để cấp bundle cho một thiết bị mới. Ở máy thành viên, người dùng tạo định danh cục bộ rồi dừng ở màn hình chờ bundle, nơi ứng dụng hiển thị PeerID và khóa công khai MLS của thiết bị. Nhìn ở mức thao tác, đây chỉ là một quy trình đăng ký. Nhưng nhìn ở mức giao thức, nó cho thấy một thiết bị không thể tự ý vào mạng của tổ chức; nó phải có bundle hợp lệ do phía quản trị cấp.
 
-Hình~\ref{fig:app_bundle_flow} đặt hai đầu của quy trình này cạnh nhau. Màn hình chờ bundle cho thấy thiết bị thành viên phải tự tạo định danh trước khi xin tham gia, còn màn hình quản trị cho thấy quyền cho tham gia nằm ở phía quản trị viên, chứ không do một máy chủ trung tâm tự động cấp phát. Chi tiết này bám đúng với giả định an toàn mà đồ án đặt ra từ đầu.
+Các Hình~\ref{fig:app_awaiting_bundle} và Hình~\ref{fig:app_issue_bundle} trình bày hai đầu của quy trình này. Màn hình chờ bundle cho thấy thiết bị thành viên phải tự tạo định danh trước khi xin tham gia, còn màn hình quản trị cho thấy quyền cho tham gia nằm ở phía quản trị viên, chứ không do một máy chủ trung tâm tự động cấp phát. Chi tiết này bám đúng với giả định an toàn mà đồ án đặt ra từ đầu.
 
 	\begin{figure}[htbp]
 		\centering
-		\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Thiết bị thành viên ở trạng thái chờ bundle}{Vị trí đặt ảnh Awaiting Bundle của Alice}
-		\hfill
-		\AppDemoSubfigure[0.48\textwidth]{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Bảng điều khiển quản trị phát hành bundle}{Vị trí đặt ảnh Admin Panel cấp bundle}
-		\caption{Cấp bundle cho thiết bị mới trên ứng dụng desktop}
-		\label{fig:app_bundle_flow}
+		\AppDemoGraphic{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Vị trí đặt ảnh Awaiting Bundle của Alice}
+		\caption{Thiết bị thành viên ở trạng thái chờ cấp phát bundle}
+		\label{fig:app_awaiting_bundle}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Vị trí đặt ảnh Admin Panel cấp bundle}
+		\caption{Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}
+		\label{fig:app_issue_bundle}
 	\end{figure}
 
 	\subsection{Thiết bị mới vào hệ thống}
@@ -80,17 +85,27 @@ Kịch bản này cũng cho thấy giao diện chỉ là lớp bên ngoài. Nó 
 
 Kịch bản tiếp theo mở đồng thời các cửa sổ ứng dụng của Admin, Alice và Bob. Sau khi nhóm được tạo và thêm đủ thành viên, các bên cùng gửi tin nhắn vào một cuộc trò chuyện chung. Đây là phần dễ nhìn nhất của hệ thống, nhưng điều đáng chú ý không chỉ là việc tin nhắn hiện ra trên màn hình. Trước đó, các thay đổi về thành viên phải đi qua Proposal và Commit để mọi phía cùng ổn định về một trạng thái nhóm. Chỉ sau bước đó, các tin nhắn mới được mã hóa bằng MLS và hiển thị theo cùng một logic sắp xếp.
 
-Hình~\ref{fig:app_group_chat_multinode} đặt các cửa sổ này cạnh nhau để người đọc nhìn được cùng một nhóm ở nhiều phía khác nhau. Cách trình bày này có ích hơn so với chỉ chụp một cửa sổ, vì nó cho thấy hệ thống không chỉ chạy được ở một phía mà thực sự đồng bộ được khi mạng còn thông.
+Các Hình~\ref{fig:app_chat_admin}, Hình~\ref{fig:app_chat_alice} và Hình~\ref{fig:app_chat_bob} minh họa các cửa sổ này để người đọc nhìn được trạng thái đồng bộ của cùng một nhóm ở nhiều phía khác nhau.
 
 	\begin{figure}[htbp]
 		\centering
-		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_admin.png}{Cửa sổ nhóm trên thiết bị Admin}{Vị trí đặt ảnh group chat của Admin}
-		\hfill
-		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_alice.png}{Cửa sổ nhóm trên thiết bị Alice}{Vị trí đặt ảnh group chat của Alice}
-		\hfill
-		\AppDemoSubfigure{Hinh/app_demo/app_05_group_chat_bob.png}{Cửa sổ nhóm trên thiết bị Bob}{Vị trí đặt ảnh group chat của Bob}
-		\caption{Trao đổi tin nhắn trong nhóm}
-		\label{fig:app_group_chat_multinode}
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_admin.png}{Vị trí đặt ảnh group chat của Admin}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Admin}
+		\label{fig:app_chat_admin}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_alice.png}{Vị trí đặt ảnh group chat của Alice}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Alice}
+		\label{fig:app_chat_alice}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_bob.png}{Vị trí đặt ảnh group chat của Bob}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Bob}
+		\label{fig:app_chat_bob}
 	\end{figure}
 
 Đi cùng với nhắn tin là phần quản trị thành viên. Khi người dùng mở phần chi tiết phòng để xem danh sách thành viên, đổi chính sách mời hoặc thêm người mới, giao diện thực chất đang kích hoạt các thao tác thay đổi thành viên ở phía sau. Vì vậy, Hình~\ref{fig:app_group_management} được giữ lại để nối phần thao tác người dùng với các quy tắc điều phối đã nêu ở Chương 3.
@@ -151,10 +166,10 @@ Kết quả cuối cùng cho thấy các nút hợp lệ hội tụ về cùng e
 	
 Kết quả này cho thấy thời gian phục hồi không tăng tuyến tính theo thời gian phân vùng. Điều đó phù hợp với bản chất của cơ chế hàn gắn: chi phí chính nằm ở bước đối chiếu trạng thái, chọn nhánh và gia nhập lại, chứ không tăng trực tiếp theo số giây mà mạng đã bị chia cắt. Dĩ nhiên, trong môi trường thực tế, thời gian này vẫn còn phụ thuộc vào chất lượng mạng, số lượng thông điệp cần xử lý lại và quy mô nhóm.
 	
-	\section{Đánh giá cơ chế một người ghi và gom đề xuất}
+	\section{Đánh giá cơ chế Single-Writer và gom đề xuất}
 	\label{sec:danh_gia_single_writer}
 	
-Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùng tạo Commit cho cùng một epoch. Nếu điều đó xảy ra, cây MLS sẽ bị tách nhánh và các thành viên không còn cùng một trạng thái mật mã. Cơ chế một người ghi được đưa ra để chặn đúng tình huống này: chỉ Token Holder của epoch hiện tại được tạo Commit, còn các nút khác chỉ phát tán Proposal.
+Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùng tạo Commit cho cùng một epoch. Nếu điều đó xảy ra, cây MLS sẽ bị tách nhánh và các thành viên không còn cùng một trạng thái mật mã. Cơ chế Single-Writer được đưa ra để chặn đúng tình huống này: chỉ Token Holder của epoch hiện tại được tạo Commit, còn các nút khác chỉ phát tán Proposal.
 	
 Để đánh giá hiệu quả của cơ chế gom đề xuất, thí nghiệm so sánh hai chiến lược. Chiến lược thứ nhất xử lý ngay khi nhận Proposal, nên các Proposal đến muộn trong cùng một epoch dễ phải thử lại sau khi epoch đã đổi. Chiến lược thứ hai chờ một khoảng gom 1 giây để Token Holder đưa nhiều Proposal vào cùng một Commit.
 	
@@ -190,7 +205,7 @@ Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùn
 		\label{fig:concurrency_batching}
 	\end{figure}
 	
-Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược xử lý ngay phải tạo thêm Proposal do các nút thường rơi vào tình trạng gửi muộn so với epoch hiện hành. Trong khi đó, chiến lược gom theo lô giữ số Proposal đúng bằng số thao tác thực và vẫn chỉ cần một Commit. Kết quả này củng cố lập luận ở Chương 4 rằng vai trò của cơ chế một người ghi không chỉ nằm ở tính đúng đắn, mà còn ở hiệu quả vận hành: hệ thống cố giảm xung đột Commit từ đầu thay vì xử lý hậu quả sau đó.
+Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} cho thấy khi mức đồng thời tăng, chiến lược xử lý ngay phải tạo thêm Proposal do các nút thường rơi vào tình trạng gửi muộn so với epoch hiện hành. Trong khi đó, chiến lược gom theo lô giữ số Proposal đúng bằng số thao tác thực và vẫn chỉ cần một Commit. Kết quả này củng cố lập luận ở Chương 4 rằng vai trò của cơ chế Single-Writer không chỉ nằm ở tính đúng đắn, mà còn ở hiệu quả vận hành: hệ thống cố giảm xung đột Commit từ đầu thay vì xử lý hậu quả sau đó.
 	
 	\section{Đánh giá khả năng mở rộng của thao tác thành viên}
 	\label{sec:danh_gia_scalability}
@@ -303,7 +318,7 @@ Kết quả này có ý nghĩa rõ ràng đối với mô hình bảo mật củ
 	\section{Nhận xét và giới hạn đánh giá}
 	\label{sec:nhan_xet_gioi_han}
 	
-Các kết quả thực nghiệm cho thấy hướng tiếp cận của đồ án đạt được ba điểm quan trọng. Thứ nhất, cơ chế một người ghi và cơ chế gom đề xuất giúp giảm xung đột Commit trong các kịch bản đã đo. Thứ hai, tiến trình đối chiếu trạng thái và hàn gắn phân nhánh cho phép các nút quay về cùng epoch và cùng mã băm cây sau phân vùng mạng. Thứ ba, khi kết hợp với thành phần MLS thật, hệ thống vẫn giữ được thuộc tính Forward Secrecy trong phạm vi kiểm thử của đồ án.
+Các kết quả thực nghiệm cho thấy hướng tiếp cận của đồ án đạt được ba điểm quan trọng. Thứ nhất, cơ chế Single-Writer và cơ chế gom đề xuất giúp giảm xung đột Commit trong các kịch bản đã đo. Thứ hai, tiến trình đối chiếu trạng thái và Fork Healing cho phép các nút quay về cùng epoch và cùng mã băm cây sau phân vùng mạng. Thứ ba, khi kết hợp với thành phần MLS thật, hệ thống vẫn giữ được thuộc tính Forward Secrecy trong phạm vi kiểm thử của đồ án.
 	
 Tuy nhiên, phần đánh giá vẫn còn giới hạn. Các chaos test hiện nay chủ yếu dùng mạng giả lập nên chưa phản ánh đầy đủ độ trễ, mất gói và hành vi NAT của môi trường thực. Các benchmark MLS cho thấy xu hướng chi phí rõ ràng, nhưng chưa phải là đánh giá đầu cuối của toàn bộ ứng dụng desktop trên nhiều máy độc lập. Ngoài ra, mô hình trao đổi toàn trạng thái giữa các thành phần còn gây chi phí lớn khi nhóm rất đông thành viên; đây là điểm cần tiếp tục tối ưu nếu muốn tiến xa hơn khỏi phạm vi ứng dụng thử nghiệm.
 	

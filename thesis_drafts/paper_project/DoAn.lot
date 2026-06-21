@@ -3,15 +3,16 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {4.1}{\ignorespaces Quy tắc xử lý thông điệp theo epoch}}{32}{table.caption.10}%
-\contentsline {table}{\numberline {4.2}{\ignorespaces Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}}{40}{table.caption.11}%
+\contentsline {table}{\numberline {4.1}{\ignorespaces Quy tắc xử lý thông điệp theo epoch}}{33}{table.caption.10}%
+\contentsline {table}{\numberline {4.2}{\ignorespaces Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}}{41}{table.caption.11}%
+\contentsline {table}{\numberline {4.3}{\ignorespaces Bảng so sánh cơ chế điều phối đề xuất với các thuật toán đồng thuận truyền thống}}{43}{table.caption.12}%
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {5.1}{\ignorespaces Các tiêu chí đánh giá thực nghiệm}}{43}{table.caption.12}%
-\contentsline {table}{\numberline {5.2}{\ignorespaces Thời gian phục hồi sau phân vùng mạng}}{47}{table.caption.17}%
-\contentsline {table}{\numberline {5.3}{\ignorespaces So sánh xử lý ngay và cơ chế gom đề xuất}}{48}{table.caption.19}%
-\contentsline {table}{\numberline {5.4}{\ignorespaces Chi phí thao tác thành viên theo quy mô nhóm}}{49}{table.caption.21}%
-\contentsline {table}{\numberline {5.5}{\ignorespaces So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}}{50}{table.caption.22}%
-\contentsline {table}{\numberline {5.6}{\ignorespaces So sánh p95 và p99 ở nhóm 4096 thành viên}}{50}{table.caption.23}%
+\contentsline {table}{\numberline {5.1}{\ignorespaces Các tiêu chí đánh giá thực nghiệm}}{46}{table.caption.13}%
+\contentsline {table}{\numberline {5.2}{\ignorespaces Thời gian phục hồi sau phân vùng mạng}}{52}{table.caption.21}%
+\contentsline {table}{\numberline {5.3}{\ignorespaces So sánh xử lý ngay và cơ chế gom đề xuất}}{53}{table.caption.23}%
+\contentsline {table}{\numberline {5.4}{\ignorespaces Chi phí thao tác thành viên theo quy mô nhóm}}{54}{table.caption.25}%
+\contentsline {table}{\numberline {5.5}{\ignorespaces So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}}{55}{table.caption.26}%
+\contentsline {table}{\numberline {5.6}{\ignorespaces So sánh p95 và p99 ở nhóm 4096 thành viên}}{55}{table.caption.27}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \contentsfinish 
