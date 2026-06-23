@@ -54,9 +54,10 @@ const (
 	MsgCommit      MessageType = "commit"
 	MsgHeartbeat   MessageType = "heartbeat"
 	MsgAnnounce    MessageType = "announce"
-	MsgEpochNotify MessageType = "epoch_notify"
-	MsgApplication MessageType = "application"
-	MsgDeliveryAck MessageType = "delivery_ack"
+	MsgEpochNotify        MessageType = "epoch_notify"
+	MsgApplication        MessageType = "application"
+	MsgApplicationBatched MessageType = "application_batched"
+	MsgDeliveryAck        MessageType = "delivery_ack"
 )
 
 // Envelope is the top-level wire format for all coordination messages.
@@ -274,6 +275,25 @@ type EpochNotification struct {
 // ApplicationMsg carries an MLS-encrypted chat message.
 type ApplicationMsg struct {
 	Ciphertext []byte `json:"ciphertext"` // MLS ciphertext bytes
+}
+
+// BatchedApplicationMsg carries an MLS-encrypted batched chat message.
+// The Ciphertext, when decrypted, will unmarshal into a BatchedPlaintext.
+type BatchedApplicationMsg struct {
+	Ciphertext []byte `json:"ciphertext"`
+}
+
+// BatchedPlaintext represents a batch of application messages that are serialized,
+// then encrypted together as a single payload to optimize cryptographic and network overhead.
+type BatchedPlaintext struct {
+	Events []ApplicationEventPayload `json:"events"`
+}
+
+// ApplicationEventPayload is the unencrypted inner content of a batched event.
+type ApplicationEventPayload struct {
+	EventID   string `json:"event_id"`
+	Plaintext []byte `json:"plaintext"`
+	HLC       []byte `json:"hlc"` // serialized HLCTimestamp
 }
 
 // DeliveryAckMsg acknowledges successful application-layer receipt of one

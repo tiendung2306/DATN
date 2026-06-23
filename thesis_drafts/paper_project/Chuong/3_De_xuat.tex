@@ -308,7 +308,11 @@ $winningBranch \leftarrow SelectBranch(Branches)$\;
 \label{alg:fork_healing}
 \end{algorithm}
 
-Nếu chính sách ứng dụng cho phép phục hồi thông điệp đã phát sinh ở nhánh thua, nút chỉ được phát lại các thông điệp do chính nó tạo ra và phải mã hóa lại chúng dưới trạng thái MLS mới. Quy tắc này giữ cho quá trình phục hồi dữ liệu ứng dụng không xâm phạm ranh giới trách nhiệm của MLS và cũng không cho phép một nút tự ý đại diện cho thông điệp của nút khác.
+Sau khi quá trình Fork Healing hoàn tất và các nút nhánh thua đã thực hiện gia nhập lại thành công, hệ thống phải đối mặt với một vấn đề mang tính nền tảng của mật mã mã hóa đầu cuối là Backward Secrecy. Do đặc điểm của External Join của MLS, các nút từ một nhánh, khi gia nhập vào nhánh còn lại sẽ không sở hữu khóa bí mật của các epoch đã qua trong thời gian phân mảnh mạng của nhánh đó. Điều này dẫn tới hệ quả là chúng không thể giải mã các thông điệp trong lịch sử đã được nhánh kia trao đổi.
+
+Để lấp đầy khoảng trống dữ liệu này mà không phá vỡ mô hình mã hóa đầu cuối, đồ án sử dụng một cơ chế khôi phục thông điệp là khi nhận diện được mốc hợp nhất nhánh, mỗi thiết bị ở cả hai nhánh đều tiến hành quét lại toàn bộ tin nhắn được lưu cục bộ của mình. Hệ thống yêu cầu mỗi nút tự bọc lại các thông điệp do chính nó tạo ra trong thời gian đứt mạng bằng khóa nhóm của epoch mới nhất, sau đó phát lại vào mạng. Quy tắc này đảm bảo dữ liệu được phục hồi mà không vi phạm ranh giới thẩm quyền của MLS, bởi vì thao tác mã hóa được thực hiện bởi chính tác giả gốc của thông điệp, không cho phép bất kỳ nút nào tự ý đại diện cho thông điệp của người khác.
+
+Tuy nhiên, nếu hàng nghìn thông điệp được phát lại thành từng gói tin đơn lẻ ngay sau khi hợp nhất, mạng sẽ đối mặt với hiện tượng bão mạng gây nghẽn nghiêm trọng. Mặc dù về mặt vật lý, tổng dung lượng dữ liệu của các tin nhắn là không thể thay đổi, nhưng thay vì bắt mạng lưới gánh chịu hàng nghìn lần chi phí đóng gói thông điệp và ép CPU chạy thuật toán mã hóa MLS hàng nghìn lần, hệ thống sẽ gom hàng loạt tin nhắn này lại và gộp chung vào các gói tin lớn. Do mạng P2P có giới hạn kích thước gói tin (thường là 1MB), số lượng tin nhắn sẽ được chia thành những khối dữ liệu để đẩy đi. Cách làm này không làm giảm tổng dung lượng, nhưng sẽ giúp triệt tiêu hoàn toàn lượng metadata định tuyến khổng lồ không cần thiết.
 
 \section{Thứ tự thông điệp ứng dụng bằng Hybrid Logical Clock}
 \label{sec:hlc-ordering}

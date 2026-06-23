@@ -261,7 +261,13 @@ Fork Healing chỉ phát sinh khi đã có phân nhánh trạng thái. Chi phí 
 
 Về bản chất, đây là một chi phí bất thường chứ không phải chi phí xuất hiện trên mọi thông điệp. Đồ án chấp nhận chi phí này để đổi lấy khả năng tiếp tục hoạt động cục bộ trong lúc mạng bị chia cắt, rồi hội tụ trở lại khi kết nối được khôi phục.
 
-\section{Tổng hợp các bất biến và cơ chế bảo toàn}
+\subsection{Phân tích cơ chế phát lại thông điệp ứng dụng}
+
+Quy trình tự mã hóa và phát lại thông điệp đóng vai trò quan trọng trong việc khôi phục tính liên tục của dữ liệu sau khi hợp nhất nhánh. Về mặt bảo mật, cách làm này không vi phạm thuộc tính Forward Secrecy hay Backward Secrecy của giao thức MLS. Khi một thành viên phát lại thông điệp lịch sử của chính họ, bản chất là thiết bị của tác giả đang tự giải mã bản rõ của mình ở cục bộ và mã hóa lại bằng khóa nhóm của epoch mới nhất. Do đó, các nút vừa mới gia nhập hoàn toàn có thể giải mã được bản mã mới này mà không cần tiếp cận vào vật liệu khóa của các epoch cũ. Việc không cho phép một nút đại diện mã hóa lại thông điệp của nút khác cũng đảm bảo tính xác thực và tránh mạo danh người khác.
+
+Về khía cạnh hiệu năng mạng lưới, đồ án sử dụng kỹ thuật gom tin nhắn để hạn chế tối đa bão mạng. Tổng dung lượng dữ liệu cần truyền đi là không đổi. Tuy nhiên, việc gom nhiều tin nhắn vào chung các gói tin giúp giảm đáng kể số lần CPU phải mã hóa MLS và giảm lượng lớn metadata định vị đính kèm trong các gói tin mạng.
+
+\section{Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}
 \label{sec:tong_hop_bat_bien}
 
 Bảng~\ref{tab:invariant_summary} tóm tắt các bất biến chính đã được phân tích trong chương này và cơ chế tương ứng của phương pháp.

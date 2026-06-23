@@ -52,13 +52,13 @@
 \contentsline {subsection}{\numberline {3.4.2}Phát hiện nghi vấn phân nhánh và đối chiếu trạng thái}{24}{subsection.3.4.2}%
 \contentsline {subsection}{\numberline {3.4.3}Hàm trọng số nhánh}{24}{subsection.3.4.3}%
 \contentsline {subsection}{\numberline {3.4.4}Quy trình Fork Healing}{25}{subsection.3.4.4}%
-\contentsline {section}{\numberline {3.5}Thứ tự thông điệp ứng dụng bằng Hybrid Logical Clock}{26}{section.3.5}%
-\contentsline {subsection}{\numberline {3.5.1}Lý do cần HLC}{26}{subsection.3.5.1}%
+\contentsline {section}{\numberline {3.5}Thứ tự thông điệp ứng dụng bằng Hybrid Logical Clock}{27}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}Lý do cần HLC}{27}{subsection.3.5.1}%
 \contentsline {subsection}{\numberline {3.5.2}Tạo timestamp khi gửi tin}{27}{subsection.3.5.2}%
-\contentsline {subsection}{\numberline {3.5.3}Cập nhật HLC khi nhận tin}{27}{subsection.3.5.3}%
+\contentsline {subsection}{\numberline {3.5.3}Cập nhật HLC khi nhận tin}{28}{subsection.3.5.3}%
 \contentsline {subsection}{\numberline {3.5.4}Vai trò của HLC trong hệ thống}{28}{subsection.3.5.4}%
-\contentsline {section}{\numberline {3.6}Hiện thực ứng dụng thử nghiệm phục vụ kiểm chứng}{28}{section.3.6}%
-\contentsline {subsection}{\numberline {3.6.1}Ranh giới trách nhiệm trong ứng dụng thử nghiệm}{28}{subsection.3.6.1}%
+\contentsline {section}{\numberline {3.6}Hiện thực ứng dụng thử nghiệm phục vụ kiểm chứng}{29}{section.3.6}%
+\contentsline {subsection}{\numberline {3.6.1}Ranh giới trách nhiệm trong ứng dụng thử nghiệm}{29}{subsection.3.6.1}%
 \contentsline {subsection}{\numberline {3.6.2}Vai trò của ứng dụng desktop}{29}{subsection.3.6.2}%
 \contentsline {section}{\numberline {3.7}Tính đúng đắn trực giác của phương pháp}{29}{section.3.7}%
 \contentsline {chapter}{\numberline {4}PHÂN TÍCH LÝ THUYẾT}{31}{chapter.4}%
@@ -88,7 +88,8 @@
 \contentsline {subsection}{\numberline {4.8.3}Chi phí của Single-Writer}{39}{subsection.4.8.3}%
 \contentsline {subsection}{\numberline {4.8.4}Chi phí của kiểm tra epoch và đối chiếu trạng thái}{39}{subsection.4.8.4}%
 \contentsline {subsection}{\numberline {4.8.5}Chi phí của Fork Healing}{40}{subsection.4.8.5}%
-\contentsline {section}{\numberline {4.9}Tổng hợp các bất biến và cơ chế bảo toàn}{40}{section.4.9}%
+\contentsline {subsection}{\numberline {4.8.6}Phân tích cơ chế phát lại thông điệp ứng dụng}{40}{subsection.4.8.6}%
+\contentsline {section}{\numberline {4.9}Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}{41}{section.4.9}%
 \contentsline {section}{\numberline {4.10}So sánh đặc tính với các thuật toán đồng thuận truyền thống}{41}{section.4.10}%
 \contentsline {section}{\numberline {4.11}Giới hạn lý thuyết của phương pháp}{42}{section.4.11}%
 \contentsline {chapter}{\numberline {5}ĐÁNH GIÁ THỰC NGHIỆM}{44}{chapter.5}%
@@ -109,7 +110,7 @@
 \contentsline {chapter}{\numberline {6}KẾT LUẬN}{57}{chapter.6}%
 \contentsline {section}{\numberline {6.1}Kết luận chung}{57}{section.6.1}%
 \contentsline {section}{\numberline {6.2}Giới hạn của đồ án}{58}{section.6.2}%
-\contentsline {section}{\numberline {6.3}Hướng phát triển}{58}{section.6.3}%
+\contentsline {section}{\numberline {6.3}Hướng phát triển}{59}{section.6.3}%
 \contentsline {chapter}{TÀI LIỆU THAM KHẢO}{61}{section*.30}%
 \contentsline {chapter}{PHỤ LỤC}{63}{section*.31}%
 \ttl@change@i {\@ne }{chapter}{0.0cm}{\bfseries \vspace {0.3cm}}{{\bfseries {\scshape } \thecontentslabel .\ }}{}{\titlerule *[0.3pc]{.}\contentspage }\relax 

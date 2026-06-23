@@ -311,6 +311,54 @@ func (s *SQLiteCoordinationStorage) ApplyApplication(rec *coordination.GroupReco
 	return true, seq, nil
 }
 
+func (s *SQLiteCoordinationStorage) ApplyBatchedApplication(rec *coordination.GroupRecord, msgs []*coordination.StoredMessage, msgType coordination.MessageType, envelope []byte, ts coordination.HLCTimestamp, envEpoch uint64) (bool, int64, error) {
+	if rec == nil || len(msgs) == 0 || rec.GroupID == "" || len(envelope) == 0 {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication: invalid input")
+	}
+	tx, err := s.db.Conn.Begin()
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	hash := sha256.Sum256(envelope)
+	
+	applied, err := hasAppliedEnvelopeTx(tx, rec.GroupID, hash[:])
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication has-applied: %w", err)
+	}
+	if applied {
+		if err := tx.Commit(); err != nil {
+			return false, 0, fmt.Errorf("ApplyBatchedApplication commit-noop: %w", err)
+		}
+		return false, 0, nil
+	}
+
+	if err := saveGroupRecordTx(tx, rec); err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication save-group: %w", err)
+	}
+	
+	for _, msg := range msgs {
+		msg.EnvelopeHash = hash[:]
+		msg.MessageID = hex.EncodeToString(hash[:])
+		if err := saveMessageTx(tx, msg); err != nil {
+			return false, 0, fmt.Errorf("ApplyBatchedApplication save-message: %w", err)
+		}
+	}
+	
+	if err := markEnvelopeAppliedTx(tx, rec.GroupID, msgType, rec.Epoch, hash[:]); err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication mark-applied: %w", err)
+	}
+	seq, err := appendEnvelopeTx(tx, rec.GroupID, msgType, envEpoch, ts, envelope)
+	if err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication append-envelope: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, 0, fmt.Errorf("ApplyBatchedApplication commit: %w", err)
+	}
+	return true, seq, nil
+}
+
 func (s *SQLiteCoordinationStorage) HasAppliedEnvelope(groupID string, envelopeHash []byte) (bool, error) {
 	if len(envelopeHash) == 0 {
 		return false, nil

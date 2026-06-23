@@ -967,6 +967,36 @@ func (s *MockStorage) ApplyApplication(rec *GroupRecord, msg *StoredMessage, msg
 	return true, seq, nil
 }
 
+func (s *MockStorage) ApplyBatchedApplication(rec *GroupRecord, msgs []*StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (bool, int64, error) {
+	hash := sha256.Sum256(envelope)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failApplyApplicationOnce {
+		s.failApplyApplicationOnce = false
+		return false, 0, fmt.Errorf("mock apply application failure")
+	}
+	if s.appliedEnv[rec.GroupID] == nil {
+		s.appliedEnv[rec.GroupID] = make(map[string]struct{})
+	}
+	key := string(hash[:])
+	if _, ok := s.appliedEnv[rec.GroupID][key]; ok {
+		return false, 0, nil
+	}
+	s.groups[rec.GroupID] = rec
+	for _, msg := range msgs {
+		s.messages = append(s.messages, msg)
+	}
+	s.appliedEnv[rec.GroupID][key] = struct{}{}
+	s.nextEnvID[rec.GroupID]++
+	seq := s.nextEnvID[rec.GroupID]
+	s.envByGroup[rec.GroupID] = append(s.envByGroup[rec.GroupID], &EnvelopeRecord{
+		Seq: seq, GroupID: rec.GroupID, MsgType: msgType, Epoch: envEpoch, Envelope: envelope, Timestamp: ts,
+		EnvelopeHash: hash[:], SourcePath: "local", ApplyState: string(ReplayStateApplied), AppliedAt: time.Now().Unix(),
+		FirstSeenAtMs: time.Now().UnixMilli(), ReceivedAtMs: time.Now().UnixMilli(),
+	})
+	return true, seq, nil
+}
+
 func (s *MockStorage) GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

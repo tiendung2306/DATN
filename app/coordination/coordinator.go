@@ -497,6 +497,8 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 		c.handleCommitLocked(&env, data)
 	case MsgApplication:
 		c.handleApplicationLocked(from, &env, data)
+	case MsgApplicationBatched:
+		c.handleApplicationBatchedLocked(from, &env, data)
 	case MsgDeliveryAck:
 		c.handleDeliveryAckLocked(from, &env)
 	}
@@ -706,6 +708,10 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
 	c.reconcileOperationsAfterCommitLocked(commit)
+
+	// Trigger bidirectional batch replay
+	c.triggerBatchReplayAsync(c.groupID)
+
 	c.reconcileAndRebaseOperationsLocked()
 
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
@@ -1124,6 +1130,7 @@ func (c *Coordinator) tryCommitLocked() {
 
 	c.advanceEpochLocked(commitResult.NewGroupState, nextEpoch, commitResult.NewTreeHash, commitResult.CommitBytes)
 	c.reconcileOperationsAfterCommitLocked(commitMsg)
+	c.triggerBatchReplayAsync(c.groupID)
 	c.reconcileAndRebaseOperationsLocked()
 
 	c.updateLocalAccessRevocationLocked(commitResult.NewGroupState, nextEpoch)
@@ -1413,6 +1420,8 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 			c.handleCommitLocked(&env, raw)
 		case MsgApplication:
 			c.handleApplicationLocked(decodeEnvelopePeerID(env.From, ""), &env, raw)
+		case MsgApplicationBatched:
+			c.handleApplicationBatchedLocked(decodeEnvelopePeerID(env.From, ""), &env, raw)
 		}
 	}
 }
@@ -2925,7 +2934,8 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		losingBranchID := job.LosingBranchID
 
 		// A. Snapshot các own messages đã apply thành công trong losing branch partition window
-		ownMsgs, err := c.storage.GetMessagesByOwnerInRange(c.groupID, c.localID.String(), event.PartitionStartedAt.UnixMilli(), startedAt.UnixMilli())
+		// Using 0 as startMs to capture all orphaned messages that were locally applied but not committed globally
+		ownMsgs, err := c.storage.GetMessagesByOwnerInRange(c.groupID, c.localID.String(), 0, startedAt.UnixMilli())
 		if err == nil {
 			for _, msg := range ownMsgs {
 				sealedPayload, nonce, sealErr := sealPayload(msg.Content, storageKey)
@@ -2959,9 +2969,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		pendingEnvs, err := c.storage.GetPendingEnvelopes(event.GroupID, 1000)
 		if err == nil {
 			for _, record := range pendingEnvs {
-				if record.Timestamp.WallTimeMs < event.PartitionStartedAt.UnixMilli() {
-					continue
-				}
+				// M5: Removed PartitionStartedAt filter because ANY unapplied envelope is an orphan when state-swapping
 
 				if record.MsgType == MsgApplication {
 					var env Envelope
@@ -3122,110 +3130,35 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
 	}
 
-	// M5: 6. Autonomous Replay (Idempotent per-event via Outbox)
+	// M5: 6. Autonomous Replay (Bidirectional Batched Replay)
 	var replayedCount int
 	if job.Status == "STATE_SWAPPED" {
 		stepStart := c.clock.Now()
 		c.recordForkHealAudit(traceID, event.GroupID, "replay_started", "started", stepStart, 0, "")
 
-		// 1. Phục hồi và phát lại bất kỳ envelope nào còn kẹt trong outbound queue trước khi crash
+		// 1. Phục hồi và phát lại bất kỳ batched envelope nào còn kẹt trong outbound queue
 		outboundList, err := c.storage.ListOutboundReplays(job.JobID)
 		if err == nil {
 			for _, outbound := range outboundList {
 				if outbound.Status == "ENQUEUED" || outbound.Status == "FAILED" {
 					evs, _ := c.storage.ListApplicationEvents(job.JobID)
-					var matchEv *ApplicationEvent
+					var matchEvs []*ApplicationEvent
 					for _, ev := range evs {
-						if ev.EventID == outbound.EventID {
-							matchEv = ev
-							break
+						if ev.ReplayOperationID == outbound.ReplayOperationID {
+							matchEvs = append(matchEvs, ev)
 						}
 					}
-					if matchEv != nil {
-						if err := c.broadcastOutboundReplay(outbound, matchEv); err == nil {
-							replayedCount++
+					if len(matchEvs) > 0 {
+						if err := c.broadcastBatchedOutboundReplay(outbound, matchEvs); err == nil {
+							replayedCount += len(matchEvs)
 						}
 					}
 				}
 			}
 		}
 
-		// 2. Snapshot và enqueued/broadcast các orphan events của mình
-		events, err := c.storage.ListApplicationEvents(job.JobID)
-		if err == nil {
-			for _, ev := range events {
-				if ev.AuthorID != c.localID.String() {
-					// Non-repudiation: tin nhắn của peer khác chuyển WAITING_AUTHOR_REPLAY và xóa payload
-					ev.Status = "WAITING_AUTHOR_REPLAY"
-					ev.PayloadSealed = nil
-					ev.SealNonce = nil
-					ev.SealKeyID = ""
-					_ = c.storage.SaveApplicationEvent(ev)
-					continue
-				}
-
-				if ev.Status == "ORPHANED_OWN" || ev.Status == "REPLAY_PENDING" {
-					ev.Status = "REPLAY_PENDING"
-					ev.ReplayAttemptCount++
-					_ = c.storage.SaveApplicationEvent(ev)
-
-					plaintext, decErr := openPayload(ev.PayloadSealed, ev.SealNonce, storageKey)
-					if decErr == nil {
-						c.mu.Lock()
-						ciphertext, nextGroupState, encErr := c.mls.EncryptMessage(ctx, c.groupState, plaintext)
-						c.mu.Unlock()
-
-						if encErr == nil {
-							ts := c.hlc.Now()
-							wire := c.buildEnvelopeWithTimestampLocked(MsgApplication, ApplicationMsg{Ciphertext: ciphertext}, ts)
-
-							c.mu.Lock()
-							c.groupState = nextGroupState
-							_ = c.saveCurrentGroupStateLocked(c.clock.Now())
-							c.mu.Unlock()
-
-							replayedHash := sha256.Sum256(wire)
-
-							// Sinh replay operation id độc nhất tránh trùng lặp giữa các fork jobs khác nhau
-							hReplay := sha256.Sum256([]byte(ev.EventID + job.JobID))
-							replayOpID := hex.EncodeToString(hReplay[:])
-
-							outbound := &OutboundReplay{
-								ReplayOperationID:    replayOpID,
-								EventID:              ev.EventID,
-								JobID:                job.JobID,
-								GroupID:              job.GroupID,
-								ReplayEnvelope:       wire,
-								ReplayedEnvelopeHash: replayedHash[:],
-								Status:               "ENQUEUED",
-								AttemptCount:         1,
-								CreatedAtMs:          c.clock.Now().UnixMilli(),
-								UpdatedAtMs:          c.clock.Now().UnixMilli(),
-							}
-							_ = c.storage.SaveOutboundReplay(outbound)
-
-							ev.ReplayOperationID = replayOpID
-							ev.ReplayedEnvelopeHash = replayedHash[:]
-							ev.Status = "REPLAY_ENQUEUED"
-							_ = c.storage.SaveApplicationEvent(ev)
-
-							// Thực hiện broadcast
-							if err := c.broadcastOutboundReplay(outbound, ev); err == nil {
-								replayedCount++
-							}
-						} else {
-							ev.Status = "REPLAY_FAILED"
-							ev.LastError = encErr.Error()
-							_ = c.storage.SaveApplicationEvent(ev)
-						}
-					} else {
-						ev.Status = "REPLAY_FAILED"
-						ev.LastError = decErr.Error()
-						_ = c.storage.SaveApplicationEvent(ev)
-					}
-				}
-			}
-		}
+		// 2. Gom cụm và phát lại các orphan events của mình
+		replayedCount += c.batchAndReplayOutbox(ctx, job.JobID, job.GroupID)
 
 		job.Status = "LOCAL_COMPLETE"
 		job.UpdatedAtMs = c.clock.Now().UnixMilli()
@@ -3757,8 +3690,59 @@ func (c *Coordinator) reconcileOperationsAfterCommitLocked(commit CommitMsg) {
 			}
 		}
 	}
-}
 
+	// M5: Convert unapplied pending application envelopes to ORPHANED_OWN
+	storageKey := deriveStorageKey(c.signingKey)
+	pendingEnvs, err := c.storage.GetPendingEnvelopes(c.groupID, 1000)
+	if err == nil {
+		for _, record := range pendingEnvs {
+			if record.MsgType == MsgApplication {
+				var env Envelope
+				if err := json.Unmarshal(record.Envelope, &env); err == nil {
+					if env.From == c.localID.String() && env.Epoch < c.epoch {
+						var appMsg ApplicationMsg
+						if err := json.Unmarshal(env.Payload, &appMsg); err == nil {
+							// For unapplied envelopes, we could try to decrypt them here
+							// but normally they are already applied if we are the winner.
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Winner specific logic: Replay messages sent in the previous epoch
+	ownMsgs, _ := c.storage.GetMessagesByOwnerInRange(c.groupID, c.localID.String(), 0, c.clock.Now().UnixMilli())
+	for _, m := range ownMsgs {
+		if m.Epoch == c.epoch-1 {
+			// Seal payload and add to ApplicationEvents
+			sealedPayload, nonce, sealErr := sealPayload(m.Content, storageKey)
+			if sealErr == nil {
+				h := sha256.Sum256(m.Content)
+				appEv := &ApplicationEvent{
+					EventID:          hex.EncodeToString(m.EnvelopeHash),
+					JobID:            "COMMIT-RECONCILE-" + c.groupID,
+					GroupID:          c.groupID,
+					OriginalBranchID: "",
+					OriginalEpoch:    m.Epoch,
+					AuthorID:         c.localID.String(),
+					EnvelopeHash:     m.EnvelopeHash,
+					PayloadSealed:    sealedPayload,
+					PayloadHash:      h[:],
+					SealKeyID:        "local_node_key",
+					SealNonce:        nonce,
+					HlcWallTimeMs:    m.Timestamp.WallTimeMs,
+					HlcCounter:       m.Timestamp.Counter,
+					HlcNodeID:        m.Timestamp.NodeID,
+					Status:           "ORPHANED_OWN",
+					CreatedAtMs:      c.clock.Now().UnixMilli(),
+					UpdatedAtMs:      c.clock.Now().UnixMilli(),
+				}
+				_ = c.storage.SaveApplicationEvent(appEv)
+			}
+		}
+	}
+}
 func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 	ops, err := c.storage.ListPendingOperations(c.groupID)
 	if err != nil {

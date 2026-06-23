@@ -217,6 +217,10 @@ type CoordinationStorage interface {
 	// Returns applied=false when the envelope was already applied.
 	ApplyApplication(rec *GroupRecord, msg *StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (applied bool, seq int64, err error)
 
+	// ApplyBatchedApplication atomically persists a processed batched application outcome:
+	// group state advance + multiple stored messages + applied marker + envelope log append.
+	ApplyBatchedApplication(rec *GroupRecord, msgs []*StoredMessage, msgType MessageType, envelope []byte, ts HLCTimestamp, envEpoch uint64) (applied bool, seq int64, err error)
+
 	// GetMessagesSince retrieves messages for a group with HLC timestamps
 	// after the given lower bound, sorted by HLC ascending.
 	GetMessagesSince(groupID string, after HLCTimestamp) ([]*StoredMessage, error)
