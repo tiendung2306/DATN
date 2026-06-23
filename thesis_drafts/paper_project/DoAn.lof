@@ -1,35 +1,35 @@
-\babel@toc {nil}{}\relax 
+\babel@toc {english}{}\relax 
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \contentsline {figure}{\numberline {2.1}{\ignorespaces Minh họa hiện tượng rẽ nhánh trạng thái mật mã trong MLS}}{7}{figure.caption.8}%
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {3.1}{\ignorespaces Kiến trúc logic của giải pháp và ranh giới trách nhiệm giữa lớp điều phối với lớp MLS}}{17}{figure.caption.9}%
+\contentsline {figure}{\numberline {3.1}{\ignorespaces Kiến trúc logic của giải pháp và ranh giới trách nhiệm giữa lớp điều phối với lớp MLS}}{16}{figure.caption.9}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {5.1}{\ignorespaces Thiết bị thành viên ở trạng thái chờ cấp phát bundle}}{47}{figure.caption.14}%
-\contentsline {figure}{\numberline {5.2}{\ignorespaces Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}}{48}{figure.caption.15}%
-\contentsline {figure}{\numberline {5.3}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Admin}}{49}{figure.caption.16}%
-\contentsline {figure}{\numberline {5.4}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Alice}}{49}{figure.caption.17}%
-\contentsline {figure}{\numberline {5.5}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Bob}}{50}{figure.caption.18}%
-\contentsline {figure}{\numberline {5.6}{\ignorespaces Màn hình quản trị thành viên của nhóm}}{50}{figure.caption.19}%
-\contentsline {figure}{\numberline {5.7}{\ignorespaces Hội tụ epoch của các nút trong chaos test}}{51}{figure.caption.20}%
-\contentsline {figure}{\numberline {5.8}{\ignorespaces Thời gian phục hồi khi độ dài phân vùng thay đổi}}{52}{figure.caption.22}%
-\contentsline {figure}{\numberline {5.9}{\ignorespaces Hiệu quả của cơ chế gom đề xuất khi mức đồng thời tăng}}{53}{figure.caption.24}%
-\contentsline {figure}{\numberline {5.10}{\ignorespaces Phân rã chi phí xử lý cục bộ giữa phần MLS, phần lưu trữ và phần điều phối}}{56}{figure.caption.28}%
+\contentsline {figure}{\numberline {5.1}{\ignorespaces Hội tụ epoch của các nút trong chaos test}}{46}{figure.caption.14}%
+\contentsline {figure}{\numberline {5.2}{\ignorespaces Thời gian phục hồi khi độ dài phân vùng thay đổi}}{47}{figure.caption.16}%
+\contentsline {figure}{\numberline {5.3}{\ignorespaces Hiệu quả của cơ chế gom đề xuất khi mức đồng thời tăng}}{48}{figure.caption.18}%
+\contentsline {figure}{\numberline {5.4}{\ignorespaces Phân rã chi phí xử lý cục bộ giữa phần MLS, phần lưu trữ và phần điều phối}}{51}{figure.caption.22}%
+\contentsline {figure}{\numberline {5.5}{\ignorespaces Thiết bị thành viên ở trạng thái chờ cấp phát bundle}}{52}{figure.caption.23}%
+\contentsline {figure}{\numberline {5.6}{\ignorespaces Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}}{53}{figure.caption.24}%
+\contentsline {figure}{\numberline {5.7}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Admin}}{54}{figure.caption.25}%
+\contentsline {figure}{\numberline {5.8}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Alice}}{54}{figure.caption.26}%
+\contentsline {figure}{\numberline {5.9}{\ignorespaces Cửa sổ giao tiếp nhóm trên thiết bị Bob}}{55}{figure.caption.27}%
+\contentsline {figure}{\numberline {5.10}{\ignorespaces Màn hình quản trị thành viên của nhóm}}{55}{figure.caption.28}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
-\contentsline {figure}{\numberline {A.1}{\ignorespaces Màn hình khởi tạo định danh cục bộ trong ứng dụng thử nghiệm}}{65}{figure.caption.31}%
-\contentsline {figure}{\numberline {A.2}{\ignorespaces Màn hình tạo tổ chức gốc của quản trị viên}}{65}{figure.caption.32}%
-\contentsline {figure}{\numberline {A.3}{\ignorespaces Thiết bị thành viên ở trạng thái chờ cấp phát bundle}}{66}{figure.caption.33}%
-\contentsline {figure}{\numberline {A.4}{\ignorespaces Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}}{66}{figure.caption.34}%
-\contentsline {figure}{\numberline {A.5}{\ignorespaces Tổng quan không gian làm việc của ứng dụng desktop thử nghiệm}}{67}{figure.caption.35}%
-\contentsline {figure}{\numberline {A.6}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Admin}}{68}{figure.caption.36}%
-\contentsline {figure}{\numberline {A.7}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Alice}}{68}{figure.caption.37}%
-\contentsline {figure}{\numberline {A.8}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Bob}}{69}{figure.caption.38}%
-\contentsline {figure}{\numberline {A.9}{\ignorespaces Màn hình hoạt động và thông báo trong ứng dụng thử nghiệm}}{69}{figure.caption.39}%
-\contentsline {figure}{\numberline {A.10}{\ignorespaces Không gian kênh giao tiếp theo dạng bài viết và phản hồi}}{70}{figure.caption.40}%
-\contentsline {figure}{\numberline {A.11}{\ignorespaces Hộp thoại tạo nhóm, trò chuyện trực tiếp (DM) hoặc kênh}}{70}{figure.caption.41}%
-\contentsline {figure}{\numberline {A.12}{\ignorespaces Hộp thoại mời thêm thành viên vào một nhóm đang có sẵn}}{71}{figure.caption.42}%
-\contentsline {figure}{\numberline {A.13}{\ignorespaces Màn hình quản trị thành viên và chính sách mời của nhóm}}{72}{figure.caption.43}%
+\contentsline {figure}{\numberline {A.1}{\ignorespaces Màn hình khởi tạo định danh cục bộ trong ứng dụng thử nghiệm}}{65}{figure.caption.32}%
+\contentsline {figure}{\numberline {A.2}{\ignorespaces Màn hình tạo tổ chức gốc của quản trị viên}}{65}{figure.caption.33}%
+\contentsline {figure}{\numberline {A.3}{\ignorespaces Thiết bị thành viên ở trạng thái chờ cấp phát bundle}}{66}{figure.caption.34}%
+\contentsline {figure}{\numberline {A.4}{\ignorespaces Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}}{66}{figure.caption.35}%
+\contentsline {figure}{\numberline {A.5}{\ignorespaces Tổng quan không gian làm việc của ứng dụng desktop thử nghiệm}}{67}{figure.caption.36}%
+\contentsline {figure}{\numberline {A.6}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Admin}}{68}{figure.caption.37}%
+\contentsline {figure}{\numberline {A.7}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Alice}}{68}{figure.caption.38}%
+\contentsline {figure}{\numberline {A.8}{\ignorespaces Giao diện trao đổi tin nhắn trong nhóm trên thiết bị Bob}}{69}{figure.caption.39}%
+\contentsline {figure}{\numberline {A.9}{\ignorespaces Màn hình hoạt động và thông báo trong ứng dụng thử nghiệm}}{69}{figure.caption.40}%
+\contentsline {figure}{\numberline {A.10}{\ignorespaces Không gian kênh giao tiếp theo dạng bài viết và phản hồi}}{70}{figure.caption.41}%
+\contentsline {figure}{\numberline {A.11}{\ignorespaces Hộp thoại tạo nhóm, trò chuyện trực tiếp (DM) hoặc kênh}}{70}{figure.caption.42}%
+\contentsline {figure}{\numberline {A.12}{\ignorespaces Hộp thoại mời thêm thành viên vào một nhóm đang có sẵn}}{71}{figure.caption.43}%
+\contentsline {figure}{\numberline {A.13}{\ignorespaces Màn hình quản trị thành viên và chính sách mời của nhóm}}{72}{figure.caption.44}%
 \contentsfinish 
 \contentsfinish 

@@ -48,75 +48,6 @@ Dữ liệu đo đạc và các biểu đồ phục vụ chương này được 
 	
 Phạm vi đánh giá có hai giới hạn cần nêu trước. Thứ nhất, các chaos test chủ yếu dùng mạng giả lập để kiểm tra hành vi giao thức, nên chưa phản ánh đầy đủ độ trễ, mất gói và tính phức tạp của mạng libp2p thực tế. Thứ hai, các benchmark MLS phản ánh chi phí xử lý của lõi MLS cùng phần trao đổi trạng thái giữa các thành phần, chứ chưa phải là toàn bộ độ trễ mà người dùng cảm nhận ở mức ứng dụng desktop.
 
-	\section{Đối chiếu trên ứng dụng desktop}
-	\label{sec:prototype_validation}
-
-Bên cạnh các số đo lấy từ kiểm thử tự động, đồ án còn đối chiếu thêm trên ứng dụng desktop của đồ án. Phần này không nhằm giới thiệu giao diện cho đầy đủ, mà để kiểm tra xem các ý đã nêu ở Chương 3 có đi thành một luồng sử dụng thật hay không. Vì vậy, ở mỗi kịch bản, đồ án chỉ giữ lại hai ý chính: người dùng làm gì trên giao diện, và thao tác đó cho thấy điều gì ở phía giao thức.
-
-Các hình minh họa đầy đủ được đưa xuống Phụ lục~\ref{appendix:app_demo}. Trong phần thân chương này, đồ án chỉ chọn một số hình thực sự cần cho việc giải thích các kịch bản kiểm chứng, để mạch trình bày vẫn tập trung vào phần thực nghiệm.
-
-	\subsection{Tạo tổ chức và cấp bundle}
-
-Kịch bản đầu tiên diễn ra trên hai máy. Ở máy quản trị, người dùng tạo tổ chức và mở phần quản trị để cấp bundle cho một thiết bị mới. Ở máy thành viên, người dùng tạo định danh cục bộ rồi dừng ở màn hình chờ bundle, nơi ứng dụng hiển thị PeerID và khóa công khai MLS của thiết bị. Nhìn ở mức thao tác, đây chỉ là một quy trình đăng ký. Nhưng nhìn ở mức giao thức, nó cho thấy một thiết bị không thể tự ý vào mạng của tổ chức; nó phải có bundle hợp lệ do phía quản trị cấp.
-
-Các Hình~\ref{fig:app_awaiting_bundle} và Hình~\ref{fig:app_issue_bundle} trình bày hai đầu của quy trình này. Màn hình chờ bundle cho thấy thiết bị thành viên phải tự tạo định danh trước khi xin tham gia, còn màn hình quản trị cho thấy quyền cho tham gia nằm ở phía quản trị viên, chứ không do một máy chủ trung tâm tự động cấp phát. Chi tiết này bám đúng với giả định an toàn mà đồ án đặt ra từ đầu.
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Vị trí đặt ảnh Awaiting Bundle của Alice}
-		\caption{Thiết bị thành viên ở trạng thái chờ cấp phát bundle}
-		\label{fig:app_awaiting_bundle}
-	\end{figure}
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Vị trí đặt ảnh Admin Panel cấp bundle}
-		\caption{Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}
-		\label{fig:app_issue_bundle}
-	\end{figure}
-
-	\subsection{Thiết bị mới vào hệ thống}
-
-Sau khi nhận được bundle, người dùng nhập bundle vào ứng dụng. Nếu bundle hợp lệ, ứng dụng chuyển từ màn hình chờ sang màn hình làm việc chính. Việc chuyển màn hình này nhìn qua thì đơn giản, nhưng về bản chất nó cho thấy thiết bị chỉ thực sự vào hệ thống sau khi bundle được kiểm tra xong, dữ liệu tổ chức được nạp vào máy cục bộ và các quan hệ nhóm cần thiết được khởi tạo.
-
-Kịch bản này cũng cho thấy giao diện chỉ là lớp bên ngoài. Nó không tự quyết định thiết bị đã tham gia hay chưa; nó chỉ hiển thị kết quả sau khi phần điều phối và phần lưu trữ cục bộ cập nhật xong trạng thái mới.
-
-	\subsection{Trao đổi tin nhắn trong nhóm}
-
-Kịch bản tiếp theo mở đồng thời các cửa sổ ứng dụng của Admin, Alice và Bob. Sau khi nhóm được tạo và thêm đủ thành viên, các bên cùng gửi tin nhắn vào một cuộc trò chuyện chung. Đây là phần dễ nhìn nhất của hệ thống, nhưng điều đáng chú ý không chỉ là việc tin nhắn hiện ra trên màn hình. Trước đó, các thay đổi về thành viên phải đi qua Proposal và Commit để mọi phía cùng ổn định về một trạng thái nhóm. Chỉ sau bước đó, các tin nhắn mới được mã hóa bằng MLS và hiển thị theo cùng một logic sắp xếp.
-
-Các Hình~\ref{fig:app_chat_admin}, Hình~\ref{fig:app_chat_alice} và Hình~\ref{fig:app_chat_bob} minh họa các cửa sổ này để người đọc nhìn được trạng thái đồng bộ của cùng một nhóm ở nhiều phía khác nhau.
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_admin.png}{Vị trí đặt ảnh group chat của Admin}
-		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Admin}
-		\label{fig:app_chat_admin}
-	\end{figure}
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_alice.png}{Vị trí đặt ảnh group chat của Alice}
-		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Alice}
-		\label{fig:app_chat_alice}
-	\end{figure}
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_bob.png}{Vị trí đặt ảnh group chat của Bob}
-		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Bob}
-		\label{fig:app_chat_bob}
-	\end{figure}
-
-Đi cùng với nhắn tin là phần quản trị thành viên. Khi người dùng mở phần chi tiết phòng để xem danh sách thành viên, đổi chính sách mời hoặc thêm người mới, giao diện thực chất đang kích hoạt các thao tác thay đổi thành viên ở phía sau. Vì vậy, Hình~\ref{fig:app_group_management} được giữ lại để nối phần thao tác người dùng với các quy tắc điều phối đã nêu ở Chương 3.
-
-	\begin{figure}[htbp]
-		\centering
-		\AppDemoGraphic{Hinh/app_demo/app_06_group_management_alice.png}{Vị trí đặt ảnh Room Panel hoặc Group Settings của Alice}
-		\caption{Màn hình quản trị thành viên của nhóm}
-		\label{fig:app_group_management}
-	\end{figure}
-
 	\section{Đánh giá hội tụ trong điều kiện mạng hỗn loạn}
 	\label{sec:danh_gia_chaos}
 	
@@ -315,6 +246,75 @@ Thông điệp này vẫn được đưa vào pipeline xử lý phía Bob như m
 	
 Kết quả này có ý nghĩa rõ ràng đối với mô hình bảo mật của đồ án. Một nút từng là thành viên hợp lệ của nhóm nhưng đã bị loại khỏi cây MLS sẽ không còn quyền đọc các thông điệp tương lai. Lớp điều phối chỉ quyết định tiến trình trạng thái và thứ tự xử lý; quyền giải mã cuối cùng vẫn do trạng thái mật mã MLS kiểm soát.
 	
+	\section{Đối chiếu trên ứng dụng desktop}
+	\label{sec:prototype_validation}
+
+Bên cạnh các số đo lấy từ kiểm thử tự động, đồ án còn đối chiếu thêm trên ứng dụng desktop của đồ án. Phần này không nhằm giới thiệu giao diện cho đầy đủ, mà để kiểm tra xem các ý đã nêu ở Chương 3 có đi thành một luồng sử dụng thật hay không. Vì vậy, ở mỗi kịch bản, đồ án chỉ giữ lại hai ý chính: người dùng làm gì trên giao diện, và thao tác đó cho thấy điều gì ở phía giao thức.
+
+Các hình minh họa đầy đủ được đưa xuống Phụ lục~\ref{appendix:app_demo}. Trong phần thân chương này, đồ án chỉ chọn một số hình thực sự cần cho việc giải thích các kịch bản kiểm chứng, để mạch trình bày vẫn tập trung vào phần thực nghiệm.
+
+	\subsection{Tạo tổ chức và cấp bundle}
+
+Kịch bản đầu tiên diễn ra trên hai máy. Ở máy quản trị, người dùng tạo tổ chức và mở phần quản trị để cấp bundle cho một thiết bị mới. Ở máy thành viên, người dùng tạo định danh cục bộ rồi dừng ở màn hình chờ bundle, nơi ứng dụng hiển thị PeerID và khóa công khai MLS của thiết bị. Nhìn ở mức thao tác, đây chỉ là một quy trình đăng ký. Nhưng nhìn ở mức giao thức, nó cho thấy một thiết bị không thể tự ý vào mạng của tổ chức; nó phải có bundle hợp lệ do phía quản trị cấp.
+
+Các Hình~\ref{fig:app_awaiting_bundle} và Hình~\ref{fig:app_issue_bundle} trình bày hai đầu của quy trình này. Màn hình chờ bundle cho thấy thiết bị thành viên phải tự tạo định danh trước khi xin tham gia, còn màn hình quản trị cho thấy quyền cho tham gia nằm ở phía quản trị viên, chứ không do một máy chủ trung tâm tự động cấp phát. Chi tiết này bám đúng với giả định an toàn mà đồ án đặt ra từ đầu.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_02_awaiting_bundle_alice.png}{Vị trí đặt ảnh Awaiting Bundle của Alice}
+		\caption{Thiết bị thành viên ở trạng thái chờ cấp phát bundle}
+		\label{fig:app_awaiting_bundle}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_03_admin_issue_bundle_admin.png}{Vị trí đặt ảnh Admin Panel cấp bundle}
+		\caption{Bảng điều khiển quản trị phát hành bundle cho thiết bị mới}
+		\label{fig:app_issue_bundle}
+	\end{figure}
+
+	\subsection{Thiết bị mới vào hệ thống}
+
+Sau khi nhận được bundle, người dùng nhập bundle vào ứng dụng. Nếu bundle hợp lệ, ứng dụng chuyển từ màn hình chờ sang màn hình làm việc chính. Việc chuyển màn hình này nhìn qua thì đơn giản, nhưng về bản chất nó cho thấy thiết bị chỉ thực sự vào hệ thống sau khi bundle được kiểm tra xong, dữ liệu tổ chức được nạp vào máy cục bộ và các quan hệ nhóm cần thiết được khởi tạo.
+
+Kịch bản này cũng cho thấy giao diện chỉ là lớp bên ngoài. Nó không tự quyết định thiết bị đã tham gia hay chưa; nó chỉ hiển thị kết quả sau khi phần điều phối và phần lưu trữ cục bộ cập nhật xong trạng thái mới.
+
+	\subsection{Trao đổi tin nhắn trong nhóm}
+
+Kịch bản tiếp theo mở đồng thời các cửa sổ ứng dụng của Admin, Alice và Bob. Sau khi nhóm được tạo và thêm đủ thành viên, các bên cùng gửi tin nhắn vào một cuộc trò chuyện chung. Đây là phần dễ nhìn nhất của hệ thống, nhưng điều đáng chú ý không chỉ là việc tin nhắn hiện ra trên màn hình. Trước đó, các thay đổi về thành viên phải đi qua Proposal và Commit để mọi phía cùng ổn định về một trạng thái nhóm. Chỉ sau bước đó, các tin nhắn mới được mã hóa bằng MLS và hiển thị theo cùng một logic sắp xếp.
+
+Các Hình~\ref{fig:app_chat_admin}, Hình~\ref{fig:app_chat_alice} và Hình~\ref{fig:app_chat_bob} minh họa các cửa sổ này để người đọc nhìn được trạng thái đồng bộ của cùng một nhóm ở nhiều phía khác nhau.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_admin.png}{Vị trí đặt ảnh group chat của Admin}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Admin}
+		\label{fig:app_chat_admin}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_alice.png}{Vị trí đặt ảnh group chat của Alice}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Alice}
+		\label{fig:app_chat_alice}
+	\end{figure}
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_05_group_chat_bob.png}{Vị trí đặt ảnh group chat của Bob}
+		\caption{Cửa sổ giao tiếp nhóm trên thiết bị Bob}
+		\label{fig:app_chat_bob}
+	\end{figure}
+
+Đi cùng với nhắn tin là phần quản trị thành viên. Khi người dùng mở phần chi tiết phòng để xem danh sách thành viên, đổi chính sách mời hoặc thêm người mới, giao diện thực chất đang kích hoạt các thao tác thay đổi thành viên ở phía sau. Vì vậy, Hình~\ref{fig:app_group_management} được giữ lại để nối phần thao tác người dùng với các quy tắc điều phối đã nêu ở Chương 3.
+
+	\begin{figure}[htbp]
+		\centering
+		\AppDemoGraphic{Hinh/app_demo/app_06_group_management_alice.png}{Vị trí đặt ảnh Room Panel hoặc Group Settings của Alice}
+		\caption{Màn hình quản trị thành viên của nhóm}
+		\label{fig:app_group_management}
+	\end{figure}
+
 	\section{Nhận xét và giới hạn đánh giá}
 	\label{sec:nhan_xet_gioi_han}
 	

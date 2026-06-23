@@ -37,14 +37,26 @@ Phương pháp đề xuất gồm bốn cơ chế gắn chặt với nhau. Cơ c
 
 Điểm quan trọng là bốn cơ chế này không thay thế MLS. Chúng chỉ tạo ra một lớp bao quanh MLS để bù vào vai trò mà Delivery Service thường đảm nhiệm trong mô hình tập trung. Vì vậy, đóng góp của đồ án không nằm ở việc sửa đổi thuật toán mật mã cốt lõi, mà nằm ở cách tổ chức lớp điều phối để MLS vẫn vận hành được trong môi trường P2P.
 
+\subsection{Phạm vi bảo mật và Mô hình mối đe dọa (Threat Model)}
+
+Vì đồ án sử dụng mạng P2P thay cho máy chủ trung tâm, rủi ro bảo mật thực chất lại mở rộng hơn do mọi nút trong mạng đều có thể tham gia định tuyến tin nhắn và tiếp cận siêu dữ liệu (metadata). Để làm rõ ranh giới giữa an toàn mật mã và đồng thuận phân tán, đồ án xác định mô hình mối đe dọa (Threat Model) gồm ba đối tượng chính:
+
+\begin{itemize}
+    \item \textbf{Kẻ nghe lén thụ động (Passive Eavesdropper):} Bất kỳ nút P2P trung gian nào cố tình theo dõi luồng dữ liệu truyền qua. Rủi ro này được ủy thác hoàn toàn cho lớp mật mã: hệ thống chống lại bằng cơ chế mã hóa có xác thực (AEAD) của MLS, đảm bảo trung gian tuyệt đối không thể truy cập bản rõ.
+    \item \textbf{Thành viên bị chiếm quyền (Compromised Member):} Một thành viên hợp lệ trong nhóm bị kẻ tấn công đánh cắp thiết bị hoặc lộ vật liệu khóa. Hệ thống kế thừa và chống lại rủi ro này bằng các thuộc tính Forward Secrecy (FS) và Post-Compromise Security (PCS) mặc định của cơ chế TreeKEM trong MLS.
+    \item \textbf{Kẻ phá hoại mạng (Active Attacker / Malicious Node):} Nút mạng cố tình giữ lại tin nhắn, phát tán thông điệp sai thứ tự, hoặc cố ý tạo nhánh (fork) nhằm chia rẽ sự đồng thuận của nhóm. Đây chính là trọng tâm mà lớp điều phối phi tập trung của đồ án trực tiếp giải quyết thông qua cơ chế đối chiếu chữ ký TreeHash, bầu Token Holder (Single-Writer) và quá trình hàn gắn phân nhánh (Fork Healing).
+\end{itemize}
+
+Tóm lại, đồ án giả định các cấu trúc mật mã của chuẩn MLS là an toàn tuyệt đối về mặt toán học. Bài toán bảo mật của hệ thống được giải quyết bằng việc tích hợp chuẩn này, còn đóng góp cốt lõi của đồ án là giữ cho hệ thống không sụp đổ (crash) hoặc phân nhánh (fork) trước các đặc tính bất đồng bộ của mạng ngang hàng.
+
 \section{Giao thức Single-Writer theo epoch}
 \label{sec:single-writer}
 
 \subsection{Mục tiêu thiết kế}
 
-Khi bài toán tiến hóa trạng thái nhóm được nhìn nhận dưới lăng kính của Máy trạng thái nhân bản (SMR), sự lựa chọn thiết kế giao thức phụ thuộc chặt chẽ vào các đánh đổi của định lý CAP. Việc cố gắng đạt được tính Nhất quán mạnh (Strong Consistency) như các thuật toán đồng thuận truyền thống sẽ khiến hệ thống nhắn tin P2P dễ đánh mất tính Khả dụng (Availability) mỗi khi có phân vùng mạng. 
+Khi bài toán tiến hóa trạng thái nhóm được nhìn nhận dưới lăng kính của Máy trạng thái nhân bản (SMR), sự lựa chọn thiết kế giao thức phụ thuộc chặt chẽ vào các đánh đổi của định lý CAP. Việc cố gắng đạt được tính Nhất quán mạnh như các thuật toán đồng thuận truyền thống sẽ khiến hệ thống nhắn tin P2P dễ đánh mất tính Khả dụng mỗi khi có phân vùng mạng. 
 
-Đồ án chọn hướng tiếp cận ưu tiên tính Khả dụng và Khả năng chịu đựng phân vùng mạng (AP - Availability and Partition Tolerance), kết hợp với mô hình Nhất quán cuối (Eventual Consistency). Mặc dù nguyên nhân trực tiếp của phân nhánh trạng thái là việc nhiều Commit hợp lệ cùng xuất hiện tại một epoch, đồ án kiểm soát rủi ro này bằng cách chỉ cho phép một thành viên duy nhất phát hành Commit. Trong trường hợp mạng bị chia cắt khiến thông tin về Token bị phân mảnh và sinh ra nhiều nhánh Commit độc lập, hệ thống chấp nhận cho phép các nhóm con tiếp tục hoạt động (bảo đảm tính Khả dụng), sau đó sử dụng cơ chế hàn gắn (Autonomous Replay) để đưa nhóm về chung một trạng thái duy nhất khi mạng ổn định trở lại.
+Đồ án chọn hướng tiếp cận ưu tiên tính Khả dụng và Khả năng chịu đựng phân vùng mạng (AP), kết hợp với mô hình Nhất quán cuối cùng. Mặc dù nguyên nhân trực tiếp của phân nhánh trạng thái là việc nhiều Commit hợp lệ cùng xuất hiện tại một epoch, đồ án kiểm soát rủi ro này bằng cách chỉ cho phép một thành viên duy nhất phát hành Commit. Trong trường hợp mạng bị chia cắt khiến thông tin về Token bị phân mảnh và sinh ra nhiều nhánh Commit độc lập, hệ thống chấp nhận cho phép các nhóm con tiếp tục hoạt động (bảo đảm tính Khả dụng), sau đó sử dụng cơ chế hàn gắn để đưa nhóm về chung một trạng thái duy nhất khi mạng ổn định trở lại.
 
 Ý tưởng trung tâm của cơ chế này là tách vai trò Proposal và Commit. Thành viên hợp lệ nào cũng có thể phát biểu mong muốn thay đổi nhóm dưới dạng Proposal, nhưng chỉ một thành viên duy nhất trong tập ứng viên hợp lệ mới được quyền gom các Proposal đó để tạo Commit. Thành viên này được gọi là Token Holder của Epoch đang xét.
 

@@ -1,11 +1,11 @@
-\documentclass[a4paper,13pt,oneside]{report}
+\documentclass[a4paper,13pt,3p,twoside]{report}
 \usepackage{scrextend}
 \changefontsizes{13pt}
 \usepackage[utf8]{vietnam}
 \usepackage[top=2cm, bottom=2cm, left=3.5cm, right=2.5cm]{geometry}
 \usepackage{xurl}
 \usepackage{appendix}
-\usepackage{babel}
+\usepackage[english]{babel}
 \usepackage{xcolor}
 \usepackage{outlines}
 \usepackage{graphicx} % Cho phép chèn hỉnh ảnh
@@ -55,11 +55,26 @@
 % ===================================================
 
 \renewcommand{\bibname}{Danh_sach_tai_lieu_tham_khao} 
-\usepackage[backend=bibtex,style=ieee]{biblatex}  %backend=biber is 'better'
+\usepackage[backend=bibtex,style=ieee,language=english]{biblatex}  %backend=biber is 'better'
+
+\DefineBibliographyStrings{english}{
+  url = {[Online]. Available:\space},
+  urlseen = {visited on},
+  jourser = {Ser.},
+  in = {in},
+  pages = {pp.},
+  and = {and},
+  jourvol = {vol.},
+  number = {no.},
+  july = {July},
+  february = {Feb.},
+  october = {Oct.},
+  june = {June}
+}
 
 \addbibresource{Danh_sach_tai_lieu_tham_khao.bib} % chèn file chứa danh mục tài liệu tham khảo vào 
 
-\input{lstlisting} % Phần này cho phép chèn code và formatting code như C, C++, Python
+\include{lstlisting} % Phần này cho phép chèn code và formatting code như C, C++, Python
 
 \input{Tu_viet_tat}
 
@@ -68,11 +83,11 @@
 
 \fancypagestyle{plain}{%
 \fancyhf{} % clear all header and footer fields
-\fancyfoot[R]{\thepage}
+\fancyfoot[RO,RE]{\thepage} %RO=right odd, RE=right even
 \renewcommand{\headrulewidth}{0pt}
 \renewcommand{\footrulewidth}{0pt}}
 
-\setlength{\headheight}{18pt}
+\setlength{\headheight}{10pt}
 
 \def \TITLE{Nghiên cứu và ứng dụng giao thức điều phối phi tập trung cho MLS trên mạng ngang hàng}
 \def \AUTHOR{Lê Tiến Dũng}
@@ -226,23 +241,26 @@
 \newpage
 \pagenumbering{gobble} % Xóa page numbering ở cuối trang
 \renewcommand*\contentsname{MỤC LỤC}
-\titlecontents{chapter}[0.0cm]
-    {\bfseries\vspace{0.3cm}}
-    {{\bfseries{\scshape} CHƯƠNG \thecontentslabel.\ }}
-    {}
-    {\titlerule*[0.3pc]{.}\contentspage}
-
-\titlecontents{section}[0.0cm]
-    {\vspace{0.3cm}}
-    {\thecontentslabel\ }
-    {}
-    {\titlerule*[0.3pc]{.}\contentspage}
-
-\titlecontents{subsection}[1.0cm]
-    {\vspace{0.3cm}}
-    {\thecontentslabel\ }
-    {}
-    {\titlerule*[0.3pc]{.}\contentspage}
+\titlecontents{chapter}
+    [0.0cm]             % left margin
+    {\bfseries\vspace{0.3cm}}                  % above code
+    {{\bfseries{\scshape} CHƯƠNG \thecontentslabel.\ }} % numbered format
+    {}         % unnumbered format
+    {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
+    
+\titlecontents{section}
+    [0.0cm]             % left margin
+    {\vspace{0.3cm}}                  % above code
+    {\thecontentslabel \ } % numbered format
+    {}         % unnumbered format
+    {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
+    
+\titlecontents{subsection}
+    [1.0cm]             % left margin
+    {\vspace{0.3cm}}                  % above code
+    {\thecontentslabel \ } % numbered format
+    {}         % unnumbered format
+    {\titlerule*[0.3pc]{.}\contentspage}         % filler-page-format, e.g dots
 
  % Tạo mục lục tự động
 \addtocontents{toc}{\protect\thispagestyle{empty}}
@@ -272,7 +290,7 @@
 \renewcommand*{\acronymname}{DANH MỤC THUẬT NGỮ VÀ TỪ VIẾT TẮT}
 \renewcommand*{\entryname}{Thuật ngữ}
 \renewcommand*{\descriptionname}{Ý nghĩa}
-\printnoidxglossary[type=\acronymtype]
+\printnoidxglossaries
 % \phantomsection\addcontentsline{toc}{section}{\numberline {} DANH MỤC THUẬT NGỮ VÀ TỪ VIẾT TẮT}
 
 \renewcommand\appendixname{PHỤ LỤC}
@@ -289,8 +307,8 @@
 
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\leftmark}
-\fancyfoot[R]{\thepage}
+\fancyhead[LE,RO]{\leftmark}
+\fancyfoot[RO,RE]{\thepage} %RO=right odd, RE=right even
 
 \chapter{GIỚI THIỆU ĐỀ TÀI}
 \subfile{Chuong/1_Gioi_thieu} % Phần mở đầu

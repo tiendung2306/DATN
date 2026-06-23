@@ -1,0 +1,501 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated as
+% required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+\datalist[entry]{none/global//global/global/global}
+  \entry{rfc9420}{misc}{}{}
+    \name{author}{6}{}{%
+      {{hash=BR}{%
+         family={Barnes},
+         familyi={B\bibinitperiod},
+         given={Richard},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=BB}{%
+         family={Beurdouche},
+         familyi={B\bibinitperiod},
+         given={Benjamin},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=RR}{%
+         family={Robert},
+         familyi={R\bibinitperiod},
+         given={Raphael},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=MJ}{%
+         family={Millican},
+         familyi={M\bibinitperiod},
+         given={Jon},
+         giveni={J\bibinitperiod},
+      }}%
+      {{hash=OE}{%
+         family={Omara},
+         familyi={O\bibinitperiod},
+         given={Emad},
+         giveni={E\bibinitperiod},
+      }}%
+      {{hash=CGK}{%
+         family={Cohn-Gordon},
+         familyi={C\bibinithyphendelim G\bibinitperiod},
+         given={Katriel},
+         giveni={K\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {RFC Editor}%
+    }
+    \strng{namehash}{BR+1}
+    \strng{fullhash}{BRBBRRMJOECGK1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.17487/RFC9420
+    \endverb
+    \field{howpublished}{RFC 9420}
+    \field{number}{9420}
+    \field{series}{Request for Comments}
+    \field{title}{{The Messaging Layer Security (MLS) Protocol}}
+    \verb{url}
+    \verb https://www.rfc-editor.org/rfc/rfc9420.html
+    \endverb
+    \field{month}{07}
+    \field{year}{2023}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{rfc9750}{misc}{}{}
+    \name{author}{5}{}{%
+      {{hash=TS}{%
+         family={Turner},
+         familyi={T\bibinitperiod},
+         given={Sean},
+         giveni={S\bibinitperiod},
+      }}%
+      {{hash=BR}{%
+         family={Barnes},
+         familyi={B\bibinitperiod},
+         given={Richard},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=BB}{%
+         family={Beurdouche},
+         familyi={B\bibinitperiod},
+         given={Benjamin},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=RR}{%
+         family={Robert},
+         familyi={R\bibinitperiod},
+         given={Raphael},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=OE}{%
+         family={Omara},
+         familyi={O\bibinitperiod},
+         given={Emad},
+         giveni={E\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {RFC Editor}%
+    }
+    \strng{namehash}{TS+1}
+    \strng{fullhash}{TSBRBBRROE1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.17487/RFC9750
+    \endverb
+    \field{howpublished}{RFC 9750}
+    \field{number}{9750}
+    \field{series}{Request for Comments}
+    \field{title}{{The Messaging Layer Security (MLS) Architecture}}
+    \verb{url}
+    \verb https://www.rfc-editor.org/rfc/rfc9750.html
+    \endverb
+    \field{month}{02}
+    \field{year}{2025}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{localfirst2019}{inproceedings}{}{}
+    \name{author}{4}{}{%
+      {{hash=KM}{%
+         family={Kleppmann},
+         familyi={K\bibinitperiod},
+         given={Martin},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=WA}{%
+         family={Wiggins},
+         familyi={W\bibinitperiod},
+         given={Adam},
+         giveni={A\bibinitperiod},
+      }}%
+      {{hash=vHP}{%
+         prefix={van},
+         prefixi={v\bibinitperiod},
+         family={Hardenberg},
+         familyi={H\bibinitperiod},
+         given={Peter},
+         giveni={P\bibinitperiod},
+      }}%
+      {{hash=MM}{%
+         family={McGranaghan},
+         familyi={M\bibinitperiod},
+         given={Mark},
+         giveni={M\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{KM+1}
+    \strng{fullhash}{KMWAHPvMM1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{booktitle}{Proceedings of the ACM SIGPLAN International Symposium on
+  New Ideas, New Paradigms, and Reflections on Programming and Software}
+    \verb{doi}
+    \verb 10.1145/3359591.3359737
+    \endverb
+    \field{series}{Onward! '19}
+    \field{title}{Local-first software: You own your data, in spite of the
+  cloud}
+    \verb{url}
+    \verb https://martin.kleppmann.com/2019/10/23/local-first-at-onward.html
+    \endverb
+    \field{year}{2019}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{perrin2025doubleratchet}{misc}{}{}
+    \name{author}{3}{}{%
+      {{hash=PT}{%
+         family={Perrin},
+         familyi={P\bibinitperiod},
+         given={Trevor},
+         giveni={T\bibinitperiod},
+      }}%
+      {{hash=MM}{%
+         family={Marlinspike},
+         familyi={M\bibinitperiod},
+         given={Moxie},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=SR}{%
+         family={Schmidt},
+         familyi={S\bibinitperiod},
+         given={Rolfe},
+         giveni={R\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{PT+1}
+    \strng{fullhash}{PTMMSR1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Signal Specifications, Revision 4}
+    \field{note}{Published 2025-11-04}
+    \field{title}{The Double Ratchet Algorithm}
+    \verb{url}
+    \verb https://signal.org/docs/specifications/doubleratchet/
+    \endverb
+    \field{year}{2025}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{alwen2023fork}{inproceedings}{}{}
+    \name{author}{3}{}{%
+      {{hash=AJ}{%
+         family={Alwen},
+         familyi={A\bibinitperiod},
+         given={Jo{\"e}l},
+         giveni={J\bibinitperiod},
+      }}%
+      {{hash=MM}{%
+         family={Mularczyk},
+         familyi={M\bibinitperiod},
+         given={Marta},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=TY}{%
+         family={Tselekounis},
+         familyi={T\bibinitperiod},
+         given={Yiannis},
+         giveni={Y\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {Springer}%
+    }
+    \strng{namehash}{AJ+1}
+    \strng{fullhash}{AJMMTY1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{booktitle}{Advances in Cryptology -- CRYPTO 2023}
+    \verb{doi}
+    \verb 10.1007/978-3-031-38551-3_13
+    \endverb
+    \field{note}{Cryptology {ePrint} Archive, Paper 2023/394}
+    \field{pages}{3\bibrangedash 34}
+    \field{title}{Fork-Resilient Continuous Group Key Agreement}
+    \verb{url}
+    \verb https://eprint.iacr.org/2023/394
+    \endverb
+    \field{year}{2023}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{kohbrok2025dmls}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=KK}{%
+         family={Kohbrok},
+         familyi={K\bibinitperiod},
+         given={Konrad},
+         giveni={K\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{KK1}
+    \strng{fullhash}{KK1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Internet-Draft draft-kohbrok-mls-dmls-03}
+    \field{note}{Expired Internet-Draft, work in progress}
+    \field{title}{{Decentralized Messaging Layer Security}}
+    \verb{url}
+    \verb https://datatracker.ietf.org/doc/draft-kohbrok-mls-dmls/
+    \endverb
+    \field{month}{10}
+    \field{year}{2025}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{balbas2023senderkeys}{misc}{}{}
+    \name{author}{3}{}{%
+      {{hash=BD}{%
+         family={Balb{\'a}s},
+         familyi={B\bibinitperiod},
+         given={David},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=CD}{%
+         family={Collins},
+         familyi={C\bibinitperiod},
+         given={Daniel},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=GP}{%
+         family={Gajland},
+         familyi={G\bibinitperiod},
+         given={Phillip},
+         giveni={P\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{BD+1}
+    \strng{fullhash}{BDCDGP1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.48550/arXiv.2301.07045
+    \endverb
+    \field{howpublished}{arXiv preprint arXiv:2301.07045}
+    \field{note}{Appears in RECSI 2022}
+    \field{title}{Analysis and Improvements of the Sender Keys Protocol for
+  Group Messaging}
+    \verb{url}
+    \verb https://arxiv.org/abs/2301.07045
+    \endverb
+    \field{year}{2023}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{ginesin2024matrix}{misc}{}{}
+    \name{author}{2}{}{%
+      {{hash=GJ}{%
+         family={Ginesin},
+         familyi={G\bibinitperiod},
+         given={Jacob},
+         giveni={J\bibinitperiod},
+      }}%
+      {{hash=NRC}{%
+         family={Nita-Rotaru},
+         familyi={N\bibinithyphendelim R\bibinitperiod},
+         given={Cristina},
+         giveni={C\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{GJNRC1}
+    \strng{fullhash}{GJNRC1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.48550/arXiv.2408.12743
+    \endverb
+    \field{howpublished}{arXiv preprint arXiv:2408.12743}
+    \field{title}{The Matrix Reloaded: A Mechanized Formal Analysis of the
+  Matrix Cryptographic Suite}
+    \verb{url}
+    \verb https://arxiv.org/abs/2408.12743
+    \endverb
+    \field{year}{2024}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{gilbert2002brewers}{article}{}{}
+    \name{author}{2}{}{%
+      {{hash=GS}{%
+         family={Gilbert},
+         familyi={G\bibinitperiod},
+         given={Seth},
+         giveni={S\bibinitperiod},
+      }}%
+      {{hash=LN}{%
+         family={Lynch},
+         familyi={L\bibinitperiod},
+         given={Nancy},
+         giveni={N\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{GSLN1}
+    \strng{fullhash}{GSLN1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.1145/564585.564601
+    \endverb
+    \field{number}{2}
+    \field{pages}{51\bibrangedash 59}
+    \field{title}{{Brewer's Conjecture and the Feasibility of Consistent,
+  Available, Partition-Tolerant Web Services}}
+    \field{volume}{33}
+    \field{journaltitle}{ACM SIGACT News}
+    \field{year}{2002}
+  \endentry
+
+  \entry{libp2p2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=l}{%
+         family={{libp2p}},
+         familyi={l\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{l1}
+    \strng{fullhash}{l1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{title}{libp2p Concepts Documentation}
+    \verb{url}
+    \verb https://docs.libp2p.io/concepts/
+    \endverb
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{lamport1978}{article}{}{}
+    \name{author}{1}{}{%
+      {{hash=LL}{%
+         family={Lamport},
+         familyi={L\bibinitperiod},
+         given={Leslie},
+         giveni={L\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{LL1}
+    \strng{fullhash}{LL1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.1145/359545.359563
+    \endverb
+    \field{number}{7}
+    \field{pages}{558\bibrangedash 565}
+    \field{title}{Time, Clocks, and the Ordering of Events in a Distributed
+  System}
+    \field{volume}{21}
+    \field{journaltitle}{Communications of the ACM}
+    \field{year}{1978}
+  \endentry
+
+  \entry{kulkarni2014hlc}{report}{}{}
+    \name{author}{5}{}{%
+      {{hash=KSS}{%
+         family={Kulkarni},
+         familyi={K\bibinitperiod},
+         given={Sandeep\bibnamedelima S.},
+         giveni={S\bibinitperiod\bibinitdelim S\bibinitperiod},
+      }}%
+      {{hash=DM}{%
+         family={Demirbas},
+         familyi={D\bibinitperiod},
+         given={Murat},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=MD}{%
+         family={Madeppa},
+         familyi={M\bibinitperiod},
+         given={Deepak},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=AB}{%
+         family={Avva},
+         familyi={A\bibinitperiod},
+         given={Bharadwaj},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=LM}{%
+         family={Leone},
+         familyi={L\bibinitperiod},
+         given={Marcelo},
+         giveni={M\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{KSS+1}
+    \strng{fullhash}{KSSDMMDABLM1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{title}{{Logical Physical Clocks and Consistent Snapshots in Globally
+  Distributed Databases}}
+    \verb{url}
+    \verb https://cse.buffalo.edu/tech-reports/2014-04.pdf
+    \endverb
+    \list{institution}{1}{%
+      {University at Buffalo}%
+    }
+    \field{type}{techreport}
+    \field{year}{2014}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+\enddatalist
+\endinput
