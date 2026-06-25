@@ -147,6 +147,7 @@ type Coordinator struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	wg                sync.WaitGroup
+	welcomeReceivedChan chan struct{}
 
 	// healing is set to 1 while a fork-heal goroutine is in flight. Manipulated
 	// via atomic CAS so handleAnnounceLocked never blocks on a long heal and
@@ -220,6 +221,7 @@ func NewCoordinator(opts CoordinatorOpts) (*Coordinator, error) {
 		localIdentity:        deriveIdentityFromSigningKey(opts.SigningKey),
 		pendingAppDeliveries: make(map[string]*pendingAppDelivery),
 		operationalMode:      ModeLive,
+		welcomeReceivedChan:  make(chan struct{}, 1),
 	}
 
 	if opts.HLC != nil {
@@ -404,6 +406,7 @@ func (c *Coordinator) Stop() {
 		return
 	}
 	c.cancel()
+	c.failoverTimerChan = nil
 	_ = c.transport.Unsubscribe(GroupTopic(c.groupID))
 	c.started = false
 	c.mu.Unlock()
@@ -554,6 +557,85 @@ func (c *Coordinator) handleAnnounceLocked(from peer.ID, env *Envelope) {
 }
 
 func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
+	var proposal ProposalMsg
+	if err := json.Unmarshal(env.Payload, &proposal); err != nil {
+		return
+	}
+
+	// Defensive Guard: If groupState is nil, we cannot process standard proposals.
+	// We only allow ProposalJoin to proceed because it bypasses MLS validation.
+	if c.groupState == nil && proposal.ProposalType != ProposalJoin {
+		slog.Warn("Ignored proposal because local groupState is nil", "type", proposal.ProposalType, "group", c.groupID)
+		return
+	}
+
+	// PHOENIX PROTOCOL INTERCEPTION:
+	// A ProposalJoin requires an atomic Remove(zombie) + Add(fresh) operation to bypass OpenMLS duplicate identity checks.
+	// We check this BEFORE epoch validation, but enforce a security epoch guard to prevent ancient replay attacks.
+	if proposal.ProposalType == ProposalJoin {
+		maxPast := uint64(c.cfg.GetMaxPastEpochs())
+		if env.Epoch+maxPast < c.epoch {
+			slog.Warn("Rejected ProposalJoin from ancient epoch", "group", c.groupID, "sender", from, "env_epoch", env.Epoch, "current_epoch", c.epoch)
+			return
+		}
+
+		// Use the explicit TargetIdentity if provided by the joiner, falling back to TargetPeerID bytes
+		targetIdentity := proposal.TargetIdentity
+		if len(targetIdentity) == 0 {
+			targetIdentity = []byte(proposal.TargetPeerID)
+		}
+
+		// 1. Check if member exists in tree before attempting Remove
+		//    If the credential was already removed (e.g. by advanceEpochOnWinningBranch),
+		//    skip Remove and proceed directly with Add.
+		opCtxMember, cancelMember := c.mlsOperationContext()
+		hasMember, memberErr := c.mls.HasMember(opCtxMember, c.groupState, targetIdentity)
+		cancelMember()
+		if memberErr != nil {
+			slog.Warn("HasMember check failed during JoinProposal", "err", memberErr, "target", proposal.TargetPeerID)
+		}
+
+		if memberErr == nil && hasMember {
+			_, bufferedRemove, err := c.createAndStoreLocalProposalLocked(ProposalRemove, targetIdentity, BufferedProposal{TargetPeerID: proposal.TargetPeerID})
+			if err == nil {
+				c.singleWriter.BufferProposal(bufferedRemove)
+			} else {
+				slog.Warn("Failed to create RemoveProposal for zombie leaf during JoinProposal", "err", err, "target", proposal.TargetPeerID)
+			}
+		} else if memberErr == nil {
+			slog.Info("Skipped RemoveProposal during JoinProposal — member not found in tree (already removed)", "target", proposal.TargetPeerID)
+		}
+
+		// 2. Transmute the JoinProposal into a standard AddProposal and buffer it
+		_, bufferedAdd, err := c.createAndStoreLocalProposalLocked(ProposalAdd, proposal.Data, BufferedProposal{
+			OperationID:    proposal.OperationID,
+			TargetPeerID:   proposal.TargetPeerID,
+			RequestID:      proposal.RequestID,
+			GroupType:      proposal.GroupType,
+			CategoryID:     proposal.CategoryID,
+			KeyPackageHash: proposal.KeyPackageHash,
+		})
+		if err == nil {
+			c.singleWriter.BufferProposal(bufferedAdd)
+		} else {
+			slog.Warn("Failed to create AddProposal for fresh key package during JoinProposal", "err", err, "target", proposal.TargetPeerID)
+		}
+
+		// ProposalJoin đi qua cùng Token Holder election path như proposal bình thường.
+		// Cơ chế failover (Suspend + re-elect) đảm bảo Token Holder không commit
+		// thì node khác takeover, đảm bảo Single-Writer Invariant.
+		if len(c.groupState) > 0 {
+			if c.singleWriter.IsTokenHolder() {
+				c.scheduleBatchCommitLocked()
+			} else {
+				c.scheduleFailoverTimerLocked()
+			}
+		} else {
+			slog.Info("ProposalJoin: local node also healing, cannot commit", "node", c.localID, "group", c.groupID)
+		}
+		return
+	}
+
 	action := c.epochTracker.Validate(env.Epoch)
 	switch action {
 	case ActionRejectStale:
@@ -561,11 +643,6 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 	case ActionBufferFuture:
 		raw, _ := json.Marshal(env)
 		c.epochTracker.BufferFuture(env.Epoch, raw)
-		return
-	}
-
-	var proposal ProposalMsg
-	if err := json.Unmarshal(env.Payload, &proposal); err != nil {
 		return
 	}
 
@@ -707,6 +784,18 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	}
 
 	c.advanceEpochLocked(newState, nextEpoch, newTreeHash, commit.CommitData)
+	// Primary drain: by ProposalRef (works when this node is the holder or has the same groupState).
+	c.singleWriter.DrainBatchByRefs(commit.CommittedProposalRefs)
+	// Fallback drain: by raw proposal Data bytes.
+	if len(commit.IncludedProposals) > 0 {
+		proposalDatas := make([][]byte, 0, len(commit.IncludedProposals))
+		for _, p := range commit.IncludedProposals {
+			if len(p.Data) > 0 {
+				proposalDatas = append(proposalDatas, p.Data)
+			}
+		}
+		c.singleWriter.DrainBatchByData(proposalDatas)
+	}
 	c.reconcileOperationsAfterCommitLocked(commit)
 
 	// Trigger bidirectional batch replay
@@ -717,10 +806,6 @@ func (c *Coordinator) handleCommitLocked(env *Envelope, wire []byte) bool {
 	c.updateLocalAccessRevocationLocked(newState, nextEpoch)
 	c.metrics.RecordEpochFinalization(c.clock.Now().Sub(start))
 
-	// Surface AddCommitDeliveries to the runtime so non-holder receivers can
-	// transition their local group_add_operations row to "commit_observed".
-	// Welcome bytes are intentionally NOT propagated here — only the node
-	// that ran CreateCommit owns the ephemeral material to author them.
 	if len(commit.AddDeliveries) > 0 && c.onAddCommitted != nil {
 		deliveries := append([]AddCommitDelivery(nil), commit.AddDeliveries...)
 		epoch := nextEpoch
@@ -1017,8 +1102,6 @@ func (c *Coordinator) scheduleBatchCommitLocked() {
 	}(ch)
 }
 
-// scheduleFailoverTimerLocked starts the censorship timeout if the local node is
-// not the Token Holder and there are pending proposals.
 func (c *Coordinator) scheduleFailoverTimerLocked() {
 	if c.failoverTimerChan != nil {
 		return // already scheduled
@@ -1036,8 +1119,20 @@ func (c *Coordinator) scheduleFailoverTimerLocked() {
 	ch := c.clock.After(delay)
 	c.failoverTimerChan = ch
 
+	c.wg.Add(1)
 	go func(timerChan <-chan time.Time) {
-		<-timerChan
+		defer c.wg.Done()
+
+		select {
+		case <-timerChan:
+		case <-c.ctx.Done():
+			c.mu.Lock()
+			if c.failoverTimerChan == timerChan {
+				c.failoverTimerChan = nil
+			}
+			c.mu.Unlock()
+			return
+		}
 
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -1065,12 +1160,29 @@ func (c *Coordinator) scheduleFailoverTimerLocked() {
 
 // tryCommitLocked commits the deterministic proposal-ref snapshot for this epoch.
 func (c *Coordinator) tryCommitLocked() {
+	if !c.singleWriter.IsTokenHolder() {
+		return
+	}
+	if len(c.groupState) == 0 {
+		return
+	}
 	batch := c.singleWriter.SnapshotNextBatch()
 	if len(batch) == 0 {
 		return
 	}
 	if !c.commitViewReadyLocked(batch) {
 		c.deferCommitUntilViewReadyLocked()
+		return
+	}
+	c.doCommitBatchLocked(batch)
+}
+
+// doCommitBatchLocked executes an MLS CreateCommit for the given batch, persists
+// the result, and broadcasts the commit envelope. Called by tryCommitLocked
+// (normal Token-Holder path) and the batched-commit timer.
+func (c *Coordinator) doCommitBatchLocked(batch []BufferedProposal) {
+	if len(c.groupState) == 0 {
+		slog.Warn("doCommitBatchLocked: groupState is nil, skipping commit", "group", c.groupID)
 		return
 	}
 	prevEpoch := c.epoch
@@ -2587,6 +2699,9 @@ func (c *Coordinator) announceLoop(ctx context.Context) {
 // node's current TreeHash, member view size, and last commit hash. Caller must
 // hold c.mu.
 func (c *Coordinator) broadcastAnnounceLocked() {
+	if c.groupState == nil || c.healing.Load() {
+		return
+	}
 	ann := GroupStateAnnouncement{
 		TreeHash:    c.treeHash,
 		MemberCount: c.activeView.Size(),
@@ -3032,66 +3147,78 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 	}
 
 	// M5: 4. Fetch GroupInfo & External Join
-	var gi *GroupInfoFetchResult
 	var newEpoch uint64
-	var newState, externalCommit, newTreeHash []byte
+	var newState, newTreeHash []byte
 
 	if job.Status == "SNAPSHOT_CREATED" {
 		stepStart := c.clock.Now()
-		c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "started", stepStart, 0, "")
+		c.recordForkHealAudit(traceID, event.GroupID, "proposal_join_generation", "started", stepStart, 0, "")
 
-		peers := event.WinnerPeers
-		if len(peers) == 0 {
-			peers = []peer.ID{event.RemotePeer}
+		// 1. Generate a fresh KeyPackage via Rust (using our unique signing key)
+		kp, kpPriv, err := c.mls.GenerateKeyPackage(ctx, c.signingKey)
+		if err != nil {
+			c.recordForkHealAudit(traceID, event.GroupID, "proposal_join_generation", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
+			c.logHealFailed(traceID, event, startedAt, scheduledAt, "proposal_join_generation", err)
+			return
 		}
-		var lastFetchErr error
-		for _, remotePeer := range peers {
-			gi, lastFetchErr = c.fetchGroupInfoForHeal(ctx, remotePeer, event.GroupID, true)
-			if lastFetchErr == nil {
-				break
-			}
+
+		// 2. Wrap the KeyPackage in a ProposalJoin message
+		h := sha256.Sum256(kp)
+		kpHash := h[:]
+
+		msg := ProposalMsg{
+			ProposalType:   ProposalJoin,
+			Data:           kp,
+			TargetPeerID:   c.localID.String(),
+			TargetIdentity: c.localIdentity,
+			KeyPackageHash: kpHash,
+			OperationID:    job.JobID,
 		}
-		if lastFetchErr != nil {
-			if len(job.WinnerGroupInfo) > 0 {
-				gi = &GroupInfoFetchResult{
-					Epoch:     job.WinningEpoch,
-					TreeHash:  job.WinningTreeHash,
-					GroupInfo: job.WinnerGroupInfo,
-				}
-				lastFetchErr = nil
+
+		// 3. Drop current MlsGroup state from Go memory (but keep SQLite history intact)
+		c.mu.Lock()
+		c.groupState = nil
+		c.treeHash = nil
+		// Build envelope under lock to safely access c.epoch, groupID, localID, hlc
+		envBytes := c.buildEnvelopeWithTimestampLocked(MsgProposal, msg, c.hlc.Now())
+		c.mu.Unlock()
+
+		// Publish outside lock to prevent re-entrant deadlock from synchronous transport callbacks
+		if len(envBytes) > 0 {
+			c.publishPreparedEnvelopeLocked(MsgProposal, envBytes)
+		}
+
+		// 4. Update the persistent healing job state to PROPOSAL_SENT, cache the private key bundle
+		job.Status = "PROPOSAL_SENT"
+		job.PendingBundlePrivate = kpPriv
+		job.UpdatedAtMs = c.clock.Now().UnixMilli()
+		if saveErr := c.storage.SaveForkHealingJob(job); saveErr != nil {
+			slog.Error("fork_heal/db_save_job_failed", "group", event.GroupID, "err", saveErr)
+		}
+
+		c.recordForkHealAudit(traceID, event.GroupID, "proposal_join_broadcast", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
+		slog.Info("fork_heal/proposal_sent", "group", event.GroupID, "job", job.JobID, "node", c.localID)
+
+		// 5. Suspend goroutine and await Welcome message signal (prevents early return mode leaks)
+		select {
+		case <-c.welcomeReceivedChan:
+			slog.Info("fork_heal/welcome_received_signal", "group", event.GroupID)
+			// Reload the job from DB to get the decrypted state and updated status (EXTERNAL_JOINED)
+			if updatedJob, reloadErr := c.storage.GetActiveForkHealingJob(event.GroupID); reloadErr == nil && updatedJob != nil {
+				job = updatedJob
 			} else {
-				c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_request", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), lastFetchErr.Error())
-				c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_request", lastFetchErr)
+				slog.Error("fork_heal/reload_job_failed", "group", event.GroupID)
+				c.logHealFailed(traceID, event, startedAt, scheduledAt, "reload_job", fmt.Errorf("failed to reload job from DB after welcome signal"))
 				return
 			}
-		}
-
-		if gi.Epoch < event.RemoteEpoch {
-			err := fmt.Errorf("winner epoch regressed: got %d, expected >= %d", gi.Epoch, event.RemoteEpoch)
-			c.recordForkHealAudit(traceID, event.GroupID, "groupinfo_received", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-			c.logHealFailed(traceID, event, startedAt, scheduledAt, "groupinfo_received", err)
+		case <-ctx.Done():
+			slog.Warn("fork_heal/awaiting_welcome_cancelled", "group", event.GroupID)
+			return
+		case <-c.clock.After(c.cfg.MLSOperationTimeout):
+			slog.Warn("fork_heal/awaiting_welcome_timeout", "group", event.GroupID)
+			c.logHealFailed(traceID, event, startedAt, scheduledAt, "awaiting_welcome", fmt.Errorf("timeout waiting for Welcome message"))
 			return
 		}
-
-		var joinErr error
-		newState, externalCommit, newTreeHash, joinErr = c.mls.ExternalJoin(ctx, gi.GroupInfo, c.signingKey, c.cfg.GetMaxPastEpochs())
-		if joinErr != nil {
-			c.recordForkHealAudit(traceID, event.GroupID, "external_join", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), joinErr.Error())
-			c.logHealFailed(traceID, event, startedAt, scheduledAt, "external_join", joinErr)
-			return
-		}
-		newEpoch = gi.Epoch + 1
-
-		job.Status = "EXTERNAL_JOINED"
-		job.WinningEpoch = gi.Epoch
-		job.WinningTreeHash = gi.TreeHash
-		job.WinnerGroupInfo = gi.GroupInfo
-		job.PendingGroupState = newState
-		job.PendingEpoch = newEpoch
-		job.PendingTreeHash = newTreeHash
-		job.UpdatedAtMs = c.clock.Now().UnixMilli()
-		_ = c.storage.SaveForkHealingJob(job)
-		c.recordForkHealAudit(traceID, event.GroupID, "external_join", "completed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), "")
 	}
 
 	// M5: 5. Swap Group State & Crypto-shredding keys (DB Transaction Boundary)
@@ -3111,17 +3238,10 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 			newTreeHash = job.PendingTreeHash
 		}
 
-		if err := c.applyHealedState(newState, newTreeHash, newEpoch, externalCommit); err != nil {
+		if err := c.applyHealedState(newState, newTreeHash, newEpoch); err != nil {
 			c.recordForkHealAudit(traceID, event.GroupID, "state_swap", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
 			c.logHealFailed(traceID, event, startedAt, scheduledAt, "state_swap", err)
 			return
-		}
-
-		if len(externalCommit) > 0 {
-			if err := c.broadcastExternalCommit(job.WinningEpoch, externalCommit, newTreeHash); err != nil {
-				c.recordForkHealAudit(traceID, event.GroupID, "external_commit", "failed", c.clock.Now(), c.clock.Now().Sub(stepStart).Milliseconds(), err.Error())
-				slog.Warn("fork_heal/broadcast_external_commit_failed", "err", err)
-			}
 		}
 
 		job.Status = "STATE_SWAPPED"
@@ -3314,6 +3434,64 @@ func (c *Coordinator) resumeForkHealingJob(job *ForkHealingJob) {
 	go c.runHeal(c.ctx, job.TraceID, event, time.UnixMilli(job.CreatedAtMs))
 }
 
+// ProcessWelcomeIfWaiting is called by the application layer when a Welcome message
+// is received. If the coordinator is waiting for a Welcome to heal a fork, it
+// processes it and resumes the healing job.
+func (c *Coordinator) ProcessWelcomeIfWaiting(ctx context.Context, welcomeBytes []byte) bool {
+	c.mu.Lock()
+	job, err := c.storage.GetActiveForkHealingJob(c.groupID)
+	if err != nil || job == nil || job.Status != "PROPOSAL_SENT" {
+		c.mu.Unlock()
+		return false
+	}
+
+	if len(job.PendingBundlePrivate) == 0 {
+		c.mu.Unlock()
+		return false
+	}
+
+	// Copy immutable properties needed for MLS call to local variables and release c.mu
+	// to prevent blocking other goroutines during the heavy cryptographic MLS/gRPC call.
+	signingKey := c.signingKey
+	maxPastEpochs := c.cfg.GetMaxPastEpochs()
+	pendingPrivate := job.PendingBundlePrivate
+	c.mu.Unlock()
+
+	groupState, treeHash, epoch, err := c.mls.ProcessWelcome(ctx, welcomeBytes, signingKey, pendingPrivate, maxPastEpochs)
+	if err != nil {
+		slog.Warn("fork_heal/process_welcome_failed", "group", c.groupID, "err", err)
+		return false
+	}
+
+	c.mu.Lock()
+	// Re-verify the active job status to protect against concurrent welcome processing races
+	job, err = c.storage.GetActiveForkHealingJob(c.groupID)
+	if err != nil || job == nil || job.Status != "PROPOSAL_SENT" {
+		c.mu.Unlock()
+		return false
+	}
+
+	job.Status = "EXTERNAL_JOINED"
+	job.WinningEpoch = epoch
+	job.WinningTreeHash = treeHash
+	job.PendingGroupState = groupState
+	job.PendingEpoch = epoch
+	job.PendingTreeHash = treeHash
+	job.UpdatedAtMs = c.clock.Now().UnixMilli()
+	_ = c.storage.SaveForkHealingJob(job)
+
+	c.mu.Unlock()
+
+	// Signal the waiting runHeal goroutine to proceed with state swap.
+	// runHeal reloads the job from DB and finds status=EXTERNAL_JOINED.
+	select {
+	case c.welcomeReceivedChan <- struct{}{}:
+	default:
+	}
+
+	return true
+}
+
 func deriveStorageKey(signingKey []byte) []byte {
 	h := sha256.Sum256(signingKey)
 	return h[:]
@@ -3337,6 +3515,9 @@ func sealPayload(plaintext, key []byte) (ciphertext, nonce []byte, err error) {
 }
 
 func openPayload(ciphertext, nonce, key []byte) (plaintext []byte, err error) {
+	if len(ciphertext) == 0 || len(nonce) == 0 {
+		return nil, fmt.Errorf("openPayload: empty ciphertext or nonce")
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -3369,7 +3550,7 @@ func (c *Coordinator) fetchGroupInfoForHeal(ctx context.Context, remote peer.ID,
 	return gi, nil
 }
 
-func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch uint64, externalCommit []byte) error {
+func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch uint64) error {
 	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -3414,7 +3595,7 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, newEpoch, c.cfg)
 	c.singleWriter.SetAuthorizedCommitters(c.groupID, c.authorizedCommitters)
 
-	commitHash := hashCommitData(externalCommit)
+	commitHash := hashCommitData(nil)
 	c.lastCommitHash = copyBytes(commitHash)
 	c.forkDetector.Reset()
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
@@ -3429,22 +3610,6 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 	if c.onEpochChange != nil {
 		c.onEpochChange(newEpoch)
 	}
-	return nil
-}
-
-func (c *Coordinator) broadcastExternalCommit(envelopeEpoch uint64, externalCommit, newTreeHash []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ts := c.hlc.Now()
-	wire := c.buildEnvelopeWithEpochAndTimestampLocked(MsgCommit, CommitMsg{
-		CommitData:  externalCommit,
-		NewTreeHash: newTreeHash,
-	}, envelopeEpoch, ts)
-	if len(wire) == 0 {
-		return fmt.Errorf("encode external commit envelope")
-	}
-	c.publishPreparedEnvelopeLocked(MsgCommit, wire)
-	c.appendOfflineEnvelopeLocked(wire)
 	return nil
 }
 
@@ -3838,9 +4003,13 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 					KeyPackageHash: append([]byte(nil), op.OperationHash...),
 				})
 				if err == nil {
-					c.singleWriter.BufferProposal(buffered)
-					c.scheduleFailoverTimerLocked()
 					c.broadcastLocked(MsgProposal, msg)
+					c.singleWriter.BufferProposal(buffered)
+					if c.singleWriter.IsTokenHolder() {
+						c.scheduleBatchCommitLocked()
+					} else {
+						c.scheduleFailoverTimerLocked()
+					}
 					h := sha256.Sum256(msg.Data)
 					op.LatestProposalHash = h[:]
 					op.Status = "PROPOSED"
@@ -3854,9 +4023,13 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 					OperationID:  op.OperationID,
 				})
 				if err == nil {
-					c.singleWriter.BufferProposal(buffered)
-					c.scheduleFailoverTimerLocked()
 					c.broadcastLocked(MsgProposal, msg)
+					c.singleWriter.BufferProposal(buffered)
+					if c.singleWriter.IsTokenHolder() {
+						c.scheduleBatchCommitLocked()
+					} else {
+						c.scheduleFailoverTimerLocked()
+					}
 					h := sha256.Sum256(msg.Data)
 					op.LatestProposalHash = h[:]
 					op.Status = "PROPOSED"
@@ -3867,6 +4040,15 @@ func (c *Coordinator) reconcileAndRebaseOperationsLocked() {
 			}
 
 			if reProposed {
+				if dbOp, dbErr := c.storage.GetPendingOperation(op.OperationID); dbErr == nil && dbOp != nil {
+					if dbOp.Status == "COMMITTED" || dbOp.Status == "SATISFIED_BY_OTHER" {
+						op.Status = dbOp.Status
+						op.UpdatedAt = dbOp.UpdatedAt
+						op.LastError = dbOp.LastError
+						_ = c.storage.SavePendingOperation(op)
+						continue
+					}
+				}
 				op.LastError = nil
 				_ = c.storage.SavePendingOperation(op)
 				c.emitPendingOperationAuditLocked(PendingOperationAuditSummary{

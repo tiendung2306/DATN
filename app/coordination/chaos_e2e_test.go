@@ -71,11 +71,18 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 		// Use real time for polling to ensure we capture wall clock progress
 		now := time.Now().UnixMilli()
 		for i, n := range nodes {
+			var thStr string
+			th := n.coord.GetTreeHash()
+			if len(th) >= 4 {
+				thStr = hex.EncodeToString(th[:4])
+			} else {
+				thStr = hex.EncodeToString(th)
+			}
 			writer.Write([]string{
 				fmt.Sprintf("%d", now),
 				fmt.Sprintf("Node_%d", i),
 				fmt.Sprintf("%d", n.coord.CurrentEpoch()),
-				hex.EncodeToString(n.coord.GetTreeHash()[:4]),
+				thStr,
 			})
 		}
 		writer.Flush()
@@ -175,8 +182,12 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 		for _, n := range nodes {
 			n.coord.BroadcastAnnounce() // Announcements trigger Fork Healing
 		}
-		network.DrainAll()
-		clk.Advance(1 * time.Second)
+		network.DrainAll() // deliver announces → trigger heal goroutines
+		clk.Advance(10 * time.Millisecond)
+		network.DrainAll() // deliver ProposalJoins from heal goroutines → trigger Welcomes
+		clk.Advance(500 * time.Millisecond)
+		network.DrainAll() // deliver any remaining messages (Welcomes, etc.)
+		clk.Advance(500 * time.Millisecond)
 		time.Sleep(10 * time.Millisecond)
 	}
 	recordMetrics() // capture final state

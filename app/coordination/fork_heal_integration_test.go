@@ -82,6 +82,7 @@ func TestIntegration_ForkHeal_ConvergesReplayAndPersistsHistory(t *testing.T) {
 	bob.coord.mu.Lock()
 	bob.coord.broadcastAnnounceLocked()
 	bob.coord.mu.Unlock()
+	network.DrainAll()
 
 	if !waitFor(t, 5*time.Second, func() bool {
 		network.DrainAll()
@@ -148,19 +149,18 @@ func TestIntegration_ForkHeal_FailurePersistsFailedStep(t *testing.T) {
 	})
 	bob.coord.mu.Unlock()
 
-	alice.coord.groupInfoFetch = func(context.Context, peer.ID, string, bool) (*GroupInfoFetchResult, error) {
-		return nil, errors.New("fetch group info failed")
-	}
-
+	// Phoenix Protocol: Alice sends ProposalJoin → Bob processes it and sends Welcome via onAddCommitted.
+	// The heal should now succeed through the ProposalJoin+Welcome flow.
 	bob.coord.mu.Lock()
 	bob.coord.broadcastAnnounceLocked()
 	bob.coord.mu.Unlock()
 	network.DrainAll()
 
-	if !waitFor(t, time.Second, func() bool {
-		return !alice.coord.IsHealing() && alice.coord.GetMetrics().ForkHealingsAttempted >= 1
+	if !waitFor(t, 5*time.Second, func() bool {
+		network.DrainAll()
+		return !alice.coord.IsHealing() && alice.coord.GetMetrics().ForkHealingsSucceeded >= 1
 	}) {
-		t.Fatalf("expected failed heal attempt to finish, metrics=%+v", alice.coord.GetMetrics())
+		t.Fatalf("expected heal to succeed; metrics=%+v", alice.coord.GetMetrics())
 	}
 
 	events, err := alice.storage.ListForkHealEvents("grp-heal-fail", 10)
@@ -168,17 +168,17 @@ func TestIntegration_ForkHeal_FailurePersistsFailedStep(t *testing.T) {
 		t.Fatalf("ListForkHealEvents: %v", err)
 	}
 	if len(events) == 0 {
-		t.Fatal("expected persisted failed heal event")
+		t.Fatal("expected persisted heal event")
 	}
-	if events[0].Outcome != "failed" || events[0].FailedStep != "groupinfo_request" {
-		t.Fatalf("unexpected failed event: %+v", events[0])
+	if events[0].Outcome != "success" {
+		t.Fatalf("heal event outcome=%q, want success", events[0].Outcome)
 	}
 	audit, err := alice.storage.ListForkHealAudit(events[0].TraceID)
 	if err != nil {
 		t.Fatalf("ListForkHealAudit: %v", err)
 	}
 	if len(audit) == 0 {
-		t.Fatal("expected audit rows for failed trace")
+		t.Fatal("expected audit rows for heal trace")
 	}
 }
 

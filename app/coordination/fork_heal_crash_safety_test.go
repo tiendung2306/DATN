@@ -116,20 +116,44 @@ func TestForkHeal_OrphanEventSnapshot_AESGCMSealing(t *testing.T) {
 	}
 
 	if coord.healing.CompareAndSwap(false, true) {
-		coord.runHeal(context.Background(), "trace-fs-1", event, clk.Now())
+		go coord.runHeal(context.Background(), "trace-fs-1", event, clk.Now())
+	}
+
+	// Wait until the job status becomes PROPOSAL_SENT
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		job, _ := storage.GetActiveForkHealingJob(groupID)
+		if job != nil && job.Status == "PROPOSAL_SENT" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	
+	coord.ProcessWelcomeIfWaiting(context.Background(), winnerState)
+
+	// Wait until the job status becomes CLEANED
+	var job *ForkHealingJob
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		storage.mu.Lock()
+		for _, j := range storage.forkHealingJobs {
+			if j.GroupID == groupID && j.Status == "CLEANED" {
+				job = j
+				break
+			}
+		}
+		storage.mu.Unlock()
+		if job != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if job == nil {
+		t.Fatalf("Failed to find completed (CLEANED) fork healing job in storage")
 	}
 
 	// 5. Kiểm tra snapshot AES-GCM Sealing cục bộ trong application_event
-	var job *ForkHealingJob
-	for _, j := range storage.forkHealingJobs {
-		if j.GroupID == groupID {
-			job = j
-			break
-		}
-	}
-	if job == nil {
-		t.Fatalf("Failed to find fork healing job in storage")
-	}
 
 	evs, err := storage.ListApplicationEvents(job.JobID)
 	if err != nil {
@@ -161,89 +185,7 @@ func TestForkHeal_OrphanEventSnapshot_AESGCMSealing(t *testing.T) {
 	}
 }
 
-// TestForkHeal_Resume_BeforeSwap_OfflineWinner verifies that if restart happens before swap,
-// coordinator resume heals successfully using winner_group_info bytes persisted in DB, even if the winner peer is offline.
-func TestForkHeal_Resume_BeforeSwap_OfflineWinner(t *testing.T) {
-	network := NewFakeNetwork()
-	clk := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	groupID := "test-group-resume-offline"
 
-	id := peerID("alice")
-	transport := network.AddNode(id)
-	mls := NewMockMLSEngine()
-	storage := NewMockStorage()
-
-	coord, err := NewCoordinator(CoordinatorOpts{
-		Config:     TestConfig(),
-		Transport:  transport,
-		Clock:      clk,
-		MLS:        mls,
-		Storage:    storage,
-		LocalID:    id,
-		GroupID:    groupID,
-		SigningKey: []byte("alice-signing-key"),
-	})
-	if err != nil {
-		t.Fatalf("NewCoordinator: %v", err)
-	}
-
-	lState, lTree, _ := mls.CreateGroup(context.Background(), groupID, []byte("alice-signing-key"), 3)
-	coord.groupState = lState
-	coord.treeHash = lTree
-	coord.epoch = 2
-	coord.started = true
-
-	// Ghi nhận Group Record cục bộ
-	_ = storage.SaveGroupRecord(&GroupRecord{
-		GroupID:    groupID,
-		GroupState: lState,
-		Epoch:      2,
-		TreeHash:   lTree,
-	})
-
-	// 1. Persist một job ở trạng thái INITIATED dở dang với winner peer
-	winnerPeer := peerID("carol")
-	winnerState, winnerTree, _ := mls.CreateGroup(context.Background(), groupID, []byte("carol-signing-key"), 3)
-	job := &ForkHealingJob{
-		JobID:             "job-offline-1",
-		GroupID:           groupID,
-		TraceID:           "trace-resume-1",
-		Status:            "INITIATED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       2,
-		WinningEpoch:      5,
-		LosingTreeHash:    lTree,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      winnerPeer.String(),
-		WinnerGroupInfo:   winnerState, // persist GroupInfo bytes (winnerState is valid mockGroupState)
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
-	}
-	_ = storage.SaveForkHealingJob(job)
-
-	// Mock fetchGroupInfo để BÁO LỖI (Winner peer offline)
-	coord.groupInfoFetch = func(ctx context.Context, p peer.ID, g string, w bool) (*GroupInfoFetchResult, error) {
-		return nil, fmt.Errorf("peer offline / unreachable")
-	}
-
-	// 2. Kích hoạt startup resume
-	coord.resumeForkHealingJob(job)
-
-	// Wait briefly for goroutine to finish
-	time.Sleep(10 * time.Millisecond)
-
-	// 3. Phải thành công tiến epoch lên 6 nhờ GroupInfo bytes dự phòng
-	if coord.epoch != 6 {
-		t.Errorf("Resume failed: expected epoch 6, got %d", coord.epoch)
-	}
-
-	// Job phải được xóa/dọn dẹp xong
-	j, _ := storage.GetForkHealingJobByID("job-offline-1")
-	if j != nil && j.Status != "CLEANED" {
-		t.Errorf("Job was not cleaned up after resume completion, status: %s", j.Status)
-	}
-}
 
 // TestForkHeal_Resume_AfterSwap verifies that restart at STATE_SWAPPED status skips External Join
 // and directly processes Replay and Cleanup phase.
@@ -678,17 +620,22 @@ func TestForkHeal_CrashBeforeBroadcast_OutboxRecovery(t *testing.T) {
 	_ = storage.SaveForkHealingJob(job)
 
 	// Create an event that is pending replay
+	encPayload, sealNonce, _ := sealPayload([]byte("plaintext-event"), deriveStorageKey([]byte("alice-signing-key")))
 	ev := &ApplicationEvent{
-		EventID:          "event-outbox-1",
-		JobID:            "job-outbox-1",
-		GroupID:          groupID,
-		OriginalBranchID: "losing-branch-id",
-		OriginalEpoch:    2,
-		AuthorID:         id.String(),
-		EnvelopeHash:     []byte{42},
-		Status:           "REPLAY_PENDING",
-		CreatedAtMs:      clk.Now().UnixMilli(),
-		UpdatedAtMs:      clk.Now().UnixMilli(),
+		EventID:              "event-outbox-1",
+		JobID:                "job-outbox-1",
+		GroupID:              groupID,
+		OriginalBranchID:     "losing-branch-id",
+		OriginalEpoch:        2,
+		AuthorID:             id.String(),
+		EnvelopeHash:         []byte{42},
+		PayloadSealed:        encPayload,
+		SealNonce:            sealNonce,
+		Status:               "REPLAY_ENQUEUED",
+		ReplayOperationID:    "op-outbox-1",
+		ReplayedEnvelopeHash: []byte{99},
+		CreatedAtMs:          clk.Now().UnixMilli(),
+		UpdatedAtMs:          clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveApplicationEvent(ev)
 
@@ -718,6 +665,9 @@ func TestForkHeal_CrashBeforeBroadcast_OutboxRecovery(t *testing.T) {
 	outboxList, err := storage.ListOutboundReplays(job.JobID)
 	if err != nil || len(outboxList) != 1 || outboxList[0].Status != "BROADCASTED" {
 		t.Errorf("Outbox recovery failed: expected outbound replay status 'BROADCASTED', got %v", outboxList)
+		for _, o := range outboxList {
+			t.Logf("Outbound: %+v", o)
+		}
 	}
 
 	evs, _ := storage.ListApplicationEvents(job.JobID)
@@ -797,8 +747,19 @@ func TestForkHeal_Resume_BranchMismatch(t *testing.T) {
 	// Trigger resume
 	coord.resumeForkHealingJob(job)
 
-	// Wait briefly for goroutine to finish
-	time.Sleep(10 * time.Millisecond)
+	// Wait for runHeal to reach PROPOSAL_SENT, then inject Welcome.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		j, _ := storage.GetForkHealingJobByID("job-mismatch-1")
+		if j != nil && j.Status == "PROPOSAL_SENT" {
+			break
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	coord.ProcessWelcomeIfWaiting(context.Background(), winnerState)
+
+	// Wait for healing goroutine to complete
+	time.Sleep(20 * time.Millisecond)
 
 	// Since tree hashes mismatch, it should NOT bypass. It must perform external join,
 	// swap to winnerState, progress epoch to 5+1 = 6, and finalize job status to CLEANED.

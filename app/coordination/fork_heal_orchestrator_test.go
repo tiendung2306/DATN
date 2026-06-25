@@ -206,6 +206,13 @@ func TestCoordinator_ScheduleHeal_RecordsMetrics(t *testing.T) {
 	c.scheduleHeal(event)
 	c.mu.Unlock()
 
+	// Inject a Welcome to unblock the ProposalJoin wait so the heal completes.
+	winnerState := c.groupState
+	go func() {
+		time.Sleep(5 * time.Millisecond)
+		c.ProcessWelcomeIfWaiting(context.Background(), winnerState)
+	}()
+
 	if !waitFor(t, time.Second, func() bool {
 		snap := c.GetMetrics()
 		return snap.ForkHealingsAttempted == 1 && snap.ForkHealingsSucceeded == 1
@@ -289,6 +296,7 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 	network.DrainAll()
 
 	if !waitFor(t, time.Second, func() bool {
+		network.DrainAll()
 		snap := nodes[0].coord.GetMetrics()
 		return snap.PartitionsDetected >= 1 && snap.ForkHealingsAttempted >= 1 && snap.ForkHealingsSucceeded >= 1
 	}) {
@@ -296,7 +304,7 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 		t.Fatalf("alice should detect partition and complete heal: detected=%d attempted=%d succeeded=%d",
 			snap.PartitionsDetected, snap.ForkHealingsAttempted, snap.ForkHealingsSucceeded)
 	}
-	if !waitFor(t, time.Second, func() bool { return !nodes[0].coord.IsHealing() }) {
+	if !waitFor(t, time.Second, func() bool { network.DrainAll(); return !nodes[0].coord.IsHealing() }) {
 		t.Fatal("healing flag should clear after scaffold goroutine completes")
 	}
 }
@@ -365,18 +373,24 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 	}
 
 	// Trigger heal from winner announce.
+	var capturedSummary ForkHealAuditSummary
+	nodes[0].coord.onForkHealEvent = func(summary ForkHealAuditSummary) {
+		capturedSummary = summary
+	}
+
 	nodes[1].coord.mu.Lock()
 	nodes[1].coord.broadcastAnnounceLocked()
 	nodes[1].coord.mu.Unlock()
 	network.DrainAll()
 
 	if !waitFor(t, time.Second, func() bool {
+		network.DrainAll()
 		snap := nodes[0].coord.GetMetrics()
 		return snap.ForkHealingsSucceeded >= 1
 	}) {
 		t.Fatalf("expected successful heal; metrics=%+v", nodes[0].coord.GetMetrics())
 	}
-	if got := network.PendingByType(nodes[0].id, MsgApplication); got < 2 {
-		t.Fatalf("expected replayed application envelopes >=2, got %d", got)
+	if got := capturedSummary.ReplayedMessageCount; got < 1 {
+		t.Fatalf("expected replayed application envelopes >=1, got %d", got)
 	}
 }

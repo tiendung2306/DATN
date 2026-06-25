@@ -452,11 +452,15 @@ func (m *MockMLSEngine) ProcessWelcome(_ context.Context, welcomeBytes, _, _ []b
 	return welcomeBytes, th, state.Epoch, nil
 }
 
-func (m *MockMLSEngine) GenerateKeyPackage(_ context.Context, _ []byte) ([]byte, []byte, error) {
+func (m *MockMLSEngine) GenerateKeyPackage(_ context.Context, signingKey []byte) ([]byte, []byte, error) {
 	if err := m.popError(); err != nil {
 		return nil, nil, err
 	}
-	return []byte("mock-key-package"), []byte("mock-kp-bundle-private"), nil
+	// Include signingKey in the KeyPackage so each node gets a unique
+	// ProposalRef. Without this, all nodes produce identical KeyPackages,
+	// causing BufferProposal to deduplicate Add proposals from different nodes.
+	kp := append([]byte("mock-key-package-"), signingKey...)
+	return kp, []byte("mock-kp-bundle-private"), nil
 }
 
 func (m *MockMLSEngine) AddMembers(_ context.Context, groupState []byte, targetIdentities [][]byte) ([]byte, []byte, []byte, []byte, error) {
@@ -705,6 +709,17 @@ func (s *MockStorage) FailNextApplyApplication() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.failApplyApplicationOnce = true
+}
+
+func (s *MockStorage) GetAllApplicationEvents() []*ApplicationEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var list []*ApplicationEvent
+	for _, ev := range s.applicationEvents {
+		cp := *ev
+		list = append(list, &cp)
+	}
+	return list
 }
 
 func (s *MockStorage) GetGroupRecord(groupID string) (*GroupRecord, error) {

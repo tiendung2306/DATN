@@ -3,6 +3,8 @@ package coordination
 import (
 	"context"
 	"encoding/csv"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,7 +30,7 @@ func setupSweepCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeN
 		storage := NewMockStorage()
 
 		coord, err := NewCoordinator(CoordinatorOpts{
-			Config:    SweepConfig(), // Use safe disabled-tickers configuration to prevent channel thrashing under FakeClock
+			Config:    SweepConfig(),
 			Transport: transport,
 			Clock:     clk,
 			MLS:       mls,
@@ -41,6 +43,36 @@ func setupSweepCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeN
 		}
 		nodes[i] = &testNode{id: id, coord: coord, mls: mls, storage: storage}
 	}
+
+	// Set up automatic Welcome forwarding for Phoenix Protocol fork-healing
+	nodesMap := make(map[string]*testNode)
+	for _, node := range nodes {
+		nodesMap[node.id.String()] = node
+	}
+	for _, node := range nodes {
+		nLocal := node
+		nLocal.coord.onAddCommitted = func(delivery AddCommitDelivery, commitEpoch uint64, welcome []byte) {
+			targetNode, ok := nodesMap[delivery.TargetPeerID]
+			if !ok {
+				return
+			}
+			welcomePayload := welcome
+			var dummy mockGroupState
+			if len(welcomePayload) == 0 || json.Unmarshal(welcomePayload, &dummy) != nil {
+				winnerState := mockGroupState{
+					Epoch:    commitEpoch,
+					TreeHash: hex.EncodeToString(mockTreeHash(commitEpoch)),
+					Members:  make(map[string]bool),
+				}
+				for _, m := range nLocal.coord.activeView.Members() {
+					winnerState.Members[m.String()] = true
+				}
+				welcomePayload, _ = json.Marshal(winnerState)
+			}
+			go targetNode.coord.ProcessWelcomeIfWaiting(context.Background(), welcomePayload)
+		}
+	}
+
 	return nodes, network, clk
 }
 

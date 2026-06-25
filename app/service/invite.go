@@ -1604,6 +1604,18 @@ func (r *Runtime) handleWelcomeDelivery(s network.Stream) {
 		slog.Warn("handleWelcomeDelivery: invalid welcome hex", "group", msg.GroupID, "err", err)
 		return
 	}
+
+	// Check if this Welcome is for an ongoing Fork Healing job
+	r.mu.RLock()
+	coord := r.coordinators[msg.GroupID]
+	r.mu.RUnlock()
+	if coord != nil {
+		if coord.ProcessWelcomeIfWaiting(context.Background(), welcome) {
+			slog.Info("handleWelcomeDelivery: welcome processed by fork healer", "group", msg.GroupID)
+			return
+		}
+	}
+
 	sourcePeerID := s.Conn().RemotePeer().String()
 	if strings.TrimSpace(msg.SourcePeerID) != "" {
 		sourcePeerID = strings.TrimSpace(msg.SourcePeerID)

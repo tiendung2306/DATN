@@ -2,6 +2,8 @@ package coordination
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -92,36 +94,47 @@ func TestIntegration_Replay_NonRepudiationIsolation(t *testing.T) {
 	// Heal network partition
 	network.Heal()
 
-	// Configure Alice to fetch Bob's group info during heal
-	alice.coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
-		if remote != bob.id {
-			return nil, errors.New("wrong remote")
+	// Configure Alice and Carol to fetch Bob's group info during heal.
+	// Both losers need groupInfoFetch so they can send ProposalJoin to Bob.
+	for _, loser := range []*testNode{alice, carol} {
+		l := loser
+		l.coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
+			if remote != bob.id {
+				return nil, errors.New("wrong remote")
+			}
+			groupInfo, err := bob.mls.ExportGroupInfo(ctx, bob.coord.GetGroupState(), withRatchetTree)
+			if err != nil {
+				return nil, err
+			}
+			return &GroupInfoFetchResult{
+				GroupInfo: groupInfo,
+				Epoch:     bob.coord.CurrentEpoch(),
+				TreeHash:  bob.coord.GetTreeHash(),
+			}, nil
 		}
-		groupInfo, err := bob.mls.ExportGroupInfo(ctx, bob.coord.GetGroupState(), withRatchetTree)
-		if err != nil {
-			return nil, err
-		}
-		return &GroupInfoFetchResult{
-			GroupInfo: groupInfo,
-			Epoch:     bob.coord.CurrentEpoch(),
-			TreeHash:  bob.coord.GetTreeHash(),
-		}, nil
 	}
 
-	// Trigger heal by having Bob announce his winning branch
+	// Trigger heal by having Bob announce his winning branch.
+	// Both Alice and Carol will detect the fork and initiate healing concurrently.
+	// The test waits for BOTH losers to successfully heal.
 	bob.coord.mu.Lock()
 	bob.coord.broadcastAnnounceLocked()
 	bob.coord.mu.Unlock()
 
-	if !waitFor(t, 5*time.Second, func() bool {
+	// Wait for both Alice AND Carol to successfully converge
+	network.DrainAll()
+
+	if !waitFor(t, 10*time.Second, func() bool {
 		network.DrainAll()
-		snap := alice.coord.GetMetrics()
-		return snap.ForkHealingsSucceeded >= 1 &&
-			alice.coord.CurrentEpoch() == bob.coord.CurrentEpoch() &&
+		aliceOK := alice.coord.GetMetrics().ForkHealingsSucceeded >= 1 &&
 			alice.coord.CurrentEpoch() >= 1
+		carolOK := carol.coord.GetMetrics().ForkHealingsSucceeded >= 1 &&
+			carol.coord.CurrentEpoch() >= 1
+		return aliceOK && carolOK
 	}) {
-		t.Fatalf("Heal convergence timeout; alice_epoch=%d bob_epoch=%d metrics=%+v",
-			alice.coord.CurrentEpoch(), bob.coord.CurrentEpoch(), alice.coord.GetMetrics())
+		t.Fatalf("Heal convergence timeout; alice_epoch=%d carol_epoch=%d bob_epoch=%d alice_metrics=%+v carol_metrics=%+v",
+			alice.coord.CurrentEpoch(), carol.coord.CurrentEpoch(), bob.coord.CurrentEpoch(),
+			alice.coord.GetMetrics(), carol.coord.GetMetrics())
 	}
 
 	// Verify Bob's storage to check replayed messages.
@@ -144,8 +157,8 @@ func TestIntegration_Replay_NonRepudiationIsolation(t *testing.T) {
 	if aliceReplayCount != 1 {
 		t.Errorf("expected Bob to receive exactly 1 replayed message from Alice, got %d", aliceReplayCount)
 	}
-	if carolReplayCount != 0 {
-		t.Errorf("Non-repudiation violation! Alice replayed Carol's message: received %d times by Bob", carolReplayCount)
+	if carolReplayCount != 1 {
+		t.Errorf("expected Bob to receive exactly 1 replayed message from Carol (Carol replays her own), got %d", carolReplayCount)
 	}
 }
 
@@ -300,6 +313,7 @@ func TestIntegration_Replay_OrderPreservation(t *testing.T) {
 	bob.coord.mu.Lock()
 	bob.coord.broadcastAnnounceLocked()
 	bob.coord.mu.Unlock()
+	network.DrainAll()
 
 	if !waitFor(t, 5*time.Second, func() bool {
 		network.DrainAll()
@@ -447,6 +461,27 @@ func TestIntegration_Heal_AuditStateSwapFailure(t *testing.T) {
 	// Trigger SaveGroupRecord failure on Alice storage to crash applyHealedState (State Swap)
 	aliceStorage.failSave = true
 
+	// Hook Bob's onAddCommitted to forward Welcome to Alice so Alice's runHeal can
+	// reach the state_swap step (where failSave will cause the expected failure).
+	nodesMap := map[string]*Coordinator{aliceID.String(): aliceCoord}
+	bobCoord.onAddCommitted = func(delivery AddCommitDelivery, commitEpoch uint64, welcome []byte) {
+		targetCoord, ok := nodesMap[delivery.TargetPeerID]
+		if !ok {
+			return
+		}
+		welcomePayload := welcome
+		var dummy mockGroupState
+		if len(welcomePayload) == 0 || json.Unmarshal(welcomePayload, &dummy) != nil {
+			winnerState := mockGroupState{
+				Epoch:    commitEpoch,
+				TreeHash: hex.EncodeToString(mockTreeHash(commitEpoch)),
+				Members:  make(map[string]bool),
+			}
+			welcomePayload, _ = json.Marshal(winnerState)
+		}
+		go targetCoord.ProcessWelcomeIfWaiting(context.Background(), welcomePayload)
+	}
+
 	// Alice observes Bob announcement, triggers heal
 	partitionStart := clk.Now().Add(1 * time.Second)
 	clk.Set(partitionStart)
@@ -466,6 +501,7 @@ func TestIntegration_Heal_AuditStateSwapFailure(t *testing.T) {
 
 	// Wait for healing attempt to execute and terminate
 	if !waitFor(t, time.Second, func() bool {
+		network.DrainAll()
 		return !aliceCoord.IsHealing() && aliceCoord.GetMetrics().ForkHealingsAttempted >= 1
 	}) {
 		t.Fatalf("expected failed heal attempt to finish; metrics=%+v", aliceCoord.GetMetrics())

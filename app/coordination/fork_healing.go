@@ -124,11 +124,12 @@ func NewForkDetector() *ForkDetector {
 	}
 }
 
-// UpdateLocal sets the local node's current GroupStateAnnouncement.
-// Should be called after every successful Commit.
 func (fd *ForkDetector) UpdateLocal(ann GroupStateAnnouncement) {
 	fd.mu.Lock()
 	defer fd.mu.Unlock()
+	if fd.local != nil && ann.Epoch > fd.local.Epoch {
+		fd.known = make(map[string]*branchInfo)
+	}
 	cp := GroupStateAnnouncement{
 		TreeHash:    copyBytes(ann.TreeHash),
 		MemberCount: ann.MemberCount,

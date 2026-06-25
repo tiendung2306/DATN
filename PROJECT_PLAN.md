@@ -256,16 +256,16 @@
       return compareBytes(local.CommitHash, remote.CommitHash)
   }
   ```
-- **Task: Healing Process (losing branch):**
+- **Task: Healing Process (The "Phoenix" Protocol for losing branch):**
   1. Drop current MlsGroup from Go memory (NOT from SQLite — keep for audit).
-  2. Request `GroupInfo` from winning branch peer.
-  3. Validate Committer signature in `GroupInfo` (X.509 certificate).
-  4. Call Rust `ExternalJoin(GroupInfo, mySigningKey) → NewGroupState`.
-  5. Save new GroupState to SQLite → advance to winning branch's epoch.
+  2. Generate a new `KeyPackage` via Rust (with new keys but identical Identity).
+  3. Wrap the `KeyPackage` in a `JoinProposal` (new_member_proposal) and broadcast to the winning branch via GossipSub.
+  4. **Token Holder Batching (Winning Branch):** The winning branch's Token Holder collects these `JoinProposal`s. It detects if the sender's Identity already exists as a "Zombie Leaf" in the current tree. If so, it generates a `RemoveProposal` for the zombie leaf and batches it with the `AddProposal` into a single $O(1)$ Commit.
+  5. Receive `Welcome` message, apply it, and save new GroupState to SQLite.
   6. **Autonomous Replay:** Re-encrypt and resend own messages from the partition period. MUST NOT resend other nodes' messages (Non-repudiation).
 - **Security Analysis:**
   - Forward Secrecy: Preserved — losing branch keys are destroyed (crypto-shredding).
-  - PCS: Temporarily weakened during partition, restored immediately after External Join.
+  - PCS: Temporarily weakened during partition, restored immediately after the Token Holder's new Commit.
 - **Status:** Completed (2026-05-17). `app/coordination/fork_healing.go` — `CompareBranchWeight` with core policy `(MemberCount > Epoch > CommitHash)`; `ForkDetector` with ProcessRemote/UpdateLocal. For future hardening, fork detection should prefer `HistoryHash` prefix comparison to distinguish `same-branch-but-ahead` from `true-divergence`, while keeping the winner rule unchanged. **10 tests PASS.**
 - **Hardening and Crash Safety (Milestone 5 - Completed 2026-05-31):** Redesigned the fork healing orchestrator into a senior-grade crash-safe state machine. Replaced sequential `group_id` constraints with unique `job_id` keys, isolated multi-fork events with compound indices, hardened the branch matcher via exact Epoch + TreeHash validation, fixed phase resume ordering, and made external-join data recovery offline-capable. Added 12 new coordinator tests and 24 SQLite integration tests. All green.
 

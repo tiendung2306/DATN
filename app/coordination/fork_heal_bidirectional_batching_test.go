@@ -51,12 +51,19 @@ func TestForkHeal_BidirectionalBatching_ThunderingHerd(t *testing.T) {
 	winner.coord.reconcileOperationsAfterCommitLocked(CommitMsg{})
 	winner.coord.triggerBatchReplayAsync(winner.coord.groupID)
 
-	// Winner announces epoch, Loser sees it and triggers Fork Healing (External Join)
+	// Winner announces epoch, Loser sees it and triggers Fork Healing (Phoenix Protocol)
 	winner.coord.BroadcastAnnounce()
 	network.DrainAll()
 	clk.Advance(500 * time.Millisecond)
 	time.Sleep(500 * time.Millisecond)
-	
+
+	// Phoenix Protocol: Loser sends JoinProposal and suspends at PROPOSAL_SENT.
+	// Inject Welcome so the healing completes.
+	winnerState := winner.coord.groupState
+	loser.coord.ProcessWelcomeIfWaiting(context.Background(), winnerState)
+	clk.Advance(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+
 	// Check if OutboundReplays were created
 	var loserBatchCount int
 	for _, id := range loser.coord.storage.(*MockStorage).GetAllApplicationEvents() {
@@ -117,6 +124,14 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 	winner.coord.BroadcastAnnounce()
 	network.DrainAll()
 	clk.Advance(500 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+
+	// Phoenix Protocol: Loser sends JoinProposal and suspends at PROPOSAL_SENT.
+	// We must simulate the Token Holder (Winner) processing the JoinProposal and sending Welcome.
+	// Mock welcome payload as the winner's group state.
+	winnerState := winner.coord.groupState
+	loser.coord.ProcessWelcomeIfWaiting(context.Background(), winnerState)
+	clk.Advance(100 * time.Millisecond)
 	time.Sleep(500 * time.Millisecond)
 
 	// Check Winner storage

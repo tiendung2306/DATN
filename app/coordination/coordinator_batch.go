@@ -28,6 +28,13 @@ func (c *Coordinator) broadcastBatchedOutboundReplay(outbound *OutboundReplay, e
 		ev.Status = "REPLAYED"
 		ev.ReplayedAtMs = c.clock.Now().UnixMilli()
 		_ = c.storage.SaveApplicationEvent(ev)
+
+		if len(ev.EnvelopeHash) > 0 {
+			now := c.clock.Now()
+			if mErr := c.storage.MarkMessageReplayed(c.groupID, ev.EnvelopeHash, now); mErr != nil {
+				slog.Warn("fork_heal/mark_replayed_failed (batched)", "group", c.groupID, "err", mErr)
+			}
+		}
 	}
 	return nil
 }
@@ -56,6 +63,11 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 		}
 
 		if ev.Status == "ORPHANED_OWN" || ev.Status == "REPLAY_PENDING" {
+			if len(ev.PayloadSealed) == 0 || len(ev.SealNonce) == 0 {
+				ev.Status = "WAITING_AUTHOR_REPLAY"
+				_ = c.storage.SaveApplicationEvent(ev)
+				continue
+			}
 			ev.Status = "REPLAY_PENDING"
 			ev.ReplayAttemptCount++
 			_ = c.storage.SaveApplicationEvent(ev)

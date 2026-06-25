@@ -95,6 +95,7 @@ type ProposalMsg struct {
 	// still parse cleanly.
 	OperationID    string `json:"operation_id,omitempty"`
 	TargetPeerID   string `json:"target_peer_id,omitempty"`
+	TargetIdentity []byte `json:"target_identity,omitempty"`
 	RequestID      string `json:"request_id,omitempty"`
 	GroupType      string `json:"group_type,omitempty"`
 	CategoryID     string `json:"category_id,omitempty"`
@@ -498,6 +499,7 @@ const (
 	ProposalAdd ProposalType = iota
 	ProposalRemove
 	ProposalUpdate
+	ProposalJoin
 )
 
 // EpochAction is the result of validating an incoming message's epoch
@@ -580,6 +582,7 @@ type ForkHealingJob struct {
 	PendingGroupState    []byte
 	PendingEpoch         uint64
 	PendingTreeHash      []byte
+	PendingBundlePrivate []byte
 	ErrorMessage         string
 	RetryCount           int
 	CreatedAtMs          int64

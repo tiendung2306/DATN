@@ -3,7 +3,9 @@ package coordination
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -76,6 +78,16 @@ func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwor
 		mls := NewMockMLSEngine()
 		storage := NewMockStorage()
 
+		// Generate a unique signing key per node so that localIdentity is properly
+		// derived. Without this, localIdentity is nil, causing HasMember to return
+		// false for the loser's identity during ProposalJoin handling, which skips
+		// the Remove proposal and breaks the filterRemovedByBatch election filter.
+		_, priv, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			t.Fatalf("GenerateKey[%d]: %v", i, err)
+		}
+		signingKey := priv.Seed()
+
 		coord, err := NewCoordinator(CoordinatorOpts{
 			Config:    TestConfig(),
 			Transport: transport,
@@ -84,15 +96,52 @@ func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwor
 			Storage:   storage,
 			LocalID:   id,
 			GroupID:   groupID,
+			SigningKey: signingKey,
 		})
 		if err != nil {
 			t.Fatalf("NewCoordinator[%d]: %v", i, err)
 		}
+		// Default: all identities are considered members. This preserves backward
+		// compatibility with tests that don't explicitly manage MLS membership.
+		// Specific tests can override via mls.SetHasMemberFunc.
+		mls.SetHasMemberFunc(func(_ []byte, identity []byte) (bool, error) {
+			return len(identity) > 0, nil
+		})
 		if err := transport.Subscribe("/coordination/direct/1.0.0", coord.ReceiveDirectMessage); err != nil {
 			t.Fatalf("Subscribe direct[%d]: %v", i, err)
 		}
 		nodes[i] = &testNode{id: id, coord: coord, mls: mls, storage: storage}
 	}
+
+	// Set up automatic Welcome message forwarding for mock Phoenix Protocol fork-healing
+	nodesMap := make(map[string]*testNode)
+	for _, node := range nodes {
+		nodesMap[node.id.String()] = node
+	}
+	for _, node := range nodes {
+		nLocal := node
+		nLocal.coord.onAddCommitted = func(delivery AddCommitDelivery, commitEpoch uint64, welcome []byte) {
+			targetNode, ok := nodesMap[delivery.TargetPeerID]
+			if !ok {
+				return
+			}
+			welcomePayload := welcome
+			var dummy mockGroupState
+			if len(welcomePayload) == 0 || json.Unmarshal(welcomePayload, &dummy) != nil {
+				winnerState := mockGroupState{
+					Epoch:    commitEpoch,
+					TreeHash: hex.EncodeToString(mockTreeHash(commitEpoch)),
+					Members:  make(map[string]bool),
+				}
+				for _, m := range nLocal.coord.activeView.Members() {
+					winnerState.Members[m.String()] = true
+				}
+				welcomePayload, _ = json.Marshal(winnerState)
+			}
+			go targetNode.coord.ProcessWelcomeIfWaiting(context.Background(), welcomePayload)
+		}
+	}
+
 	return nodes, network, clk
 }
 
@@ -182,6 +231,13 @@ func setupClusterWithIDs(t *testing.T, ids []peer.ID, groupID string) ([]*testNo
 		transport := network.AddNode(id)
 		mls := NewMockMLSEngine()
 		storage := NewMockStorage()
+
+		_, priv, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			t.Fatalf("GenerateKey[%d]: %v", i, err)
+		}
+		signingKey := priv.Seed()
+
 		coord, err := NewCoordinator(CoordinatorOpts{
 			Config:    TestConfig(),
 			Transport: transport,
@@ -190,15 +246,50 @@ func setupClusterWithIDs(t *testing.T, ids []peer.ID, groupID string) ([]*testNo
 			Storage:   storage,
 			LocalID:   id,
 			GroupID:   groupID,
+			SigningKey: signingKey,
 		})
 		if err != nil {
 			t.Fatalf("NewCoordinator[%d]: %v", i, err)
 		}
+		// Default: all identities are considered members (backward compatibility).
+		mls.SetHasMemberFunc(func(_ []byte, identity []byte) (bool, error) {
+			return len(identity) > 0, nil
+		})
 		if err := transport.Subscribe("/coordination/direct/1.0.0", coord.ReceiveDirectMessage); err != nil {
 			t.Fatalf("Subscribe direct[%d]: %v", i, err)
 		}
 		nodes = append(nodes, &testNode{id: id, coord: coord, mls: mls, storage: storage})
 	}
+
+	// Set up automatic Welcome message forwarding for mock Phoenix Protocol fork-healing
+	nodesMap := make(map[string]*testNode)
+	for _, node := range nodes {
+		nodesMap[node.id.String()] = node
+	}
+	for _, node := range nodes {
+		nLocal := node
+		nLocal.coord.onAddCommitted = func(delivery AddCommitDelivery, commitEpoch uint64, welcome []byte) {
+			targetNode, ok := nodesMap[delivery.TargetPeerID]
+			if !ok {
+				return
+			}
+			welcomePayload := welcome
+			var dummy mockGroupState
+			if len(welcomePayload) == 0 || json.Unmarshal(welcomePayload, &dummy) != nil {
+				winnerState := mockGroupState{
+					Epoch:    commitEpoch,
+					TreeHash: hex.EncodeToString(mockTreeHash(commitEpoch)),
+					Members:  make(map[string]bool),
+				}
+				for _, m := range nLocal.coord.activeView.Members() {
+					winnerState.Members[m.String()] = true
+				}
+				welcomePayload, _ = json.Marshal(winnerState)
+			}
+			go targetNode.coord.ProcessWelcomeIfWaiting(context.Background(), welcomePayload)
+		}
+	}
+
 	return nodes, network, clk
 }
 

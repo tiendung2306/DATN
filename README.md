@@ -101,12 +101,12 @@ When a physical network partition occurs, each partition evolves independently. 
     *   `C_members` — online member count (protects majority experience)
     *   `E` — epoch count (more evolved branch)
     *   `H_commit` — last commit hash (deterministic tiebreaker)
-3.  **Healing Process (losing branch):**
+3.  **Healing Process (The "Phoenix" Protocol for losing branch):**
     *   Drop current `MlsGroup` from memory.
-    *   Validate the winning branch's Committer signature via X.509 certificate in `GroupInfo`.
-    *   Perform **External Join** into the winning branch.
+    *   Generate a new `KeyPackage` (with new keys but identical Identity) and broadcast a **`JoinProposal`** (new_member_proposal) to the winning branch via GossipSub.
+    *   **Token Holder Batching:** The winning branch's Token Holder collects these `JoinProposal`s. Crucially, before creating a Commit, it detects if the sender's Identity already exists as a "Zombie Leaf" in the current Ratchet Tree. If so, it generates a `RemoveProposal` for the zombie leaf and **batches it** with the `AddProposal` into a single, atomic $O(1)$ Commit. This resolves the Duplicate Credential limitation of OpenMLS and completely eliminates the $O(N^2)$ Thundering Herd bottleneck.
     *   **Autonomous Replay:** Each node re-encrypts and resends its own messages only. Messages from other nodes are NOT cross-recovered (preserves Non-repudiation).
-4.  **Security:** Forward Secrecy preserved absolutely (losing branch keys destroyed). PCS temporarily weakened but restored immediately after External Join completes.
+4.  **Security:** Forward Secrecy preserved absolutely (losing branch keys destroyed). PCS temporarily weakened but restored immediately after the Token Holder's new Commit.
 
 #### Mechanism 4 — Hybrid Logical Clock (Message Display Ordering)
 

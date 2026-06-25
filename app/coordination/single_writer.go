@@ -273,6 +273,34 @@ func (sw *SingleWriter) DrainBatchByRefs(refs [][]byte) []BufferedProposal {
 	return cloneProposalBatch(drained)
 }
 
+// DrainBatchByData removes buffered proposals whose raw MLS proposal bytes
+// match any entry in datas. This is a fallback for receiver nodes whose local
+// ProposalRef (computed via mls.ProcessProposal against their own groupState)
+// may differ from the ref computed by the Token Holder, while the raw proposal
+// bytes are always identical because they came from the same broadcast message.
+func (sw *SingleWriter) DrainBatchByData(datas [][]byte) []BufferedProposal {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if len(datas) == 0 || len(sw.proposals) == 0 {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(datas))
+	for _, d := range datas {
+		wanted[string(d)] = struct{}{}
+	}
+	drained := make([]BufferedProposal, 0, len(datas))
+	remaining := make([]BufferedProposal, 0, len(sw.proposals))
+	for _, proposal := range sw.proposals {
+		if _, ok := wanted[string(proposal.Data)]; ok {
+			drained = append(drained, proposal)
+			continue
+		}
+		remaining = append(remaining, proposal)
+	}
+	sw.proposals = remaining
+	return cloneProposalBatch(drained)
+}
+
 // DrainProposals returns every buffered proposal and clears the buffer.
 //
 // Prefer SnapshotNextBatch + DrainBatchByRefs when calling into mls.CreateCommit.
@@ -380,22 +408,19 @@ func filterRemovedByBatch(candidates []peer.ID, batch []BufferedProposal) []peer
 	if len(candidates) == 0 || len(batch) == 0 {
 		return candidates
 	}
-	removed := make(map[peer.ID]struct{})
+	removed := make(map[string]struct{})
 	for _, p := range batch {
 		if p.Type != ProposalRemove || p.TargetPeerID == "" {
 			continue
 		}
-		pid, err := peer.Decode(p.TargetPeerID)
-		if err == nil && pid != "" {
-			removed[pid] = struct{}{}
-		}
+		removed[p.TargetPeerID] = struct{}{}
 	}
 	if len(removed) == 0 {
 		return candidates
 	}
 	out := make([]peer.ID, 0, len(candidates))
 	for _, pid := range candidates {
-		if _, ok := removed[pid]; !ok {
+		if _, ok := removed[pid.String()]; !ok {
 			out = append(out, pid)
 		}
 	}
