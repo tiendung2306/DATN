@@ -173,6 +173,10 @@ Trong mạng thực tế, thông điệp ứng dụng có thể đến muộn ho
 
 MLS cũng hỗ trợ cơ chế gia nhập từ bên ngoài, thường được gọi là External Commit hoặc External Join \cite{rfc9420}. Có thể hiểu đây là cách để một client chưa ở trong trạng thái hiện tại của nhóm gia nhập lại nhóm khi có đủ thông tin công khai cần thiết. Cơ chế này quan trọng đối với đồ án vì khi trạng thái đã rẽ nhánh, một thiết bị có thể cần từ bỏ nhánh cũ và tham gia lại nhánh đang được chọn.
 
+Bên cạnh External Commit, RFC 9420 còn định nghĩa một cơ chế khác cho một đối tượng ngoài nhóm tác động lên trạng thái nhóm, gọi là External Proposal \cite{rfc9420}. Hai cơ chế này có đặc tính khác nhau về ai giữ quyền tạo Commit. External Commit là thao tác mà chính node ngoài tự tạo Commit để gia nhập, nên node đó tự chịu trách nhiệm sinh ra epoch mới. External Proposal thì khác: node ngoài chỉ gửi một đề nghị thay đổi, thường là Add, vào nhóm, còn việc đưa đề nghị đó vào Commit thuộc về một thành viên đang ở trong nhóm. Cả hai đều là cơ chế hợp lệ của RFC 9420, nhưng cách phân chia trách nhiệm khác nhau dẫn đến hệ quả khác nhau khi áp dụng vào môi trường P2P.
+
+Một vấn đề khác cần lưu ý là định danh trùng khi gia nhập lại. Khi một node cũ gia nhập lại nhóm, định danh cũ của node đó vẫn còn nằm trong cây MLS dưới dạng một lá không còn hoạt động. Nếu node đó dùng External Commit với cùng định danh, lõi MLS sẽ từ chối vì phát hiện trùng định danh. Cách giải quyết là kết hợp Remove, loại bỏ lá cũ, và Add, thêm lại với KeyPackage mới, trong cùng một Commit. Khả năng gom nhiều Proposal vào một Commit là một cơ chế được cung cấp sẵn của MLS, cho phép nhiều thay đổi thành viên được xử lý trong cùng một epoch.
+
 \section{Nền tảng mạng ngang hàng và thứ tự trong hệ phân tán}
 \label{sec:mang-ngang-hang-libp2p}
 
