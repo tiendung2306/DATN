@@ -93,6 +93,10 @@ type CoordinatorConfig struct {
 	// BALANCED (max_past_epochs = 3, age = 5m) [default]
 	// HIGH_AVAILABILITY (max_past_epochs = 10, age = 1h)
 	RetentionMode MLSRetentionMode
+
+	// MaxPastEpochsOverride, when > 0, overrides the retention-mode-derived
+	// max_past_epochs value. Used in benchmarks to test deep divergence healing.
+	MaxPastEpochsOverride uint32
 }
 
 type MLSRetentionMode string
@@ -105,6 +109,9 @@ const (
 
 // GetMaxPastEpochs returns the OpenMLS past epoch secret tree key retention limit.
 func (c *CoordinatorConfig) GetMaxPastEpochs() uint32 {
+	if c.MaxPastEpochsOverride > 0 {
+		return c.MaxPastEpochsOverride
+	}
 	switch c.RetentionMode {
 	case RetentionStrictSecurity:
 		return 0

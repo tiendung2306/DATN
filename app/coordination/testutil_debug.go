@@ -11,4 +11,23 @@ func (c *Coordinator) SetStateForTest(epoch uint64, groupState []byte, treeHash 
 	c.epochTracker = NewEpochTracker(epoch, treeHash)
 	c.singleWriter = NewSingleWriter(c.activeView, c.localID, epoch, c.cfg)
 	c.singleWriter.SetAuthorizedCommitters(c.groupID, c.authorizedCommitters)
+	c.forkDetector.Reset()
+	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    copyBytes(treeHash),
+		MemberCount: c.activeView.Size(),
+		Epoch:       epoch,
+	})
+}
+
+// ResetForkDetectorForTest resets the fork detector and updates local state.
+// Used in benchmarks to clear stale known branches after SetStateForTest.
+func (c *Coordinator) ResetForkDetectorForTest() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.forkDetector.Reset()
+	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    copyBytes(c.treeHash),
+		MemberCount: c.activeView.Size(),
+		Epoch:       c.epoch,
+	})
 }

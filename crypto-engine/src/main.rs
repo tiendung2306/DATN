@@ -587,7 +587,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Crypto Engine listening on {addr}");
 
     Server::builder()
-        .add_service(MlsCryptoServiceServer::new(service))
+        .add_service(MlsCryptoServiceServer::new(service)
+            .max_decoding_message_size(64 * 1024 * 1024)
+            .max_encoding_message_size(64 * 1024 * 1024))
         .serve(addr)
         .await?;
 

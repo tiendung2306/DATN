@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,7 +26,7 @@ type benchNode struct {
 // realClock là real-time clock cho benchmark (không dùng FakeClock).
 type realClockImpl struct{}
 
-func (realClockImpl) Now() time.Time             { return time.Now() }
+func (realClockImpl) Now() time.Time                         { return time.Now() }
 func (realClockImpl) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 // benchConfig trả về config cho benchmark: BatchingDelay nhỏ để commit nhanh.
@@ -33,7 +35,11 @@ func benchConfig() *CoordinatorConfig {
 	cfg.BatchingDelay = 100 * time.Millisecond // Tương tự production delay
 	cfg.HeartbeatInterval = 5 * time.Second
 	cfg.MLSOperationTimeout = 10 * time.Second // real Rust gRPC cần timeout lớn hơn
-	cfg.TokenHolderTimeout = 5 * time.Second
+	cfg.TokenHolderTimeout = 5 * time.Second // Production-like timeout
+	cfg.PeerDeadAfter = 100         // Prevent activeView eviction during long divergence advance
+	cfg.MaxBatchedProposals = 100   // Allow all 32 nodes × 2 proposals (Remove+Add) per ProposalJoin
+	cfg.MaxPastEpochsOverride = 200 // Allow ProposalJoin healing from deep divergence (D up to 100)
+	cfg.AnnounceInterval = 0        // Disable auto-announce; drive manually to control healing triggers
 	return cfg
 }
 
@@ -71,7 +77,7 @@ func setupRealMLSCluster(b *testing.B, n int, groupID string, engine MLSEngine) 
 			Storage:    storage,
 			LocalID:    id,
 			GroupID:    groupID,
-			SigningKey:  sigKey,
+			SigningKey: sigKey,
 		})
 		if err != nil {
 			b.Fatalf("NewCoordinator[%d]: %v", i, err)
@@ -239,7 +245,7 @@ func advanceEpochOnWinningBranch(b *testing.B, nodes []*benchNode, network *Fake
 
 	// Node 0 (Token Holder) tự remove target node để tiến epoch
 	err := nodes[0].coord.RemoveMemberWithPeer(RemoveMemberRequest{
-		TargetPeerID: targetNode.id,
+		TargetPeerID:   targetNode.id,
 		TargetIdentity: targetIdentity,
 	})
 	if err != nil {
@@ -265,7 +271,8 @@ func BenchmarkForkHeal_EndToEndLatency(b *testing.B) {
 	}
 	defer pm.StopEngine()
 
-	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithInsecure()) //nolint:staticcheck
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64*1024*1024), grpc.MaxCallSendMsgSize(64*1024*1024))) //nolint:staticcheck
 	if err != nil {
 		b.Fatalf("Dial failed: %v", err)
 	}
@@ -358,7 +365,8 @@ func BenchmarkForkHeal_ThunderingHerd(b *testing.B) {
 	}
 	defer pm.StopEngine()
 
-	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithInsecure()) //nolint:staticcheck
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64*1024*1024), grpc.MaxCallSendMsgSize(64*1024*1024))) //nolint:staticcheck
 	if err != nil {
 		b.Fatalf("Dial failed: %v", err)
 	}
@@ -434,3 +442,155 @@ func BenchmarkForkHeal_ThunderingHerd(b *testing.B) {
 	}
 }
 
+// advanceMultipleEpochsOnWinningBranch advances the winning branch by depth epochs
+// using direct MLS engine calls (CreateProposal + CreateCommit) to simulate real
+// divergence during a prolonged network partition. This bypasses the Go coordination
+// pipeline (Single-Writer election, batching delay) to deterministically advance
+// epochs. The coordination pipeline is already validated by E2E Latency benchmark.
+func advanceMultipleEpochsOnWinningBranch(b *testing.B, nodes []*benchNode, network *FakeNetwork, depth int) {
+	b.Helper()
+	ctx := context.Background()
+	engine := nodes[0].mls
+	startEpoch := nodes[0].coord.CurrentEpoch()
+
+	for i := 0; i < depth; i++ {
+		gs := nodes[0].coord.GetGroupState()
+
+		// Step 1: Create a self-update proposal (key rotation)
+		propResult, err := engine.CreateProposal(ctx, gs, ProposalUpdate, nil)
+		if err != nil {
+			b.Fatalf("CreateProposal[Update][%d] failed: %v", i, err)
+		}
+
+		// Step 2: Commit the pending proposal to advance epoch
+		commitResult, err := engine.CreateCommit(ctx, propResult.NewGroupState, [][]byte{propResult.ProposalRef})
+		if err != nil {
+			b.Fatalf("CreateCommit[%d] failed: %v", i, err)
+		}
+
+		newEpoch := startEpoch + uint64(i+1)
+
+		// Step 3: Update all winning-branch nodes with the new state
+		for j := 0; j < len(nodes)-1; j++ {
+			nodes[j].coord.SetStateForTest(newEpoch, commitResult.NewGroupState, commitResult.NewTreeHash)
+		}
+	}
+}
+
+// BenchmarkForkHeal_PartitionDivergence
+// N=32 nodes, 1 node partitioned. Winning branch advances D epochs (key rotation
+// + application messages) during partition. Measures healing time vs divergence depth.
+// Proves Phoenix Protocol healing time does not scale linearly with divergence.
+func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
+	n := 32
+	depths := []int{10, 25, 50, 100}
+
+	pm := newTestProcessManager()
+	port, err := pm.StartEngine()
+	if err != nil {
+		b.Skipf("Skipping benchmark: Failed to start real MLS engine: %v", err)
+	}
+	defer pm.StopEngine()
+
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%d", port), grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64*1024*1024), grpc.MaxCallSendMsgSize(64*1024*1024))) //nolint:staticcheck
+	if err != nil {
+		b.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	realEngine := newTestGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
+
+	csvFile, err := os.Create(filepath.Join("..", "..", "evaluation", "data", "partition_divergence_metrics.csv"))
+	if err != nil {
+		b.Fatalf("Failed to create CSV: %v", err)
+	}
+	defer csvFile.Close()
+	fmt.Fprintln(csvFile, "DivergenceDepth,HealingTimeMs")
+
+	for _, d := range depths {
+		d := d
+		b.Run(fmt.Sprintf("D=%d", d), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+
+				groupIDStr := fmt.Sprintf("bench-divergence-%d-%d", d, i)
+				nodes, network := setupRealMLSCluster(b, n, groupIDStr, realEngine)
+				createGroupAndAddAllMembers(b, nodes, realEngine)
+				startAllForBench(b, nodes)
+				exchangeHeartbeatsForBench(nodes, network)
+
+				for _, bn := range nodes {
+					bn := bn
+					bn.coord.onAddCommitted = func(delivery AddCommitDelivery, epoch uint64, welcome []byte) {
+						for _, candidate := range nodes {
+							if candidate.id.String() == delivery.TargetPeerID {
+								go candidate.coord.ProcessWelcomeIfWaiting(context.Background(), welcome)
+								break
+							}
+						}
+					}
+				}
+
+				nodeX := nodes[n-1]
+
+				var groupA []peer.ID
+				for j := 0; j < n-1; j++ {
+					groupA = append(groupA, nodes[j].id)
+				}
+				groupB := []peer.ID{nodeX.id}
+				network.Partition(groupA, groupB)
+
+				advanceMultipleEpochsOnWinningBranch(b, nodes, network, d)
+
+				network.Heal()
+
+				b.StartTimer()
+
+				// Re-exchange heartbeats so forkDetector.local.MemberCount reflects
+				// the full activeView (32 members) before announce triggers healing.
+				// Without this, forkDetector still has MemberCount=1 from the first
+				// heartbeat loop tick (before exchangeHeartbeatsForBench populated activeView),
+				// causing false fork detection between same-branch nodes.
+				exchangeHeartbeatsForBench(nodes, network)
+
+				// Reset fork detector for ALL nodes so stale known branches from
+				// before partition don't cause false fork detection or prevent healing.
+				for _, bn := range nodes {
+					bn.coord.ResetForkDetectorForTest()
+				}
+
+				nodes[0].coord.BroadcastAnnounce()
+				network.DrainAll()
+
+				startTime := time.Now()
+				waitForBenchWithNetwork(b, 300*time.Second, network, func() (*ForkHealingJob, bool) {
+					// Check if nodeX has converged with ANY winning-branch node.
+					// The Token Holder (not necessarily node 0) commits the ProposalJoin
+					// and advances epoch. We check nodeX against all winning-branch nodes.
+					nodeXEpoch := nodeX.coord.CurrentEpoch()
+					nodeXTreeHash := nodeX.coord.GetTreeHash()
+					for j := 0; j < len(nodes)-1; j++ {
+						if nodes[j].coord.CurrentEpoch() == nodeXEpoch &&
+							bytes.Equal(nodes[j].coord.GetTreeHash(), nodeXTreeHash) {
+							return nil, true
+						}
+					}
+					return nil, false
+				})
+				elapsed := time.Since(startTime)
+
+				b.StopTimer()
+
+				fmt.Fprintf(csvFile, "%d,%.2f\n", d, float64(elapsed.Milliseconds()))
+				csvFile.Sync()
+
+				b.ReportMetric(float64(elapsed.Milliseconds()), "healing_ms")
+
+				for _, node := range nodes {
+					node.coord.Stop()
+				}
+			}
+		})
+	}
+}

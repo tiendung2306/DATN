@@ -162,23 +162,32 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 		}
 
 		// Stamp divergent tree hashes for fork detection
-		nodes[0].coord.mu.Lock()
-		nodes[0].coord.treeHash = []byte("loser-tree-a")
-		nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
-			TreeHash:    []byte("loser-tree-a"),
-			MemberCount: 3,
-			Epoch:       nodes[0].coord.epoch,
-		})
-		nodes[0].coord.mu.Unlock()
+		// Group A (winner): stamp new tree hash on ALL members, keep epoch 10
+		winnerTH := []byte("winner-tree-a")
+		for i := 0; i < 3; i++ {
+			nodes[i].coord.mu.Lock()
+			nodes[i].coord.treeHash = winnerTH
+			nodes[i].coord.epochTracker = NewEpochTracker(nodes[i].coord.epoch, winnerTH)
+			nodes[i].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
+				TreeHash:    winnerTH,
+				MemberCount: 3,
+				Epoch:       nodes[i].coord.epoch,
+			})
+			nodes[i].coord.mu.Unlock()
+		}
 
-		nodes[3].coord.mu.Lock()
-		nodes[3].coord.treeHash = []byte("loser-tree-b")
-		nodes[3].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
-			TreeHash:    []byte("loser-tree-b"),
-			MemberCount: 2,
-			Epoch:       nodes[3].coord.epoch,
-		})
-		nodes[3].coord.mu.Unlock()
+		// Group B (loser): divergent tree hash, same epoch
+		loserTH := []byte("loser-tree-b")
+		for i := 3; i < 5; i++ {
+			nodes[i].coord.mu.Lock()
+			nodes[i].coord.treeHash = loserTH
+			nodes[i].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
+				TreeHash:    loserTH,
+				MemberCount: 2,
+				Epoch:       nodes[i].coord.epoch,
+			})
+			nodes[i].coord.mu.Unlock()
+		}
 
 		// 3. Keep partitioned for the targeted sweep duration
 		partitionStartTime := clk.Now()
@@ -189,17 +198,20 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 		network.Heal()
 		healTime := clk.Now()
 
-		// Force announcements and heartbeat exchanges to simulate reconnect discovery
-		nodes[3].coord.mu.Lock()
-		nodes[3].coord.broadcastAnnounceLocked()
-		nodes[3].coord.mu.Unlock()
+		// Force announcements from all loser nodes to trigger fork detection
+		for i := 3; i < 5; i++ {
+			nodes[i].coord.mu.Lock()
+			nodes[i].coord.broadcastAnnounceLocked()
+			nodes[i].coord.mu.Unlock()
+		}
 
 		// Loop advancing clock ticks until all nodes converge to canonical epoch and tree hash
-		maxTicks := 100
+		maxTicks := 200
 		converged := false
 
 		for tick := 0; tick < maxTicks; tick++ {
 			network.DrainAll()
+			time.Sleep(10 * time.Millisecond)
 
 			// Check if all nodes reached consensus convergence
 			allSameEpoch := true

@@ -579,6 +579,12 @@ func (c *Coordinator) handleProposalLocked(from peer.ID, env *Envelope) {
 			return
 		}
 
+		// If this node is also healing (groupState nil), it cannot transmute ProposalJoin.
+		if len(c.groupState) == 0 {
+			slog.Info("ProposalJoin: local node also healing, cannot transmute", "node", c.localID, "group", c.groupID)
+			return
+		}
+
 		// Use the explicit TargetIdentity if provided by the joiner, falling back to TargetPeerID bytes
 		targetIdentity := proposal.TargetIdentity
 		if len(targetIdentity) == 0 {
@@ -2708,6 +2714,7 @@ func (c *Coordinator) broadcastAnnounceLocked() {
 		Epoch:       c.epoch,
 		CommitHash:  copyBytes(c.lastCommitHash),
 	}
+	c.forkDetector.UpdateLocal(ann)
 	c.broadcastLocked(MsgAnnounce, ann)
 }
 
@@ -3200,24 +3207,44 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 		slog.Info("fork_heal/proposal_sent", "group", event.GroupID, "job", job.JobID, "node", c.localID)
 
 		// 5. Suspend goroutine and await Welcome message signal (prevents early return mode leaks)
-		select {
-		case <-c.welcomeReceivedChan:
-			slog.Info("fork_heal/welcome_received_signal", "group", event.GroupID)
-			// Reload the job from DB to get the decrypted state and updated status (EXTERNAL_JOINED)
-			if updatedJob, reloadErr := c.storage.GetActiveForkHealingJob(event.GroupID); reloadErr == nil && updatedJob != nil {
-				job = updatedJob
-			} else {
-				slog.Error("fork_heal/reload_job_failed", "group", event.GroupID)
-				c.logHealFailed(traceID, event, startedAt, scheduledAt, "reload_job", fmt.Errorf("failed to reload job from DB after welcome signal"))
+		// Retry up to 3 times: if the Token Holder was healing (groupState nil) when the
+		// initial ProposalJoin arrived, a failover will elect a new Token Holder. Re-broadcasting
+		// gives the new Token Holder a chance to receive and transmute the ProposalJoin.
+		const maxProposalJoinRetries = 3
+		for attempt := 1; attempt <= maxProposalJoinRetries; attempt++ {
+			if attempt > 1 {
+				slog.Info("fork_heal/proposal_join_retry", "group", event.GroupID, "attempt", attempt)
+				c.mu.Lock()
+				retryEnvBytes := c.buildEnvelopeWithTimestampLocked(MsgProposal, msg, c.hlc.Now())
+				c.mu.Unlock()
+				if len(retryEnvBytes) > 0 {
+					c.publishPreparedEnvelopeLocked(MsgProposal, retryEnvBytes)
+				}
+			}
+			select {
+			case <-c.welcomeReceivedChan:
+				slog.Info("fork_heal/welcome_received_signal", "group", event.GroupID)
+				// Reload the job from DB to get the decrypted state and updated status (EXTERNAL_JOINED)
+				if updatedJob, reloadErr := c.storage.GetActiveForkHealingJob(event.GroupID); reloadErr == nil && updatedJob != nil {
+					job = updatedJob
+				} else {
+					slog.Error("fork_heal/reload_job_failed", "group", event.GroupID)
+					c.logHealFailed(traceID, event, startedAt, scheduledAt, "reload_job", fmt.Errorf("failed to reload job from DB after welcome signal"))
+					return
+				}
+			case <-ctx.Done():
+				slog.Warn("fork_heal/awaiting_welcome_cancelled", "group", event.GroupID)
+				return
+			case <-c.clock.After(c.cfg.MLSOperationTimeout):
+				if attempt < maxProposalJoinRetries {
+					slog.Warn("fork_heal/awaiting_welcome_timeout_retry", "group", event.GroupID, "attempt", attempt)
+					continue
+				}
+				slog.Warn("fork_heal/awaiting_welcome_timeout", "group", event.GroupID)
+				c.logHealFailed(traceID, event, startedAt, scheduledAt, "awaiting_welcome", fmt.Errorf("timeout waiting for Welcome message"))
 				return
 			}
-		case <-ctx.Done():
-			slog.Warn("fork_heal/awaiting_welcome_cancelled", "group", event.GroupID)
-			return
-		case <-c.clock.After(c.cfg.MLSOperationTimeout):
-			slog.Warn("fork_heal/awaiting_welcome_timeout", "group", event.GroupID)
-			c.logHealFailed(traceID, event, startedAt, scheduledAt, "awaiting_welcome", fmt.Errorf("timeout waiting for Welcome message"))
-			return
+			break
 		}
 	}
 
