@@ -34,6 +34,9 @@ Bất kỳ định danh hợp lệ nào cũng có thể khởi tạo một nhóm
 \textbf{3. Kịch bản trao đổi thông tin cộng tác (Collaboration \& Messaging):}
 Sau khi danh sách thành viên nhóm được đồng thuận, các nút mạng có thể trao đổi thông điệp an toàn. Ứng dụng hỗ trợ hai luồng giao tiếp chính: Hội thoại tuyến tính (Chat) cho việc nhắn tin trực tiếp theo thời gian thực và Không gian kênh (Channel) theo mô hình bài viết -- phản hồi, phù hợp cho việc lưu trữ thông tin có tổ chức và theo dõi luồng công việc (Activity Feed).
 
+\textbf{4. Kịch bản chia sẻ tệp mã hóa (Encrypted File Sharing):}
+Bên cạnh tin nhắn văn bản, ứng dụng cho phép người dùng chia sẻ tệp tin trong nhóm một cách bảo mật. Khi người dùng chọn một tệp để gửi, ứng dụng tính toán giá trị băm SHA-256 của tệp, sau đó dùng hàm dẫn xuất khóa exporter của MLS theo chuẩn RFC 9420 để tạo ra một cặp khóa AES-256 và nonce cơ sở. Tệp được chia thành các phần nhỏ, mỗi phần mã hóa riêng bằng AES-GCM với nonce khác nhau. Các phần đã mã hóa được lưu tạm trên máy người gửi, sau đó người nhận tự kéo về qua một luồng trực tiếp giữa hai nút libp2p. Quá trình giải mã diễn ra cục bộ tại máy người nhận, kèm theo việc kiểm tra lại giá trị băm để đảm bảo tệp không bị thay đổi. Khóa mã hóa tệp không bao giờ truyền qua mạng, chỉ những thành viên đang ở cùng kỷ nguyên với người gửi mới có thể dẫn xuất lại khóa và giải mã được tệp.
+
 \section{Hình ảnh minh họa các thành phần chức năng}
 
 Việc ánh xạ các kịch bản sử dụng nêu trên vào giao diện đồ họa đòi hỏi ứng dụng phải tổ chức các màn hình tương tác một cách hợp lý và trực quan. Phần dưới đây sẽ minh họa chi tiết các giao diện đã được triển khai.
@@ -131,6 +134,18 @@ Bên cạnh mô hình hội thoại tuyến tính, ứng dụng hỗ trợ bản
 \AppDemoGraphic{Hinh/app_demo/app_12_add_member_modal_alice.png}{Vị trí đặt ảnh Add Member Modal của Alice}
 \caption{Hộp thoại mời thêm thành viên vào một nhóm đang có sẵn}
 \label{fig:appendix_add_member}
+\end{figure}
+
+\clearpage
+\subsection{Chia sẻ tệp mã hóa trong nhóm}
+
+Ứng dụng cho phép người dùng gửi tệp tin trực tiếp trong hội thoại nhóm. Hình~\ref{fig:appendix_file_chat} minh họa giao diện khi một tệp được chia sẻ trong dòng tin nhắn. Người gửi chọn tệp từ máy, ứng dụng mã hóa tệp và thông báo đến nhóm. Tệp xuất hiện trong tin nhắn cùng với tên, kích thước và nút tải về. Người nhận nhấn tải về để kéo tệp đã mã hóa từ máy người gửi và giải mã cục bộ. Toàn bộ quá trình diễn ra tự động, người dùng chỉ cần chọn tệp và tải về như các ứng dụng nhắn tin thông thường.
+
+\begin{figure}[htbp]
+\centering
+\AppDemoGraphic{Hinh/app_demo/app_13_file_chat.png}{Vị trí đặt ảnh giao diện chia sẻ tệp trong chat}
+\caption{Tệp mã hóa được hiển thị trong dòng tin nhắn của nhóm}
+\label{fig:appendix_file_chat}
 \end{figure}
 
 \clearpage

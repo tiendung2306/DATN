@@ -91,6 +91,7 @@ $hasExe = Test-Path -LiteralPath $Exe
 
 if (-not $UseGoRun -and $AutoBuild) {
     Write-Host "Auto build: wails build (instance 3)" -ForegroundColor DarkGray
+    Stop-Process -Name 'SecureP2P', 'crypto-engine' -Force -ErrorAction SilentlyContinue
     Push-Location $AppDir
     try {
         & wails build

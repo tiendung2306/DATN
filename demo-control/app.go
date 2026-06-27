@@ -122,7 +122,7 @@ func (a *App) BuildGuiDemo() error {
 	appExeDir := filepath.Dir(appExe)
 	cryptoExe := filepath.Join(cryptoDir, "target", "release", "crypto-engine.exe")
 	command := fmt.Sprintf(
-		`cd /d "%s" && cargo build --release && cd /d "%s" && wails build && if not exist "%s" mkdir "%s" && copy /Y "%s" "%s\crypto-engine.exe"`,
+		`taskkill /F /IM crypto-engine.exe 2>nul & taskkill /F /IM SecureP2P.exe 2>nul & cd /d "%s" && cargo build --release && cd /d "%s" && wails build && if not exist "%s" mkdir "%s" && copy /Y "%s" "%s\crypto-engine.exe"`,
 		cryptoDir,
 		ws.AppDir,
 		appExeDir,

@@ -63,31 +63,42 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 	cwd, _ := os.Getwd()
 	possiblePaths := []string{
 		filepath.Join(cwd, executable),
-		filepath.Join(cwd, "..", "crypto-engine", "target", "debug", executable),
 		filepath.Join(cwd, "..", "crypto-engine", "target", "release", executable),
-		filepath.Join(cwd, "..", "..", "crypto-engine", "target", "debug", executable),
+		filepath.Join(cwd, "..", "crypto-engine", "target", "debug", executable),
 		filepath.Join(cwd, "..", "..", "crypto-engine", "target", "release", executable),
-		filepath.Join(cwd, "..", "..", "..", "crypto-engine", "target", "debug", executable),
+		filepath.Join(cwd, "..", "..", "crypto-engine", "target", "debug", executable),
 		filepath.Join(cwd, "..", "..", "..", "crypto-engine", "target", "release", executable),
+		filepath.Join(cwd, "..", "..", "..", "crypto-engine", "target", "debug", executable),
 	}
 
-	var binPath string
+	var candidates []string
 	for _, p := range possiblePaths {
 		if _, err := os.Stat(p); err == nil {
-			binPath = p
-			break
+			candidates = append(candidates, p)
 		}
 	}
 
-	if binPath == "" {
+	if len(candidates) == 0 {
 		return 0, fmt.Errorf("crypto-engine binary not found. Searched in: %v. Please build the rust project.", possiblePaths)
 	}
-	if err := ensureBinaryFresh(binPath); err != nil {
-		return 0, err
-	}
 
+	var startErr error
+	for _, binPath := range candidates {
+		if err := ensureBinaryFresh(binPath); err != nil {
+			slog.Warn("Crypto engine binary may be stale", "error", err)
+		}
+
+		port, startErr = pm.tryStart(binPath, port)
+		if startErr == nil {
+			return port, nil
+		}
+		slog.Warn("Failed to start crypto-engine binary, trying next candidate", "path", binPath, "error", startErr)
+	}
+	return 0, fmt.Errorf("failed to start crypto-engine from any candidate: %w", startErr)
+}
+
+func (pm *ProcessManager) tryStart(binPath string, port int) (int, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	pm.cancelFunc = cancel
 
 	cmd := exec.CommandContext(ctx, binPath, "--port", fmt.Sprintf("%d", port))
 	setSysProcAttr(cmd)
@@ -124,6 +135,7 @@ func (pm *ProcessManager) StartEngine() (int, error) {
 		}
 	}()
 
+	pm.cancelFunc = cancel
 	pm.cmd = cmd
 	slog.Info("Crypto Engine started", "port", port, "path", binPath)
 

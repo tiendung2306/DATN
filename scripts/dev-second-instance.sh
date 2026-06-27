@@ -149,6 +149,8 @@ fi
 
 if [[ "${USE_GO_RUN}" == "false" && "${AUTO_BUILD}" == "true" ]]; then
   echo "Auto build: wails build (instance 2)"
+  pkill -f "SecureP2P" 2>/dev/null || true
+  pkill -f "crypto-engine" 2>/dev/null || true
   (
     cd "${APP_DIR}"
     wails build

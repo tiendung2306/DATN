@@ -221,6 +221,24 @@ function normalizeFileAttachment(raw: unknown): FileAttachment | null {
   }
 }
 
+export function formatMimeType(mime: string): string {
+  const m = String(mime || '').toLowerCase().trim()
+  if (m.includes('word') || m.includes('msword')) return 'Word'
+  if (m.includes('excel') || m.includes('sheet')) return 'Excel'
+  if (m.includes('powerpoint') || m.includes('presentation')) return 'PowerPoint'
+  if (m.includes('pdf')) return 'PDF'
+  if (m.startsWith('image/')) return 'Image'
+  if (m.startsWith('video/')) return 'Video'
+  if (m.startsWith('audio/')) return 'Audio'
+  if (m.includes('zip') || m.includes('compressed') || m.includes('archive')) return 'Archive'
+  if (m.includes('text')) return 'Text'
+  const parts = m.split('/')
+  if (parts.length > 1 && parts[1]) {
+    return parts[1].replace(/[^a-z0-9]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim() || 'File'
+  }
+  return 'File'
+}
+
 export function formatFileSize(bytes: number): string {
   const n = Number.isFinite(bytes) && bytes > 0 ? bytes : 0
   if (n < 1024) return `${n} B`

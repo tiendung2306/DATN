@@ -912,6 +912,14 @@ func (c *Coordinator) handleApplicationDetailedLocked(from peer.ID, env *Envelop
 		localTs.NodeID = c.localID.String()
 	}
 
+	if c.mls == nil {
+		slog.Error("Cannot decrypt message: crypto engine not available", "group", c.groupID, "from", env.From)
+		result.State = ReplayStateDecryptFailed
+		result.Error = "crypto engine not available"
+		result.Terminal = true
+		c.markReplayResultLocked(result)
+		return result
+	}
 	opCtx, cancel := c.mlsOperationContext()
 	plaintext, newState, err := c.mls.DecryptMessage(opCtx, c.groupState, appMsg.Ciphertext)
 	cancel()
@@ -2049,6 +2057,9 @@ func (c *Coordinator) sendMessage(plaintext []byte, localEchoToken string) (*HLC
 		ts.NodeID = c.localID.String()
 	}
 
+	if c.mls == nil {
+		return nil, fmt.Errorf("crypto engine not available — build the Rust project first")
+	}
 	opCtx, cancel := c.mlsOperationContext()
 	ciphertext, newState, err := c.mls.EncryptMessage(opCtx, c.groupState, plaintext)
 	cancel()
