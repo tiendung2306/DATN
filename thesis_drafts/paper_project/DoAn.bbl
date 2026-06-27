@@ -400,6 +400,169 @@
     \field{year}{2002}
   \endentry
 
+  \entry{schneider1990smr}{article}{}{}
+    \name{author}{1}{}{%
+      {{hash=SFB}{%
+         family={Schneider},
+         familyi={S\bibinitperiod},
+         given={Fred\bibnamedelima B.},
+         giveni={F\bibinitperiod\bibinitdelim B\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{SFB1}
+    \strng{fullhash}{SFB1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.1145/98163.98167
+    \endverb
+    \field{number}{4}
+    \field{pages}{299\bibrangedash 319}
+    \field{title}{Implementing Fault-Tolerant Services Using the State Machine
+  Approach: A Tutorial}
+    \verb{url}
+    \verb https://dl.acm.org/doi/10.1145/98163.98167
+    \endverb
+    \field{volume}{22}
+    \field{journaltitle}{ACM Computing Surveys}
+    \field{month}{12}
+    \field{year}{1990}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{castro1999pbft}{inproceedings}{}{}
+    \name{author}{2}{}{%
+      {{hash=CM}{%
+         family={Castro},
+         familyi={C\bibinitperiod},
+         given={Miguel},
+         giveni={M\bibinitperiod},
+      }}%
+      {{hash=LB}{%
+         family={Liskov},
+         familyi={L\bibinitperiod},
+         given={Barbara},
+         giveni={B\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {USENIX Association}%
+    }
+    \strng{namehash}{CMLB1}
+    \strng{fullhash}{CMLB1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{booktitle}{3rd Symposium on Operating Systems Design and
+  Implementation (OSDI 99)}
+    \field{pages}{173\bibrangedash 186}
+    \field{title}{Practical Byzantine Fault Tolerance}
+    \verb{url}
+    \verb https://www.usenix.org/conference/osdi-99/practical-byzantine-fault-t
+    \verb olerance
+    \endverb
+    \list{location}{1}{%
+      {New Orleans, LA}%
+    }
+    \field{month}{02}
+    \field{year}{1999}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{lamport2001paxos}{article}{}{}
+    \name{author}{1}{}{%
+      {{hash=LL}{%
+         family={Lamport},
+         familyi={L\bibinitperiod},
+         given={Leslie},
+         giveni={L\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{LL1}
+    \strng{fullhash}{LL1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{number}{4}
+    \field{pages}{51\bibrangedash 58}
+    \field{title}{Paxos Made Simple}
+    \verb{url}
+    \verb https://www.microsoft.com/en-us/research/publication/paxos-made-simpl
+    \verb e/
+    \endverb
+    \field{volume}{32}
+    \field{journaltitle}{ACM SIGACT News}
+    \field{month}{12}
+    \field{year}{2001}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{ongaro2014raft}{inproceedings}{}{}
+    \name{author}{2}{}{%
+      {{hash=OD}{%
+         family={Ongaro},
+         familyi={O\bibinitperiod},
+         given={Diego},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=OJ}{%
+         family={Ousterhout},
+         familyi={O\bibinitperiod},
+         given={John},
+         giveni={J\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {USENIX Association}%
+    }
+    \strng{namehash}{ODOJ1}
+    \strng{fullhash}{ODOJ1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{booktitle}{2014 USENIX Annual Technical Conference (USENIX ATC 14)}
+    \field{pages}{305\bibrangedash 319}
+    \field{title}{In Search of an Understandable Consensus Algorithm}
+    \verb{url}
+    \verb https://www.usenix.org/conference/atc14/technical-sessions/presentati
+    \verb on/ongaro
+    \endverb
+    \list{location}{1}{%
+      {Philadelphia, PA}%
+    }
+    \field{year}{2014}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{nakamoto2008bitcoin}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=NS}{%
+         family={Nakamoto},
+         familyi={N\bibinitperiod},
+         given={Satoshi},
+         giveni={S\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{NS1}
+    \strng{fullhash}{NS1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Whitepaper}
+    \field{title}{Bitcoin: A Peer-to-Peer Electronic Cash System}
+    \verb{url}
+    \verb https://bitcoin.org/en/bitcoin-paper
+    \endverb
+    \field{year}{2008}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
   \entry{libp2p2026doc}{misc}{}{}
     \name{author}{1}{}{%
       {{hash=l}{%
@@ -417,6 +580,59 @@
     \verb https://docs.libp2p.io/concepts/
     \endverb
     \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{vyzovitis2020gossipsub}{misc}{}{}
+    \name{author}{5}{}{%
+      {{hash=VD}{%
+         family={Vyzovitis},
+         familyi={V\bibinitperiod},
+         given={Dimitris},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=NY}{%
+         family={Napora},
+         familyi={N\bibinitperiod},
+         given={Yusef},
+         giveni={Y\bibinitperiod},
+      }}%
+      {{hash=MD}{%
+         family={McCormick},
+         familyi={M\bibinitperiod},
+         given={Dirk},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=DD}{%
+         family={Dias},
+         familyi={D\bibinitperiod},
+         given={David},
+         giveni={D\bibinitperiod},
+      }}%
+      {{hash=PY}{%
+         family={Psaras},
+         familyi={P\bibinitperiod},
+         given={Yiannis},
+         giveni={Y\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{VD+1}
+    \strng{fullhash}{VDNYMDDDPY1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.48550/arXiv.2007.02754
+    \endverb
+    \field{howpublished}{arXiv preprint arXiv:2007.02754}
+    \field{title}{GossipSub: Attack-Resilient Message Propagation in the
+  Filecoin and ETH2.0 Networks}
+    \verb{url}
+    \verb https://arxiv.org/abs/2007.02754
+    \endverb
+    \field{month}{07}
+    \field{year}{2020}
+    \field{urlday}{26}
     \field{urlmonth}{06}
     \field{urlyear}{2026}
   \endentry
@@ -494,6 +710,164 @@
     \field{type}{techreport}
     \field{year}{2014}
     \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{rfc5116}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=MDA}{%
+         family={McGrew},
+         familyi={M\bibinitperiod},
+         given={David\bibnamedelima A.},
+         giveni={D\bibinitperiod\bibinitdelim A\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {RFC Editor}%
+    }
+    \strng{namehash}{MDA1}
+    \strng{fullhash}{MDA1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.17487/RFC5116
+    \endverb
+    \field{howpublished}{RFC 5116}
+    \field{number}{5116}
+    \field{series}{Request for Comments}
+    \field{title}{{An Interface and Algorithms for Authenticated Encryption}}
+    \verb{url}
+    \verb https://www.rfc-editor.org/info/rfc5116
+    \endverb
+    \field{month}{01}
+    \field{year}{2008}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{vogels2008eventual}{article}{}{}
+    \name{author}{1}{}{%
+      {{hash=VW}{%
+         family={Vogels},
+         familyi={V\bibinitperiod},
+         given={Werner},
+         giveni={W\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{VW1}
+    \strng{fullhash}{VW1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.1145/1466443.1466448
+    \endverb
+    \field{number}{6}
+    \field{pages}{14\bibrangedash 19}
+    \field{title}{Eventually Consistent}
+    \verb{url}
+    \verb https://queue.acm.org/detail.cfm?id=1466448
+    \endverb
+    \field{volume}{6}
+    \field{journaltitle}{ACM Queue}
+    \field{month}{10}
+    \field{year}{2008}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{openmls2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=O}{%
+         family={{OpenMLS Project}},
+         familyi={O\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{O1}
+    \strng{fullhash}{O1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{title}{OpenMLS --- A Rust Implementation of the Messaging Layer
+  Security (MLS) Protocol}
+    \verb{url}
+    \verb https://openmls.tech/
+    \endverb
+    \field{year}{2026}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{grpc2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=g}{%
+         family={{gRPC Project}},
+         familyi={g\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{g1}
+    \strng{fullhash}{g1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{title}{gRPC --- A High Performance Open Source Universal RPC
+  Framework}
+    \verb{url}
+    \verb https://grpc.io/
+    \endverb
+    \field{year}{2026}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{wails2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=W}{%
+         family={{Wails Project}},
+         familyi={W\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{W1}
+    \strng{fullhash}{W1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{title}{Wails --- Build Desktop Applications using Go \& Web
+  Technologies}
+    \verb{url}
+    \verb https://wails.io/
+    \endverb
+    \field{year}{2026}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{sqlite2026doc}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=HDR}{%
+         family={Hipp},
+         familyi={H\bibinitperiod},
+         given={D.\bibnamedelima Richard},
+         giveni={D\bibinitperiod\bibinitdelim R\bibinitperiod},
+      }}%
+    }
+    \strng{namehash}{HDR1}
+    \strng{fullhash}{HDR1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \field{howpublished}{Official documentation}
+    \field{title}{SQLite --- A Self-Contained, Serverless, Zero-Configuration
+  SQL Database Engine}
+    \verb{url}
+    \verb https://www.sqlite.org/
+    \endverb
+    \field{year}{2026}
+    \field{urlday}{26}
     \field{urlmonth}{06}
     \field{urlyear}{2026}
   \endentry

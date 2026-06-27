@@ -1,9 +1,9 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  9 JUN 2026 22:31
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  26 JUN 2026 21:45
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
-**./1_Gioi_thieu.tex
-(1_Gioi_thieu.tex
+**./3_De_xuat.tex
+(3_De_xuat.tex
 LaTeX2e <2026-06-01>
 L3 programming layer <2026-05-26>
 
@@ -338,14 +338,14 @@ g
 File: bblopts.cfg 2005/09/08 v0.1 add Arabic and Farsi to "declared" options of
  babel
 )
-Package babel Info: You haven't specified a language as a class or package
-(babel)             option. I'll load 'nil'. Reported on input line 4287.
-Package babel Info: Importing font and identification data for nil
-(babel)             from babel-und-x-nil.ini. Reported on input line 4356.
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/babel/locale/e
+n\babel-english.tex)
+Package babel Info: Importing font and identification data for english
+(babel)             from babel-en.ini. Reported on input line 4356.
 
-(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/babel\nil.ldf
-Language: nil 2026/05/20 v26.8 Nil language
-\l@nil=\language80
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/babel-english\en
+glish.ldf
+Language: english 2017/06/06 v3.3r English support from the babel system
 ))
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/xcolor\xcolor.st
 y
@@ -1132,20 +1132,19 @@ Package: tracklang 2026/05/24 v1.6.8 (NLCT) Track Languages
 
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/tracklang\trac
 klang.tex)
-Package tracklang Info: Tracking dialect `nil' (language `undetermined') on inp
-ut line 264.
+Package tracklang Info: Tracking dialect `english' (language `english') on inpu
+t line 264.
+Package tracklang Info: Tracking dialect `english' (language `english') on inpu
+t line 264.
 )
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/translator\trans
 lator.sty
 Package: translator 2021-05-31 v1.12d Easy translation of strings in LaTeX
 )
-
-Package glossaries Warning: No language module detected for `nil'.
-(glossaries)                Language modules need to be installed separately.
-(glossaries)                Please check on CTAN for a bundle called
-(glossaries)                `glossaries-undetermined' or similar.
-
-
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries-engli
+sh\glossaries-english.ldf
+File: glossaries-english.ldf 2014/11/23 v1.0
+)
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/datatool\datatoo
 l-base.sty
 Package: datatool-base 2025/12/04 v3.4.3 (NLCT)
@@ -1188,10 +1187,10 @@ File: datatool-utf8.ldf 2025/12/04 v3.4.3 (NLCT)
 \l__datatool_suffix_int=\count370
 \@dtl@foreach@level=\count371
 
-(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/datatool\datatoo
-l-undetermined.ldf
-File: datatool-undetermined.ldf 2025/12/04 v3.4.3
-)
+
+Package tracklang Warning: No `datatool' support for dialect `english'  on inpu
+t line 9924.
+
 \dtl@codeA=\count372
 \dtl@codeB=\count373
 )
@@ -1411,7 +1410,7 @@ File: logreq.def 2010/08/04 v1.0 logreq spec v1.0
 \bibhang=\skip118
 \blx@bcfin=\read5
 \blx@bcfout=\write5
-\blx@langwohyphens=\language81
+\blx@langwohyphens=\language80
 \c@mincomprange=\count445
 \c@maxcomprange=\count446
 \c@mincompwidth=\count447
@@ -1628,7 +1627,12 @@ e\xparse.sty
 Package: xparse 2025-10-09 L3 Experimental document command parser
 )
 Package: blx-case-expl3 2025/07/10 v3.21 expl3 case changing code for biblatex
-)) (../lstlisting.tex) (../Tu_viet_tat.tex)
+))
+
+LaTeX Warning: \include should only be used after \begin{document} on input lin
+e 77.
+
+(../lstlisting.tex) (../Tu_viet_tat.tex)
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\hyperre
 f.sty
 Package: hyperref 2026-04-24 v7.01q Hypertext links for LaTeX
@@ -1764,10 +1768,10 @@ File: t5utm.fd 2005/08/24 Fontinst v1.929 font definitions for T5/ptm.
 )
 
 LaTeX Warning: Unused global option(s):
-    [13pt].
+    [13pt,3p].
 
-(1_Gioi_thieu.aux)
-\openout1 = `1_Gioi_thieu.aux'.
+(3_De_xuat.aux)
+\openout1 = `3_De_xuat.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 2.
 LaTeX Font Info:    ... okay on input line 2.
@@ -1797,7 +1801,7 @@ LaTeX Font Info:    ... okay on input line 2.
 * paper: a4paper
 * layout: <same size as paper>
 * layoutoffset:(h,v)=(0.0pt,0.0pt)
-* modes: 
+* modes: twoside 
 * h-part:(L,W,R)=(99.58464pt, 426.79135pt, 71.13188pt)
 * v-part:(T,H,B)=(56.9055pt, 731.23584pt, 56.9055pt)
 * \paperwidth=597.50787pt
@@ -1805,13 +1809,13 @@ LaTeX Font Info:    ... okay on input line 2.
 * \textwidth=426.79135pt
 * \textheight=731.23584pt
 * \oddsidemargin=27.31465pt
-* \evensidemargin=27.31465pt
+* \evensidemargin=-1.1381pt
 * \topmargin=-52.36449pt
-* \headheight=18.0pt
+* \headheight=10.0pt
 * \headsep=25.0pt
 * \topskip=10.0pt
 * \footskip=30.0pt
-* \marginparwidth=57.0pt
+* \marginparwidth=111.0pt
 * \marginparsep=11.0pt
 * \columnsep=10.0pt
 * \skip\footins=11.69997pt plus 5.19942pt minus 2.60054pt
@@ -1819,8 +1823,8 @@ LaTeX Font Info:    ... okay on input line 2.
 * \voffset=0.0pt
 * \mag=1000
 * \@twocolumnfalse
-* \@twosidefalse
-* \@mparswitchfalse
+* \@twosidetrue
+* \@mparswitchtrue
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
@@ -1874,145 +1878,265 @@ Package caption Info: supertabular package is loaded.
 Package caption Info: End \AtBeginDocument code.
 \c@lstlisting=\count548
 Package tocbasic Info: setting babel extension for `lol' on input line 2.
-Package biblatex Info: Trying to load language 'nil'...
-Package biblatex Info: ... file 'nil.lbx' not found.
+Package biblatex Info: Trying to load language 'english'...
+Package biblatex Info: ... file 'english.lbx' found.
 
-
-Package biblatex Warning: Language 'nil' not supported.
-(biblatex)                Using dummy definitions on input line 2.
-
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\eng
+lish.lbx
+File: english.lbx 2025/07/10 v3.21 biblatex localization (PK/MW)
+)
 Package biblatex Info: Input encoding 'utf8' detected.
 Package biblatex Info: Automatic encoding selection.
 (biblatex)             Assuming data encoding 'utf8'.
 Package biblatex Info: Input encoding 'utf8' detected.
 Package biblatex Info: Data encoding 'utf8' specified.
 (biblatex)             No need to reencode data.
-\openout5 = `1_Gioi_thieu-blx.bib'.
+\openout5 = `3_De_xuat-blx.bib'.
 
 Package biblatex Info: Trying to load bibliographic data...
-Package biblatex Info: ... file '1_Gioi_thieu.bbl' found.
-(1_Gioi_thieu.bbl)
+Package biblatex Info: ... file '3_De_xuat.bbl' found.
+ (3_De_xuat.bbl)
 Package biblatex Info: Reference section=0 on input line 2.
 Package biblatex Info: Reference segment=0 on input line 2.
 Package hyperref Info: Link coloring OFF on input line 2.
- (1_Gioi_thieu.out) (1_Gioi_thieu.out)
+ (3_De_xuat.out) (3_De_xuat.out)
 \@outlinefile=\write6
-\openout6 = `1_Gioi_thieu.out'.
+\openout6 = `3_De_xuat.out'.
 
 
 
-LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 6.
+LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 15.
 
 
-LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 6.
+LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 15.
+
+LaTeX Font Info:    Calculating math sizes for size <13> on input line 17.
+
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 17.
 
 
-LaTeX Warning: Citation 'rfc9750' on page 1 undefined on input line 8.
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <13> not available
+(Font)              size <12> substituted on input line 17.
 
 
-LaTeX Warning: Citation 'perrin2025doubleratchet' on page 1 undefined on input 
-line 12.
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <6.5> not available
+(Font)              size <6> substituted on input line 17.
 
-[1
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <13> not available
+(Font)              size <12> substituted on input line 17.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 17.
+
+LaTeX Font Info:    Trying to load font information for U+lasy on input line 17
+.
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\ulasy.fd
+File: ulasy.fd 1998/08/17 v2.2e LaTeX symbol font definitions
+)
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <13> not available
+(Font)              size <12> substituted on input line 17.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 17.
+
+LaTeX Font Info:    Trying to load font information for U+msa on input line 17.
+
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
+File: umsa.fd 2013/01/14 v3.01 AMS symbols A
+)
+LaTeX Font Info:    Trying to load font information for U+msb on input line 17.
+
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
+File: umsb.fd 2013/01/14 v3.01 AMS symbols B
+)
+
+LaTeX Warning: Citation 'alwen2023fork' on page 1 undefined on input line 17.
+
+
+LaTeX Warning: Citation 'kohbrok2025dmls' on page 1 undefined on input line 17.
+
+
+
+LaTeX Warning: Citation 'rfc9420' on page 1 undefined on input line 23.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [1
 
 {C:/Users/tiendung2306/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Use
 rs/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/vntex/t5.enc}]
+<../Hinh/chuong3_architecture.png, id=141, 5595.90625pt x 2983.145pt>
+File: ../Hinh/chuong3_architecture.png Graphic file (type png)
+<use ../Hinh/chuong3_architecture.png>
+Package pdftex.def Info: ../Hinh/chuong3_architecture.png  used on input line 2
+9.
+(pdftex.def)             Requested size: 426.79135pt x 227.5043pt.
 
-LaTeX Warning: Citation 'rfc9420' on page 2 undefined on input line 14.
+Underfull \vbox (badness 10000) has occurred while \output is active []
 
+ [2 <../Hinh/chuong3_architecture.png (PNG copy)>]
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 4
+5.
 
-LaTeX Warning: Citation 'rfc9750' on page 2 undefined on input line 14.
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
+File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
+)
 
-
-LaTeX Warning: Citation 'perrin2025doubleratchet' on page 2 undefined on input 
-line 26.
-
-[2]
-
-LaTeX Warning: Citation 'rfc9420' on page 3 undefined on input line 28.
-
-
-LaTeX Warning: Citation 'whatsapp2026encryption' on page 3 undefined on input l
-ine 28.
-
-
-LaTeX Warning: Citation 'rfc9420' on page 3 undefined on input line 30.
+LaTeX Warning: Citation 'rfc5116' on page 3 undefined on input line 45.
 
 
-LaTeX Warning: Citation 'matrix2026megolm' on page 3 undefined on input line 32
+LaTeX Warning: Citation 'rfc9420' on page 3 undefined on input line 46.
+
+
+LaTeX Warning: Citation 'schneider1990smr' on page 3 undefined on input line 57
 .
 
 
-LaTeX Warning: Citation 'matrix2026megolm' on page 3 undefined on input line 34
+LaTeX Warning: Citation 'gilbert2002brewers' on page 3 undefined on input line 
+57.
+
+
+LaTeX Warning: Citation 'vogels2008eventual' on page 3 undefined on input line 
+59.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [3{C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r
+.enc}]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [4]
+LaTeX Font Info:    Calculating math sizes for size <11.86258> on input line 92
 .
 
-[3]
 
-LaTeX Warning: Citation 'rfc9420' on page 4 undefined on input line 41.
-
-
-LaTeX Warning: Citation 'rfc9750' on page 4 undefined on input line 43.
+LaTeX Warning: Citation 'rfc9420' on page 5 undefined on input line 118.
 
 
-LaTeX Warning: Citation 'rfc9750' on page 4 undefined on input line 43.
+Underfull \hbox (badness 10000) in paragraph at lines 143--143
+[]\T5/ptm/b/n/13 Algorithm 2: \T5/ptm/m/n/13 Quy tr¼nh t¤o Com-mit cõa To-ken H
+older
+ []
 
 
-LaTeX Warning: Citation 'rfc9750' on page 4 undefined on input line 43.
+Underfull \vbox (badness 5622) has occurred while \output is active []
+
+ [5]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [6]
+
+LaTeX Warning: Citation 'rfc9420' on page 7 undefined on input line 162.
 
 
-LaTeX Warning: Citation 'rfc9750' on page 4 undefined on input line 45.
-
-
-LaTeX Warning: Citation 'rfc9750' on page 4 undefined on input line 45.
-
-[4]
-
-LaTeX Warning: Citation 'alwen2023fork' on page 5 undefined on input line 48.
-
-
-LaTeX Warning: Citation 'kohbrok2023dmls' on page 5 undefined on input line 48.
-
-
-
-LaTeX Warning: Citation 'kohbrok2023dmls' on page 5 undefined on input line 48.
-
-
-[5]
-
-LaTeX Warning: Citation 'gilbert2002brewers' on page 6 undefined on input line 
-62.
-
-[6] [7]
-LaTeX Font Info:    Trying to load font information for T5+pcr on input line 11
-8.
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+1.sty
+File: lstlang1.sty 2025/11/14 1.11b listings language file
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+2.sty
+File: lstlang2.sty 2025/11/14 1.11b listings language file
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+3.sty
+File: lstlang3.sty 2025/11/14 1.11b listings language file
+)
+LaTeX Font Info:    Trying to load font information for T5+pcr on input line 17
+0.
 
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5pcr.fd
 File: t5ucr.fd 2005/08/24 Fontinst v1.929 font definitions for T5/pcr.
 )
-
-LaTeX Warning: Citation 'rfc9420' on page 8 undefined on input line 120.
-
-
-LaTeX Warning: Citation 'rfc9750' on page 8 undefined on input line 120.
+LaTeX Font Info: \kern \lst@width \kern \lst@width \kern \lst@width Calculating
+\kern \lst@width math\kern \lst@width sizes\kern \lst@width for\kern \lst@width
+ size\kern \lst@width <10.83347> on input line 171.
 
 
-LaTeX Warning: Citation 'kulkarni2014hlc' on page 8 undefined on input line 122
-.
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
 
-[8]
 
-LaTeX Warning: Citation 'rfc9750' on page 9 undefined on input line 136.
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
 
-[9] [10]
 
-LaTeX Warning: Citation 'rfc9420' on page 11 undefined on input line 161.
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
 
+
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [7]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [8]
+[9]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [10]
+
+LaTeX Warning: Citation 'rfc9420' on page 11 undefined on input line 298.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [11]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [12]
+
+LaTeX Warning: Citation 'kulkarni2014hlc' on page 13 undefined on input line 34
+7.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [13]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [14]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [15]
 
 Package glossaries Warning: No \printnoidxglossary or \printnoidxglossaries
  found. (Remove \makenoidxglossaries if you don't want any glossaries.)
 This document will not have a glossary.
 
-[11] (1_Gioi_thieu.aux)
+
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [16]
+[17] (3_De_xuat.aux)
  ***********
 LaTeX2e <2026-06-01>
 L3 programming layer <2026-05-26>
@@ -2025,33 +2149,46 @@ LaTeX Font Warning: Size substitutions with differences
 
 LaTeX Warning: There were undefined references.
 
-Package rerunfilecheck Info: File `1_Gioi_thieu.out' has not changed.
-(rerunfilecheck)             Checksum: 2DF331FCD47366B69337820BC6BA2D1C;2520.
+Package rerunfilecheck Info: File `3_De_xuat.out' has not changed.
+(rerunfilecheck)             Checksum: AC7F8F2734A3138972CABBC7F62EFA56;7437.
 
 Package biblatex Warning: Please (re)run BibTeX on the file(s):
-(biblatex)                1_Gioi_thieu
+(biblatex)                3_De_xuat
 (biblatex)                and rerun LaTeX afterwards.
 
-Package logreq Info: Writing requests to '1_Gioi_thieu.run.xml'.
-\openout1 = `1_Gioi_thieu.run.xml'.
+Package logreq Info: Writing requests to '3_De_xuat.run.xml'.
+\openout1 = `3_De_xuat.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 45313 strings out of 467509
- 896460 string characters out of 5405379
- 1579243 words of memory out of 5000000
- 73848 multiletter control sequences out of 15000+600000
- 643700 words of font info for 49 fonts, out of 8000000 for 9000
+ 46871 strings out of 467509
+ 922020 string characters out of 5405379
+ 1853719 words of memory out of 5000000
+ 75285 multiletter control sequences out of 15000+600000
+ 671725 words of font info for 106 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 128i,8n,124p,2555b,865s stack positions out of 10000i,1000n,20000p,200000b,200000s
-<C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/
-ucrr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vnt
-ex/urwvn/utmb8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/
-type1/vntex/urwvn/utmr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKT
-eX/fonts/type1/vntex/urwvn/utmri8v.pfb>
-Output written on 1_Gioi_thieu.pdf (11 pages, 128630 bytes).
+ 128i,13n,124p,2552b,2134s stack positions out of 10000i,1000n,20000p,200000b,200000s
+<C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
+nts/cm/cmex10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/ty
+pe1/public/amsfonts/cm/cmmi10.pfb><C:/Users/tiendung2306/AppData/Local/Programs
+/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi12.pfb><C:/Users/tiendung2306/AppDat
+a/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi9.pfb><C:/Users/tien
+dung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb
+><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfon
+ts/cm/cmr9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1
+/public/amsfonts/cm/cmsy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/Mi
+KTeX/fonts/type1/public/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Lo
+cal/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/A
+ppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiend
+ung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Us
+ers/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.
+pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/
+utmr8a.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vnt
+ex/urwvn/utmr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/
+type1/vntex/urwvn/utmri8v.pfb>
+Output written on 3_De_xuat.pdf (17 pages, 910071 bytes).
 PDF statistics:
- 128 PDF objects out of 1000 (max. 8388607)
- 24 named destinations out of 1000 (max. 500000)
- 101 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 349 PDF objects out of 1000 (max. 8388607)
+ 85 named destinations out of 1000 (max. 500000)
+ 266 words of extra memory for PDF output out of 10000 (max. 10000000)
 

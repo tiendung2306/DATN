@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -32,7 +34,7 @@ func (realClockImpl) After(d time.Duration) <-chan time.Time { return time.After
 // benchConfig trả về config cho benchmark: BatchingDelay nhỏ để commit nhanh.
 func benchConfig() *CoordinatorConfig {
 	cfg := DefaultConfig()
-	cfg.BatchingDelay = 100 * time.Millisecond // Tương tự production delay
+	cfg.BatchingDelay = 0 // Immediate commit — eliminates batching delay noise in healing measurement
 	cfg.HeartbeatInterval = 5 * time.Second
 	cfg.MLSOperationTimeout = 10 * time.Second // real Rust gRPC cần timeout lớn hơn
 	cfg.TokenHolderTimeout = 5 * time.Second // Production-like timeout
@@ -442,27 +444,38 @@ func BenchmarkForkHeal_ThunderingHerd(b *testing.B) {
 	}
 }
 
-// advanceMultipleEpochsOnWinningBranch advances the winning branch by depth epochs
-// using direct MLS engine calls (CreateProposal + CreateCommit) to simulate real
-// divergence during a prolonged network partition. This bypasses the Go coordination
-// pipeline (Single-Writer election, batching delay) to deterministically advance
-// epochs. The coordination pipeline is already validated by E2E Latency benchmark.
-func advanceMultipleEpochsOnWinningBranch(b *testing.B, nodes []*benchNode, network *FakeNetwork, depth int) {
+// advanceMultipleEpochsOnWinningBranch advances the winning branch by D real MLS epochs
+// using CreateProposal(Update) + CreateCommit per epoch. This creates legitimate
+// divergence: group state evolves through D real epoch transitions, producing
+// a group state that grows with D (realistic e2e scenario).
+func advanceMultipleEpochsOnWinningBranch(b *testing.B, nodes []*benchNode, network *FakeNetwork, depth int, winningCount int) {
+	b.Helper()
+	advanceBranchEpochs(b, nodes, 0, winningCount, depth)
+}
+
+// advanceEpochsOnLosingBranch advances the losing branch by depth epochs using
+// direct MLS engine calls. losingStart is the index of the first losing-branch node.
+func advanceEpochsOnLosingBranch(b *testing.B, nodes []*benchNode, losingStart int, depth int) {
+	b.Helper()
+	advanceBranchEpochs(b, nodes, losingStart, len(nodes)-losingStart, depth)
+}
+
+// advanceBranchEpochs advances a branch starting at branchStart with branchCount nodes
+// by depth epochs using CreateProposal(Update) + CreateCommit.
+func advanceBranchEpochs(b *testing.B, nodes []*benchNode, branchStart, branchCount, depth int) {
 	b.Helper()
 	ctx := context.Background()
-	engine := nodes[0].mls
-	startEpoch := nodes[0].coord.CurrentEpoch()
+	engine := nodes[branchStart].mls
+	startEpoch := nodes[branchStart].coord.CurrentEpoch()
 
 	for i := 0; i < depth; i++ {
-		gs := nodes[0].coord.GetGroupState()
+		gs := nodes[branchStart].coord.GetGroupState()
 
-		// Step 1: Create a self-update proposal (key rotation)
 		propResult, err := engine.CreateProposal(ctx, gs, ProposalUpdate, nil)
 		if err != nil {
 			b.Fatalf("CreateProposal[Update][%d] failed: %v", i, err)
 		}
 
-		// Step 2: Commit the pending proposal to advance epoch
 		commitResult, err := engine.CreateCommit(ctx, propResult.NewGroupState, [][]byte{propResult.ProposalRef})
 		if err != nil {
 			b.Fatalf("CreateCommit[%d] failed: %v", i, err)
@@ -470,20 +483,23 @@ func advanceMultipleEpochsOnWinningBranch(b *testing.B, nodes []*benchNode, netw
 
 		newEpoch := startEpoch + uint64(i+1)
 
-		// Step 3: Update all winning-branch nodes with the new state
-		for j := 0; j < len(nodes)-1; j++ {
+		for j := branchStart; j < branchStart+branchCount; j++ {
 			nodes[j].coord.SetStateForTest(newEpoch, commitResult.NewGroupState, commitResult.NewTreeHash)
 		}
 	}
 }
 
 // BenchmarkForkHeal_PartitionDivergence
-// N=32 nodes, 1 node partitioned. Winning branch advances D epochs (key rotation
-// + application messages) during partition. Measures healing time vs divergence depth.
-// Proves Phoenix Protocol healing time does not scale linearly with divergence.
+// N=32 nodes, partitioned 30 vs 2. Both branches advance independently during
+// partition, creating a true MLS fork (divergent TreeHash). Winning branch advances
+// D epochs, losing branch advances 2 epochs. Measures healing time vs divergence depth.
+// Expected: healing time ≈ O(1) regardless of D, because External Proposal + Token Holder
+// Commit + ProcessWelcome does not replay intermediate epochs.
 func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 	n := 32
-	depths := []int{10, 25, 50, 100}
+	winningCount := 30
+	losingAdvance := 2
+	depths := []int{5, 10, 20, 50}
 
 	pm := newTestProcessManager()
 	port, err := pm.StartEngine()
@@ -506,15 +522,19 @@ func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 		b.Fatalf("Failed to create CSV: %v", err)
 	}
 	defer csvFile.Close()
-	fmt.Fprintln(csvFile, "DivergenceDepth,HealingTimeMs")
+	fmt.Fprintln(csvFile, "DivergenceDepth,HealingTimeMs,GroupStateBytes")
 
 	for _, d := range depths {
 		d := d
 		b.Run(fmt.Sprintf("D=%d", d), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			const rounds = 10
+			var times []int64
+			var winnerGSBytes int
+
+			for r := 0; r < rounds; r++ {
 				b.StopTimer()
 
-				groupIDStr := fmt.Sprintf("bench-divergence-%d-%d", d, i)
+				groupIDStr := fmt.Sprintf("bench-divergence-%d-%d", d, r)
 				nodes, network := setupRealMLSCluster(b, n, groupIDStr, realEngine)
 				createGroupAndAddAllMembers(b, nodes, realEngine)
 				startAllForBench(b, nodes)
@@ -532,16 +552,21 @@ func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 					}
 				}
 
-				nodeX := nodes[n-1]
-
-				var groupA []peer.ID
-				for j := 0; j < n-1; j++ {
+				// Partition: Group A (winning, 30 nodes) vs Group B (losing, 2 nodes)
+				var groupA, groupB []peer.ID
+				for j := 0; j < winningCount; j++ {
 					groupA = append(groupA, nodes[j].id)
 				}
-				groupB := []peer.ID{nodeX.id}
+				for j := winningCount; j < n; j++ {
+					groupB = append(groupB, nodes[j].id)
+				}
 				network.Partition(groupA, groupB)
 
-				advanceMultipleEpochsOnWinningBranch(b, nodes, network, d)
+				// Both branches advance independently during partition, creating true fork
+				advanceMultipleEpochsOnWinningBranch(b, nodes, network, d, winningCount)
+				advanceEpochsOnLosingBranch(b, nodes, winningCount, losingAdvance)
+
+				winnerGSBytes = len(nodes[0].coord.GetGroupState())
 
 				network.Heal()
 
@@ -549,9 +574,6 @@ func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 
 				// Re-exchange heartbeats so forkDetector.local.MemberCount reflects
 				// the full activeView (32 members) before announce triggers healing.
-				// Without this, forkDetector still has MemberCount=1 from the first
-				// heartbeat loop tick (before exchangeHeartbeatsForBench populated activeView),
-				// causing false fork detection between same-branch nodes.
 				exchangeHeartbeatsForBench(nodes, network)
 
 				// Reset fork detector for ALL nodes so stale known branches from
@@ -560,37 +582,70 @@ func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 					bn.coord.ResetForkDetectorForTest()
 				}
 
-				nodes[0].coord.BroadcastAnnounce()
-				network.DrainAll()
-
-				startTime := time.Now()
-				waitForBenchWithNetwork(b, 300*time.Second, network, func() (*ForkHealingJob, bool) {
-					// Check if nodeX has converged with ANY winning-branch node.
-					// The Token Holder (not necessarily node 0) commits the ProposalJoin
-					// and advances epoch. We check nodeX against all winning-branch nodes.
-					nodeXEpoch := nodeX.coord.CurrentEpoch()
-					nodeXTreeHash := nodeX.coord.GetTreeHash()
-					for j := 0; j < len(nodes)-1; j++ {
-						if nodes[j].coord.CurrentEpoch() == nodeXEpoch &&
-							bytes.Equal(nodes[j].coord.GetTreeHash(), nodeXTreeHash) {
-							return nil, true
+				// Track healing completion of the FIRST losing node via channel.
+				// The callback captures the internal duration_ms reported by runHeal,
+				// which measures from heal start to completion without DrainAll noise.
+				healedChan := make(chan int64, 1)
+				for j := winningCount; j < n; j++ {
+					bn := nodes[j]
+					bn.coord.onForkHealEvent = func(summary ForkHealAuditSummary) {
+						if summary.Stage == "fork_heal_completed" {
+							select {
+							case healedChan <- summary.DurationMs:
+							default:
+							}
 						}
 					}
-					return nil, false
-				})
-				elapsed := time.Since(startTime)
+				}
+
+				nodes[0].coord.BroadcastAnnounce()
+
+				// Drain the announce cascade so fork detection triggers promptly.
+				network.DrainAll()
+
+				// Background drainer: continuously delivers messages so healing
+				// pipeline (ProposalJoin → Commit → Welcome) progresses.
+				drainDone := make(chan struct{})
+				go func() {
+					for {
+						select {
+						case <-drainDone:
+							return
+						default:
+							network.DrainAll()
+							time.Sleep(1 * time.Millisecond)
+						}
+					}
+				}()
+
+				var elapsedMs int64
+				select {
+				case elapsedMs = <-healedChan:
+				case <-time.After(300 * time.Second):
+					close(drainDone)
+					b.Fatalf("timeout waiting for first heal; depth=%d round=%d", d, r)
+				}
+				close(drainDone)
+
+				slog.Info("bench/converged", "depth", d, "round", r, "healing_ms", elapsedMs)
+				times = append(times, elapsedMs)
 
 				b.StopTimer()
-
-				fmt.Fprintf(csvFile, "%d,%.2f\n", d, float64(elapsed.Milliseconds()))
-				csvFile.Sync()
-
-				b.ReportMetric(float64(elapsed.Milliseconds()), "healing_ms")
 
 				for _, node := range nodes {
 					node.coord.Stop()
 				}
 			}
+
+			// Compute median
+			sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+			median := times[len(times)/2]
+			slog.Info("bench/median", "depth", d, "median_ms", median, "all_ms", times)
+
+			fmt.Fprintf(csvFile, "%d,%.2f,%d\n", d, float64(median), winnerGSBytes)
+			csvFile.Sync()
+
+			b.ReportMetric(float64(median), "healing_ms")
 		})
 	}
 }

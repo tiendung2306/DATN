@@ -1,5 +1,5 @@
-DivergenceDepth,HealingTimeMs
-10,1374.00
-25,2379.00
-50,4394.00
-100,10370.00
+DivergenceDepth,HealingTimeMs,GroupStateBytes
+5,728.00,459726
+10,1039.00,780155
+20,1155.00,1414394
+50,2098.00,3317446

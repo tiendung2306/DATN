@@ -1,14 +1,14 @@
 This is BibTeX, Version 0.99e
 Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
-The top-level auxiliary file: 1_Gioi_thieu.aux
+The top-level auxiliary file: 3_De_xuat.aux
 Reallocating 'name_of_file' (item size: 1) to 9 items.
 The style file: biblatex.bst
-Reallocating 'name_of_file' (item size: 1) to 17 items.
+Reallocating 'name_of_file' (item size: 1) to 14 items.
 Reallocating 'name_of_file' (item size: 1) to 29 items.
 I couldn't open database file Danh_sach_tai_lieu_tham_khao.bib
----line 6 of file 1_Gioi_thieu.aux
- : \bibdata{1_Gioi_thieu-blx,Danh_sach_tai_lieu_tham_khao
- :                                                       }
+---line 6 of file 3_De_xuat.aux
+ : \bibdata{3_De_xuat-blx,Danh_sach_tai_lieu_tham_khao
+ :                                                    }
 I'm skipping whatever remains of this command
 Reallocating 'glb_str_end' (item size: 4) to 20 items.
 Reallocating 'glb_str_ptr' (item size: 4) to 20 items.
@@ -25,22 +25,22 @@ Reallocating 'singl_function' (item size: 4) to 100 items.
 Reallocating 'singl_function' (item size: 4) to 100 items.
 Reallocating 'singl_function' (item size: 4) to 100 items.
 Reallocating 'singl_function' (item size: 4) to 100 items.
-Database file #1: 1_Gioi_thieu-blx.bib
+Database file #1: 3_De_xuat-blx.bib
 Warning--I didn't find a database entry for "rfc9420"
 Warning--I didn't find a database entry for "rfc9750"
-Warning--I didn't find a database entry for "perrin2025doubleratchet"
-Warning--I didn't find a database entry for "whatsapp2026encryption"
-Warning--I didn't find a database entry for "matrix2026megolm"
 Warning--I didn't find a database entry for "alwen2023fork"
-Warning--I didn't find a database entry for "kohbrok2023dmls"
+Warning--I didn't find a database entry for "kohbrok2025dmls"
+Warning--I didn't find a database entry for "rfc5116"
+Warning--I didn't find a database entry for "schneider1990smr"
 Warning--I didn't find a database entry for "gilbert2002brewers"
+Warning--I didn't find a database entry for "vogels2008eventual"
 Warning--I didn't find a database entry for "kulkarni2014hlc"
 Biblatex version: 3.21
 Reallocating 'wiz_functions' (item size: 4) to 9000 items.
 Reallocating 'singl_function' (item size: 4) to 100 items.
 You've used 1 entry,
             6402 wiz_defined-function locations,
-            1212 strings with 9156 characters,
+            1212 strings with 9127 characters,
 and the built_in function-call counts, 1534 in all, are:
 = -- 73
 > -- 70

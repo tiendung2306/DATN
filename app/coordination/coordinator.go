@@ -3358,6 +3358,7 @@ func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEv
 				WinnerEpoch:          event.RemoteAnnounce.Epoch,
 				NewEpoch:             job.PendingEpoch,
 				ReplayedMessageCount: replayedCount,
+				DurationMs:           completedAt.Sub(startedAt).Milliseconds(),
 			})
 		}
 	}

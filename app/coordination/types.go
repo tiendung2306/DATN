@@ -250,6 +250,7 @@ type ForkHealAuditSummary struct {
 	NewEpoch             uint64
 	FailedStep           string
 	ReplayedMessageCount int
+	DurationMs           int64
 }
 
 // HeartbeatMsg is a lightweight liveness signal broadcast periodically.
