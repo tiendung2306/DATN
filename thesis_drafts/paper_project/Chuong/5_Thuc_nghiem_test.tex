@@ -21,6 +21,8 @@
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Các tiêu chí đánh giá thực nghiệm}
+		\label{tab:tham_so_danh_gia}
 		\begin{tabular}{|p{4.2cm}|p{9.5cm}|}
 			\hline
 			\textbf{Tiêu chí} & \textbf{Ý nghĩa đánh giá} \\
@@ -40,8 +42,6 @@
 			Forward Secrecy & Thành viên đã bị loại khỏi nhóm không thể giải mã thông điệp ở epoch mới. \\
 			\hline
 		\end{tabular}
-		\caption{Các tiêu chí đánh giá thực nghiệm}
-		\label{tab:tham_so_danh_gia}
 	\end{table}
 	
 	\section{Môi trường và phương pháp thí nghiệm}
@@ -76,6 +76,8 @@
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Thời gian phục hồi sau phân vùng mạng}
+		\label{tab:partition_recovery}
 		\begin{tabular}{|r|r|}
 			\hline
 			\textbf{Thời gian phân vùng (giây)} & \textbf{Thời gian phục hồi (ms)} \\
@@ -89,8 +91,6 @@
 			60 & 1199 \\
 			\hline
 		\end{tabular}
-		\caption{Thời gian phục hồi sau phân vùng mạng}
-		\label{tab:partition_recovery}
 	\end{table}
 	
 	\begin{figure}[htbp]
@@ -111,6 +111,8 @@
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{So sánh baseline và cơ chế gom Proposal}
+		\label{tab:concurrency_results}
 		\begin{tabular}{|c|r|r|r|r|r|r|}
 			\hline
 			\textbf{Đồng thời} & \multicolumn{3}{c|}{\textbf{Baseline}} & \multicolumn{3}{c|}{\textbf{Optimized}} \\
@@ -128,8 +130,6 @@
 			5 & 15 & 5 & 0,33 & 5 & 1 & 1,00 \\
 			\hline
 		\end{tabular}
-		\caption{So sánh baseline và cơ chế gom Proposal}
-		\label{tab:concurrency_results}
 	\end{table}
 	
 	\begin{figure}[htbp]
@@ -148,6 +148,8 @@
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Chi phí thao tác thành viên theo quy mô nhóm}
+		\label{tab:epoch_convergence_metrics}
 		\begin{tabular}{|r|r|r|r|}
 			\hline
 			\textbf{Quy mô nhóm} & \textbf{Thêm thành viên (ms)} & \textbf{Xóa thành viên (ms)} & \textbf{Cập nhật (ms)} \\
@@ -167,8 +169,6 @@
 			1000 & 2417,01 & 2079,54 & 2125,09 \\
 			\hline
 		\end{tabular}
-		\caption{Chi phí thao tác thành viên theo quy mô nhóm}
-		\label{tab:epoch_convergence_metrics}
 	\end{table}
 	
 	Kết quả cho thấy chi phí tăng rõ rệt khi số lượng thành viên tăng. Điều này phù hợp với đặc điểm triển khai hiện tại: mỗi thao tác thay đổi thành viên không chỉ cập nhật logic điều phối, mà còn kéo theo việc xử lý trạng thái nhóm và phát tán Commit đến các nút liên quan. Với quy mô 1000 nút, thời gian xử lý ở mức vài giây trong môi trường mô phỏng. Vì vậy, kết quả này không nên được hiểu là giới hạn lý thuyết của MLS, mà là chi phí thực tế của pipeline triển khai hiện tại khi trạng thái nhóm được xử lý theo mô hình full-state.
@@ -180,6 +180,8 @@
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{So sánh độ trễ mật mã giữa các mô hình}
+		\label{tab:mls_crypto_benchmark}
 		\begin{tabular}{|r|r|r|}
 			\hline
 			\textbf{Số nút} & \textbf{Pairwise (ms)} & \textbf{Full-blob MLS (ms)} \\
@@ -193,8 +195,6 @@
 			4096 & 955,18 & 78,95 \\
 			\hline
 		\end{tabular}
-		\caption{So sánh độ trễ mật mã giữa các mô hình}
-		\label{tab:mls_crypto_benchmark}
 	\end{table}
 	
 	Kết quả cho thấy MLS hiệu quả hơn rõ rệt so với mã hóa pairwise khi số lượng thành viên tăng. Với 4096 nút, pairwise baseline có trung vị khoảng 955 ms, trong khi full-blob MLS khoảng 79 ms. Điều này thể hiện lợi thế cơ bản của MLS: người gửi không phải mã hóa riêng cho từng người nhận.

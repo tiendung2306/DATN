@@ -16,27 +16,27 @@ Từ đó, các mục tiêu đánh giá được chia thành ba hướng. Hướ
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Các tiêu chí đánh giá thực nghiệm}
+		\label{tab:tham_so_danh_gia}
 		\begin{tabular}{|p{4.2cm}|p{9.5cm}|}
 			\hline
 			\textbf{Tiêu chí} & \textbf{Ý nghĩa đánh giá} \\
 			\hline
-			Hội tụ epoch & Các nút hợp lệ phải kết thúc ở cùng một epoch sau khi mạng ổn định trở lại. \\
+			Hội tụ epoch & Điều kiện (i) trong Định nghĩa~\ref{def:hoi_tu_trang_thai}: các nút hợp lệ phải kết thúc ở cùng một epoch sau khi mạng ổn định trở lại. \\
 			\hline
-			Hội tụ mã băm cây & Các nút hợp lệ phải có cùng mã băm cây MLS, cho thấy trạng thái mật mã đã hội tụ. \\
+			Hội tụ mã băm cây & Điều kiện (ii) trong Định nghĩa~\ref{def:hoi_tu_trang_thai}: các nút hợp lệ phải có cùng mã băm cây MLS. \\
 			\hline
 			Single-Writer trong cùng epoch & Không xuất hiện hai Commit hợp lệ cạnh tranh trong cùng một epoch khi các nút có cùng ActiveView. \\
 			\hline
 			Hiệu quả gom đề xuất & Nhiều Proposal gần nhau có thể được gom vào một Commit thay vì sinh nhiều epoch liên tiếp. \\
 			\hline
-			Thời gian phục hồi phân vùng & Khoảng thời gian từ khi mạng được nối lại đến khi các nút hội tụ. \\
+			Thời gian phục hồi phân vùng & Khoảng thời gian từ khi mạng được nối lại đến khi các nút đạt hội tụ trạng thái mật mã. \\
 			\hline
 			Độ trễ thao tác MLS & Chi phí thực thi mã hóa, cập nhật thành viên và xử lý Commit theo quy mô nhóm. \\
 			\hline
 			Forward Secrecy & Thành viên đã bị loại khỏi nhóm không thể giải mã thông điệp ở epoch mới. \\
 			\hline
 		\end{tabular}
-		\caption{Các tiêu chí đánh giá thực nghiệm}
-		\label{tab:tham_so_danh_gia}
 	\end{table}
 	
 	\section{Môi trường và phương pháp thí nghiệm}
@@ -57,6 +57,8 @@ Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùn
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{So sánh xử lý ngay và cơ chế gom đề xuất}
+		\label{tab:concurrency_results}
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|c|r|r|r|r|r|r|}
 			\hline
@@ -76,8 +78,6 @@ Một rủi ro lớn khi đưa MLS lên mạng ngang hàng là nhiều nút cùn
 			\hline
 		\end{tabular}
 		}
-		\caption{So sánh xử lý ngay và cơ chế gom đề xuất}
-		\label{tab:concurrency_results}
 	\end{table}
 	
 	\begin{figure}[htbp]
@@ -94,7 +94,7 @@ Bảng~\ref{tab:concurrency_results} và Hình~\ref{fig:concurrency_batching} ch
 	
 Bài kiểm thử quan trọng nhất cho lớp điều phối là \path{TestIntegration_Chaos_Convergence}. Thí nghiệm tạo một cụm gồm năm nút cùng tham gia một nhóm MLS. Trong quá trình chạy, tiến trình thử nghiệm liên tục chia mạng thành hai phân vùng, giữ trạng thái phân vùng trong khoảng 600 ms rồi nối mạng lại. Đồng thời, các nút vẫn tiếp tục gửi thông điệp và phát sinh thao tác thay đổi thành viên.
 	
-Kết quả được ghi vào \path{evaluation/data/chaos_metrics.csv}, gồm thời điểm đo, định danh nút, epoch hiện tại và mã băm cây rút gọn. Hình~\ref{fig:chaos_convergence} minh họa quá trình các nút có thể tạm thời phân kỳ trong lúc mạng bị chia cắt, sau đó hội tụ về cùng epoch khi mạng được nối lại.
+Kết quả được ghi vào \path{evaluation/data/chaos_metrics.csv}, gồm thời điểm đo, định danh nút, epoch hiện tại và mã băm cây rút gọn. Hình~\ref{fig:chaos_convergence} minh họa quá trình các nút có thể tạm thời phân kỳ trong lúc mạng bị chia cắt, sau đó hội tụ về cùng epoch và cùng mã băm cây khi mạng được nối lại.
 	
 	\begin{figure}[htbp]
 		\centering
@@ -114,6 +114,8 @@ Dữ liệu được trình bày ở Bảng~\ref{tab:partition_divergence} và m
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Thời gian healing, kích thước group state và tỷ lệ healing/group state theo độ sâu phân kỳ (trung vị của 10 lần chạy)}
+		\label{tab:partition_divergence}
 		\begin{tabular}{|r|r|r|r|}
 			\hline
 			\textbf{$D$ (epoch lệch)} & \textbf{Healing (ms)} & \textbf{Group State (KB)} & \textbf{ms/KB} \\
@@ -127,8 +129,6 @@ Dữ liệu được trình bày ở Bảng~\ref{tab:partition_divergence} và m
 			50 & 2098 & 3240 & 0,65 \\
 			\hline
 		\end{tabular}
-		\caption{Thời gian healing, kích thước group state và tỷ lệ healing/group state theo độ sâu phân kỳ (trung vị của 10 lần chạy)}
-		\label{tab:partition_divergence}
 	\end{table}
 	
 	\begin{figure}[htbp]
@@ -168,6 +168,8 @@ Thí nghiệm tiếp theo đo chi phí của ba thao tác: thêm thành viên, x
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Chi phí thao tác thành viên theo quy mô nhóm}
+		\label{tab:epoch_convergence_metrics}
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|r|r|r|r|}
 			\hline
@@ -191,8 +193,6 @@ Thí nghiệm tiếp theo đo chi phí của ba thao tác: thêm thành viên, x
 			\hline
 		\end{tabular}
 		}
-		\caption{Chi phí thao tác thành viên theo quy mô nhóm}
-		\label{tab:epoch_convergence_metrics}
 	\end{table}
 	
 Kết quả cho thấy chi phí tăng rõ khi số lượng thành viên tăng. Điều này phù hợp với phân tích lý thuyết ở Chương 4: thao tác thay đổi thành viên luôn đắt hơn gửi application message thông thường, vì nó kéo theo Proposal, Commit và cập nhật trạng thái nhóm. Tuy vậy, kết quả này cần được hiểu là chi phí của pipeline hiện tại của ứng dụng thử nghiệm, không phải là giới hạn tuyệt đối của MLS về mặt lý thuyết.
@@ -206,6 +206,8 @@ Benchmark trên có hai đường đo chính. Đường mã hóa từng cặp, t
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}
+		\label{tab:mls_crypto_benchmark}
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|r|r|r|}
 			\hline
@@ -221,12 +223,12 @@ Benchmark trên có hai đường đo chính. Đường mã hóa từng cặp, t
 			\hline
 		\end{tabular}
 		}
-	\caption{So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}
-	\label{tab:mls_crypto_benchmark}
 \end{table}
 
 \begin{table}[htbp]
 	\centering
+	\caption{So sánh p95 và p99 ở nhóm 4096 thành viên}
+	\label{tab:mls_crypto_tail_latency}
 	\begin{tabular}{|l|r|r|}
 		\hline
 		\textbf{Mốc đo} & \textbf{Từng cặp (ms)} & \textbf{MLS (ms)} \\
@@ -236,8 +238,6 @@ Benchmark trên có hai đường đo chính. Đường mã hóa từng cặp, t
 		p99 & 1081,72 & 110,85 \\
 		\hline
 	\end{tabular}
-	\caption{So sánh p95 và p99 ở nhóm 4096 thành viên}
-	\label{tab:mls_crypto_tail_latency}
 \end{table}
 	
 Các con số trong Bảng~\ref{tab:mls_crypto_benchmark} cho thấy hai xu hướng khá rõ. Thứ nhất, đường mã hóa từng cặp tăng gần tuyến tính theo số thành viên: từ 3,62 ms ở nhóm 16 thành viên lên 59,62 ms ở nhóm 256 thành viên, 238,75 ms ở nhóm 1024 thành viên và 955,18 ms ở nhóm 4096 thành viên. Thứ hai, đường MLS hiện tại cũng tăng theo quy mô nhóm, nhưng chậm hơn nhiều: các mốc tương ứng lần lượt là 0,55 ms, 5,41 ms, 19,86 ms và 78,95 ms. Điều này phù hợp với ưu thế cơ bản của MLS: phía gửi không phải mã hóa lại riêng cho từng người nhận \cite{rfc9420}.
@@ -253,6 +253,8 @@ Ngoài phần mật mã, hệ thống còn tốn thêm thời gian cho lớp đi
 	
 	\begin{table}[htbp]
 		\centering
+		\caption{Chi phí xử lý cục bộ: Điều phối (giả lập MLS) và Điều phối + MLS (MLS thật)}
+		\label{tab:coordinator_overhead_real}
 		\resizebox{\textwidth}{!}{
 		\begin{tabular}{|r|r|r|r|r|}
 			\hline
@@ -275,8 +277,6 @@ Ngoài phần mật mã, hệ thống còn tốn thêm thời gian cho lớp đi
 			\hline
 		\end{tabular}
 		}
-		\caption{Chi phí xử lý cục bộ: Điều phối (giả lập MLS) và Điều phối + MLS (MLS thật)}
-		\label{tab:coordinator_overhead_real}
 	\end{table}
 	
 Bảng~\ref{tab:coordinator_overhead_real} cho thấy hai xu hướng rõ rệt. Thứ nhất, đường điều phối tăng theo quy mô nhóm nhưng ở mức thấp: từ 1,58 ms ở nhóm 16 thành viên lên 2204,85 ms ở nhóm 1000 thành viên. Thứ hai, đường tổng (điều phối + MLS) chỉ có dữ liệu đến nhóm 64 thành viên do giới hạn thời gian chạy của thành phần MLS thật, nhưng đã cho thấy chênh lệch rất lớn so với đường điều phối: 39,73 ms ở nhóm 16 và 650,70 ms ở nhóm 64. Phần lớn chênh lệch này nằm ở chi phí MLS, tương ứng 38,15 ms và 639,40 ms.
@@ -368,7 +368,7 @@ Các kết quả thực nghiệm cho thấy hướng tiếp cận của đồ á
 	
 Tuy nhiên, phần đánh giá vẫn còn giới hạn. Các chaos test hiện nay chủ yếu dùng mạng giả lập nên chưa phản ánh đầy đủ độ trễ, mất gói và hành vi NAT của môi trường thực. Các benchmark MLS cho thấy xu hướng chi phí rõ ràng, nhưng chưa phải là đánh giá đầu cuối của toàn bộ ứng dụng desktop trên nhiều máy độc lập. Thí nghiệm đo độ sâu phân kỳ cho thấy thời gian healing tăng theo kích thước group state khi độ sâu phân kỳ lớn, nhưng số bước giao thức vẫn không đổi --- luôn là một ProposalJoin, một Commit và một Welcome. Phần thời gian tăng chủ yếu nằm ở chi phí serialize/deserialize group state trong các lệnh gọi gRPC đến lõi MLS, chứ không phải do giao thức phải replay từng epoch lệch. Do đó, mô hình trao đổi toàn trạng thái giữa các thành phần còn gây chi phí lớn khi nhóm rất đông thành viên; đây là điểm cần tiếp tục tối ưu nếu muốn tiến xa hơn khỏi phạm vi ứng dụng thử nghiệm.
 	
-Chương này đã kiểm chứng các cơ chế đã đề xuất bằng cả hai con đường: dữ liệu thực nghiệm và kịch bản chạy trên ứng dụng desktop thử nghiệm. Các kịch bản giao diện cho thấy những giả định thiết kế như cấp bundle, người mới gia nhập và quản trị thành viên đã được lập trình thành các usecase sử dụng thật. Các bài kiểm thử và benchmark tiếp tục cho thấy hệ thống có thể hội tụ sau phân vùng mạng, giảm xung đột Commit và giữ được các thuộc tính bảo mật quan trọng của MLS trong phạm vi đã đánh giá.
+Chương này đã kiểm chứng các cơ chế đã đề xuất bằng cả hai con đường: dữ liệu thực nghiệm và kịch bản chạy trên ứng dụng desktop thử nghiệm. Các kịch bản giao diện cho thấy những giả định thiết kế như cấp bundle, người mới gia nhập và quản trị thành viên đã được lập trình thành các usecase sử dụng thật. Các bài kiểm thử và benchmark tiếp tục cho thấy hệ thống có thể đạt hội tụ trạng thái mật mã sau phân vùng mạng, giảm xung đột Commit và giữ được các thuộc tính bảo mật quan trọng của MLS trong phạm vi đã đánh giá.
 	
 Những kết quả đó chưa đủ để đưa ra khẳng định tuyệt đối cho mọi môi trường triển khai, nhưng chúng là cơ sở thực nghiệm đáng tin cậy để kết lại phần nghiên cứu. Từ đây, Chương 6 sẽ tổng hợp lại đóng góp chính của đồ án, nêu rõ giới hạn còn tồn tại và xác định các hướng phát triển tiếp theo.
 	

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  28 JUN 2026 01:44
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  28 JUN 2026 18:25
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1982,7 +1982,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.59 ... trong há»‡ thá»‘ng}{30}{subsection.3.5.4}
+l.59 ... trong há»‡ thá»‘ng}{29}{subsection.3.5.4}
                                                   % [2]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
@@ -1991,7 +1991,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.84 ...»›i háº¡n cá»§a HLC}{40}{subsection.4.7.3}
+l.84 ...»›i háº¡n cá»§a HLC}{39}{subsection.4.7.3}
                                                   % [3]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
@@ -2000,7 +2000,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
 een already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.110 ...umberline {6}Káº¾T LUáº¬N}{61}{chapter.6}
+l.110 ...umberline {6}Káº¾T LUáº¬N}{60}{chapter.6}
                                                   % [4])
 \tf@toc=\write7
 \openout7 = `DoAn.toc'.
@@ -2265,7 +2265,7 @@ older
  []
 
 
-Underfull \vbox (badness 10000) has occurred while \output is active []
+Underfull \vbox (badness 1924) has occurred while \output is active []
 
 
 
@@ -2276,7 +2276,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [20]
-Underfull \vbox (badness 10000) has occurred while \output is active []
+Underfull \vbox (badness 4940) has occurred while \output is active []
 
 
 
@@ -2353,9 +2353,6 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [22]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2364,6 +2361,9 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [23]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2383,9 +2383,6 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [25]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2394,9 +2391,6 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [26]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2416,9 +2410,6 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [28]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2438,9 +2429,6 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [30])
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2449,6 +2437,13 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [31]
+Chapter 4.
+(Chuong/4_Phan_tich_ly_thuyet.tex
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+ [32
+
+]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2456,14 +2451,10 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[32]
-Chapter 4.
-(Chuong/4_Phan_tich_ly_thuyet.tex
+[33]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [33
 
-]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2549,28 +2540,17 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
 [41]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
-
-Package fancyhdr Warning: \headheight is too small (10.0pt): 
-(fancyhdr)                Make it at least 17.97902pt, for example:
-(fancyhdr)                \setlength{\headheight}{17.97902pt}.
-(fancyhdr)                You might also make \topmargin smaller:
-(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
-
-[42]
-Underfull \hbox (badness 10000) in paragraph at lines 296--296
+Underfull \hbox (badness 10000) in paragraph at lines 295--295
 []|\T5/ptm/m/n/11.86258 B£n tâm t­t tr¤ng th¡i,
  []
 
 
-Underfull \hbox (badness 3965) in paragraph at lines 296--296
+Underfull \hbox (badness 3965) in paragraph at lines 295--295
 []|\T5/ptm/m/n/11.86258 Khæng gëp trüc ti¸p
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 296--296
+Underfull \hbox (badness 10000) in paragraph at lines 295--295
 []|\T5/ptm/m/n/11.86258 T¡ch ap-pli-ca-tion or-der-ing
  []
 
@@ -2581,38 +2561,38 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[43]
-Underfull \hbox (badness 3158) in paragraph at lines 331--331
+[42]
+Underfull \hbox (badness 3158) in paragraph at lines 330--330
 []|\T5/ptm/b/n/11.86258 ^^^çng thuªn Quo-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 331--331
+Underfull \hbox (badness 10000) in paragraph at lines 330--330
 []|\T5/ptm/b/n/11.86258 Gi£i ph¡p ^^_· xu§t
  []
 
 
-Underfull \hbox (badness 3601) in paragraph at lines 331--331
+Underfull \hbox (badness 3601) in paragraph at lines 330--330
 \T5/ptm/b/n/11.86258 Holder ph¡t sâng mët
  []
 
 
-Underfull \hbox (badness 4492) in paragraph at lines 331--331
+Underfull \hbox (badness 4492) in paragraph at lines 330--330
 []|\T5/ptm/b/n/11.86258 ^^^ë tr¹ x¡c nhªn
  []
 
 
-Underfull \hbox (badness 5607) in paragraph at lines 331--331
+Underfull \hbox (badness 5607) in paragraph at lines 330--330
 []|\T5/ptm/b/n/11.86258 Sü phò hñp cho
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 331--331
+Underfull \hbox (badness 10000) in paragraph at lines 330--330
 []|\T5/ptm/m/n/11.86258 K²m (d¹ bà treo
  []
 
 
-Underfull \hbox (badness 1852) in paragraph at lines 331--331
+Underfull \hbox (badness 1852) in paragraph at lines 330--330
 \T5/ptm/m/n/11.86258 m¤ng, tèn k²m t i
  []
 
@@ -2623,7 +2603,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[44])
+[43])
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2631,22 +2611,22 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[45]
+[44]
 Chapter 5.
 (Chuong/5_Thuc_nghiem.tex
-Underfull \hbox (badness 10000) in paragraph at lines 27--27
+Underfull \hbox (badness 10000) in paragraph at lines 29--29
 []|\T5/ptm/m/n/13 Single-Writer trong
  []
 
 
-Underfull \hbox (badness 4569) in paragraph at lines 31--31
+Underfull \hbox (badness 4569) in paragraph at lines 33--33
 []|\T5/ptm/m/n/13 Thíi gian phöc hçi
  []
 
 
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [46
+ [45
 
 ]
 Underfull \vbox (badness 10000) has occurred while \output is active []
@@ -2659,8 +2639,8 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[47]
-<Hinh/chuong5/concurrency_batching.png, id=1225, 1145.2386pt x 518.1759pt>
+[46]
+<Hinh/chuong5/concurrency_batching.png, id=1220, 1145.2386pt x 518.1759pt>
 File: Hinh/chuong5/concurrency_batching.png Graphic file (type png)
 <use Hinh/chuong5/concurrency_batching.png>
 Package pdftex.def Info: Hinh/chuong5/concurrency_batching.png  used on input l
@@ -2674,14 +2654,14 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[48 <./Hinh/chuong5/concurrency_batching.png>]
-<Hinh/chuong5/chaos_convergence.png, id=1235, 945.2916pt x 537.6888pt>
+[47 <./Hinh/chuong5/concurrency_batching.png>]
+<Hinh/chuong5/chaos_convergence.png, id=1231, 945.2916pt x 537.6888pt>
 File: Hinh/chuong5/chaos_convergence.png Graphic file (type png)
 <use Hinh/chuong5/chaos_convergence.png>
 Package pdftex.def Info: Hinh/chuong5/chaos_convergence.png  used on input line
  101.
 (pdftex.def)             Requested size: 405.45047pt x 230.61916pt.
-<Hinh/chuong5/partition_divergence.png, id=1238, 505.89pt x 325.215pt>
+<Hinh/chuong5/partition_divergence.png, id=1234, 505.89pt x 325.215pt>
 File: Hinh/chuong5/partition_divergence.png Graphic file (type png)
 <use Hinh/chuong5/partition_divergence.png>
 Package pdftex.def Info: Hinh/chuong5/partition_divergence.png  used on input l
@@ -2695,7 +2675,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[49 <./Hinh/chuong5/chaos_convergence.png>]
+[48 <./Hinh/chuong5/chaos_convergence.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2703,8 +2683,8 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[50 <./Hinh/chuong5/partition_divergence.png>]
-<Hinh/chuong5/partition_divergence_normalized.png, id=1253, 505.89pt x 325.215p
+[49 <./Hinh/chuong5/partition_divergence.png>]
+<Hinh/chuong5/partition_divergence_normalized.png, id=1249, 505.89pt x 325.215p
 t>
 File: Hinh/chuong5/partition_divergence_normalized.png Graphic file (type png)
 <use Hinh/chuong5/partition_divergence_normalized.png>
@@ -2719,8 +2699,8 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[51 <./Hinh/chuong5/partition_divergence_normalized.png>]
-Underfull \vbox (badness 1748) has occurred while \output is active []
+[50 <./Hinh/chuong5/partition_divergence_normalized.png>]
+Underfull \vbox (badness 1389) has occurred while \output is active []
 
 
 
@@ -2730,7 +2710,18 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
+[51]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
 [52]
+Underfull \vbox (badness 10000) has occurred while \output is active []
+
+
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2750,25 +2741,14 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
 [54]
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
-
-
-Package fancyhdr Warning: \headheight is too small (10.0pt): 
-(fancyhdr)                Make it at least 15.977pt, for example:
-(fancyhdr)                \setlength{\headheight}{15.977pt}.
-(fancyhdr)                You might also make \topmargin smaller:
-(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
-
-[55]
-<Hinh/app_demo/app_02_awaiting_bundle_alice.png, id=1288, 954.56625pt x 597.733
+<Hinh/app_demo/app_02_awaiting_bundle_alice.png, id=1284, 954.56625pt x 597.733
 12pt>
 File: Hinh/app_demo/app_02_awaiting_bundle_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_02_awaiting_bundle_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_02_awaiting_bundle_alice.png  used o
 n input line 310.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_03_admin_issue_bundle_admin.png, id=1289, 963.6pt x 602.25pt
+<Hinh/app_demo/app_03_admin_issue_bundle_admin.png, id=1285, 963.6pt x 602.25pt
 >
 File: Hinh/app_demo/app_03_admin_issue_bundle_admin.png Graphic file (type png)
 
@@ -2784,27 +2764,27 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[56 <./Hinh/app_demo/app_02_awaiting_bundle_alice.png>]
-<Hinh/app_demo/app_05_group_chat_admin.png, id=1298, 963.6pt x 602.25pt>
+[55 <./Hinh/app_demo/app_02_awaiting_bundle_alice.png>]
+<Hinh/app_demo/app_05_group_chat_admin.png, id=1294, 963.6pt x 602.25pt>
 File: Hinh/app_demo/app_05_group_chat_admin.png Graphic file (type png)
 <use Hinh/app_demo/app_05_group_chat_admin.png>
 Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_admin.png  used on inp
 ut line 336.
 (pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
-<Hinh/app_demo/app_05_group_chat_alice.png, id=1299, 954.56625pt x 597.73312pt>
+<Hinh/app_demo/app_05_group_chat_alice.png, id=1295, 954.56625pt x 597.73312pt>
 
 File: Hinh/app_demo/app_05_group_chat_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_05_group_chat_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_alice.png  used on inp
 ut line 343.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_05_group_chat_bob.png, id=1300, 954.56625pt x 597.73312pt>
+<Hinh/app_demo/app_05_group_chat_bob.png, id=1296, 954.56625pt x 597.73312pt>
 File: Hinh/app_demo/app_05_group_chat_bob.png Graphic file (type png)
 <use Hinh/app_demo/app_05_group_chat_bob.png>
 Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_bob.png  used on input
  line 350.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_06_group_management_alice.png, id=1301, 963.6pt x 602.25pt>
+<Hinh/app_demo/app_06_group_management_alice.png, id=1297, 963.6pt x 602.25pt>
 File: Hinh/app_demo/app_06_group_management_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_06_group_management_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_06_group_management_alice.png  used 
@@ -2818,7 +2798,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[57 <./Hinh/app_demo/app_03_admin_issue_bundle_admin.png>]
+[56 <./Hinh/app_demo/app_03_admin_issue_bundle_admin.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2826,7 +2806,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[58 <./Hinh/app_demo/app_05_group_chat_admin.png> <./Hinh/app_demo/app_05_group
+[57 <./Hinh/app_demo/app_05_group_chat_admin.png> <./Hinh/app_demo/app_05_group
 _chat_alice.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
@@ -2835,7 +2815,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[59 <./Hinh/app_demo/app_05_group_chat_bob.png> <./Hinh/app_demo/app_06_group_m
+[58 <./Hinh/app_demo/app_05_group_chat_bob.png> <./Hinh/app_demo/app_06_group_m
 anagement_alice.png>])
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
@@ -2844,12 +2824,12 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[60]
+[59]
 Chapter 6.
 (Chuong/6_Ket_luan.tex
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [61
+ [60
 
 ]
 Underfull \vbox (badness 10000) has occurred while \output is active []
@@ -2862,7 +2842,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[62]
+[61]
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
 
@@ -2873,7 +2853,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[63])
+[62])
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 17.97902pt, for example:
@@ -2881,13 +2861,13 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
 
-[64]
+[63]
 Underfull \hbox (badness 1436) in paragraph at lines 347--347
 \T5/ptm/m/n/13 group key agree-ment,'' in \T5/ptm/m/it/13 Ad-vances in Cryp-tol
 -ogy -- CRYPTO 2023\T5/ptm/m/n/13 ,
  []
 
-[65
+[64
 
 ]
 Underfull \hbox (badness 1314) in paragraph at lines 347--347
@@ -2914,7 +2894,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[66]
+[65]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2922,14 +2902,14 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[67] [68
+[66] [67
 
 ]
 PHá»¤ Lá»¤C A.
 (Chuong/Phu_luc_Ung_dung_demo.tex
 Underfull \vbox (badness 10000) has occurred while \output is active []
 
- [69
+ [68
 
 ]
 Underfull \vbox (badness 10000) has occurred while \output is active []
@@ -2942,14 +2922,14 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[70]
-<Hinh/app_demo/app_01_welcome.png, id=1429, 950.55125pt x 592.2125pt>
+[69]
+<Hinh/app_demo/app_01_welcome.png, id=1425, 950.55125pt x 592.2125pt>
 File: Hinh/app_demo/app_01_welcome.png Graphic file (type png)
 <use Hinh/app_demo/app_01_welcome.png>
 Package pdftex.def Info: Hinh/app_demo/app_01_welcome.png  used on input line 5
 0.
 (pdftex.def)             Requested size: 384.1096pt x 239.3116pt.
-<Hinh/app_demo/app_15_admin_quick_setup.png, id=1430, 963.6pt x 602.25pt>
+<Hinh/app_demo/app_15_admin_quick_setup.png, id=1426, 963.6pt x 602.25pt>
 File: Hinh/app_demo/app_15_admin_quick_setup.png Graphic file (type png)
 <use Hinh/app_demo/app_15_admin_quick_setup.png>
 Package pdftex.def Info: Hinh/app_demo/app_15_admin_quick_setup.png  used on in
@@ -2974,7 +2954,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[71 <./Hinh/app_demo/app_01_welcome.png>]
+[70 <./Hinh/app_demo/app_01_welcome.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2982,7 +2962,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[72 <./Hinh/app_demo/app_15_admin_quick_setup.png>]
+[71 <./Hinh/app_demo/app_15_admin_quick_setup.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -2990,8 +2970,8 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[73]
-<Hinh/app_demo/app_04_workspace_overview_alice.png, id=1454, 954.56625pt x 597.
+[72]
+<Hinh/app_demo/app_04_workspace_overview_alice.png, id=1450, 954.56625pt x 597.
 73312pt>
 File: Hinh/app_demo/app_04_workspace_overview_alice.png Graphic file (type png)
 
@@ -3014,20 +2994,20 @@ File: Hinh/app_demo/app_05_group_chat_bob.png Graphic file (type png)
 Package pdftex.def Info: Hinh/app_demo/app_05_group_chat_bob.png  used on input
  line 106.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_07_activity_alice.png, id=1455, 954.56625pt x 597.73312pt>
+<Hinh/app_demo/app_07_activity_alice.png, id=1451, 954.56625pt x 597.73312pt>
 File: Hinh/app_demo/app_07_activity_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_07_activity_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_07_activity_alice.png  used on input
  line 113.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_10_channel_post_alice.png, id=1456, 954.56625pt x 597.73312p
+<Hinh/app_demo/app_10_channel_post_alice.png, id=1452, 954.56625pt x 597.73312p
 t>
 File: Hinh/app_demo/app_10_channel_post_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_10_channel_post_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_10_channel_post_alice.png  used on i
 nput line 120.
 (pdftex.def)             Requested size: 384.1096pt x 240.52095pt.
-<Hinh/app_demo/app_11_create_group_modal_alice.png, id=1457, 963.6pt x 602.25pt
+<Hinh/app_demo/app_11_create_group_modal_alice.png, id=1453, 963.6pt x 602.25pt
 >
 File: Hinh/app_demo/app_11_create_group_modal_alice.png Graphic file (type png)
 
@@ -3035,7 +3015,7 @@ File: Hinh/app_demo/app_11_create_group_modal_alice.png Graphic file (type png)
 Package pdftex.def Info: Hinh/app_demo/app_11_create_group_modal_alice.png  use
 d on input line 127.
 (pdftex.def)             Requested size: 384.1096pt x 240.06866pt.
-<Hinh/app_demo/app_12_add_member_modal_alice.png, id=1458, 963.6pt x 602.25pt>
+<Hinh/app_demo/app_12_add_member_modal_alice.png, id=1454, 963.6pt x 602.25pt>
 File: Hinh/app_demo/app_12_add_member_modal_alice.png Graphic file (type png)
 <use Hinh/app_demo/app_12_add_member_modal_alice.png>
 Package pdftex.def Info: Hinh/app_demo/app_12_add_member_modal_alice.png  used 
@@ -3049,7 +3029,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[74
+[73
 
  <./Hinh/app_demo/app_04_workspace_overview_alice.png>]
 
@@ -3059,7 +3039,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[75]
+[74]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -3067,7 +3047,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[76 <./Hinh/app_demo/app_07_activity_alice.png>]
+[75 <./Hinh/app_demo/app_07_activity_alice.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
 (fancyhdr)                Make it at least 15.977pt, for example:
@@ -3075,7 +3055,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[77 <./Hinh/app_demo/app_10_channel_post_alice.png> <./Hinh/app_demo/app_11_cre
+[76 <./Hinh/app_demo/app_10_channel_post_alice.png> <./Hinh/app_demo/app_11_cre
 ate_group_modal_alice.png>]
 
 Package fancyhdr Warning: \headheight is too small (10.0pt): 
@@ -3084,8 +3064,8 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[78 <./Hinh/app_demo/app_12_add_member_modal_alice.png>]
-<Hinh/app_demo/app_13_file_chat.png, id=1486, 954.56625pt x 597.73312pt>
+[77 <./Hinh/app_demo/app_12_add_member_modal_alice.png>]
+<Hinh/app_demo/app_13_file_chat.png, id=1482, 954.56625pt x 597.73312pt>
 File: Hinh/app_demo/app_13_file_chat.png Graphic file (type png)
 <use Hinh/app_demo/app_13_file_chat.png>
 Package pdftex.def Info: Hinh/app_demo/app_13_file_chat.png  used on input line
@@ -3099,7 +3079,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[79
+[78
 
  <./Hinh/app_demo/app_13_file_chat.png>]
 File: Hinh/app_demo/app_06_group_management_alice.png Graphic file (type png)
@@ -3115,7 +3095,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[80
+[79
 
 ])
 
@@ -3125,7 +3105,7 @@ Package fancyhdr Warning: \headheight is too small (10.0pt):
 (fancyhdr)                You might also make \topmargin smaller:
 (fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
 
-[81
+[80
 
 ] (DoAn.aux)
  ***********
@@ -3152,13 +3132,13 @@ Package logreq Info: Writing requests to 'DoAn.run.xml'.
 
  ) 
 Here is how much of TeX's memory you used:
- 47867 strings out of 467509
- 947585 string characters out of 5405379
- 1864345 words of memory out of 5000000
- 75989 multiletter control sequences out of 15000+600000
+ 47864 strings out of 467509
+ 947508 string characters out of 5405379
+ 1867346 words of memory out of 5000000
+ 75987 multiletter control sequences out of 15000+600000
  698656 words of font info for 117 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 108i,15n,107p,2507b,2469s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 108i,15n,107p,2507b,2291s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfo
 nts/cm/cmex10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/ty
 pe1/public/amsfonts/cm/cmmi10.pfb><C:/Users/tiendung2306/AppData/Local/Programs
@@ -3179,9 +3159,9 @@ ts/type1/vntex/urwvn/utmbi8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/
 MiKTeX/fonts/type1/urw/times/utmr8a.pfb><C:/Users/tiendung2306/AppData/Local/Pr
 ograms/MiKTeX/fonts/type1/vntex/urwvn/utmr8v.pfb><C:/Users/tiendung2306/AppData
 /Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmri8v.pfb>
-Output written on DoAn.pdf (95 pages, 3019284 bytes).
+Output written on DoAn.pdf (94 pages, 3017877 bytes).
 PDF statistics:
- 1642 PDF objects out of 1728 (max. 8388607)
- 309 named destinations out of 1000 (max. 500000)
+ 1638 PDF objects out of 1728 (max. 8388607)
+ 308 named destinations out of 1000 (max. 500000)
  1028 words of extra memory for PDF output out of 10000 (max. 10000000)
 

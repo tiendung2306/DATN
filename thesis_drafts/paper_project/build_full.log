@@ -1,0 +1,1348 @@
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex.fmt)
+ restricted \write18 enabled.
+entering extended mode
+(DoAn.tex
+LaTeX2e <2026-06-01>
+L3 programming layer <2026-05-26>
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\report.cls
+Document Class: report 2025/01/22 v1.4n Standard LaTeX document class
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\size10.clo)
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scre
+xtend.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scrk
+base.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scrb
+ase.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scrl
+file.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scrl
+file-hook.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\scrl
+ogo.sty)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\keyval.
+sty))))
+
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <13> not available
+(Font)              size <12> substituted on input line 3.
+
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\vietnam.st
+y
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\ifthen.sty)
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\fontenc.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5enc.def
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5enc.dfu)
+) (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5cmr.fd
+))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\inputenc.st
+y)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\vncaps.tex
+))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometr
+y.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/iftex\ifvtex.s
+ty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/iftex\iftex.st
+y))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/geometry\geometr
+y.cfg))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/xurl\xurl.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/url\url.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/appendix\appendi
+x.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/babel\babel.st
+y
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/babel\txtbabel
+.def)
+*************************************
+* Local config file bblopts.cfg used
+*
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/arabi\bblopts.cf
+g)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/babel/locale/e
+n\babel-english.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/babel-english\en
+glish.ldf))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/xcolor\xcolor.st
+y
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\col
+or.cfg)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics-def\pdf
+tex.def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\mathcol
+or.ltx))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/outlines\outline
+s.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphic
+x.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphic
+s.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\trig.st
+y)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\gra
+phics.cfg)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/fancybox\fancybo
+x.sty
+Style option: `fancybox' v1.4 <2010/05/15> (tvz)
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tools\indentfirs
+t.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amscls\amsthm.st
+y)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\latexsym.st
+y)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsmath.
+sty
+For additional information on amsmath, use the `?' option.
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amstext.
+sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsgen.s
+ty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsbsy.s
+ty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsopn.s
+ty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amssymb
+.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amsfont
+s.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\times.sty
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty)
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/enumitem\enumite
+m.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/subfiles\subfile
+s.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/import\import.st
+y))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/titlesec\titlese
+c.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/titlesec\titleto
+c.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/chngcntr\chngcnt
+r.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pdflscape\pdflsc
+ape.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pdflscape\pdflsc
+ape-nometadata.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/graphics\lscape.
+sty)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tools\afterpage.
+sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/algorithm2e\algo
+rithm2e.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/ifoddpage\ifoddp
+age.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tools\xspace.sty
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/relsize\relsize.
+sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/capt-of\capt-of.
+sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/multirow\multiro
+w.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/fancyhdr\fancyhd
+r.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/caption\caption.
+sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/caption\caption3
+.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\listing
+s.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstpatc
+h.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstmisc
+.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\listing
+s.cfg))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/float\float.sty)
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/caption\subcapti
+on.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/frontendlaye
+r\tikz.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/basiclayer\p
+gf.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pg
+frcs.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfutil-common.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfutil-latex.def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfrcs.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf\pgf.revisi
+on.tex)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/basiclayer\p
+gfcore.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/systemlayer\
+pgfsys.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgfsys.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfkeys.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfkeyslibraryfiltered.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgf.cfg)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgfsys-pdftex.def
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgfsys-common-pdf.def)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgfsyssoftpath.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlaye
+r\pgfsysprotocol.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcore.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+th.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thutil.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thparser.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.basic.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.trigonometric.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.random.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.comparison.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.base.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.round.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.misc.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfunctions.integerarithmetics.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thcalc.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+thfloat.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfin
+t.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorepoints.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorepathconstruct.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorepathusage.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorescopes.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoregraphicstate.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoretransformations.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorequick.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoreobjects.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorepathprocessing.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorearrows.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoreshade.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoreimage.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoreexternal.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorelayers.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcoretransparency.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorepatterns.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer
+\pgfcorerdf.code.tex)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pg
+fmoduleshapes.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pg
+fmoduleplot.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/compatibilit
+y\pgfcomp-version-0-65.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/compatibilit
+y\pgfcomp-version-1-18.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pg
+ffor.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pg
+fkeys.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgfkeys.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/pgf/math\pgfmath
+.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfma
+th.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\
+pgffor.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz\tikz.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries\
+pgflibraryplothandlers.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pg
+fmodulematrix.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibrarytopaths.code.tex)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibrarypositioning.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibrarycalc.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibraryshapes.geometric.code.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries/
+shapes\pgflibraryshapes.geometric.code.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries\
+pgflibraryarrows.meta.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibrarybackgrounds.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendla
+yer/tikz/libraries\tikzlibraryfit.code.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/base\
+glossaries.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/xkeyval\xkeyval.
+sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/xkeyval\xkeyva
+l.tex
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/xkeyval\xkvuti
+ls.tex)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/mfirstuc\mfirstu
+c.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/etoolbox\etoolbo
+x.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/xfor\xfor.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tracklang\trackl
+ang.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/tracklang\trac
+klang.tex))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/translator\trans
+lator.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries-engli
+sh\glossaries-english.ldf)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/datatool\datatoo
+l-base.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/datatool\datatoo
+l-l3fp.def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/datatool\datatoo
+l-utf8.ldf)
+
+Package tracklang Warning: No `datatool' support for dialect `english'  on inpu
+t line 9924.
+
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-hypernav.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-list.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-long.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/tools\longtable.
+sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-super.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/supertabular\sup
+ertabular.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-tree.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/glossaries/style
+s\glossary-superragged.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/setspace\setspac
+e.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/parskip\parskip.
+sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/kvoptions\kvopti
+ons.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/ltxcmds\ltxcmd
+s.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/kvsetkeys\kvsetk
+eys.sty)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/koma-script\tocb
+asic.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/blindtext\blindt
+ext.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblate
+x.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pdftexcmds\pdf
+texcmds.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/infwarerr\infw
+arerr.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/logreq\logreq.st
+y
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/logreq\logreq.de
+f))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-dm.
+def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-com
+pat.def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-bib
+tex.def
+
+Package biblatex Warning: Using fall-back bibtex backend:
+(biblatex)                functionality may be reduced/unavailable.
+
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblate
+x.def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex-ieee\ie
+ee.bbx
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\num
+eric-comp.bbx
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\num
+eric.bbx
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/bbx\sta
+ndard.bbx))))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex-ieee\ie
+ee.cbx
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/cbx\num
+eric-verb.cbx))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\biblate
+x.cfg)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/l3kernel\expl3.s
+ty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3back
+end-pdftex.def))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex\blx-cas
+e-expl3.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/l3packages/xpars
+e\xparse.sty)))
+
+LaTeX Warning: \include should only be used after \begin{document} on input lin
+e 77.
+
+(lstlisting.tex) (Tu_viet_tat.tex)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\hyperre
+f.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/kvdefinekeys\k
+vdefinekeys.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/pdfescape\pdfe
+scape.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hycolor\hycolor.
+sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\nameref
+.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/refcount\refcoun
+t.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/gettitlestring
+\gettitlestring.sty))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/stringenc\stri
+ngenc.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\pd1enc.
+def)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/intcalc\intcal
+c.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\puenc.d
+ef)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/bitset\bitset.
+sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/bigintcalc\big
+intcalc.sty)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hyperref\hpdftex
+.def
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/rerunfilecheck\r
+erunfilecheck.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/generic/uniquecounter\
+uniquecounter.sty)))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/hypcap\hypcap.st
+y
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/letltxmacro\letl
+txmacro.sty))
+
+Package biblatex Warning: 'babel/polyglossia' detected but 'csquotes' missing.
+(biblatex)                Loading 'csquotes' recommended.
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5ptm.fd)
+
+LaTeX Warning: Unused global option(s):
+    [13pt,3p].
+
+(DoAn.aux)
+*geometry* driver: auto-detecting
+*geometry* detected driver: pdftex
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/context/base/mkii\supp
+-pdf.mkii
+[Loading MPS to PDF converter (version 2006.09.02).]
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\eps
+topdf-base.sty
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/grfext\grfext.st
+y)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/00miktex\epstopd
+f-sys.cfg))
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/caption\ltcaptio
+n.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/biblatex/lbx\eng
+lish.lbx) (DoAn.bbl) (DoAn.out) (DoAn.out) (Bia.tex
+
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 41.
+
+
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <13> not available
+(Font)              size <12> substituted on input line 41.
+
+
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <6.5> not available
+(Font)              size <6> substituted on input line 41.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <13> not available
+(Font)              size <12> substituted on input line 41.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 41.
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/base\ulasy.fd)
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <13> not available
+(Font)              size <12> substituted on input line 41.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <6.5> not available
+(Font)              size <6> substituted on input line 41.
+
+
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
+)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
+) [1{C:/Users/tiendung2306/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:
+/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/vntex/t5.enc}
+]) (Bia_lot.tex
+pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has 
+been already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.43 \end{titlepage}
+                     [1]) (Chuong/0_2_Loi_cam_on.tex) [1]
+(Chuong/0_3_Tom_tat_noi_dung.tex)
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.241 \newpage
+               [1] (DoAn.toc
+Underfull \vbox (badness 10000) has occurred while \output is active
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.35 ... cß╗ºa giß║úi ph├íp}{17}{subsection.3.1.2}
+                                                  % [1]
+Underfull \vbox (badness 10000) has occurred while \output is active
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.59 ... trong hß╗ç thß╗æng}{29}{subsection.3.5.4}
+                                                  % [2]
+Underfull \vbox (badness 10000) has occurred while \output is active
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.84 ...╗¢i hß║ín cß╗ºa HLC}{39}{subsection.4.7.3}
+                                                  % [3]
+Underfull \vbox (badness 10000) has occurred while \output is active
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.110 ...umberline {6}Kß║╛T LUß║¼N}{60}{chapter.6}
+                                                  % [4])
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.269 \cleardoublepage
+                       [5]
+pdfTeX warning (ext4): destination with the same identifier (name{page.}) has b
+een already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.269 \cleardoublepage
+                       [6] (DoAn.lof) [1] (DoAn.lot)
+
+Package glossaries Warning: Empty glossary for \printnoidxglossary[type={main}]
+. Rerun may be required (or you may have forgotten to use commands like \gls) o
+n input line 293.
+
+
+Package glossaries Info: Preparing to sort glossary `acronym' (total number of
+(glossaries)             referenced entries: 24)
+
+[2] [3] [4]
+Chapter 1.
+(Chuong/1_Gioi_thieu.tex
+Underfull \vbox (badness 10000) has occurred while \output is active
+pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has 
+been already used, duplicate ignored
+<to be read again> 
+                   \relax 
+l.14 
+      [1]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[2]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[3]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[4])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[5]
+Chapter 2.
+(Chuong/2_Co_so_ly_thuyet.tex
+Underfull \vbox (badness 10000) has occurred while \output is active [6]
+Underfull \vbox (badness 4739) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[7]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[8]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[9]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[10]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[11]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[12]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[13]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[14])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[15]
+Chapter 3.
+(Chuong/3_De_xuat.tex
+Underfull \vbox (badness 10000) has occurred while \output is active [16]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[17 <./Hinh/chuong3_architecture.png (PNG copy)>]
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
+)
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[18{C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r
+.enc}]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[19]
+Underfull \hbox (badness 10000) in paragraph at lines 143--143
+[]\T5/ptm/b/n/13 Algorithm 2: \T5/ptm/m/n/13 Quy tr╝nh tño Com-mit c⌡a To-ken H
+older
+
+Underfull \vbox (badness 1924) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[20]
+Underfull \vbox (badness 4940) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[21]
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+1.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+2.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/listings\lstlang
+3.sty)
+(C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/vntex\t5pcr.fd)
+
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OT1/cmr/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OML/cmm/m/it' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `OMS/cmsy/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <7.58339> not available
+(Font)              size <8> substituted on input line 171.
+
+
+LaTeX Font Warning: Font shape `U/lasy/m/n' in size <5.41673> not available
+(Font)              size <5> substituted on input line 171.
+
+
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[22]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[23]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[24]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[25]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[26]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[27]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[28]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[29]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[30])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[31]
+Chapter 4.
+(Chuong/4_Phan_tich_ly_thuyet.tex
+Underfull \vbox (badness 10000) has occurred while \output is active [32]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[33]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[34]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[35]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[36]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[37]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[38]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[39]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[40]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[41]
+Underfull \hbox (badness 10000) in paragraph at lines 295--295
+[]|\T5/ptm/m/n/11.86258 Bún tΓm t¡t trñng thíi,
+
+Underfull \hbox (badness 3965) in paragraph at lines 295--295
+[]|\T5/ptm/m/n/11.86258 Khµng gδp trⁿc ti╕p
+
+Underfull \hbox (badness 10000) in paragraph at lines 295--295
+[]|\T5/ptm/m/n/11.86258 Tích ap-pli-ca-tion or-der-ing
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[42]
+Underfull \hbox (badness 3158) in paragraph at lines 330--330
+[]|\T5/ptm/b/n/11.86258 ^^^τng thu¬n Quo-
+
+Underfull \hbox (badness 10000) in paragraph at lines 330--330
+[]|\T5/ptm/b/n/11.86258 Giúi phíp ^^_╖ xuºt
+
+Underfull \hbox (badness 3601) in paragraph at lines 330--330
+\T5/ptm/b/n/11.86258 Holder phít sΓng mδt
+
+Underfull \hbox (badness 4492) in paragraph at lines 330--330
+[]|\T5/ptm/b/n/11.86258 ^^^δ tr╣ xíc nh¬n
+
+Underfull \hbox (badness 5607) in paragraph at lines 330--330
+[]|\T5/ptm/b/n/11.86258 Sⁿ ph≥ h±p cho
+
+Underfull \hbox (badness 10000) in paragraph at lines 330--330
+[]|\T5/ptm/m/n/11.86258 K▓m (d╣ bα treo
+
+Underfull \hbox (badness 1852) in paragraph at lines 330--330
+\T5/ptm/m/n/11.86258 mñng, tΦn k▓m tái
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[43])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[44]
+Chapter 5.
+(Chuong/5_Thuc_nghiem.tex
+Underfull \hbox (badness 10000) in paragraph at lines 29--29
+[]|\T5/ptm/m/n/13 Single-Writer trong
+
+Underfull \hbox (badness 4569) in paragraph at lines 33--33
+[]|\T5/ptm/m/n/13 Thφi gian ph÷c hτi
+
+Underfull \vbox (badness 10000) has occurred while \output is active [45]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[46]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[47 <./Hinh/chuong5/concurrency_batching.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[48 <./Hinh/chuong5/chaos_convergence.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[49 <./Hinh/chuong5/partition_divergence.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[50 <./Hinh/chuong5/partition_divergence_normalized.png>]
+Underfull \vbox (badness 1389) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[51]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[52]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[53]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[54]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[55 <./Hinh/app_demo/app_02_awaiting_bundle_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[56 <./Hinh/app_demo/app_03_admin_issue_bundle_admin.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[57 <./Hinh/app_demo/app_05_group_chat_admin.png> <./Hinh/app_demo/app_05_group
+_chat_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[58 <./Hinh/app_demo/app_05_group_chat_bob.png> <./Hinh/app_demo/app_06_group_m
+anagement_alice.png>])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[59]
+Chapter 6.
+(Chuong/6_Ket_luan.tex
+Underfull \vbox (badness 10000) has occurred while \output is active [60]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[61]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[62])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 17.97902pt, for example:
+(fancyhdr)                \setlength{\headheight}{17.97902pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-7.97902pt}.
+
+[63]
+Underfull \hbox (badness 1436) in paragraph at lines 347--347
+\T5/ptm/m/n/13 group key agree-ment,'' in \T5/ptm/m/it/13 Ad-vances in Cryp-tol
+-ogy -- CRYPTO 2023\T5/ptm/m/n/13 ,
+[64]
+Underfull \hbox (badness 1314) in paragraph at lines 347--347
+[]\T5/ptm/m/n/13 F. B. Schnei-der, ``Im-ple-ment-ing fault-tolerant ser-vices u
+s-ing the state
+
+Underfull \hbox (badness 1635) in paragraph at lines 347--347
+\T5/ptm/m/it/13 Sym-po-sium on Op-er-at-ing Sys-tems De-sign and Im-ple-men-ta-
+tion (OSDI
+
+Underfull \hbox (badness 3039) in paragraph at lines 347--347
+\T5/ptm/m/n/13 pp. 51^^U58, Dec. 2001. vis-ited on June 26, 2026. [On-line]. Av
+ail-
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[65]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[66] [67]
+PHß╗ñ Lß╗ñC A.
+(Chuong/Phu_luc_Ung_dung_demo.tex
+Underfull \vbox (badness 10000) has occurred while \output is active [68]
+Underfull \vbox (badness 10000) has occurred while \output is active
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[69]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[70 <./Hinh/app_demo/app_01_welcome.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[71 <./Hinh/app_demo/app_15_admin_quick_setup.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[72]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[73 <./Hinh/app_demo/app_04_workspace_overview_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[74]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[75 <./Hinh/app_demo/app_07_activity_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[76 <./Hinh/app_demo/app_10_channel_post_alice.png> <./Hinh/app_demo/app_11_cre
+ate_group_modal_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[77 <./Hinh/app_demo/app_12_add_member_modal_alice.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[78 <./Hinh/app_demo/app_13_file_chat.png>]
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[79])
+
+Package fancyhdr Warning: \headheight is too small (10.0pt): 
+(fancyhdr)                Make it at least 15.977pt, for example:
+(fancyhdr)                \setlength{\headheight}{15.977pt}.
+(fancyhdr)                You might also make \topmargin smaller:
+(fancyhdr)                \addtolength{\topmargin}{-5.977pt}.
+
+[80] (DoAn.aux)
+
+LaTeX Font Warning: Size substitutions with differences
+(Font)              up to 1.0pt have occurred.
+
+
+LaTeX Warning: There were undefined references.
+
+
+Package biblatex Warning: Please (re)run BibTeX on the file(s):
+(biblatex)                DoAn
+(biblatex)                and rerun LaTeX afterwards.
+
+ )
+(see the transcript file for additional information)<C:/Users/tiendung2306/AppD
+ata/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmex10.pfb><C:/Users/t
+iendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi10
+.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/am
+sfonts/cm/cmmi12.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts
+/type1/public/amsfonts/cm/cmmi8.pfb><C:/Users/tiendung2306/AppData/Local/Progra
+ms/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi9.pfb><C:/Users/tiendung2306/AppDa
+ta/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr12.pfb><C:/Users/tie
+ndung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmr8.pfb
+><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfon
+ts/cm/cmr9.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1
+/public/amsfonts/cm/cmsy10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/Mi
+KTeX/fonts/type1/public/amsfonts/cm/cmsy9.pfb><C:/Users/tiendung2306/AppData/Lo
+cal/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrb8v.pfb><C:/Users/tiendung2306/A
+ppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/ucrr8v.pfb><C:/Users/tiend
+ung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmb8v.pfb><C:/Us
+ers/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vntex/urwvn/utmbi8v.
+pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/
+utmr8a.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/vnt
+ex/urwvn/utmr8v.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/
+type1/vntex/urwvn/utmri8v.pfb>
+Output written on DoAn.pdf (94 pages, 3017877 bytes).
+Transcript written on DoAn.log.
