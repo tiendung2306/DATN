@@ -1,7 +1,7 @@
-import { KeyboardEvent } from 'react'
+import { KeyboardEvent, useRef } from 'react'
 import { Button } from '../ui/button'
 import { Paperclip, SendHorizontal } from 'lucide-react'
-import MentionTextarea from './posts/MentionTextarea'
+import MentionTextarea, { MentionTextareaHandle } from './posts/MentionTextarea'
 import { MentionCandidate } from '../../lib/chatModel'
 import { countUnicodeRunes } from '../../lib/textLimits'
 import { cn } from '@/lib/utils'
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 interface MessageComposerProps {
   value: string
   disabled: boolean
+  inputDisabled?: boolean
   attachingFile?: boolean
   mentionCandidates: MentionCandidate[]
   onChange: (value: string) => void
@@ -21,6 +22,7 @@ interface MessageComposerProps {
 export default function MessageComposer({
   value,
   disabled,
+  inputDisabled = false,
   attachingFile = false,
   mentionCandidates,
   onChange,
@@ -28,6 +30,7 @@ export default function MessageComposer({
   onAttachFile,
   maxRunes,
 }: MessageComposerProps) {
+  const inputRef = useRef<MentionTextareaHandle>(null)
   const usedRunes = maxRunes != null ? countUnicodeRunes(value.trim()) : 0
   const overLimit = maxRunes != null && usedRunes > maxRunes
   const sendBlocked = disabled || attachingFile || !value.trim() || overLimit
@@ -35,7 +38,10 @@ export default function MessageComposer({
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
-      if (!sendBlocked) onSend()
+      if (!sendBlocked) {
+        onSend()
+        requestAnimationFrame(() => inputRef.current?.focus())
+      }
     }
   }
 
@@ -54,11 +60,12 @@ export default function MessageComposer({
         </Button>
         <div className="w-full">
           <MentionTextarea
+            ref={inputRef}
             value={value}
             onChange={onChange}
             placeholder="Nhập tin nhắn đã mã hóa…"
             candidates={mentionCandidates}
-            disabled={disabled}
+            disabled={inputDisabled}
             rows={2}
             onKeyDown={handleKeyDown}
             aria-invalid={overLimit}

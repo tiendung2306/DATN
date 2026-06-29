@@ -748,10 +748,25 @@ func (d *Database) createTables() error {
 	if err := d.ensureColumnExists("mls_groups", "group_avatar_updated_at", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
+	if err := d.ensureColumnExists("coordination_state", "history_chain", "TEXT NOT NULL DEFAULT '{}'"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("pending_welcomes_out", "anchor_epoch", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("pending_welcomes_out", "anchor_history_hash", "BLOB"); err != nil {
+		return err
+	}
 	if err := d.ensureColumnExists("stored_welcomes", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
 		return err
 	}
 	if err := d.ensureColumnExists("stored_welcomes", "category_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("stored_welcomes", "anchor_epoch", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("stored_welcomes", "anchor_history_hash", "BLOB"); err != nil {
 		return err
 	}
 	if err := d.ensureColumnExists("pending_invites", "group_type", "TEXT NOT NULL DEFAULT 'channel'"); err != nil {
@@ -1598,12 +1613,12 @@ func (d *Database) GetKPBundle(peerID string) (publicKP, privateBundle []byte, e
 
 // SavePendingWelcome stores a Welcome that needs to be delivered to targetPeerID.
 // Overwrites any previous pending welcome for the same (target, group) pair.
-func (d *Database) SavePendingWelcome(targetPeerID, groupID string, welcomeBytes []byte) error {
+func (d *Database) SavePendingWelcome(targetPeerID, groupID string, welcomeBytes []byte, anchorEpoch uint64, anchorHistoryHash []byte) error {
 	_, err := d.Conn.Exec(
 		`INSERT OR REPLACE INTO pending_welcomes_out
-		 (target_peer_id, group_id, welcome_bytes, delivered)
-		 VALUES (?, ?, ?, 0)`,
-		targetPeerID, groupID, welcomeBytes,
+		 (target_peer_id, group_id, welcome_bytes, delivered, anchor_epoch, anchor_history_hash)
+		 VALUES (?, ?, ?, 0, ?, ?)`,
+		targetPeerID, groupID, welcomeBytes, anchorEpoch, anchorHistoryHash,
 	)
 	if err != nil {
 		return fmt.Errorf("SavePendingWelcome: %w", err)
@@ -1634,16 +1649,18 @@ func (d *Database) GetAnyPendingWelcomeForGroup(targetPeerID, groupID string) ([
 
 // PendingWelcome is one undelivered Welcome record.
 type PendingWelcome struct {
-	ID           int64
-	TargetPeerID string
-	GroupID      string
-	WelcomeBytes []byte
+	ID                int64
+	TargetPeerID      string
+	GroupID           string
+	WelcomeBytes      []byte
+	AnchorEpoch       uint64
+	AnchorHistoryHash []byte
 }
 
 // GetPendingWelcomesFor returns all undelivered Welcomes for the given peer.
 func (d *Database) GetPendingWelcomesFor(targetPeerID string) ([]PendingWelcome, error) {
 	rows, err := d.Conn.Query(
-		`SELECT id, target_peer_id, group_id, welcome_bytes
+		`SELECT id, target_peer_id, group_id, welcome_bytes, anchor_epoch, anchor_history_hash
 		 FROM pending_welcomes_out
 		 WHERE target_peer_id = ? AND delivered = 0`,
 		targetPeerID,
@@ -1656,7 +1673,7 @@ func (d *Database) GetPendingWelcomesFor(targetPeerID string) ([]PendingWelcome,
 	var out []PendingWelcome
 	for rows.Next() {
 		var pw PendingWelcome
-		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes); err != nil {
+		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes, &pw.AnchorEpoch, &pw.AnchorHistoryHash); err != nil {
 			return nil, err
 		}
 		out = append(out, pw)
@@ -1666,7 +1683,7 @@ func (d *Database) GetPendingWelcomesFor(targetPeerID string) ([]PendingWelcome,
 
 func (d *Database) ListPendingWelcomes() ([]PendingWelcome, error) {
 	rows, err := d.Conn.Query(
-		`SELECT id, target_peer_id, group_id, welcome_bytes
+		`SELECT id, target_peer_id, group_id, welcome_bytes, anchor_epoch, anchor_history_hash
 		 FROM pending_welcomes_out
 		 WHERE delivered = 0`,
 	)
@@ -1678,7 +1695,7 @@ func (d *Database) ListPendingWelcomes() ([]PendingWelcome, error) {
 	var out []PendingWelcome
 	for rows.Next() {
 		var pw PendingWelcome
-		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes); err != nil {
+		if err := rows.Scan(&pw.ID, &pw.TargetPeerID, &pw.GroupID, &pw.WelcomeBytes, &pw.AnchorEpoch, &pw.AnchorHistoryHash); err != nil {
 			return nil, err
 		}
 		out = append(out, pw)
@@ -1787,7 +1804,7 @@ func (d *Database) GetStoredKeyPackage(peerID string) ([]byte, error) {
 // On conflict, a non-empty incoming category_id always wins so a later wire
 // carrying the metadata can heal earlier rows that were saved before this
 // field existed.
-func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string) error {
+func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string, anchorEpoch uint64, anchorHistoryHash []byte) error {
 	groupType = normalizeGroupType(groupType)
 	categoryID = strings.TrimSpace(categoryID)
 	sourcePeerID = strings.TrimSpace(sourcePeerID)
@@ -1799,15 +1816,17 @@ func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType, category
 		// This protects against a buggy caller (or legacy "" pattern in
 		// checkStoredWelcomes) silently dropping the creator hint and
 		// breaking RequestGroupInvite forwarding for non-creators.
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, strftime('%s','now'))
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, anchor_epoch, anchor_history_hash, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'))
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
 		   group_type = excluded.group_type,
 		   category_id = CASE WHEN excluded.category_id <> '' THEN excluded.category_id ELSE stored_welcomes.category_id END,
 		   welcome_bytes = excluded.welcome_bytes,
 		   source_peer_id = CASE WHEN trim(excluded.source_peer_id) <> '' THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
+		   anchor_epoch = CASE WHEN excluded.anchor_epoch > stored_welcomes.anchor_epoch THEN excluded.anchor_epoch ELSE stored_welcomes.anchor_epoch END,
+		   anchor_history_hash = CASE WHEN excluded.anchor_epoch > stored_welcomes.anchor_epoch THEN excluded.anchor_history_hash ELSE stored_welcomes.anchor_history_hash END,
 		   created_at = excluded.created_at`,
-		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID,
+		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID, anchorEpoch, anchorHistoryHash,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcome: %w", err)
@@ -1819,20 +1838,22 @@ func (d *Database) SaveStoredWelcome(inviteePeerID, groupID, groupType, category
 // category_id heal semantics as SaveStoredWelcome: a non-empty incoming
 // category_id always wins regardless of timestamp comparison so missing
 // metadata in the older row gets filled in.
-func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string, publishedAt int64) error {
+func (d *Database) SaveStoredWelcomeIfNewer(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, sourcePeerID string, publishedAt int64, anchorEpoch uint64, anchorHistoryHash []byte) error {
 	groupType = normalizeGroupType(groupType)
 	categoryID = strings.TrimSpace(categoryID)
 	sourcePeerID = strings.TrimSpace(sourcePeerID)
 	_, err := d.Conn.Exec(
-		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO stored_welcomes (invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, anchor_epoch, anchor_history_hash, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(invitee_peer_id, group_id) DO UPDATE SET
 		   group_type = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.group_type ELSE stored_welcomes.group_type END,
 		   category_id = CASE WHEN excluded.category_id <> '' THEN excluded.category_id ELSE stored_welcomes.category_id END,
 		   welcome_bytes = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.welcome_bytes ELSE stored_welcomes.welcome_bytes END,
 		   source_peer_id = CASE WHEN trim(excluded.source_peer_id) <> '' AND excluded.created_at >= stored_welcomes.created_at THEN excluded.source_peer_id ELSE stored_welcomes.source_peer_id END,
+		   anchor_epoch = CASE WHEN excluded.anchor_epoch > stored_welcomes.anchor_epoch THEN excluded.anchor_epoch ELSE stored_welcomes.anchor_epoch END,
+		   anchor_history_hash = CASE WHEN excluded.anchor_epoch > stored_welcomes.anchor_epoch THEN excluded.anchor_history_hash ELSE stored_welcomes.anchor_history_hash END,
 		   created_at = CASE WHEN excluded.created_at >= stored_welcomes.created_at THEN excluded.created_at ELSE stored_welcomes.created_at END`,
-		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID, publishedAt,
+		inviteePeerID, groupID, groupType, categoryID, welcome, sourcePeerID, anchorEpoch, anchorHistoryHash, publishedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveStoredWelcomeIfNewer: %w", err)
@@ -1864,33 +1885,37 @@ func (d *Database) DeleteStoredWelcome(inviteePeerID, groupID string) error {
 // the inviter / group creator) — callers must pass it to invite join paths,
 // not the invitee's own peer ID, or creator resolution for RequestGroupInvite
 // breaks on member nodes.
-func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, string, string, error) {
+func (d *Database) GetStoredWelcome(inviteePeerID, groupID string) ([]byte, string, string, string, uint64, []byte, error) {
 	var wb []byte
 	var groupType, categoryID, sourcePeerID string
+	var anchorEpoch uint64
+	var anchorHistoryHash []byte
 	if err := d.Conn.QueryRow(
-		`SELECT welcome_bytes, group_type, category_id, source_peer_id FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
+		`SELECT welcome_bytes, group_type, category_id, source_peer_id, anchor_epoch, anchor_history_hash FROM stored_welcomes WHERE invitee_peer_id = ? AND group_id = ?`,
 		inviteePeerID, groupID,
-	).Scan(&wb, &groupType, &categoryID, &sourcePeerID); err != nil {
-		return nil, "", "", "", err
+	).Scan(&wb, &groupType, &categoryID, &sourcePeerID, &anchorEpoch, &anchorHistoryHash); err != nil {
+		return nil, "", "", "", 0, nil, err
 	}
-	return wb, normalizeGroupType(groupType), strings.TrimSpace(categoryID), strings.TrimSpace(sourcePeerID), nil
+	return wb, normalizeGroupType(groupType), strings.TrimSpace(categoryID), strings.TrimSpace(sourcePeerID), anchorEpoch, anchorHistoryHash, nil
 }
 
 // StoredWelcome is one replicated Welcome object retained locally.
 type StoredWelcome struct {
-	InviteePeerID string
-	GroupID       string
-	GroupType     string
-	CategoryID    string
-	WelcomeBytes  []byte
-	SourcePeerID  string
-	CreatedAt     int64
+	InviteePeerID     string
+	GroupID           string
+	GroupType         string
+	CategoryID        string
+	WelcomeBytes      []byte
+	SourcePeerID      string
+	AnchorEpoch       uint64
+	AnchorHistoryHash []byte
+	CreatedAt         int64
 }
 
 // ListStoredWelcomesFor returns all stored Welcome replicas for an invitee.
 func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome, error) {
 	rows, err := d.Conn.Query(
-		`SELECT invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, created_at
+		`SELECT invitee_peer_id, group_id, group_type, category_id, welcome_bytes, source_peer_id, anchor_epoch, anchor_history_hash, created_at
 		 FROM stored_welcomes
 		 WHERE invitee_peer_id = ?
 		 ORDER BY created_at DESC`,
@@ -1904,7 +1929,7 @@ func (d *Database) ListStoredWelcomesFor(inviteePeerID string) ([]StoredWelcome,
 	var out []StoredWelcome
 	for rows.Next() {
 		var rec StoredWelcome
-		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.GroupType, &rec.CategoryID, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.InviteePeerID, &rec.GroupID, &rec.GroupType, &rec.CategoryID, &rec.WelcomeBytes, &rec.SourcePeerID, &rec.AnchorEpoch, &rec.AnchorHistoryHash, &rec.CreatedAt); err != nil {
 			return nil, fmt.Errorf("ListStoredWelcomesFor scan: %w", err)
 		}
 		rec.GroupType = normalizeGroupType(rec.GroupType)

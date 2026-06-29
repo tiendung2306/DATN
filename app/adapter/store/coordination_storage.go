@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -132,16 +133,17 @@ func (s *SQLiteCoordinationStorage) ListGroups() ([]*coordination.GroupRecord, e
 
 func (s *SQLiteCoordinationStorage) GetCoordState(groupID string) (*coordination.CoordState, error) {
 	var (
-		state        coordination.CoordState
-		viewJSON     string
-		tokenHolder  string
-		commitAtStr  sql.NullString
-		proposalJSON string
+		state         coordination.CoordState
+		viewJSON      string
+		tokenHolder   string
+		commitAtStr   sql.NullString
+		proposalJSON  string
+		historyJSON   string
 	)
 	err := s.db.Conn.QueryRow(
-		`SELECT group_id, active_view, token_holder, last_commit_hash, last_commit_at, pending_proposals
+		`SELECT group_id, active_view, token_holder, last_commit_hash, last_commit_at, pending_proposals, history_chain
 		 FROM coordination_state WHERE group_id = ?`, groupID,
-	).Scan(&state.GroupID, &viewJSON, &tokenHolder, &state.LastCommitHash, &commitAtStr, &proposalJSON)
+	).Scan(&state.GroupID, &viewJSON, &tokenHolder, &state.LastCommitHash, &commitAtStr, &proposalJSON, &historyJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, coordination.ErrGroupNotFound
@@ -177,6 +179,22 @@ func (s *SQLiteCoordinationStorage) GetCoordState(groupID string) (*coordination
 		state.PendingProposals = proposals
 	}
 
+	if strings.TrimSpace(historyJSON) != "" && historyJSON != "{}" {
+		var chainMap map[string]string
+		if err := json.Unmarshal([]byte(historyJSON), &chainMap); err == nil {
+			state.HistoryChain = make(map[uint64][]byte, len(chainMap))
+			for epochStr, hexHash := range chainMap {
+				epoch, parseErr := strconv.ParseUint(epochStr, 10, 64)
+				if parseErr != nil {
+					continue
+				}
+				if h, decErr := hex.DecodeString(hexHash); decErr == nil {
+					state.HistoryChain[epoch] = h
+				}
+			}
+		}
+	}
+
 	return &state, nil
 }
 
@@ -188,6 +206,16 @@ func (s *SQLiteCoordinationStorage) SaveCoordState(state *coordination.CoordStat
 	viewJSON, _ := json.Marshal(peerIDs)
 	proposalJSON, _ := json.Marshal(state.PendingProposals)
 
+	historyJSON := "{}"
+	if len(state.HistoryChain) > 0 {
+		chainMap := make(map[string]string, len(state.HistoryChain))
+		for epoch, h := range state.HistoryChain {
+			chainMap[strconv.FormatUint(epoch, 10)] = hex.EncodeToString(h)
+		}
+		historyJSONBytes, _ := json.Marshal(chainMap)
+		historyJSON = string(historyJSONBytes)
+	}
+
 	var commitAtStr *string
 	if !state.LastCommitAt.IsZero() {
 		s := state.LastCommitAt.Format(time.DateTime)
@@ -195,16 +223,17 @@ func (s *SQLiteCoordinationStorage) SaveCoordState(state *coordination.CoordStat
 	}
 
 	_, err := s.db.Conn.Exec(
-		`INSERT INTO coordination_state (group_id, active_view, token_holder, last_commit_hash, last_commit_at, pending_proposals)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO coordination_state (group_id, active_view, token_holder, last_commit_hash, last_commit_at, pending_proposals, history_chain)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(group_id) DO UPDATE SET
 		     active_view       = excluded.active_view,
 		     token_holder      = excluded.token_holder,
 		     last_commit_hash  = excluded.last_commit_hash,
 		     last_commit_at    = excluded.last_commit_at,
-		     pending_proposals = excluded.pending_proposals`,
+		     pending_proposals = excluded.pending_proposals,
+		     history_chain     = excluded.history_chain`,
 		state.GroupID, string(viewJSON), state.TokenHolder.String(),
-		state.LastCommitHash, commitAtStr, string(proposalJSON),
+		state.LastCommitHash, commitAtStr, string(proposalJSON), historyJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("SaveCoordState(%q): %w", state.GroupID, err)

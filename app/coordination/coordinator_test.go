@@ -837,10 +837,12 @@ func TestCoordinator_ForkDetection(t *testing.T) {
 	// Manually advance alice to a different state (simulate partition divergence)
 	nodes[0].coord.mu.Lock()
 	nodes[0].coord.treeHash = []byte("diverged-hash-alice")
+	nodes[0].coord.historyHash = []byte("diverged-hist-alice")
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("diverged-hash-alice"),
 		MemberCount: 1,
 		Epoch:       0,
+		HistoryHash: []byte("diverged-hist-alice"),
 	})
 	nodes[0].coord.mu.Unlock()
 

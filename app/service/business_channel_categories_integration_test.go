@@ -228,7 +228,7 @@ func TestBusiness_ChannelCategoryPreservedAfterJoinFromStoredWelcome(t *testing.
 	}
 	// Simulates blind-store / inviter replication: invitee row carries category_id
 	// before JoinGroupWithWelcome (manual accept path).
-	if err := bobDB.SaveStoredWelcome(bInfo.PeerID, gid, "channel", catID, welcomeBytes, aInfo.PeerID); err != nil {
+	if err := bobDB.SaveStoredWelcome(bInfo.PeerID, gid, "channel", catID, welcomeBytes, aInfo.PeerID, 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome: %v", err)
 	}
 	if err := bob.JoinGroupWithWelcome(gid, welcomeHex, kp.BundlePrivateHex); err != nil {

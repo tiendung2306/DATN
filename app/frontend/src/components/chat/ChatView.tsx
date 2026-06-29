@@ -347,6 +347,7 @@ export default function ChatView({
             <MessageComposer
               value={composingMessage}
               disabled={sending || attachingFile || !activeGroupId}
+              inputDisabled={!activeGroupId}
               attachingFile={attachingFile}
               mentionCandidates={mentionCandidates}
               maxRunes={isDM ? dmMaxRunes : undefined}

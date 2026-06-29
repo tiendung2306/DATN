@@ -87,7 +87,7 @@ func e2eAliceBobCharlie(t *testing.T, gid string) (
 
 	// Wire-path delivery to Bob, carrying the inline category_id exactly the
 	// way deliverWelcome → handleWelcomeDelivery would over the network.
-	if err := bob.savePendingInviteFromWelcome(gid, "channel", categoryID, welcomeBytes, aInfo.PeerID, false); err != nil {
+	if err := bob.savePendingInviteFromWelcome(gid, "channel", categoryID, welcomeBytes, aInfo.PeerID, false, 0, nil); err != nil {
 		t.Fatalf("bob savePendingInviteFromWelcome (initial join): %v", err)
 	}
 
@@ -163,7 +163,7 @@ func e2eDeliverPendingWelcomeToCharlie(t *testing.T, alice, charlie *Runtime, gi
 	categoryID := strings.TrimSpace(rec.CategoryID)
 	aInfo, _ := alice.GetOnboardingInfo()
 
-	if err := charlie.savePendingInviteFromWelcome(gid, "channel", categoryID, welcomeBytes, aInfo.PeerID, true); err != nil {
+	if err := charlie.savePendingInviteFromWelcome(gid, "channel", categoryID, welcomeBytes, aInfo.PeerID, true, 0, nil); err != nil {
 		t.Fatalf("charlie savePendingInviteFromWelcome: %v", err)
 	}
 }
@@ -311,7 +311,7 @@ func TestBusinessP1_E2E_BI114_FallbackPath_NoInlineCategory_StillJoins(t *testin
 	aInfo, _ := alice.GetOnboardingInfo()
 	// Deliberately pass categoryID = "" — older replication / blind-store
 	// frames will not carry the metadata. Auto-join must still succeed.
-	if err := charlie.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, true); err != nil {
+	if err := charlie.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, true, 0, nil); err != nil {
 		t.Fatalf("charlie savePendingInviteFromWelcome (fallback): %v", err)
 	}
 	charlie.mu.RLock()
@@ -362,12 +362,12 @@ func TestBusinessP1_E2E_BI115_SelfAsSource_NeverPersisted(t *testing.T) {
 	bob.mu.RLock()
 	bobDB := bob.db
 	bob.mu.RUnlock()
-	wb, gtype, _, _, gerr := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
+	wb, gtype, _, _, _, _, gerr := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
 	if gerr != nil || len(wb) == 0 {
 		t.Fatalf("bob has no stored welcome to replay: %v", gerr)
 	}
 
-	if err := bob.savePendingInviteFromWelcome(gid, gtype, catID, wb, bobInfo.PeerID, false); err != nil {
+	if err := bob.savePendingInviteFromWelcome(gid, gtype, catID, wb, bobInfo.PeerID, false, 0, nil); err != nil {
 		t.Fatalf("bob savePendingInviteFromWelcome with self-source: %v", err)
 	}
 
@@ -447,7 +447,7 @@ func TestBusinessP1_E2E_BI117_RestartReplay_PreservesInviterAsSource(t *testing.
 
 	// Pre-state: stored_welcomes.source_peer_id MUST be Alice (set by
 	// the wire-path delivery in e2eAliceBobCharlie).
-	_, _, _, src, gerr := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
+	_, _, _, src, _, _, gerr := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
 	if gerr != nil {
 		t.Fatalf("GetStoredWelcome pre-state: %v", gerr)
 	}
@@ -472,7 +472,7 @@ func TestBusinessP1_E2E_BI117_RestartReplay_PreservesInviterAsSource(t *testing.
 	_ = cat2
 
 	// Post-state: stored_welcomes.source_peer_id MUST still be Alice.
-	_, _, _, srcAfter, _ := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
+	_, _, _, srcAfter, _, _, _ := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
 	if strings.TrimSpace(srcAfter) != wantCreator {
 		t.Fatalf("regression: stored_welcomes.source_peer_id after replay = %q want %q",
 			srcAfter, wantCreator)
@@ -637,7 +637,7 @@ func TestBusinessP1_E2E_BI118_WelcomeFetchResponse_CarriesSourcePeerID(t *testin
 
 	// Simulate the responder side: GetStoredWelcome must surface
 	// source_peer_id so the handler can copy it into the response.
-	wb, gt, cat, src, err := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
+	wb, gt, cat, src, _, _, err := bobDB.GetStoredWelcome(bobInfo.PeerID, gid)
 	if err != nil || len(wb) == 0 {
 		t.Fatalf("GetStoredWelcome: %v", err)
 	}

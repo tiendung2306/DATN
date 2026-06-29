@@ -43,6 +43,8 @@ type blindStoreEnvelopeV1 struct {
 	CategoryID     string   `json:"category_id,omitempty"`
 	SourcePeerID   string   `json:"source_peer_id,omitempty"`
 	Welcome        []byte   `json:"welcome,omitempty"`
+	AnchorEpoch       uint64 `json:"anchor_epoch,omitempty"`
+	AnchorHistoryHash []byte `json:"anchor_history_hash,omitempty"`
 	ReplicaTargets []string `json:"replica_targets"`
 
 	RecordNamespace string `json:"record_namespace,omitempty"`
@@ -210,9 +212,9 @@ func (b *blindStoreLayer) handleInbound(from peer.ID, data []byte) {
 		if strings.TrimSpace(msg.SourcePeerID) != "" {
 			src = strings.TrimSpace(msg.SourcePeerID)
 		}
-		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, msg.PublishedAt)
+		_ = db.SaveStoredWelcomeIfNewer(msg.InviteePeerID, msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, msg.PublishedAt, msg.AnchorEpoch, msg.AnchorHistoryHash)
 		if msg.InviteePeerID == node.Host.ID().String() {
-			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, false)
+			_ = rt.savePendingInviteFromWelcome(msg.GroupID, msg.GroupType, msg.CategoryID, msg.Welcome, src, false, msg.AnchorEpoch, msg.AnchorHistoryHash)
 		}
 	case blindStoreObjectReplicatedRecord:
 		ns := strings.TrimSpace(msg.RecordNamespace)
@@ -354,7 +356,7 @@ func (r *Runtime) publishBlindStoreKeyPackage(peerID string, publicKP []byte) {
 	r.publishBlindStoreFrame(frame)
 }
 
-func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte) {
+func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, categoryID string, welcome []byte, anchorEpoch uint64, anchorHistoryHash []byte) {
 	r.mu.RLock()
 	layer := r.blindStore
 	node := r.node
@@ -370,16 +372,18 @@ func (r *Runtime) publishBlindStoreWelcome(inviteePeerID, groupID, groupType, ca
 		}
 	}
 	frame := blindStoreEnvelopeV1{
-		V:              1,
-		PublishedAt:    time.Now().UnixMilli(),
-		ObjectType:     blindStoreObjectWelcome,
-		GroupID:        groupID,
-		InviteePeerID:  inviteePeerID,
-		GroupType:      groupType,
-		CategoryID:     categoryID,
-		SourcePeerID:   creatorID,
-		Welcome:        welcome,
-		ReplicaTargets: layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
+		V:                  1,
+		PublishedAt:        time.Now().UnixMilli(),
+		ObjectType:         blindStoreObjectWelcome,
+		GroupID:            groupID,
+		InviteePeerID:      inviteePeerID,
+		GroupType:          groupType,
+		CategoryID:         categoryID,
+		SourcePeerID:       creatorID,
+		Welcome:            welcome,
+		AnchorEpoch:        anchorEpoch,
+		AnchorHistoryHash:  anchorHistoryHash,
+		ReplicaTargets:     layer.selectReplicaTargets(node.Host.ID(), "welcome:"+inviteePeerID+":"+groupID),
 	}
 	r.publishBlindStoreFrame(frame)
 }

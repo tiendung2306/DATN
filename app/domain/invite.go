@@ -14,10 +14,12 @@ type AuthBundle struct {
 
 // PendingWelcome is an undelivered Welcome on the creator side.
 type PendingWelcome struct {
-	ID           int64
-	TargetPeerID string
-	GroupID      string
-	WelcomeBytes []byte
+	ID                int64
+	TargetPeerID      string
+	GroupID           string
+	WelcomeBytes      []byte
+	AnchorEpoch       uint64
+	AnchorHistoryHash []byte
 }
 
 // KPStatus reports whether a KeyPackage is advertised for this node.

@@ -28,7 +28,7 @@ type InviteRepo interface {
 	HasAuthBundle() (bool, error)
 	SaveKPBundle(peerID string, publicKP, privateBundle []byte) error
 	GetKPBundle(peerID string) (publicKP, privateBundle []byte, err error)
-	SavePendingWelcome(targetPeerID, groupID string, welcome []byte) error
+	SavePendingWelcome(targetPeerID, groupID string, welcome []byte, anchorEpoch uint64, anchorHistoryHash []byte) error
 	GetPendingWelcomesFor(targetPeerID string) ([]domain.PendingWelcome, error)
 	MarkWelcomeDelivered(id int64) error
 }

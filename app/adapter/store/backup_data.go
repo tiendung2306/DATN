@@ -252,7 +252,7 @@ func (d *Database) RestoreKPBundlesFromBackup(records []BackupKPBundle) error {
 
 func (d *Database) RestorePendingWelcomesFromBackup(records []BackupPendingWelcome) error {
 	for _, r := range records {
-		if err := d.SavePendingWelcome(r.TargetPeerID, r.GroupID, r.WelcomeBytes); err != nil {
+		if err := d.SavePendingWelcome(r.TargetPeerID, r.GroupID, r.WelcomeBytes, 0, nil); err != nil {
 			return fmt.Errorf("RestorePendingWelcomesFromBackup(%s,%s): %w", r.TargetPeerID, r.GroupID, err)
 		}
 	}

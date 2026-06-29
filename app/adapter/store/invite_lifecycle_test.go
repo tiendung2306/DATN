@@ -96,7 +96,7 @@ func TestPendingInvite_StatusTransitions(t *testing.T) {
 
 func TestPendingWelcome_GetAnyPendingWelcomeForGroupIncludesDelivered(t *testing.T) {
 	d := setupTestDB(t)
-	if err := d.SavePendingWelcome("peer-a", "group-1", []byte("welcome-1")); err != nil {
+	if err := d.SavePendingWelcome("peer-a", "group-1", []byte("welcome-1"), 0, nil); err != nil {
 		t.Fatalf("SavePendingWelcome: %v", err)
 	}
 	rows, err := d.GetPendingWelcomesFor("peer-a")
@@ -117,7 +117,7 @@ func TestPendingWelcome_GetAnyPendingWelcomeForGroupIncludesDelivered(t *testing
 
 func TestPendingWelcome_DeliveredOnlyAfterJoinAckCanReopen(t *testing.T) {
 	d := setupTestDB(t)
-	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline")); err != nil {
+	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline"), 0, nil); err != nil {
 		t.Fatalf("SavePendingWelcome: %v", err)
 	}
 	rows, err := d.ListPendingWelcomes()
@@ -151,7 +151,7 @@ func TestPendingWelcome_DeliveredOnlyAfterJoinAckCanReopen(t *testing.T) {
 
 func TestPendingWelcome_ReopenUnacknowledgedUsesAddOperationStatus(t *testing.T) {
 	d := setupTestDB(t)
-	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline")); err != nil {
+	if err := d.SavePendingWelcome("peer-b", "group-offline", []byte("welcome-offline"), 0, nil); err != nil {
 		t.Fatalf("SavePendingWelcome: %v", err)
 	}
 	rows, err := d.GetPendingWelcomesFor("peer-b")
@@ -246,10 +246,10 @@ func TestPendingInvite_ReopenRejectedInvite(t *testing.T) {
 
 func TestStoredWelcome_ListForInvitee(t *testing.T) {
 	d := setupTestDB(t)
-	if err := d.SaveStoredWelcome("peer-a", "group-1", "dm", "", []byte("welcome-1"), "peer-store"); err != nil {
+	if err := d.SaveStoredWelcome("peer-a", "group-1", "dm", "", []byte("welcome-1"), "peer-store", 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome: %v", err)
 	}
-	if err := d.SaveStoredWelcome("peer-b", "group-2", "channel", "", []byte("welcome-2"), "peer-store"); err != nil {
+	if err := d.SaveStoredWelcome("peer-b", "group-2", "channel", "", []byte("welcome-2"), "peer-store", 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome other: %v", err)
 	}
 
@@ -271,10 +271,10 @@ func TestStoredWelcome_ListForInvitee(t *testing.T) {
 func TestStoredWelcome_GetReturnsSourcePeerID(t *testing.T) {
 	d := setupTestDB(t)
 	const inviter = "12D3KooWKexampleInviterPeerIDhere"
-	if err := d.SaveStoredWelcome("peer-a", "group-x", "channel", "cat-1", []byte("wb"), inviter); err != nil {
+	if err := d.SaveStoredWelcome("peer-a", "group-x", "channel", "cat-1", []byte("wb"), inviter, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	wb, gt, cat, src, err := d.GetStoredWelcome("peer-a", "group-x")
+	wb, gt, cat, src, _, _, err := d.GetStoredWelcome("peer-a", "group-x")
 	if err != nil {
 		t.Fatalf("GetStoredWelcome: %v", err)
 	}
@@ -319,11 +319,11 @@ func TestGetGroupInviteCreatorHint_SkipsEmptySourceRows(t *testing.T) {
 	const creator = "12D3KooWKcreatorPeerIDhere000000000"
 
 	// Older row: known good source.
-	if err := d.SaveStoredWelcome("invitee", "g-skip", "channel", "", []byte("w-old"), creator); err != nil {
+	if err := d.SaveStoredWelcome("invitee", "g-skip", "channel", "", []byte("w-old"), creator, 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome older: %v", err)
 	}
 	// Newer row: blank source (the bug class — must NOT shadow the good one).
-	if err := d.SaveStoredWelcome("invitee", "g-skip", "channel", "", []byte("w-new"), "   "); err != nil {
+	if err := d.SaveStoredWelcome("invitee", "g-skip", "channel", "", []byte("w-new"), "   ", 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome newer-blank: %v", err)
 	}
 
@@ -346,10 +346,10 @@ func TestStoredWelcome_RoundTrip_PreservesInviterIdentity(t *testing.T) {
 	d := setupTestDB(t)
 	const inviter = "12D3KooWKinviter111111111111111"
 	const invitee = "12D3KooWKinvitee222222222222222"
-	if err := d.SaveStoredWelcome(invitee, "g-rt", "channel", "cat-rt", []byte("wb"), inviter); err != nil {
+	if err := d.SaveStoredWelcome(invitee, "g-rt", "channel", "cat-rt", []byte("wb"), inviter, 0, nil); err != nil {
 		t.Fatalf("SaveStoredWelcome: %v", err)
 	}
-	wb, gt, cat, src, err := d.GetStoredWelcome(invitee, "g-rt")
+	wb, gt, cat, src, _, _, err := d.GetStoredWelcome(invitee, "g-rt")
 	if err != nil {
 		t.Fatalf("GetStoredWelcome: %v", err)
 	}
@@ -372,14 +372,14 @@ func TestStoredWelcome_BlankSource_DoesNotClobberGoodHint(t *testing.T) {
 	d := setupTestDB(t)
 	const inviter = "12D3KooWKinviterXheal000000000000"
 	const invitee = "12D3KooWKinviteeXheal000000000000"
-	if err := d.SaveStoredWelcome(invitee, "g-heal", "channel", "", []byte("w1"), inviter); err != nil {
+	if err := d.SaveStoredWelcome(invitee, "g-heal", "channel", "", []byte("w1"), inviter, 0, nil); err != nil {
 		t.Fatalf("first SaveStoredWelcome: %v", err)
 	}
 	// Caller forgot the source: must not wipe the good hint.
-	if err := d.SaveStoredWelcome(invitee, "g-heal", "channel", "", []byte("w2"), "   "); err != nil {
+	if err := d.SaveStoredWelcome(invitee, "g-heal", "channel", "", []byte("w2"), "   ", 0, nil); err != nil {
 		t.Fatalf("second SaveStoredWelcome: %v", err)
 	}
-	_, _, _, src, err := d.GetStoredWelcome(invitee, "g-heal")
+	_, _, _, src, _, _, err := d.GetStoredWelcome(invitee, "g-heal")
 	if err != nil {
 		t.Fatalf("GetStoredWelcome: %v", err)
 	}
@@ -396,14 +396,14 @@ func TestStoredWelcomeIfNewer_BlankSource_DoesNotClobberGoodHint(t *testing.T) {
 	const inviter = "12D3KooWKinviterXhealnewer0000000"
 	const invitee = "12D3KooWKinviteeXhealnewer0000000"
 	now := time.Now().Unix()
-	if err := d.SaveStoredWelcomeIfNewer(invitee, "g-heal-newer", "channel", "", []byte("w1"), inviter, now-10); err != nil {
+	if err := d.SaveStoredWelcomeIfNewer(invitee, "g-heal-newer", "channel", "", []byte("w1"), inviter, now-10, 0, nil); err != nil {
 		t.Fatalf("first SaveStoredWelcomeIfNewer: %v", err)
 	}
 	// A newer publish with blank source — must keep inviter on file.
-	if err := d.SaveStoredWelcomeIfNewer(invitee, "g-heal-newer", "channel", "", []byte("w2"), "", now); err != nil {
+	if err := d.SaveStoredWelcomeIfNewer(invitee, "g-heal-newer", "channel", "", []byte("w2"), "", now, 0, nil); err != nil {
 		t.Fatalf("second SaveStoredWelcomeIfNewer: %v", err)
 	}
-	_, _, _, src, err := d.GetStoredWelcome(invitee, "g-heal-newer")
+	_, _, _, src, _, _, err := d.GetStoredWelcome(invitee, "g-heal-newer")
 	if err != nil {
 		t.Fatalf("GetStoredWelcome: %v", err)
 	}

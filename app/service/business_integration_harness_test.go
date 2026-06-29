@@ -379,7 +379,7 @@ func sprint4AliceBobJoinedChannel(t *testing.T, gid string) (*Runtime, *Runtime)
 	// (replication), and checkStoredWelcomes (blind store). If auto-join
 	// regresses, this call leaves Bob in pending state and the assertion
 	// below fires loud.
-	if err := bob.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, false); err != nil {
+	if err := bob.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome (wire path): %v", err)
 	}
 	if has, herr := bobDB.HasGroup(gid); herr != nil || !has {

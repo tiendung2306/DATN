@@ -135,6 +135,7 @@ func (fd *ForkDetector) UpdateLocal(ann GroupStateAnnouncement) {
 		MemberCount: ann.MemberCount,
 		Epoch:       ann.Epoch,
 		CommitHash:  copyBytes(ann.CommitHash),
+		HistoryHash: copyBytes(ann.HistoryHash),
 	}
 	fd.local = &cp
 }
@@ -163,6 +164,7 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 				MemberCount: ann.MemberCount,
 				Epoch:       ann.Epoch,
 				CommitHash:  copyBytes(ann.CommitHash),
+				HistoryHash: copyBytes(ann.HistoryHash),
 			},
 			peers:       make(map[peer.ID]struct{}),
 			firstSeenAt: observedAt,
@@ -173,6 +175,7 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 		bi.announcement.Epoch = ann.Epoch
 		bi.announcement.CommitHash = copyBytes(ann.CommitHash)
 		bi.announcement.TreeHash = copyBytes(ann.TreeHash)
+		bi.announcement.HistoryHash = copyBytes(ann.HistoryHash)
 	}
 	bi.peers[from] = struct{}{}
 
@@ -259,10 +262,7 @@ func (fd *ForkDetector) isInvalidCommitLocked(commitHash []byte) bool {
 }
 
 func branchKey(ann GroupStateAnnouncement) string {
-	if len(ann.CommitHash) > 0 {
-		return "c:" + hex.EncodeToString(ann.CommitHash)
-	}
-	return "t:" + hex.EncodeToString(ann.TreeHash)
+	return "h:" + hex.EncodeToString(ann.HistoryHash)
 }
 
 func sameBranch(a, b GroupStateAnnouncement) bool {

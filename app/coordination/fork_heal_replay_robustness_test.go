@@ -41,28 +41,34 @@ func TestIntegration_Replay_NonRepudiationIsolation(t *testing.T) {
 	// Diverge branch markers for detection.
 	alice.coord.mu.Lock()
 	alice.coord.treeHash = []byte("loser-tree")
+	alice.coord.historyHash = []byte("loser-hist")
 	alice.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	alice.coord.mu.Unlock()
 
 	carol.coord.mu.Lock()
 	carol.coord.treeHash = []byte("loser-tree")
+	carol.coord.historyHash = []byte("loser-hist")
 	carol.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	carol.coord.mu.Unlock()
 
 	bob.coord.mu.Lock()
 	bob.coord.treeHash = []byte("winner-tree")
+	bob.coord.historyHash = []byte("winner-hist")
 	bob.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 3,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	bob.coord.mu.Unlock()
 
@@ -75,6 +81,7 @@ func TestIntegration_Replay_NonRepudiationIsolation(t *testing.T) {
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 3,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	alice.coord.mu.Unlock()
 
@@ -251,19 +258,23 @@ func TestIntegration_Replay_OrderPreservation(t *testing.T) {
 	// Diverge branch markers for detection.
 	alice.coord.mu.Lock()
 	alice.coord.treeHash = []byte("loser-tree")
+	alice.coord.historyHash = []byte("loser-hist")
 	alice.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 1,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	alice.coord.mu.Unlock()
 
 	bob.coord.mu.Lock()
 	bob.coord.treeHash = []byte("winner-tree")
+	bob.coord.historyHash = []byte("winner-hist")
 	bob.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	bob.coord.mu.Unlock()
 
@@ -275,6 +286,7 @@ func TestIntegration_Replay_OrderPreservation(t *testing.T) {
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	alice.coord.mu.Unlock()
 
@@ -425,20 +437,24 @@ func TestIntegration_Heal_AuditStateSwapFailure(t *testing.T) {
 	// Diverge branch markers for detection.
 	aliceCoord.mu.Lock()
 	aliceCoord.treeHash = []byte("loser-tree")
+	aliceCoord.historyHash = []byte("loser-hist")
 	aliceMockStorage.groups[groupID].TreeHash = []byte("loser-tree") // reflect in Alice storage
 	aliceCoord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree"),
 		MemberCount: 1,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	aliceCoord.mu.Unlock()
 
 	bobCoord.mu.Lock()
 	bobCoord.treeHash = []byte("winner-tree")
+	bobCoord.historyHash = []byte("winner-hist")
 	bobCoord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	bobCoord.mu.Unlock()
 
@@ -490,6 +506,7 @@ func TestIntegration_Heal_AuditStateSwapFailure(t *testing.T) {
 		TreeHash:    []byte("winner-tree"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	aliceCoord.mu.Unlock()
 

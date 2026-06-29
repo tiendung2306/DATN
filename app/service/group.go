@@ -659,7 +659,7 @@ func (r *Runtime) JoinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	if err != nil {
 		return fmt.Errorf("decode welcome hex: %w", err)
 	}
-	if err := r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", "", ""); err != nil {
+	if err := r.joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, "", "", "", 0, nil); err != nil {
 		return err
 	}
 
@@ -699,7 +699,7 @@ func (r *Runtime) resolveChannelCategoryForWelcomeJoin(groupID string, welcomeRa
 		}
 	}
 	localPeer := r.node.Host.ID().String()
-	wb, _, cat, _, err := r.db.GetStoredWelcome(localPeer, groupID)
+	wb, _, cat, _, _, _, err := r.db.GetStoredWelcome(localPeer, groupID)
 	if err != nil || len(wb) == 0 {
 		return ""
 	}
@@ -709,7 +709,7 @@ func (r *Runtime) resolveChannelCategoryForWelcomeJoin(groupID string, welcomeRa
 	return strings.TrimSpace(cat)
 }
 
-func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType, categoryIDHint, inviterPeerID string) error {
+func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePrivateHex, groupType, categoryIDHint, inviterPeerID string, anchorEpoch uint64, anchorHistoryHash []byte) error {
 	groupID = strings.TrimSpace(groupID)
 	if groupID == "" {
 		return fmt.Errorf("group ID is required")
@@ -814,7 +814,7 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	if inviter == "" {
 		localID := r.node.Host.ID().String()
 		if localID != "" {
-			if _, _, _, src, err := r.db.GetStoredWelcome(localID, groupID); err == nil && src != "" {
+			if _, _, _, src, _, _, err := r.db.GetStoredWelcome(localID, groupID); err == nil && src != "" {
 				inviter = src
 			}
 		}
@@ -863,6 +863,9 @@ func (r *Runtime) joinGroupWithWelcome(groupID, welcomeHex, keyPackageBundlePriv
 	})
 	if err != nil {
 		return fmt.Errorf("create coordinator: %w", err)
+	}
+	if anchorEpoch > 0 && len(anchorHistoryHash) > 0 {
+		coord.SeedHistoryAnchor(anchorEpoch, anchorHistoryHash)
 	}
 	if err := coord.Start(r.ctx); err != nil {
 		return fmt.Errorf("start coordinator: %w", err)
@@ -1417,7 +1420,16 @@ func (r *Runtime) makeAddCommittedHandler(groupID string) func(coordination.AddC
 		}
 
 		// Token Holder path: dispatch Welcome through the outbox helper.
-		r.dispatchTokenHolderWelcome(database, groupID, delivery, welcome)
+		r.mu.RLock()
+		coord := r.coordinators[groupID]
+		r.mu.RUnlock()
+		var anchorEpoch uint64
+		var anchorHistoryHash []byte
+		if coord != nil {
+			anchorEpoch = coord.CurrentEpoch()
+			anchorHistoryHash = coord.GetHistoryHash()
+		}
+		r.dispatchTokenHolderWelcome(database, groupID, delivery, welcome, anchorEpoch, anchorHistoryHash)
 		r.emit("group:add_committed", map[string]interface{}{
 			"group_id":     groupID,
 			"operation_id": delivery.OperationID,

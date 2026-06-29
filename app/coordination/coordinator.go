@@ -134,6 +134,8 @@ type Coordinator struct {
 	groupState        []byte
 	treeHash          []byte
 	lastCommitHash    []byte
+	historyHash       []byte            // R(E) = H(R(E-1) ∥ CommitHash(E))
+	historyChain      map[uint64][]byte // epoch → R(epoch)
 	epoch             uint64
 	activeView        *ActiveView
 	singleWriter      *SingleWriter
@@ -344,8 +346,28 @@ func (c *Coordinator) Start(ctx context.Context) error {
 	}
 	if cs, err := c.storage.GetCoordState(c.groupID); err == nil {
 		c.lastCommitHash = copyBytes(cs.LastCommitHash)
+		if len(cs.HistoryChain) > 0 {
+			c.historyChain = cs.HistoryChain
+			if h, ok := c.historyChain[c.epoch]; ok {
+				c.historyHash = copyBytes(h)
+			}
+		}
 	} else if !errors.Is(err, ErrGroupNotFound) {
 		return fmt.Errorf("load coordination state: %w", err)
+	}
+
+	// Seed history chain if not already initialized (fresh group or joiner
+	// that didn't receive an anchor). For epoch 0 creators, R(0) is
+	// deterministic. For joiners, the anchor should have been seeded before
+	// Start; if not, we fall back to initialHistoryHash so the node still
+	// has a valid chain root.
+	if c.historyChain == nil {
+		c.historyChain = make(map[uint64][]byte)
+	}
+	if c.historyHash == nil {
+		r0 := initialHistoryHash(c.groupID)
+		c.historyHash = r0
+		c.historyChain[c.epoch] = copyBytes(r0)
 	}
 
 	c.epochTracker = NewEpochTracker(c.epoch, c.treeHash)
@@ -359,6 +381,7 @@ func (c *Coordinator) Start(ctx context.Context) error {
 		MemberCount: c.activeView.Size(),
 		Epoch:       c.epoch,
 		CommitHash:  c.lastCommitHash,
+		HistoryHash: copyBytes(c.historyHash),
 	})
 
 	c.ctx, c.cancel = context.WithCancel(ctx)
@@ -467,6 +490,10 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 			c.handleAnnounceLocked(from, &env)
 		} else if env.Type == MsgDeliveryAck {
 			c.handleDeliveryAckLocked(from, &env)
+		} else if env.Type == MsgHistoryQuery {
+			c.handleHistoryQueryLocked(from, &env)
+		} else if env.Type == MsgHistoryReply {
+			c.handleHistoryReplyLocked(from, &env)
 		}
 		return
 	}
@@ -485,6 +512,10 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 			c.handleAnnounceLocked(from, &env)
 		} else if env.Type == MsgDeliveryAck {
 			c.handleDeliveryAckLocked(from, &env)
+		} else if env.Type == MsgHistoryQuery {
+			c.handleHistoryQueryLocked(from, &env)
+		} else if env.Type == MsgHistoryReply {
+			c.handleHistoryReplyLocked(from, &env)
 		}
 		return
 	}
@@ -504,6 +535,10 @@ func (c *Coordinator) handleRawMessage(from peer.ID, data []byte) {
 		c.handleApplicationBatchedLocked(from, &env, data)
 	case MsgDeliveryAck:
 		c.handleDeliveryAckLocked(from, &env)
+	case MsgHistoryQuery:
+		c.handleHistoryQueryLocked(from, &env)
+	case MsgHistoryReply:
+		c.handleHistoryReplyLocked(from, &env)
 	}
 }
 
@@ -546,13 +581,115 @@ func (c *Coordinator) handleAnnounceLocked(from peer.ID, env *Envelope) {
 		return
 	}
 
-	event := c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
-	if event == nil || !event.NeedExternalJoin {
+
+	// Same epoch: compare HistoryHash directly.
+	if ann.Epoch == c.epoch {
+		if sameBranch(ann, GroupStateAnnouncement{HistoryHash: c.historyHash, Epoch: c.epoch}) {
+			// Same branch — record support, no fork.
+			c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
+			return
+		}
+		// Different HistoryHash at same epoch → fork.
+		event := c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
+		if event == nil || !event.NeedExternalJoin {
+			return
+		}
+		c.metrics.IncrPartitionsDetected()
+		event.GroupID = c.groupID
+		c.scheduleHeal(event)
 		return
 	}
 
+	// Remote is ahead (higher epoch): query our epoch's HistoryHash to
+	// determine if the remote diverged at or after our epoch.
+	if ann.Epoch > c.epoch {
+		c.sendHistoryQuery(from, c.epoch)
+		// Still record the remote branch for tracking.
+		c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
+		return
+	}
+
+	// Remote is behind (lower epoch): record support; the remote will
+	// query us if it detects a potential fork.
+	c.forkDetector.ProcessRemote(c.clock.Now(), from, env.Epoch, ann)
+}
+
+// sendHistoryQuery sends a MsgHistoryQuery to a peer asking for its R(epoch).
+func (c *Coordinator) sendHistoryQuery(to peer.ID, epoch uint64) {
+	msg := HistoryQueryMsg{Epoch: epoch}
+	wire := c.buildEnvelopeWithTimestampLocked(MsgHistoryQuery, msg, c.hlc.Now())
+	if len(wire) == 0 {
+		slog.Warn("sendHistoryQuery: build envelope failed", "group", c.groupID)
+		return
+	}
+	go func(pid peer.ID, w []byte) {
+		if err := c.sendDirectEnvelope(pid, w); err != nil {
+			slog.Debug("sendHistoryQuery: direct send failed", "group", c.groupID, "peer", pid, "err", err)
+		}
+	}(to, wire)
+}
+
+// handleHistoryQueryLocked responds to a history query from a peer.
+func (c *Coordinator) handleHistoryQueryLocked(from peer.ID, env *Envelope) {
+	var q HistoryQueryMsg
+	if err := json.Unmarshal(env.Payload, &q); err != nil {
+		return
+	}
+	var reply HistoryReplyMsg
+	reply.Epoch = q.Epoch
+	if h, ok := c.historyChain[q.Epoch]; ok {
+		reply.HistoryHash = copyBytes(h)
+		reply.Known = true
+	} else {
+		reply.Known = false
+	}
+	wire := c.buildEnvelopeWithTimestampLocked(MsgHistoryReply, reply, c.hlc.Now())
+	if len(wire) == 0 {
+		slog.Warn("handleHistoryQueryLocked: build envelope failed", "group", c.groupID)
+		return
+	}
+	go func(pid peer.ID, w []byte) {
+		if err := c.sendDirectEnvelope(pid, w); err != nil {
+			slog.Debug("handleHistoryQueryLocked: direct send failed", "group", c.groupID, "peer", pid, "err", err)
+		}
+	}(from, wire)
+}
+
+// handleHistoryReplyLocked processes a history reply from a peer.
+func (c *Coordinator) handleHistoryReplyLocked(from peer.ID, env *Envelope) {
+	var r HistoryReplyMsg
+	if err := json.Unmarshal(env.Payload, &r); err != nil {
+		return
+	}
+	if !r.Known {
+		// Peer doesn't have our epoch in its chain — can't determine
+		// fork status from this peer. Let existing heuristics handle it.
+		slog.Debug("handleHistoryReplyLocked: peer does not know epoch", "group", c.groupID, "peer", from, "epoch", r.Epoch)
+		return
+	}
+	localHash, ok := c.historyChain[r.Epoch]
+	if !ok {
+		// We don't have this epoch either — nothing to compare.
+		return
+	}
+	if bytes.Equal(localHash, r.HistoryHash) {
+		// Same branch — remote is ahead on the same chain. Trigger
+		// catch-up sync, NOT fork healing.
+		slog.Info("handleHistoryReplyLocked: same branch confirmed via cross-epoch query", "group", c.groupID, "peer", from, "epoch", r.Epoch)
+		if c.onSyncRequired != nil {
+			go c.onSyncRequired(from, c.groupID)
+		}
+		return
+	}
+	// Different HistoryHash at the queried epoch → real fork.
+	slog.Warn("handleHistoryReplyLocked: fork confirmed via cross-epoch query", "group", c.groupID, "peer", from, "epoch", r.Epoch)
+	event := &ForkEvent{
+		GroupID:          c.groupID,
+		RemotePeer:       from,
+		RemoteEpoch:      r.Epoch,
+		NeedExternalJoin: true,
+	}
 	c.metrics.IncrPartitionsDetected()
-	event.GroupID = c.groupID
 	c.scheduleHeal(event)
 }
 
@@ -1520,11 +1657,24 @@ func (c *Coordinator) advanceEpochLocked(newState []byte, newEpoch uint64, newTr
 
 	commitHash := hashCommitData(commitData)
 	c.lastCommitHash = copyBytes(commitHash)
+
+	// Advance HistoryHash chain: R(E) = H(R(E-1) ∥ CommitHash(E))
+	if c.historyChain == nil {
+		c.historyChain = make(map[uint64][]byte)
+	}
+	if c.historyHash == nil {
+		c.historyHash = initialHistoryHash(c.groupID)
+		c.historyChain[newEpoch-1] = copyBytes(c.historyHash)
+	}
+	c.historyHash = computeHistoryHash(c.historyHash, commitHash)
+	c.historyChain[newEpoch] = copyBytes(c.historyHash)
+
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
 		MemberCount: c.activeView.Size(),
 		Epoch:       newEpoch,
 		CommitHash:  commitHash,
+		HistoryHash: copyBytes(c.historyHash),
 	})
 	if err := c.persistCoordStateLocked(); err != nil {
 		slog.Warn("Failed to persist coordination state after epoch advance", "group", c.groupID, "error", err)
@@ -2641,6 +2791,25 @@ func hashCommitData(commitData []byte) []byte {
 	return sum[:]
 }
 
+// initialHistoryHash returns the deterministic genesis R(0) for a group.
+// R(0) = SHA-256("phoenix/history/v1" ∥ groupID). This is the same on every
+// node so that all nodes starting at epoch 0 share the same chain anchor
+// without any coordination.
+func initialHistoryHash(groupID string) []byte {
+	h := sha256.New()
+	h.Write([]byte("phoenix/history/v1"))
+	h.Write([]byte(groupID))
+	return h.Sum(nil)
+}
+
+// computeHistoryHash calculates R(E) = H(R(E-1) ∥ CommitHash(E)).
+func computeHistoryHash(prevHistoryHash, commitHash []byte) []byte {
+	h := sha256.New()
+	h.Write(prevHistoryHash)
+	h.Write(commitHash)
+	return h.Sum(nil)
+}
+
 func (c *Coordinator) markInvalidCommitLocked(commitHash []byte) {
 	if len(commitHash) == 0 || c.forkDetector == nil {
 		return
@@ -2663,6 +2832,7 @@ func (c *Coordinator) persistCoordStateLocked() error {
 		ActiveView:     c.activeView.Members(),
 		TokenHolder:    holder,
 		LastCommitHash: copyBytes(c.lastCommitHash),
+		HistoryChain:   c.historyChain,
 	})
 }
 
@@ -2724,6 +2894,7 @@ func (c *Coordinator) broadcastAnnounceLocked() {
 		MemberCount: c.activeView.Size(),
 		Epoch:       c.epoch,
 		CommitHash:  copyBytes(c.lastCommitHash),
+		HistoryHash: copyBytes(c.historyHash),
 	}
 	c.forkDetector.UpdateLocal(ann)
 	c.broadcastLocked(MsgAnnounce, ann)
@@ -2803,6 +2974,27 @@ func (c *Coordinator) GetTreeHash() []byte {
 	cp := make([]byte, len(c.treeHash))
 	copy(cp, c.treeHash)
 	return cp
+}
+
+// GetHistoryHash returns a copy of the current HistoryHash R(E).
+func (c *Coordinator) GetHistoryHash() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return copyBytes(c.historyHash)
+}
+
+// SeedHistoryAnchor seeds the history chain with an anchor received from the
+// Token Holder during Welcome join. This must be called before Start so the
+// joiner's R(epoch) matches the committer's R(epoch) at the joined epoch.
+func (c *Coordinator) SeedHistoryAnchor(epoch uint64, anchorHistoryHash []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.historyChain == nil {
+		c.historyChain = make(map[uint64][]byte)
+	}
+	c.historyChain[epoch] = copyBytes(anchorHistoryHash)
+	c.historyHash = copyBytes(anchorHistoryHash)
+	c.epoch = epoch
 }
 
 // GetOperationalMode returns the current operational mode of the coordinator.
@@ -2996,6 +3188,19 @@ func (c *Coordinator) TriggerDeferredHeal() {
 // guaranteed to release c.healing on exit.
 func (c *Coordinator) runHeal(ctx context.Context, traceID string, event *ForkEvent, scheduledAt time.Time) {
 	defer c.healing.Store(false)
+	defer func() {
+		c.mu.Lock()
+		if c.groupState == nil {
+			if rec, err := c.storage.GetGroupRecord(c.groupID); err == nil && len(rec.GroupState) > 0 {
+				c.groupState = rec.GroupState
+				c.epoch = rec.Epoch
+				c.treeHash = rec.TreeHash
+				slog.Warn("fork_heal/restored_group_state_from_db",
+					"group", c.groupID, "epoch", c.epoch, "trace_id", traceID)
+			}
+		}
+		c.mu.Unlock()
+	}()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -3636,12 +3841,21 @@ func (c *Coordinator) applyHealedState(newState, newTreeHash []byte, newEpoch ui
 
 	commitHash := hashCommitData(nil)
 	c.lastCommitHash = copyBytes(commitHash)
+
+	// Reset history chain for the winning branch. After external join, the
+	// node starts a fresh chain rooted at the new epoch. R(newEpoch) is
+	// seeded from initialHistoryHash so all healed nodes converge.
+	c.historyChain = make(map[uint64][]byte)
+	c.historyHash = initialHistoryHash(c.groupID)
+	c.historyChain[newEpoch] = copyBytes(c.historyHash)
+
 	c.forkDetector.Reset()
 	c.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    newTreeHash,
 		MemberCount: c.activeView.Size(),
 		Epoch:       newEpoch,
 		CommitHash:  commitHash,
+		HistoryHash: copyBytes(c.historyHash),
 	})
 	if err := c.persistCoordStateLocked(); err != nil {
 		return fmt.Errorf("persist healed coordination state: %w", err)

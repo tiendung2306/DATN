@@ -48,6 +48,11 @@ type WelcomeStoreRequestV1 struct {
 	// snapshot pull (which races with peer verification on first connect).
 	CategoryID string `json:"category_id,omitempty"`
 	SourcePeerID string `json:"source_peer_id,omitempty"`
+	// AnchorEpoch and AnchorHistoryHash carry the committer's R(E) at the
+	// joined epoch so the invitee can seed its HistoryChain and avoid false
+	// fork detection against the committing branch.
+	AnchorEpoch       uint64 `json:"anchor_epoch,omitempty"`
+	AnchorHistoryHash []byte `json:"anchor_history_hash,omitempty"`
 	Welcome    []byte `json:"welcome"`
 }
 
@@ -66,6 +71,10 @@ type WelcomeFetchResponseV1 struct {
 	// Store peers MUST forward the value they have on disk so the requester
 	// can resolve the real group creator, not the relaying store peer.
 	SourcePeerID string `json:"source_peer_id,omitempty"`
+	// AnchorEpoch and AnchorHistoryHash carry the committer's R(E) at the
+	// joined epoch so the invitee can seed its HistoryChain.
+	AnchorEpoch       uint64 `json:"anchor_epoch,omitempty"`
+	AnchorHistoryHash []byte `json:"anchor_history_hash,omitempty"`
 	Welcome      []byte `json:"welcome,omitempty"`
 	Error        string `json:"error,omitempty"`
 }
@@ -81,6 +90,8 @@ type WelcomeListItemV1 struct {
 	CategoryID   string `json:"category_id,omitempty"`
 	Welcome      []byte `json:"welcome"`
 	SourcePeerID string `json:"source_peer_id,omitempty"`
+	AnchorEpoch       uint64 `json:"anchor_epoch,omitempty"`
+	AnchorHistoryHash []byte `json:"anchor_history_hash,omitempty"`
 	CreatedAt    int64  `json:"created_at,omitempty"`
 }
 

@@ -167,11 +167,13 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			nodes[i].coord.mu.Lock()
 			nodes[i].coord.treeHash = winnerTH
+			nodes[i].coord.historyHash = []byte("winner-hist")
 			nodes[i].coord.epochTracker = NewEpochTracker(nodes[i].coord.epoch, winnerTH)
 			nodes[i].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 				TreeHash:    winnerTH,
 				MemberCount: 3,
 				Epoch:       nodes[i].coord.epoch,
+				HistoryHash: []byte("winner-hist"),
 			})
 			nodes[i].coord.mu.Unlock()
 		}
@@ -181,10 +183,12 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 		for i := 3; i < 5; i++ {
 			nodes[i].coord.mu.Lock()
 			nodes[i].coord.treeHash = loserTH
+			nodes[i].coord.historyHash = []byte("loser-hist")
 			nodes[i].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 				TreeHash:    loserTH,
 				MemberCount: 2,
 				Epoch:       nodes[i].coord.epoch,
+				HistoryHash: []byte("loser-hist"),
 			})
 			nodes[i].coord.mu.Unlock()
 		}

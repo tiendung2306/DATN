@@ -65,11 +65,35 @@ func TestForkHeal_PhoenixProtocol_HappyPath(t *testing.T) {
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
 	winner.coord.lastCommitHash = []byte("new-winning-commit-hash")
-	// Update tree hash on winner
 	newWinnerTH := mockTreeHash(winner.coord.epoch)
 	winner.coord.treeHash = newWinnerTH
+	// Diverge history hash so same-epoch fork detection fires.
+	winner.coord.historyHash = []byte("winner-advanced-hist")
+	if winner.coord.historyChain == nil {
+		winner.coord.historyChain = make(map[uint64][]byte)
+	}
+	winner.coord.historyChain[winner.coord.epoch] = []byte("winner-advanced-hist")
 	winner.coord.epochTracker = NewEpochTracker(winner.coord.epoch, newWinnerTH)
 	winner.coord.mu.Unlock()
+
+	// Loser stays at same epoch but with different HistoryHash to simulate
+	// a fork. Set a high CommitHash so the winner wins the tiebreaker.
+	loser.coord.mu.Lock()
+	loser.coord.epoch = winner.coord.epoch
+	loser.coord.historyHash = []byte("loser-stale-hist")
+	loser.coord.lastCommitHash = []byte("zzz-loser-stale-commit")
+	if loser.coord.historyChain == nil {
+		loser.coord.historyChain = make(map[uint64][]byte)
+	}
+	loser.coord.historyChain[loser.coord.epoch] = []byte("loser-stale-hist")
+	loser.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
+		TreeHash:    loser.coord.treeHash,
+		MemberCount: 1,
+		Epoch:       loser.coord.epoch,
+		CommitHash:  loser.coord.lastCommitHash,
+		HistoryHash: []byte("loser-stale-hist"),
+	})
+	loser.coord.mu.Unlock()
 
 	// 3. Loser branch sends message to local outbox during partition
 	_, err := loser.coord.SendMessage([]byte("loser message during partition"))

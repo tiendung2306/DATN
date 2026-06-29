@@ -266,10 +266,12 @@ func TestCoordinator_HandleAnnounce_TriggersHealOnLosingBranch(t *testing.T) {
 	// a remote announce of higher MemberCount — guarantees alice is the loser.
 	nodes[0].coord.mu.Lock()
 	nodes[0].coord.treeHash = []byte("loser-tree-hash")
+	nodes[0].coord.historyHash = []byte("loser-hist")
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree-hash"),
 		MemberCount: 1,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	nodes[0].coord.mu.Unlock()
 	nodes[0].coord.groupInfoFetch = func(ctx context.Context, remote peer.ID, _ string, withRatchetTree bool) (*GroupInfoFetchResult, error) {
@@ -318,19 +320,23 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 	// Force divergent branches.
 	nodes[0].coord.mu.Lock()
 	nodes[0].coord.treeHash = []byte("loser-tree-hash")
+	nodes[0].coord.historyHash = []byte("loser-hist")
 	nodes[0].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("loser-tree-hash"),
 		MemberCount: 1,
 		Epoch:       0,
+		HistoryHash: []byte("loser-hist"),
 	})
 	nodes[0].coord.mu.Unlock()
 
 	nodes[1].coord.mu.Lock()
 	nodes[1].coord.treeHash = []byte("winner-tree-hash")
+	nodes[1].coord.historyHash = []byte("winner-hist")
 	nodes[1].coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("winner-tree-hash"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	nodes[1].coord.mu.Unlock()
 
@@ -343,6 +349,7 @@ func TestCoordinator_Heal_ReplaysOwnPartitionWindowMessages(t *testing.T) {
 		TreeHash:    []byte("winner-tree-hash"),
 		MemberCount: 2,
 		Epoch:       0,
+		HistoryHash: []byte("winner-hist"),
 	})
 	nodes[0].coord.mu.Unlock()
 

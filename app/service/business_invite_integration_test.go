@@ -305,7 +305,7 @@ func TestBusinessP1_AutoJoin_OnIncomingWelcome(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome: %v", err)
 	}
 
@@ -389,7 +389,7 @@ func TestBusinessP1_AutoJoin_DeferredWhenKPMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome: %v", err)
 	}
 
@@ -442,7 +442,7 @@ func TestBusinessP1_AutoJoin_DeferredRetriesInCurrentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome: %v", err)
 	}
 
@@ -501,7 +501,7 @@ func TestBusinessP1_AutoJoin_DeferredRetriesPastFirstBackoff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false); err != nil {
+	if err := rt.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, "peer-inviter", false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome: %v", err)
 	}
 
@@ -599,7 +599,7 @@ func TestBusinessP1_WirePath_AliceInvitesBob_BobAutoJoinsEndToEnd(t *testing.T) 
 	// Wire-delivery proxy: this is the chokepoint that direct stream,
 	// replication, and blind-store fetchers all funnel into. Bypassing it
 	// is exactly the bug class earlier tests missed.
-	if err := bob.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, false); err != nil {
+	if err := bob.savePendingInviteFromWelcome(gid, "channel", "", welcomeBytes, aInfo.PeerID, false, 0, nil); err != nil {
 		t.Fatalf("savePendingInviteFromWelcome (wire path): %v", err)
 	}
 

@@ -182,7 +182,7 @@ func TestGetGroupMembers_PendingInviteDoesNotCreateActiveMember(t *testing.T) {
 		t.Fatalf("UpsertGroupMember creator: %v", err)
 	}
 
-	if err := rt.db.SavePendingWelcome(inviteePeerID.String(), "group-pending", []byte("welcome-payload")); err != nil {
+	if err := rt.db.SavePendingWelcome(inviteePeerID.String(), "group-pending", []byte("welcome-payload"), 0, nil); err != nil {
 		t.Fatalf("SavePendingWelcome: %v", err)
 	}
 

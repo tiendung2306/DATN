@@ -113,8 +113,8 @@ func (r inviteRepo) GetKPBundle(peerID string) ([]byte, []byte, error) {
 	return r.d.GetKPBundle(peerID)
 }
 
-func (r inviteRepo) SavePendingWelcome(targetPeerID, groupID string, welcome []byte) error {
-	return r.d.SavePendingWelcome(targetPeerID, groupID, welcome)
+func (r inviteRepo) SavePendingWelcome(targetPeerID, groupID string, welcome []byte, anchorEpoch uint64, anchorHistoryHash []byte) error {
+	return r.d.SavePendingWelcome(targetPeerID, groupID, welcome, anchorEpoch, anchorHistoryHash)
 }
 
 func (r inviteRepo) GetPendingWelcomesFor(targetPeerID string) ([]domain.PendingWelcome, error) {
@@ -125,10 +125,12 @@ func (r inviteRepo) GetPendingWelcomesFor(targetPeerID string) ([]domain.Pending
 	out := make([]domain.PendingWelcome, 0, len(rows))
 	for _, pw := range rows {
 		out = append(out, domain.PendingWelcome{
-			ID:           pw.ID,
-			TargetPeerID: pw.TargetPeerID,
-			GroupID:      pw.GroupID,
-			WelcomeBytes: pw.WelcomeBytes,
+			ID:                pw.ID,
+			TargetPeerID:      pw.TargetPeerID,
+			GroupID:           pw.GroupID,
+			WelcomeBytes:      pw.WelcomeBytes,
+			AnchorEpoch:       pw.AnchorEpoch,
+			AnchorHistoryHash: pw.AnchorHistoryHash,
 		})
 	}
 	return out, nil

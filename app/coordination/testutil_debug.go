@@ -16,6 +16,7 @@ func (c *Coordinator) SetStateForTest(epoch uint64, groupState []byte, treeHash 
 		TreeHash:    copyBytes(treeHash),
 		MemberCount: c.activeView.Size(),
 		Epoch:       epoch,
+		HistoryHash: copyBytes(c.historyHash),
 	})
 }
 
@@ -29,5 +30,6 @@ func (c *Coordinator) ResetForkDetectorForTest() {
 		TreeHash:    copyBytes(c.treeHash),
 		MemberCount: c.activeView.Size(),
 		Epoch:       c.epoch,
+		HistoryHash: copyBytes(c.historyHash),
 	})
 }

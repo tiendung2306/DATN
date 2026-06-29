@@ -58,6 +58,8 @@ const (
 	MsgApplication        MessageType = "application"
 	MsgApplicationBatched MessageType = "application_batched"
 	MsgDeliveryAck        MessageType = "delivery_ack"
+	MsgHistoryQuery        MessageType = "history_query"
+	MsgHistoryReply        MessageType = "history_reply"
 )
 
 // Envelope is the top-level wire format for all coordination messages.
@@ -259,12 +261,16 @@ type HeartbeatMsg struct {
 }
 
 // GroupStateAnnouncement is broadcast periodically to detect network partitions.
-// Nodes compare TreeHash values; divergence indicates a fork.
+// Nodes compare HistoryHash values; divergence indicates a fork.
+// HistoryHash R(E) = H(R(E-1) ∥ CommitHash(E)) forms a chain that uniquely
+// identifies a branch lineage, unlike TreeHash/CommitHash which can collide
+// across branches that share the same MLS tree state at a given epoch.
 type GroupStateAnnouncement struct {
 	TreeHash    []byte `json:"tree_hash"`
 	MemberCount int    `json:"member_count"` // online members in this branch
 	Epoch       uint64 `json:"epoch"`        // current epoch of the branch
 	CommitHash  []byte `json:"commit_hash"`  // hash of last Commit (tiebreaker)
+	HistoryHash []byte `json:"history_hash"` // R(E) — chain hash for fork detection
 }
 
 // EpochNotification is sent directly to a peer whose message carried a stale
@@ -272,6 +278,23 @@ type GroupStateAnnouncement struct {
 type EpochNotification struct {
 	CurrentEpoch uint64 `json:"current_epoch"`
 	TreeHash     []byte `json:"tree_hash"`
+}
+
+// HistoryQueryMsg is sent directly to a peer to ask for its R(epoch) at a
+// specific epoch, enabling cross-epoch fork detection. When a node receives
+// an announce from a peer at a higher epoch, it queries its own epoch's
+// HistoryHash to determine whether the peer diverged at or after that point.
+type HistoryQueryMsg struct {
+	Epoch uint64 `json:"epoch"`
+}
+
+// HistoryReplyMsg carries the responder's R(epoch) for the queried epoch.
+// Known=false means the responder does not have that epoch in its chain
+// (e.g. it joined after that epoch and has no anchor for it).
+type HistoryReplyMsg struct {
+	Epoch       uint64 `json:"epoch"`
+	HistoryHash []byte `json:"history_hash,omitempty"`
+	Known       bool   `json:"known"`
 }
 
 // ApplicationMsg carries an MLS-encrypted chat message.
@@ -339,6 +362,7 @@ type CoordState struct {
 	LastCommitHash   []byte
 	LastCommitAt     time.Time
 	PendingProposals [][]byte // buffered MLS Proposal bytes
+	HistoryChain     map[uint64][]byte // epoch → R(epoch), for cross-epoch query/reply
 }
 
 // StoredMessage is a decrypted message stored in SQLite for UI display.

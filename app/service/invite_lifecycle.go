@@ -141,7 +141,7 @@ func (r *Runtime) AcceptInvite(inviteID string) error {
 		return nil
 	}
 
-	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes), inv.CategoryID, inv.SourcePeerID); err != nil {
+	if err := r.applyWelcome(inv.GroupID, inv.GroupType, hex.EncodeToString(inv.WelcomeBytes), inv.CategoryID, inv.SourcePeerID, 0, nil); err != nil {
 		return fmt.Errorf("accept invite: %w", err)
 	}
 	if strings.TrimSpace(inv.SourcePeerID) != "" {
