@@ -58,7 +58,10 @@ Chương 3 đã đề xuất cơ chế kiểm tra epoch ở lớp điều phối
 	\end{tabular}
 \end{table}
 
-\textbf{Mệnh đề 1.} Nếu một nút chỉ tăng epoch sau khi xử lý thành công Commit hợp lệ và không áp dụng thông điệp thuộc epoch cũ lên trạng thái hiện tại, thì epoch cục bộ của nút là đơn điệu không giảm.
+\begin{proposition}
+\label{prop:epoch_monotonicity}
+Nếu một nút chỉ tăng epoch sau khi xử lý thành công Commit hợp lệ và không áp dụng thông điệp thuộc epoch cũ lên trạng thái hiện tại, thì epoch cục bộ của nút là đơn điệu không giảm.
+\end{proposition}
 
 \textit{Lập luận.} Theo Bảng~\ref{tab:epoch_rules}, mọi thông điệp cũ đều bị chặn ở lớp điều phối, nên trạng thái MLS hiện tại không bị đè ngược bởi dữ liệu quá khứ. Đối với thông điệp đi trước trạng thái cục bộ, nút không áp dụng ngay mà phải đồng bộ lại chuỗi trạng thái. Bởi trạng thái mới chỉ xuất hiện sau khi xử lý Commit hợp lệ, chuỗi giá trị epoch tại một nút không thể tự giảm xuống.
 
@@ -94,7 +97,10 @@ Token Holder được tính bằng quy tắc xác định trước:
 
 trong đó $H$ là hàm băm mật mã, chẳng hạn SHA-256.
 
-\textbf{Mệnh đề 2.} Nếu hai nút có cùng $groupID$, cùng epoch $E$ và cùng tập $Eligible(E)$, thì chúng chọn cùng một Token Holder.
+\begin{proposition}
+\label{prop:single_writer}
+Nếu hai nút có cùng $groupID$, cùng epoch $E$ và cùng tập $Eligible(E)$, thì chúng chọn cùng một Token Holder.
+\end{proposition}
 
 \textit{Lập luận.} Khi đầu vào của Công thức~\eqref{eq:token_holder_analysis} là như nhau, tập giá trị băm sinh ra trên hai nút cũng như nhau. Do phép chọn $\operatorname{argmin}$ luôn cho ra cùng một kết quả, kết quả cuối cùng bắt buộc trùng nhau. Nói cách khác, hệ thống không cần thêm một vòng bỏ phiếu mạng chỉ để quyết định ai là người tạo Commit trong cùng một ActiveView.
 
@@ -133,7 +139,9 @@ StateSummary =\ & (groupID, E, treeHash, \\
 
 Trong đó, $treeHash$ phản ánh trạng thái cây MLS hiện tại, còn $historyHash$ chính là $R(E)$. Bản tóm tắt này không thay thế trạng thái MLS đầy đủ, nhưng đủ để làm tín hiệu ban đầu cho bước đối chiếu. Nếu hai nút đang ở cùng epoch, việc so sánh trực tiếp hai giá trị $R(E)$ là đủ để biết chúng có cùng lịch sử Commit đến epoch đó hay không. Nếu một nút $A$ đang ở epoch $E_A$ thấp hơn nút $B$ ở epoch $E_B$, nút $A$ chưa thể kết luận gì chỉ từ $R_B(E_B)$. Khi đó, $A$ cần thêm một lượt hỏi--đáp để lấy đúng giá trị $R_B(E_A)$ rồi mới đối chiếu với $R_A(E_A)$.
 
-\textbf{Mệnh đề 3.} Trong phạm vi giả định của đồ án, giả sử hai nút $A$ và $B$ thuộc cùng một nhóm và $E_A \leq E_B$. Sau khi $A$ nhận được $StateSummary$ của $B$ và, nếu cần, lấy thêm giá trị $R_B(E_A)$ qua một lượt đối chiếu bổ sung, nếu
+\begin{proposition}
+\label{prop:fork_detection}
+Trong phạm vi giả định của đồ án, giả sử hai nút $A$ và $B$ thuộc cùng một nhóm và $E_A \leq E_B$. Sau khi $A$ nhận được $StateSummary$ của $B$ và, nếu cần, lấy thêm giá trị $R_B(E_A)$ qua một lượt đối chiếu bổ sung, nếu
 
 \[
 R_B(E_A) \neq R_A(E_A)
@@ -146,6 +154,7 @@ R_B(E_A) = R_A(E_A)
 \]
 
 thì khác biệt quan sát được vẫn còn có thể giải thích bằng việc $A$ đang chậm đồng bộ và lịch sử của $A$ chỉ là một tiền tố của lịch sử ở $B$.
+\end{proposition}
 
 \textit{Lập luận.} Do $R_i(e)$ được xây dựng bằng cách băm lũy tiến trên toàn bộ dãy Commit từ $1$ đến $e$, nên điều kiện $R_B(E_A) = R_A(E_A)$ có nghĩa là hai nút đã chấp nhận cùng một đoạn lịch sử đến epoch $E_A$. Nếu $B$ còn đi xa hơn sau mốc đó, thì sự khác biệt hiện tại chỉ phản ánh việc $B$ đã xử lý thêm các Commit mới mà $A$ chưa kịp nhận. Ngược lại, nếu $R_B(E_A) \neq R_A(E_A)$, thì phải tồn tại ít nhất một epoch không vượt quá $E_A$ mà hai bên đã chấp nhận hai Commit khác nhau, hoặc đã đi qua hai đoạn lịch sử khác nhau. Khi đó, khác biệt quan sát được không còn là chậm đồng bộ đơn thuần mà đã trở thành khác biệt về lịch sử tiến hóa của trạng thái nhóm.
 
@@ -186,11 +195,14 @@ Quy tắc trên không nhằm khẳng định nhánh thắng là nhánh "đúng 
 
 Sau khi một nhánh được chọn, các nút ở nhánh thua không mang trạng thái cũ đi ghép với nhánh thắng. Chúng gửi External Proposal để xin gia nhập lại, còn việc tạo Commit thuộc về Token Holder. Khi đó, các khóa cũ của nhánh thua phải bị loại bỏ, còn trạng thái mới được xây dựng lại từ nhánh đã chọn.
 
-\textbf{Mệnh đề 4.} Nếu các nút quan sát cùng một tập nhánh và cùng áp dụng quy tắc chọn nhánh ở Công thức~\eqref{eq:branch_weight_analysis}, thì chúng sẽ có cùng cơ sở để chọn nhánh tiếp tục; việc đưa các nút của nhánh thua gia nhập lại qua External Proposal được Token Holder gom vào Commit giúp hệ thống đạt hội tụ trạng thái mật mã theo Định nghĩa~\ref{def:hoi_tu_trang_thai}, tuân thủ theo tiêu chuẩn MLS mà không cần phải tự chế ra một cơ chế mật mã mới.
+\begin{proposition}
+\label{prop:no_merge_branches}
+Nếu các nút quan sát cùng một tập nhánh và cùng áp dụng quy tắc chọn nhánh ở Công thức~\eqref{eq:branch_weight_analysis}, thì chúng sẽ có cùng cơ sở để chọn nhánh tiếp tục; việc đưa các nút của nhánh thua gia nhập lại qua External Proposal được Token Holder gom vào Commit giúp hệ thống đạt hội tụ trạng thái mật mã theo Định nghĩa~\ref{def:hoi_tu_trang_thai}, tuân thủ theo tiêu chuẩn MLS mà không cần phải tự chế ra một cơ chế mật mã mới.
+\end{proposition}
 
 \textit{Lập luận.} Thành phần $C_{active}(B)$ ưu tiên nhánh còn duy trì được nhiều thành viên hoạt động hơn, $E(B)$ ưu tiên nhánh tiến xa hơn khi số thành viên còn hoạt động bằng nhau, còn $H_{commit}(B)$ dùng để phân biệt khi hai tiêu chí trước vẫn trùng nhau. Sau khi đã chọn được nhánh tiếp tục, quá trình gia nhập lại không dựa trên việc gộp hai trạng thái cũ, mà dựa trên chính các cơ chế thay đổi thành viên mà MLS cho phép. Nhờ vậy, đường hội tụ vẫn nằm trong không gian trạng thái hợp lệ của giao thức.
 
-\section{Xử lý thông điệp phát sinh ở nhánh thua}
+\subsection{Xử lý thông điệp phát sinh ở nhánh thua}
 \label{sec:xu_ly_thong_diep_nhanh_thua}
 
 Trong thời gian phân vùng mạng, người dùng ở mỗi nhánh vẫn có thể gửi các tin nhắn ứng dụng. Khi hệ thống đạt hội tụ trạng thái mật mã trở lại, các thông điệp sinh ra ở nhánh thua đặt ra một câu hỏi riêng: nội dung đó có thể còn giá trị với người dùng, nhưng bản mã gốc của nó lại thuộc về một trạng thái MLS không còn tiếp tục được sử dụng.
@@ -217,7 +229,10 @@ Timestamp HLC của một thông điệp được biểu diễn dưới dạng
 
 trong đó $L$ là thành phần thời gian logic gần với thời gian vật lý, $C$ là bộ đếm logic, còn $NodeID$ dùng để phân biệt khi hai timestamp vẫn bằng nhau. Theo Kulkarni và Demirbas, nếu sự kiện $e$ xảy ra trước sự kiện $f$ theo quan hệ happened-before, timestamp HLC của $e$ sẽ nhỏ hơn timestamp của $f$ \cite{kulkarni2014hlc}. Đồ án khai thác tính chất này ở tầng hiển thị thông điệp ứng dụng.
 
-\textbf{Mệnh đề 5.} HLC giúp tạo thứ tự hiển thị xác định trước cho cùng một tập application message đã được giải mã hợp lệ, nhưng không thay thế cơ chế ordering của Commit.
+\begin{proposition}
+\label{prop:hlc_ordering}
+HLC giúp tạo thứ tự hiển thị xác định trước cho cùng một tập application message đã được giải mã hợp lệ, nhưng không thay thế cơ chế ordering của Commit.
+\end{proposition}
 
 \textit{Lập luận.} Nếu message $A$ là nguyên nhân dẫn đến message $B$, chẳng hạn người dùng gửi phản hồi sau khi đã đọc $A$, thì timestamp HLC của $B$ sẽ lớn hơn timestamp của $A$ theo thứ tự từ điển. Với các message đồng thời, hệ thống dùng bộ ba $(L, C, NodeID)$ để phân biệt khi hai timestamp vẫn bằng nhau. Nhờ đó, khi hai nút đã có cùng tập thông điệp hợp lệ, chúng có thể sắp xếp tập đó theo cùng một quy tắc mà không đưa HLC tham gia vào việc quyết định ai được Commit.
 
@@ -242,15 +257,15 @@ Các thao tác thêm thành viên, loại bỏ thành viên hoặc cập nhật 
 
 \subsection{Chi phí của Single-Writer}
 
-Single-Writer không yêu cầu một vòng đồng thuận mạng riêng để bầu Token Holder trong điều kiện các nút có cùng ActiveView. Mỗi nút chỉ cần duyệt qua tập $Eligible(E)$ và tính hàm băm cho từng ứng viên. Nếu số ứng viên hợp lệ là $N$, chi phí tính toán cục bộ của bước chọn Token Holder là $O(N)$ theo cách triển khai trực tiếp.
+Single-Writer không yêu cầu một vòng đồng thuận mạng riêng để bầu Token Holder trong điều kiện các nút có cùng ActiveView. Mỗi nút chỉ cần duyệt qua tập $Eligible(E)$ và tính hàm băm cho từng ứng viên. Nếu số ứng viên hợp lệ là $N$, chi phí tính toán cục bộ của bước chọn Token Holder là $\mathcal{O}(N)$ theo cách triển khai trực tiếp.
 
 Điểm quan trọng nằm ở chỗ đây là chi phí cục bộ, không phải chi phí nhiều vòng mạng. Trong bối cảnh mạng ngang hàng, tránh phải chạy một cơ chế đồng thuận nặng cho mỗi Commit là lợi thế thực sự của phương pháp.
 
 \subsection{Chi phí của kiểm tra epoch và đối chiếu trạng thái}
 
-Kiểm tra epoch chỉ yêu cầu so sánh một số trường metadata như $groupID$, loại thông điệp và epoch trước khi quyết định hướng xử lý. Nếu chỉ xét riêng lớp điều phối, chi phí này có thể xem là $O(1)$ trên mỗi thông điệp.
+Kiểm tra epoch chỉ yêu cầu so sánh một số trường metadata như $groupID$, loại thông điệp và epoch trước khi quyết định hướng xử lý. Nếu chỉ xét riêng lớp điều phối, chi phí này có thể xem là $\mathcal{O}(1)$ trên mỗi thông điệp.
 
-Đối chiếu trạng thái để nhận biết phân nhánh đòi hỏi các nút trao đổi một bản tóm tắt ngắn chứa số epoch, $treeHash$ và giá trị tóm tắt lịch sử $R(E)$. Kích thước của bản tóm tắt này vẫn là hằng số theo kích thước nhóm, nên chi phí của một lần công bố trạng thái đơn lẻ vẫn ở mức $O(1)$ theo số trường cần gửi. Khi xuất hiện nghi ngờ rằng một nút đang đi trước nhưng có thể đã tách nhánh, hai bên cần thêm một lượt hỏi--đáp để đối chiếu giá trị $R(e)$ tại epoch nhỏ hơn. Chi phí phụ thêm này không nằm trên mọi thông điệp, mà chỉ phát sinh khi lớp điều phối cần phân biệt giữa chậm đồng bộ và phân nhánh thực sự.
+Đối chiếu trạng thái để nhận biết phân nhánh đòi hỏi các nút trao đổi một bản tóm tắt ngắn chứa số epoch, $treeHash$ và giá trị tóm tắt lịch sử $R(E)$. Kích thước của bản tóm tắt này vẫn là hằng số theo kích thước nhóm, nên chi phí của một lần công bố trạng thái đơn lẻ vẫn ở mức $\mathcal{O}(1)$ theo số trường cần gửi. Khi xuất hiện nghi ngờ rằng một nút đang đi trước nhưng có thể đã tách nhánh, hai bên cần thêm một lượt hỏi--đáp để đối chiếu giá trị $R(e)$ tại epoch nhỏ hơn. Chi phí phụ thêm này không nằm trên mọi thông điệp, mà chỉ phát sinh khi lớp điều phối cần phân biệt giữa chậm đồng bộ và phân nhánh thực sự.
 
 \subsection{Chi phí của Fork Healing}
 
@@ -298,7 +313,7 @@ Bảng~\ref{tab:invariant_summary} tóm tắt các bất biến chính đã đư
 \section{So sánh đặc tính với các thuật toán đồng thuận truyền thống}
 \label{sec:so_sanh_dong_thuan}
 
-Mục này trình bày sự đối sánh về mặt lý thuyết giữa giao thức điều phối đề xuất (Single-Writer Token kết hợp hàn gắn phân nhánh) với các cơ chế đồng thuận truyền thống (như Raft \cite{ongaro2014raft} hay BFT \cite{castro1999pbft}), nhằm làm rõ tính phù hợp của giải pháp đối với đặc thù bất đồng bộ của mạng ngang hàng.
+Mục này trình bày sự đối sánh về mặt lý thuyết giữa giao thức điều phối đề xuất (Single-Writer Token kết hợp hàn gắn phân nhánh) với các cơ chế đồng thuận truyền thống (như Raft \cite{ongaro2014raft} hay BFT \cite{castro1999pbft}) và Blockchain \cite{nakamoto2008bitcoin}, nhằm làm rõ tính phù hợp của giải pháp đối với đặc thù bất đồng bộ của mạng ngang hàng.
 
 Thứ nhất, về độ phức tạp khi truyền thông. Các thuật toán đồng thuận dựa trên Quorum như BFT \cite{castro1999pbft} yêu cầu các nút mạng trao đổi thông báo chéo để đạt được thỏa thuận, dẫn đến độ phức tạp có thể lên tới $\mathcal{O}(N^2)$ ở một số thời điểm, trong đó $N$ là số lượng nút tham gia vào vòng đồng thuận. Ngay cả với các biến thể tối ưu hơn, số lượng thông điệp trao đổi vẫn phụ thuộc vào quy mô mạng. Đối với giao thức đề xuất, nhờ việc quyền phát hành Commit được gán duy nhất cho Token Holder của epoch hiện tại, thông điệp Commit chỉ cần được phát sóng một lần qua mạng. Tại thời điểm phát hành, độ phức tạp của bước chốt trạng thái đối với Token Holder được giữ ở mức $\mathcal{O}(1)$, giúp tiết kiệm băng thông đáng kể.
 
@@ -320,7 +335,7 @@ Bảng \ref{tab:comparison_consensus} tổng hợp lại các phân tích trên 
 		\hline
 		\textbf{Sức chịu đựng phân vùng mạng} & Kém (hệ thống đóng băng nếu không thể đạt Quorum $>N/2$) & Tốt & \textbf{Rất tốt (các phân vùng nhỏ vẫn hoạt động độc lập và hàn gắn sau)} \\
 		\hline
-		\textbf{Độ phức tạp truyền thông tạo Commit} & Nặng nề (từ $\mathcal{O}(N)$ đến $\mathcal{O}(N^2)$ do phải trao đổi chéo) & Nặng nề (phát sóng khối) & \textbf{Siêu nhẹ ($\mathcal{O}(1)$ - Token Holder phát sóng một lần)} \\
+		\textbf{Độ phức tạp truyền thông tạo Commit} & Nặng nề (từ $\mathcal{O}(N)$ đến $\mathcal{O}(N^2)$ do phải trao đổi chéo) & Nặng nề (phát sóng khối) & \textbf{Rất nhẹ ($\mathcal{O}(1)$ - Token Holder phát sóng một lần)} \\
 		\hline
 		\textbf{Độ trễ xác nhận (Latency)} & Phụ thuộc vào RTT mạng (cần chờ xác nhận từ đa số) & Rất cao (phụ thuộc thời gian sinh khối) & \textbf{Ngay lập tức và cục bộ (không cần biểu quyết)} \\
 		\hline

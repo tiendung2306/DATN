@@ -563,6 +563,90 @@
     \field{urlyear}{2026}
   \endentry
 
+  \entry{rfc9180}{misc}{}{}
+    \name{author}{4}{}{%
+      {{hash=BR}{%
+         family={Barnes},
+         familyi={B\bibinitperiod},
+         given={Richard},
+         giveni={R\bibinitperiod},
+      }}%
+      {{hash=BK}{%
+         family={Bhargavan},
+         familyi={B\bibinitperiod},
+         given={Karthikeyan},
+         giveni={K\bibinitperiod},
+      }}%
+      {{hash=LB}{%
+         family={Lipp},
+         familyi={L\bibinitperiod},
+         given={Benjamin},
+         giveni={B\bibinitperiod},
+      }}%
+      {{hash=WCA}{%
+         family={Wood},
+         familyi={W\bibinitperiod},
+         given={Christopher\bibnamedelima A.},
+         giveni={C\bibinitperiod\bibinitdelim A\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {RFC Editor}%
+    }
+    \strng{namehash}{BR+1}
+    \strng{fullhash}{BRBKLBWCA1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.17487/RFC9180
+    \endverb
+    \field{howpublished}{RFC 9180}
+    \field{number}{9180}
+    \field{series}{Request for Comments}
+    \field{title}{{Hybrid Public Key Encryption}}
+    \verb{url}
+    \verb https://www.rfc-editor.org/rfc/rfc9180.html
+    \endverb
+    \field{month}{02}
+    \field{year}{2022}
+    \field{urlday}{22}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
+  \entry{rfc5116}{misc}{}{}
+    \name{author}{1}{}{%
+      {{hash=MDA}{%
+         family={McGrew},
+         familyi={M\bibinitperiod},
+         given={David\bibnamedelima A.},
+         giveni={D\bibinitperiod\bibinitdelim A\bibinitperiod},
+      }}%
+    }
+    \list{publisher}{1}{%
+      {RFC Editor}%
+    }
+    \strng{namehash}{MDA1}
+    \strng{fullhash}{MDA1}
+    \field{labelnamesource}{author}
+    \field{labeltitlesource}{title}
+    \verb{doi}
+    \verb 10.17487/RFC5116
+    \endverb
+    \field{howpublished}{RFC 5116}
+    \field{number}{5116}
+    \field{series}{Request for Comments}
+    \field{title}{{An Interface and Algorithms for Authenticated Encryption}}
+    \verb{url}
+    \verb https://www.rfc-editor.org/info/rfc5116
+    \endverb
+    \field{month}{01}
+    \field{year}{2008}
+    \field{urlday}{26}
+    \field{urlmonth}{06}
+    \field{urlyear}{2026}
+  \endentry
+
   \entry{libp2p2026doc}{misc}{}{}
     \name{author}{1}{}{%
       {{hash=l}{%
@@ -714,39 +798,6 @@
     \field{volume}{8878}
     \field{year}{2014}
     \field{urlday}{22}
-    \field{urlmonth}{06}
-    \field{urlyear}{2026}
-  \endentry
-
-  \entry{rfc5116}{misc}{}{}
-    \name{author}{1}{}{%
-      {{hash=MDA}{%
-         family={McGrew},
-         familyi={M\bibinitperiod},
-         given={David\bibnamedelima A.},
-         giveni={D\bibinitperiod\bibinitdelim A\bibinitperiod},
-      }}%
-    }
-    \list{publisher}{1}{%
-      {RFC Editor}%
-    }
-    \strng{namehash}{MDA1}
-    \strng{fullhash}{MDA1}
-    \field{labelnamesource}{author}
-    \field{labeltitlesource}{title}
-    \verb{doi}
-    \verb 10.17487/RFC5116
-    \endverb
-    \field{howpublished}{RFC 5116}
-    \field{number}{5116}
-    \field{series}{Request for Comments}
-    \field{title}{{An Interface and Algorithms for Authenticated Encryption}}
-    \verb{url}
-    \verb https://www.rfc-editor.org/info/rfc5116
-    \endverb
-    \field{month}{01}
-    \field{year}{2008}
-    \field{urlday}{26}
     \field{urlmonth}{06}
     \field{urlyear}{2026}
   \endentry

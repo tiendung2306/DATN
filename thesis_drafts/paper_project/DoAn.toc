@@ -24,11 +24,11 @@
 \contentsline {subsection}{\numberline {2.3.3}Proposal, Commit và tiến trình chuyển epoch}{11}{subsection.2.3.3}%
 \contentsline {subsection}{\numberline {2.3.4}Các dấu hiệu nhận biết trạng thái: tree hash, transcript hash và epoch authenticator}{12}{subsection.2.3.4}%
 \contentsline {subsection}{\numberline {2.3.5}Application messages, delayed messages và External Commit}{12}{subsection.2.3.5}%
-\contentsline {section}{\numberline {2.4}Nền tảng mạng ngang hàng và thứ tự trong hệ phân tán}{13}{section.2.4}%
-\contentsline {subsection}{\numberline {2.4.1}Đặc tính của mạng ngang hàng}{13}{subsection.2.4.1}%
+\contentsline {section}{\numberline {2.4}Nền tảng mạng ngang hàng và thứ tự trong hệ phân tán}{14}{section.2.4}%
+\contentsline {subsection}{\numberline {2.4.1}Đặc tính của mạng ngang hàng}{14}{subsection.2.4.1}%
 \contentsline {subsection}{\numberline {2.4.2}go-libp2p và GossipSub}{14}{subsection.2.4.2}%
 \contentsline {subsection}{\numberline {2.4.3}Đồng hồ logic và thứ tự hiển thị thông điệp ứng dụng}{14}{subsection.2.4.3}%
-\contentsline {subsection}{\numberline {2.4.4}Khoảng trống cần giải quyết}{14}{subsection.2.4.4}%
+\contentsline {subsection}{\numberline {2.4.4}Khoảng trống cần giải quyết}{15}{subsection.2.4.4}%
 \contentsline {chapter}{\numberline {3}PHƯƠNG PHÁP ĐỀ XUẤT}{16}{chapter.3}%
 \contentsline {section}{\numberline {3.1}Tổng quan bài toán và hướng tiếp cận}{16}{section.3.1}%
 \contentsline {subsection}{\numberline {3.1.1}Bài toán cần giải quyết}{16}{subsection.3.1.1}%
@@ -79,21 +79,21 @@
 \contentsline {subsection}{\numberline {4.5.1}Vì sao không thể gộp trực tiếp hai nhánh}{39}{subsection.4.5.1}%
 \contentsline {subsection}{\numberline {4.5.2}Quy tắc chọn nhánh}{39}{subsection.4.5.2}%
 \contentsline {subsection}{\numberline {4.5.3}Dùng External Proposal như cơ chế hội tụ}{40}{subsection.4.5.3}%
-\contentsline {section}{\numberline {4.6}Xử lý thông điệp phát sinh ở nhánh thua}{40}{section.4.6}%
-\contentsline {section}{\numberline {4.7}Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}{41}{section.4.7}%
-\contentsline {subsection}{\numberline {4.7.1}Phân biệt hai loại thứ tự}{41}{subsection.4.7.1}%
-\contentsline {subsection}{\numberline {4.7.2}Cơ sở của HLC}{41}{subsection.4.7.2}%
-\contentsline {subsection}{\numberline {4.7.3}Giới hạn của HLC}{41}{subsection.4.7.3}%
-\contentsline {section}{\numberline {4.8}Phân tích chi phí lý thuyết}{42}{section.4.8}%
-\contentsline {subsection}{\numberline {4.8.1}Chi phí gửi application message}{42}{subsection.4.8.1}%
-\contentsline {subsection}{\numberline {4.8.2}Chi phí cập nhật thành viên và rekey}{42}{subsection.4.8.2}%
-\contentsline {subsection}{\numberline {4.8.3}Chi phí của Single-Writer}{42}{subsection.4.8.3}%
-\contentsline {subsection}{\numberline {4.8.4}Chi phí của kiểm tra epoch và đối chiếu trạng thái}{42}{subsection.4.8.4}%
-\contentsline {subsection}{\numberline {4.8.5}Chi phí của Fork Healing}{43}{subsection.4.8.5}%
-\contentsline {subsection}{\numberline {4.8.6}Phân tích cơ chế phát lại thông điệp ứng dụng}{43}{subsection.4.8.6}%
-\contentsline {section}{\numberline {4.9}Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}{44}{section.4.9}%
-\contentsline {section}{\numberline {4.10}So sánh đặc tính với các thuật toán đồng thuận truyền thống}{44}{section.4.10}%
-\contentsline {section}{\numberline {4.11}Giới hạn lý thuyết của phương pháp}{45}{section.4.11}%
+\contentsline {subsection}{\numberline {4.5.4}Xử lý thông điệp phát sinh ở nhánh thua}{40}{subsection.4.5.4}%
+\contentsline {section}{\numberline {4.6}Bất biến 5: HLC chỉ sắp xếp thông điệp ứng dụng, không quyết định Commit}{41}{section.4.6}%
+\contentsline {subsection}{\numberline {4.6.1}Phân biệt hai loại thứ tự}{41}{subsection.4.6.1}%
+\contentsline {subsection}{\numberline {4.6.2}Cơ sở của HLC}{41}{subsection.4.6.2}%
+\contentsline {subsection}{\numberline {4.6.3}Giới hạn của HLC}{41}{subsection.4.6.3}%
+\contentsline {section}{\numberline {4.7}Phân tích chi phí lý thuyết}{42}{section.4.7}%
+\contentsline {subsection}{\numberline {4.7.1}Chi phí gửi application message}{42}{subsection.4.7.1}%
+\contentsline {subsection}{\numberline {4.7.2}Chi phí cập nhật thành viên và rekey}{42}{subsection.4.7.2}%
+\contentsline {subsection}{\numberline {4.7.3}Chi phí của Single-Writer}{42}{subsection.4.7.3}%
+\contentsline {subsection}{\numberline {4.7.4}Chi phí của kiểm tra epoch và đối chiếu trạng thái}{42}{subsection.4.7.4}%
+\contentsline {subsection}{\numberline {4.7.5}Chi phí của Fork Healing}{43}{subsection.4.7.5}%
+\contentsline {subsection}{\numberline {4.7.6}Phân tích cơ chế phát lại thông điệp ứng dụng}{43}{subsection.4.7.6}%
+\contentsline {section}{\numberline {4.8}Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}{44}{section.4.8}%
+\contentsline {section}{\numberline {4.9}So sánh đặc tính với các thuật toán đồng thuận truyền thống}{44}{section.4.9}%
+\contentsline {section}{\numberline {4.10}Giới hạn lý thuyết của phương pháp}{45}{section.4.10}%
 \contentsline {chapter}{\numberline {5}ĐÁNH GIÁ THỰC NGHIỆM}{47}{chapter.5}%
 \contentsline {section}{\numberline {5.1}Mục tiêu và phạm vi đánh giá}{47}{section.5.1}%
 \contentsline {section}{\numberline {5.2}Môi trường và phương pháp thí nghiệm}{47}{section.5.2}%
