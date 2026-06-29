@@ -986,8 +986,9 @@ func (a *App) refreshStatusesForProfiles(profiles []DemoInstanceProfile, token s
 	a.mu.Unlock()
 
 	runningContainers, _ := getRunningContainers()
-	out := make([]InstanceStatus, 0, len(profiles))
-	for _, p := range profiles {
+	results := make([]InstanceStatus, len(profiles))
+	var wg sync.WaitGroup
+	for i, p := range profiles {
 		st := InstanceStatus{Profile: p, LastError: errs[p.ID], LastWarning: warnings[p.ID]}
 		if p.LaunchMode == "exe" {
 			a.mu.Lock()
@@ -1001,10 +1002,15 @@ func (a *App) refreshStatusesForProfiles(profiles []DemoInstanceProfile, token s
 			st.Running = true
 			st.PID = getContainerPID(p.ID)
 		}
-		a.fillRemoteStatus(&st, token)
-		out = append(out, st)
+		results[i] = st
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			a.fillRemoteStatus(&results[idx], token)
+		}(i)
 	}
-	return out
+	wg.Wait()
+	return results[:]
 }
 
 func (a *App) fillRemoteStatus(st *InstanceStatus, token string) {
@@ -1013,7 +1019,7 @@ func (a *App) fillRemoteStatus(st *InstanceStatus, token string) {
 		return
 	}
 	req.Header.Set("X-Demo-Token", token)
-	client := http.Client{Timeout: 900 * time.Millisecond}
+	client := http.Client{Timeout: 500 * time.Millisecond}
 	resp, err := client.Do(req)
 	if err != nil {
 		return
@@ -1105,19 +1111,31 @@ func (a *App) buildDemoClusterState(ws DemoWorkspace, statuses []InstanceStatus,
 		return state
 	}
 
-	members, err := a.controlDemoGroupMembers(ownerID, groupID)
-	if err == nil {
-		state.Members = members
-		state.MemberCount = len(members)
-	}
-	groupStatus, err := a.controlDemoGroupStatus(ownerID, groupID)
-	if err == nil {
-		state.GroupStatusDigest = groupStatus
-	}
-	messages, err := a.controlDemoGroupMessages(ownerID, groupID, 16)
-	if err == nil {
-		state.RecentMessages = messages
-	}
+	var (
+		members     []DemoClusterMember
+		groupStatus DemoGroupStatus
+		messages    []DemoClusterMessage
+	)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		members, _ = a.controlDemoGroupMembers(ownerID, groupID)
+	}()
+	go func() {
+		defer wg.Done()
+		groupStatus, _ = a.controlDemoGroupStatus(ownerID, groupID)
+	}()
+	go func() {
+		defer wg.Done()
+		messages, _ = a.controlDemoGroupMessages(ownerID, groupID, 16)
+	}()
+	wg.Wait()
+
+	state.Members = members
+	state.MemberCount = len(members)
+	state.GroupStatusDigest = groupStatus
+	state.RecentMessages = messages
 
 	memberSet := make(map[string]struct{}, len(state.Members))
 	for _, member := range state.Members {

@@ -202,7 +202,7 @@ func (a *App) newControlJSONRequest(id string, method string, path string, paylo
 }
 
 func (a *App) doControlNoContent(req *http.Request) error {
-	client := http.Client{Timeout: 8 * time.Second}
+	client := http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -215,7 +215,7 @@ func (a *App) doControlNoContent(req *http.Request) error {
 }
 
 func (a *App) doControlJSON(req *http.Request, out interface{}) error {
-	client := http.Client{Timeout: 8 * time.Second}
+	client := http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

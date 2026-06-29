@@ -35,12 +35,12 @@ func TestCompareBranchWeight_MoreMembers_Wins(t *testing.T) {
 	}
 }
 
-func TestCompareBranchWeight_SameMembers_LowerCommitHash_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}, HistoryHash: []byte("hist-local")}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x02}, HistoryHash: []byte("hist-remote")}
+func TestCompareBranchWeight_SameMembers_HigherCommitHash_Wins(t *testing.T) {
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x02}, HistoryHash: []byte("hist-local")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 0, CommitHash: []byte{0x01}, HistoryHash: []byte("hist-remote")}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
-		t.Error("local with lower commit hash should win when member count is equal")
+		t.Error("local with higher commit hash should win when member count is equal")
 	}
 }
 
@@ -56,12 +56,12 @@ func TestCompareBranchWeight_SameMembers_HigherEpoch_Wins(t *testing.T) {
 	}
 }
 
-func TestCompareBranchWeight_SameMembersAndEpoch_LowerCommitHash_Wins(t *testing.T) {
-	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x01}, HistoryHash: []byte("hist-local")}
-	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x02}, HistoryHash: []byte("hist-remote")}
+func TestCompareBranchWeight_SameMembersAndEpoch_HigherCommitHash_Wins(t *testing.T) {
+	local := GroupStateAnnouncement{TreeHash: []byte("aa"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x02}, HistoryHash: []byte("hist-local")}
+	remote := GroupStateAnnouncement{TreeHash: []byte("bb"), MemberCount: 3, Epoch: 10, CommitHash: []byte{0x01}, HistoryHash: []byte("hist-remote")}
 
 	if CompareBranchWeight(local, remote) != BranchLocal {
-		t.Error("local with lower commit hash should win when member count and epoch are equal")
+		t.Error("local with higher commit hash should win when member count and epoch are equal")
 	}
 }
 
@@ -143,7 +143,7 @@ func TestForkDetector_RemoteBranchSupportBeatsCommitHashTiebreaker(t *testing.T)
 		TreeHash:    []byte("tree-local"),
 		MemberCount: 3,
 		Epoch:       2,
-		CommitHash:  []byte{0x01},
+		CommitHash:  []byte{0xff},
 		HistoryHash: []byte("hist-local"),
 	})
 
@@ -151,13 +151,13 @@ func TestForkDetector_RemoteBranchSupportBeatsCommitHashTiebreaker(t *testing.T)
 		TreeHash:    []byte("tree-remote"),
 		MemberCount: 3,
 		Epoch:       2,
-		CommitHash:  []byte{0xff},
+		CommitHash:  []byte{0x01},
 		HistoryHash: []byte("hist-remote"),
 	}
 	if ev := fd.ProcessRemote(fixedT, peerID("peer-1"), 2, remote); ev == nil {
 		t.Fatal("first remote observation should surface a fork")
 	} else if ev.Result != BranchLocal {
-		t.Fatalf("local lower commit hash should win at equal support, got %v", ev.Result)
+		t.Fatalf("local higher commit hash should win at equal support, got %v", ev.Result)
 	}
 
 	ev := fd.ProcessRemote(fixedT.Add(time.Second), peerID("peer-2"), 2, remote)
@@ -165,7 +165,7 @@ func TestForkDetector_RemoteBranchSupportBeatsCommitHashTiebreaker(t *testing.T)
 		t.Fatal("second remote observation should still surface the fork")
 	}
 	if ev.Result != BranchRemote {
-		t.Fatalf("remote branch support=2 should beat local support=1 despite larger commit hash, got %v", ev.Result)
+		t.Fatalf("remote branch support=2 should beat local support=1 despite lower commit hash, got %v", ev.Result)
 	}
 	if !ev.NeedExternalJoin {
 		t.Fatal("local node should heal toward the better-supported remote branch")

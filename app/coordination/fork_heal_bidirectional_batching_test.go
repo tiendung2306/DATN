@@ -44,14 +44,14 @@ func TestForkHeal_BidirectionalBatching_ThunderingHerd(t *testing.T) {
 	
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
-	winner.coord.lastCommitHash = []byte("new-commit-hash")
+	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")
 	winner.coord.treeHash = []byte("new-tree-hash")
 	winner.coord.historyHash = []byte("winner-advanced-hist")
 	winner.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("new-tree-hash"),
 		MemberCount: 3,
 		Epoch:       winner.coord.epoch,
-		CommitHash:  []byte("new-commit-hash"),
+		CommitHash:  []byte("zzz-winner-commit-hash"),
 		HistoryHash: []byte("winner-advanced-hist"),
 	})
 	winner.coord.mu.Unlock()
@@ -60,7 +60,7 @@ func TestForkHeal_BidirectionalBatching_ThunderingHerd(t *testing.T) {
 	loser.coord.mu.Lock()
 	loser.coord.epoch = winner.coord.epoch
 	loser.coord.historyHash = []byte("loser-stale-hist")
-	loser.coord.lastCommitHash = []byte("zzz-loser-stale-commit")
+	loser.coord.lastCommitHash = []byte("aaa-loser-stale-commit")
 	loser.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    loser.coord.treeHash,
 		MemberCount: 1,
@@ -136,14 +136,14 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 	
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
-	winner.coord.lastCommitHash = []byte("new-commit-hash")
+	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")
 	winner.coord.treeHash = []byte("new-tree-hash")
 	winner.coord.historyHash = []byte("winner-advanced-hist")
 	winner.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("new-tree-hash"),
 		MemberCount: 3,
 		Epoch:       winner.coord.epoch,
-		CommitHash:  []byte("new-commit-hash"),
+		CommitHash:  []byte("zzz-winner-commit-hash"),
 		HistoryHash: []byte("winner-advanced-hist"),
 	})
 	winner.coord.reconcileOperationsAfterCommitLocked(CommitMsg{})
@@ -153,7 +153,7 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 	loser.coord.mu.Lock()
 	loser.coord.epoch = winner.coord.epoch
 	loser.coord.historyHash = []byte("loser-stale-hist")
-	loser.coord.lastCommitHash = []byte("zzz-loser-stale-commit")
+	loser.coord.lastCommitHash = []byte("aaa-loser-stale-commit")
 	loser.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    loser.coord.treeHash,
 		MemberCount: 1,
@@ -319,14 +319,14 @@ func TestForkHeal_BidirectionalBatching_OfflineAuthorLimitation(t *testing.T) {
 	
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
-	winner.coord.lastCommitHash = []byte("new-commit-hash")
+	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")
 	winner.coord.treeHash = []byte("new-tree-hash")
 	winner.coord.historyHash = []byte("winner-advanced-hist")
 	winner.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    []byte("new-tree-hash"),
 		MemberCount: 3,
 		Epoch:       winner.coord.epoch,
-		CommitHash:  []byte("new-commit-hash"),
+		CommitHash:  []byte("zzz-winner-commit-hash"),
 		HistoryHash: []byte("winner-advanced-hist"),
 	})
 	winner.coord.mu.Unlock()
@@ -335,7 +335,7 @@ func TestForkHeal_BidirectionalBatching_OfflineAuthorLimitation(t *testing.T) {
 	loser1.coord.mu.Lock()
 	loser1.coord.epoch = winner.coord.epoch
 	loser1.coord.historyHash = []byte("loser-stale-hist")
-	loser1.coord.lastCommitHash = []byte("zzz-loser-stale-commit")
+	loser1.coord.lastCommitHash = []byte("aaa-loser-stale-commit")
 	loser1.coord.forkDetector.UpdateLocal(GroupStateAnnouncement{
 		TreeHash:    loser1.coord.treeHash,
 		MemberCount: 1,

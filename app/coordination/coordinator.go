@@ -683,11 +683,27 @@ func (c *Coordinator) handleHistoryReplyLocked(from peer.ID, env *Envelope) {
 	}
 	// Different HistoryHash at the queried epoch → real fork.
 	slog.Warn("handleHistoryReplyLocked: fork confirmed via cross-epoch query", "group", c.groupID, "peer", from, "epoch", r.Epoch)
+	localAnn := GroupStateAnnouncement{
+		TreeHash:    c.treeHash,
+		MemberCount: c.activeView.Size(),
+		Epoch:       c.epoch,
+		CommitHash:  copyBytes(c.lastCommitHash),
+		HistoryHash: copyBytes(c.historyHash),
+	}
+	result, remoteAnn, _ := c.forkDetector.CompareWithPeer(from)
 	event := &ForkEvent{
 		GroupID:          c.groupID,
 		RemotePeer:       from,
+		LocalAnnounce:    localAnn,
+		RemoteAnnounce:   remoteAnn,
 		RemoteEpoch:      r.Epoch,
-		NeedExternalJoin: true,
+		Result:           result,
+		NeedExternalJoin: result == BranchRemote,
+	}
+	if !event.NeedExternalJoin {
+		slog.Info("handleHistoryReplyLocked: fork confirmed but local branch wins, skipping heal",
+			"group", c.groupID, "peer", from, "epoch", r.Epoch)
+		return
 	}
 	c.metrics.IncrPartitionsDetected()
 	c.scheduleHeal(event)

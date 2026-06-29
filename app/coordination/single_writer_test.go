@@ -10,11 +10,11 @@ import (
 func TestComputeTokenHolder_Deterministic(t *testing.T) {
 	view := []peer.ID{peerID("alice"), peerID("bob"), peerID("carol")}
 
-	h1, err := ComputeTokenHolder(view, 1)
+	h1, err := ComputeTokenHolder("test-group", view, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h2, err := ComputeTokenHolder(view, 1)
+	h2, err := ComputeTokenHolder("test-group", view, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestComputeTokenHolder_Deterministic(t *testing.T) {
 }
 
 func TestComputeTokenHolder_EmptyView(t *testing.T) {
-	_, err := ComputeTokenHolder(nil, 1)
+	_, err := ComputeTokenHolder("test-group", nil, 1)
 	if err != ErrNoActiveView {
 		t.Errorf("expected ErrNoActiveView, got %v", err)
 	}
@@ -35,7 +35,7 @@ func TestComputeTokenHolder_DifferentEpochRotates(t *testing.T) {
 
 	holders := make(map[peer.ID]int)
 	for epoch := uint64(0); epoch < 100; epoch++ {
-		h, err := ComputeTokenHolder(view, epoch)
+		h, err := ComputeTokenHolder("test-group", view, epoch)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,8 +55,8 @@ func TestComputeTokenHolder_OrderIndependent(t *testing.T) {
 	view1 := []peer.ID{peerID("alice"), peerID("bob"), peerID("carol")}
 	view2 := []peer.ID{peerID("carol"), peerID("alice"), peerID("bob")}
 
-	h1, _ := ComputeTokenHolder(view1, 42)
-	h2, _ := ComputeTokenHolder(view2, 42)
+	h1, _ := ComputeTokenHolder("test-group", view1, 42)
+	h2, _ := ComputeTokenHolder("test-group", view2, 42)
 
 	if h1 != h2 {
 		t.Errorf("token holder should be independent of input order: %s vs %s", h1, h2)
@@ -71,7 +71,7 @@ func TestSingleWriter_IsTokenHolder(t *testing.T) {
 	av.RecordHeartbeat(peerID("carol"))
 
 	epoch := uint64(1)
-	expected, _ := ComputeTokenHolder(av.Members(), epoch)
+	expected, _ := ComputeTokenHolder("", av.Members(), epoch)
 
 	sw := NewSingleWriter(av, expected, epoch, cfg)
 	if !sw.IsTokenHolder() {

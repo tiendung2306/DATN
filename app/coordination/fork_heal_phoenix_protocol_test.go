@@ -64,7 +64,7 @@ func TestForkHeal_PhoenixProtocol_HappyPath(t *testing.T) {
 	// 2. Winner branch advances (simulate commit)
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
-	winner.coord.lastCommitHash = []byte("new-winning-commit-hash")
+	winner.coord.lastCommitHash = []byte("zzz-winning-commit-hash")
 	newWinnerTH := mockTreeHash(winner.coord.epoch)
 	winner.coord.treeHash = newWinnerTH
 	// Diverge history hash so same-epoch fork detection fires.
@@ -77,11 +77,11 @@ func TestForkHeal_PhoenixProtocol_HappyPath(t *testing.T) {
 	winner.coord.mu.Unlock()
 
 	// Loser stays at same epoch but with different HistoryHash to simulate
-	// a fork. Set a high CommitHash so the winner wins the tiebreaker.
+	// a fork. Set a low CommitHash so the winner wins the tiebreaker (higher hash wins).
 	loser.coord.mu.Lock()
 	loser.coord.epoch = winner.coord.epoch
 	loser.coord.historyHash = []byte("loser-stale-hist")
-	loser.coord.lastCommitHash = []byte("zzz-loser-stale-commit")
+	loser.coord.lastCommitHash = []byte("aaa-loser-stale-commit")
 	if loser.coord.historyChain == nil {
 		loser.coord.historyChain = make(map[uint64][]byte)
 	}

@@ -13,11 +13,11 @@ import (
 // ComputeTokenHolder deterministically elects the Token Holder for a given
 // epoch from the active view using:
 //
-//	argmin SHA-256(nodeID || epoch_number_le64)
+//	argmin SHA-256(groupID || epoch_number_le64 || nodeID)
 //
-// All nodes with the same active view and epoch MUST arrive at the same result.
-// Returns ErrNoActiveView if the view is empty.
-func ComputeTokenHolder(activeView []peer.ID, epoch uint64) (peer.ID, error) {
+// All nodes with the same groupID, active view, and epoch MUST arrive at the
+// same result. Returns ErrNoActiveView if the view is empty.
+func ComputeTokenHolder(groupID string, activeView []peer.ID, epoch uint64) (peer.ID, error) {
 	if len(activeView) == 0 {
 		return "", ErrNoActiveView
 	}
@@ -32,8 +32,9 @@ func ComputeTokenHolder(activeView []peer.ID, epoch uint64) (peer.ID, error) {
 	)
 	for _, pid := range activeView {
 		h := sha256.New()
-		h.Write([]byte(pid))
+		h.Write([]byte(groupID))
 		h.Write(epochBuf[:])
+		h.Write([]byte(pid))
 		var candidate [sha256.Size]byte
 		h.Sum(candidate[:0])
 
@@ -352,37 +353,7 @@ func (sw *SingleWriter) computeHolder(activeView []peer.ID, epoch uint64, groupI
 	}
 	eligible = filterRemovedByBatch(eligible, batch)
 	eligible = filterSuspended(eligible, suspended)
-	if groupID == "" {
-		return ComputeTokenHolder(eligible, epoch)
-	}
-	return computeTokenHolderScoped(groupID, eligible, epoch)
-}
-
-func computeTokenHolderScoped(groupID string, activeView []peer.ID, epoch uint64) (peer.ID, error) {
-	if len(activeView) == 0 {
-		return "", ErrNoActiveView
-	}
-	var epochBuf [8]byte
-	binary.LittleEndian.PutUint64(epochBuf[:], epoch)
-	var (
-		best     peer.ID
-		bestHash [sha256.Size]byte
-		first    = true
-	)
-	for _, pid := range activeView {
-		h := sha256.New()
-		h.Write([]byte(groupID))
-		h.Write(epochBuf[:])
-		h.Write([]byte(pid))
-		var candidate [sha256.Size]byte
-		h.Sum(candidate[:0])
-		if first || hashLess(candidate, bestHash) {
-			best = pid
-			bestHash = candidate
-			first = false
-		}
-	}
-	return best, nil
+	return ComputeTokenHolder(groupID, eligible, epoch)
 }
 
 func intersectPeerIDs(active, authorized []peer.ID) []peer.ID {

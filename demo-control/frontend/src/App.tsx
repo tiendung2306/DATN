@@ -118,7 +118,7 @@ export default function App() {
       setBusy(label)
       try {
         await fn()
-        await refresh()
+        void refresh()
       } catch (err) {
         setError(String(err))
       } finally {

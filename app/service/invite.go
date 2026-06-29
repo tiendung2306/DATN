@@ -881,6 +881,18 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 		return nil
 	}
 
+	// Dedup guard: if a pending invite for this exact Welcome already exists
+	// in pending status, skip the applyWelcome gRPC call. The Welcome has
+	// already been tried and failed (e.g. NoMatchingKeyPackage). Retrying the
+	// same Welcome with the same KeyPackage is guaranteed to fail again and
+	// floods the Rust sidecar with redundant gRPC calls that block legitimate
+	// encrypt/decrypt operations. The pending row remains for a future
+	// startup retry (which picks up a fresh KeyPackage).
+	inviteID := store.PendingInviteID(groupID, welcome)
+	if existing, lookupErr := database.GetPendingInvite(inviteID); lookupErr == nil && existing != nil && existing.Status == store.PendingInviteStatusPending {
+		return nil
+	}
+
 	// Auto-join semantics (Discord/Slack-style): once a Welcome reaches this
 	// node we attempt to apply it immediately for every group type. The pending
 	// row is only persisted as a fallback when applyWelcome cannot run yet
@@ -943,7 +955,7 @@ func (r *Runtime) savePendingInviteFromWelcome(groupID, groupType, categoryID st
 	if localID != "" {
 		_ = database.SaveStoredWelcome(localID, groupID, normalizedGroupType, categoryID, welcome, sourcePeerID, anchorEpoch, anchorHistoryHash)
 	}
-	inviteID := store.PendingInviteID(groupID, welcome)
+	inviteID = store.PendingInviteID(groupID, welcome)
 	if latest, latestErr := database.GetLatestPendingInviteByGroup(groupID); latestErr == nil {
 		if latest.Status == store.PendingInviteStatusAccepted {
 			return nil

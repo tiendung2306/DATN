@@ -50,10 +50,10 @@ func compareBranchWeightWithSupport(local, remote GroupStateAnnouncement, localS
 	}
 
 	cmp := bytes.Compare(local.CommitHash, remote.CommitHash)
-	if cmp < 0 {
+	if cmp > 0 {
 		return BranchLocal
 	}
-	if cmp > 0 {
+	if cmp < 0 {
 		return BranchRemote
 	}
 
@@ -215,6 +215,36 @@ func (fd *ForkDetector) ProcessRemote(observedAt time.Time, from peer.ID, remote
 		WinnerPeers:        winnerPeers,
 		PartitionStartedAt: bi.firstSeenAt,
 	}
+}
+
+// CompareWithPeer retrieves the stored remote announcement for a peer and
+// compares it against the local announcement using the full branch weight
+// function (including support and invalid-commit checks). Returns
+// (result, remoteAnnouncement, found). If the peer is not found in any
+// known branch, returns (BranchRemote, GroupStateAnnouncement{}, false)
+// as a safe fallback so the caller heals toward the remote.
+func (fd *ForkDetector) CompareWithPeer(from peer.ID) (BranchResult, GroupStateAnnouncement, bool) {
+	fd.mu.Lock()
+	defer fd.mu.Unlock()
+	if fd.local == nil {
+		return BranchRemote, GroupStateAnnouncement{}, false
+	}
+	for _, bi := range fd.known {
+		if _, ok := bi.peers[from]; ok {
+			localSupport := fd.branchSupportLocked(*fd.local)
+			remoteSupport := len(bi.peers)
+			result := compareBranchWeightWithSupport(
+				*fd.local,
+				bi.announcement,
+				localSupport,
+				remoteSupport,
+				fd.isInvalidCommitLocked(fd.local.CommitHash),
+				fd.isInvalidCommitLocked(bi.announcement.CommitHash),
+			)
+			return result, bi.announcement, true
+		}
+	}
+	return BranchRemote, GroupStateAnnouncement{}, false
 }
 
 // KnownBranches returns the number of distinct remote branches (by BranchID)
