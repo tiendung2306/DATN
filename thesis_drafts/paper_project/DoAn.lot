@@ -2,18 +2,19 @@
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \addvspace {10\p@ }
+\contentsline {table}{\numberline {3.1}{\ignorespaces Mối liên hệ giữa thách thức, câu hỏi nghiên cứu và cơ chế đề xuất}}{18}{table.caption.10}%
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {4.1}{\ignorespaces Quy tắc xử lý thông điệp theo epoch}}{33}{table.caption.10}%
-\contentsline {table}{\numberline {4.2}{\ignorespaces Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}}{42}{table.caption.11}%
-\contentsline {table}{\numberline {4.3}{\ignorespaces Bảng so sánh cơ chế điều phối đề xuất với các thuật toán đồng thuận truyền thống}}{43}{table.caption.12}%
+\contentsline {table}{\numberline {4.1}{\ignorespaces Quy tắc xử lý thông điệp theo epoch}}{35}{table.caption.12}%
+\contentsline {table}{\numberline {4.2}{\ignorespaces Tổng hợp các bất biến lý thuyết và cơ chế bảo toàn}}{44}{table.caption.13}%
+\contentsline {table}{\numberline {4.3}{\ignorespaces Bảng so sánh cơ chế điều phối đề xuất với các thuật toán đồng thuận truyền thống}}{45}{table.caption.14}%
 \addvspace {10\p@ }
-\contentsline {table}{\numberline {5.1}{\ignorespaces Các tiêu chí đánh giá thực nghiệm}}{46}{table.caption.13}%
-\contentsline {table}{\numberline {5.2}{\ignorespaces So sánh xử lý ngay và cơ chế gom đề xuất}}{47}{table.caption.14}%
-\contentsline {table}{\numberline {5.3}{\ignorespaces Thời gian healing, kích thước group state và tỷ lệ healing/group state theo độ sâu phân kỳ (trung vị của 10 lần chạy)}}{49}{table.caption.17}%
-\contentsline {table}{\numberline {5.4}{\ignorespaces Chi phí thao tác thành viên theo quy mô nhóm}}{51}{table.caption.20}%
-\contentsline {table}{\numberline {5.5}{\ignorespaces So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}}{52}{table.caption.21}%
-\contentsline {table}{\numberline {5.6}{\ignorespaces So sánh p95 và p99 ở nhóm 4096 thành viên}}{52}{table.caption.22}%
-\contentsline {table}{\numberline {5.7}{\ignorespaces Chi phí xử lý cục bộ: Điều phối (giả lập MLS) và Điều phối + MLS (MLS thật)}}{53}{table.caption.23}%
+\contentsline {table}{\numberline {5.1}{\ignorespaces Các tiêu chí đánh giá thực nghiệm}}{48}{table.caption.15}%
+\contentsline {table}{\numberline {5.2}{\ignorespaces So sánh xử lý ngay và cơ chế gom đề xuất}}{49}{table.caption.16}%
+\contentsline {table}{\numberline {5.3}{\ignorespaces Thời gian healing, kích thước group state và tỷ lệ healing/group state theo độ sâu phân kỳ (trung vị của 10 lần chạy)}}{51}{table.caption.19}%
+\contentsline {table}{\numberline {5.4}{\ignorespaces Chi phí thao tác thành viên theo quy mô nhóm}}{53}{table.caption.22}%
+\contentsline {table}{\numberline {5.5}{\ignorespaces So sánh trung vị thời gian xử lý giữa hai hướng mã hóa, với payload 1024 byte và 100 mẫu cho mỗi điểm đo}}{54}{table.caption.23}%
+\contentsline {table}{\numberline {5.6}{\ignorespaces So sánh p95 và p99 ở nhóm 4096 thành viên}}{54}{table.caption.24}%
+\contentsline {table}{\numberline {5.7}{\ignorespaces Chi phí xử lý cục bộ: Điều phối (giả lập MLS) và Điều phối + MLS (MLS thật)}}{56}{table.caption.25}%
 \addvspace {10\p@ }
 \addvspace {10\p@ }
 \contentsfinish 

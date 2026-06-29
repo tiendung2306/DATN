@@ -82,29 +82,17 @@
 
   \entry{rfc9750}{misc}{}{}
     \name{author}{5}{}{%
-      {{hash=TS}{%
-         family={Turner},
-         familyi={T\bibinitperiod},
-         given={Sean},
-         giveni={S\bibinitperiod},
-      }}%
-      {{hash=BR}{%
-         family={Barnes},
-         familyi={B\bibinitperiod},
-         given={Richard},
-         giveni={R\bibinitperiod},
-      }}%
       {{hash=BB}{%
          family={Beurdouche},
          familyi={B\bibinitperiod},
          given={Benjamin},
          giveni={B\bibinitperiod},
       }}%
-      {{hash=RR}{%
-         family={Robert},
+      {{hash=RE}{%
+         family={Rescorla},
          familyi={R\bibinitperiod},
-         given={Raphael},
-         giveni={R\bibinitperiod},
+         given={Eric},
+         giveni={E\bibinitperiod},
       }}%
       {{hash=OE}{%
          family={Omara},
@@ -112,12 +100,24 @@
          given={Emad},
          giveni={E\bibinitperiod},
       }}%
+      {{hash=IS}{%
+         family={Inguva},
+         familyi={I\bibinitperiod},
+         given={Srinivas},
+         giveni={S\bibinitperiod},
+      }}%
+      {{hash=DA}{%
+         family={Duric},
+         familyi={D\bibinitperiod},
+         given={Anurag},
+         giveni={A\bibinitperiod},
+      }}%
     }
     \list{publisher}{1}{%
       {RFC Editor}%
     }
-    \strng{namehash}{TS+1}
-    \strng{fullhash}{TSBRBBRROE1}
+    \strng{namehash}{BB+1}
+    \strng{fullhash}{BBREOEISDA1}
     \field{labelnamesource}{author}
     \field{labeltitlesource}{title}
     \verb{doi}
@@ -130,7 +130,7 @@
     \verb{url}
     \verb https://www.rfc-editor.org/rfc/rfc9750.html
     \endverb
-    \field{month}{02}
+    \field{month}{04}
     \field{year}{2025}
     \field{urlday}{22}
     \field{urlmonth}{06}
@@ -257,7 +257,7 @@
     \verb 10.1007/978-3-031-38551-3_13
     \endverb
     \field{note}{Cryptology {ePrint} Archive, Paper 2023/394}
-    \field{pages}{3\bibrangedash 34}
+    \field{pages}{396\bibrangedash 429}
     \field{title}{Fork-Resilient Continuous Group Key Agreement}
     \verb{url}
     \verb https://eprint.iacr.org/2023/394
@@ -662,7 +662,7 @@
     \field{year}{1978}
   \endentry
 
-  \entry{kulkarni2014hlc}{report}{}{}
+  \entry{kulkarni2014hlc}{inproceedings}{}{}
     \name{author}{5}{}{%
       {{hash=KSS}{%
          family={Kulkarni},
@@ -695,19 +695,23 @@
          giveni={M\bibinitperiod},
       }}%
     }
+    \list{publisher}{1}{%
+      {Springer}%
+    }
     \strng{namehash}{KSS+1}
     \strng{fullhash}{KSSDMMDABLM1}
     \field{labelnamesource}{author}
     \field{labeltitlesource}{title}
+    \field{booktitle}{Proceedings of the 18th International Conference on
+  Principles of Distributed Systems (OPODIS 2014)}
+    \field{pages}{17\bibrangedash 32}
+    \field{series}{Lecture Notes in Computer Science}
     \field{title}{{Logical Physical Clocks and Consistent Snapshots in Globally
   Distributed Databases}}
     \verb{url}
     \verb https://cse.buffalo.edu/tech-reports/2014-04.pdf
     \endverb
-    \list{institution}{1}{%
-      {University at Buffalo}%
-    }
-    \field{type}{techreport}
+    \field{volume}{8878}
     \field{year}{2014}
     \field{urlday}{22}
     \field{urlmonth}{06}
