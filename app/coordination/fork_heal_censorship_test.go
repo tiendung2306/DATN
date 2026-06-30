@@ -52,7 +52,7 @@ func TestCoordinator_CensorshipFailover(t *testing.T) {
 
 	// Wait for the failover timer goroutines to process
 	time.Sleep(100 * time.Millisecond) // yield to allow goroutines to run and lock
-	
+
 	// The new token holder will schedule a batch commit. Advance clock past BatchingDelay.
 	clk.Advance(nodes[0].coord.cfg.BatchingDelay + 100*time.Millisecond)
 	network.DrainAll()

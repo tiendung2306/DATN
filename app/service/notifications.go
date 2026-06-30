@@ -1,8 +1,6 @@
 package service
 
 import (
-	"app/coordination"
-	"app/domain"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +10,9 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"app/coordination"
+	"app/domain"
 )
 
 type NotificationDTO struct {

@@ -27,7 +27,9 @@ func (c *Coordinator) broadcastBatchedOutboundReplay(outbound *OutboundReplay, e
 	for _, ev := range evs {
 		ev.Status = "REPLAYED"
 		ev.ReplayedAtMs = c.clock.Now().UnixMilli()
-		_ = c.storage.SaveApplicationEvent(ev)
+		if err := c.storage.SaveApplicationEvent(ev); err != nil {
+			slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+		}
 
 		if len(ev.EnvelopeHash) > 0 {
 			now := c.clock.Now()
@@ -51,26 +53,31 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 
 	storageKey := deriveStorageKey(c.signingKey)
 
-
 	for _, ev := range events {
 		if ev.AuthorID != c.localID.String() {
 			ev.Status = "WAITING_AUTHOR_REPLAY"
 			ev.PayloadSealed = nil
 			ev.SealNonce = nil
 			ev.SealKeyID = ""
-			_ = c.storage.SaveApplicationEvent(ev)
+			if err := c.storage.SaveApplicationEvent(ev); err != nil {
+				slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+			}
 			continue
 		}
 
 		if ev.Status == "ORPHANED_OWN" || ev.Status == "REPLAY_PENDING" {
 			if len(ev.PayloadSealed) == 0 || len(ev.SealNonce) == 0 {
 				ev.Status = "WAITING_AUTHOR_REPLAY"
-				_ = c.storage.SaveApplicationEvent(ev)
+				if err := c.storage.SaveApplicationEvent(ev); err != nil {
+					slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+				}
 				continue
 			}
 			ev.Status = "REPLAY_PENDING"
 			ev.ReplayAttemptCount++
-			_ = c.storage.SaveApplicationEvent(ev)
+			if err := c.storage.SaveApplicationEvent(ev); err != nil {
+				slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+			}
 
 			plaintext, decErr := openPayload(ev.PayloadSealed, ev.SealNonce, storageKey)
 			if decErr == nil {
@@ -89,7 +96,9 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 			} else {
 				ev.Status = "REPLAY_FAILED"
 				ev.LastError = decErr.Error()
-				_ = c.storage.SaveApplicationEvent(ev)
+				if err := c.storage.SaveApplicationEvent(ev); err != nil {
+					slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+				}
 			}
 		}
 	}
@@ -123,7 +132,9 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 			for _, ev := range chunkPending {
 				ev.Status = "REPLAY_FAILED"
 				ev.LastError = encErr.Error()
-				_ = c.storage.SaveApplicationEvent(ev)
+				if err := c.storage.SaveApplicationEvent(ev); err != nil {
+					slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+				}
 			}
 			continue
 		}
@@ -133,7 +144,9 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 		c.mu.Lock()
 		envBytes := c.buildEnvelopeWithTimestampLocked(MsgApplicationBatched, BatchedApplicationMsg{Ciphertext: ciphertext}, ts)
 		c.groupState = nextGroupState
-		_ = c.saveCurrentGroupStateLocked(c.clock.Now())
+		if err := c.saveCurrentGroupStateLocked(c.clock.Now()); err != nil {
+			slog.Warn("Failed to save group state during batch replay", "group", c.groupID, "error", err)
+		}
 		c.mu.Unlock()
 
 		replayedHash := sha256.Sum256(envBytes)
@@ -151,13 +164,17 @@ func (c *Coordinator) batchAndReplayOutbox(ctx context.Context, jobID, groupID s
 			CreatedAtMs:          c.clock.Now().UnixMilli(),
 			UpdatedAtMs:          c.clock.Now().UnixMilli(),
 		}
-		_ = c.storage.SaveOutboundReplay(outbound)
+		if err := c.storage.SaveOutboundReplay(outbound); err != nil {
+			slog.Warn("Failed to save outbound replay", "group", c.groupID, "replay_op_id", replayOpID, "error", err)
+		}
 
 		for _, ev := range chunkPending {
 			ev.ReplayOperationID = replayOpID
 			ev.ReplayedEnvelopeHash = replayedHash[:]
 			ev.Status = "REPLAY_ENQUEUED"
-			_ = c.storage.SaveApplicationEvent(ev)
+			if err := c.storage.SaveApplicationEvent(ev); err != nil {
+				slog.Warn("Failed to save application event", "group", c.groupID, "error", err)
+			}
 		}
 
 		if err := c.broadcastBatchedOutboundReplay(outbound, chunkPending); err == nil {
@@ -254,45 +271,55 @@ func (c *Coordinator) handleApplicationBatchedLocked(from peer.ID, env *Envelope
 		}
 
 		appEv := &ApplicationEvent{
-			EventID:              evPayload.EventID,
-			GroupID:              c.groupID,
-			OriginalEpoch:        env.Epoch,
-			AuthorID:             sender.String(),
-			HlcWallTimeMs:        localTs.WallTimeMs,
-			HlcCounter:           localTs.Counter,
-			HlcNodeID:            localTs.NodeID,
-			PayloadSealed:        sealedPayload,
-			PayloadHash:          h,
-			SealKeyID:            "local_node_key",
-			SealNonce:            nonce,
-			Status:               "DELIVERED",
-			CreatedAtMs:          now.UnixMilli(),
+			EventID:       evPayload.EventID,
+			GroupID:       c.groupID,
+			OriginalEpoch: env.Epoch,
+			AuthorID:      sender.String(),
+			HlcWallTimeMs: localTs.WallTimeMs,
+			HlcCounter:    localTs.Counter,
+			HlcNodeID:     localTs.NodeID,
+			PayloadSealed: sealedPayload,
+			PayloadHash:   h,
+			SealKeyID:     "local_node_key",
+			SealNonce:     nonce,
+			Status:        "DELIVERED",
+			CreatedAtMs:   now.UnixMilli(),
 		}
-		
+
 		if err := c.storage.SaveApplicationEvent(appEv); err == nil {
 			if c.onMessage != nil {
 				c.onMessage(msg)
 			}
 		}
 	}
-	
-	c.groupState = newState
-	_ = c.saveCurrentGroupStateLocked(now)
 
-	_, _, _ = c.storage.ApplyBatchedApplication(&GroupRecord{
+	c.groupState = newState
+	if err := c.saveCurrentGroupStateLocked(now); err != nil {
+		slog.Warn("Failed to save group state after batched application", "group", c.groupID, "error", err)
+	}
+
+	if _, _, err := c.storage.ApplyBatchedApplication(&GroupRecord{
 		GroupID:    c.groupID,
 		GroupState: newState,
 		Epoch:      c.epoch,
 		TreeHash:   c.treeHash,
 		UpdatedAt:  now,
-	}, msgs, env.Type, wire, env.Timestamp, env.Epoch)
+	}, msgs, env.Type, wire, env.Timestamp, env.Epoch); err != nil {
+		slog.Warn("Failed to apply batched application", "group", c.groupID, "error", err)
+	}
 
 	return true
 }
 
 func (c *Coordinator) triggerBatchReplayAsync(groupID string) {
+	c.wg.Add(1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer c.wg.Done()
+		baseCtx := c.ctx
+		if baseCtx == nil {
+			baseCtx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(baseCtx, 10*time.Second)
 		defer cancel()
 		jobID := "WINNER-REPLAY-" + groupID + fmt.Sprintf("-%d", c.clock.Now().UnixNano())
 		c.batchAndReplayOutbox(ctx, jobID, groupID)

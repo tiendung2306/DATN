@@ -303,14 +303,14 @@ func TestSingleWriter_SuspendExcludesTarget(t *testing.T) {
 	av.RecordHeartbeat(peerID("carol"))
 
 	sw := NewSingleWriter(av, peerID("alice"), 1, cfg)
-	
+
 	normalHolder, err := sw.CurrentTokenHolder()
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	sw.Suspend(normalHolder)
-	
+
 	newHolder, err := sw.CurrentTokenHolder()
 	if err != nil {
 		t.Fatal(err)
@@ -321,7 +321,7 @@ func TestSingleWriter_SuspendExcludesTarget(t *testing.T) {
 
 	sw.AdvanceEpoch(2)
 	sw.epoch = 1 // hack for test to verify deterministic re-election after clear
-	
+
 	restoredHolder, err := sw.CurrentTokenHolder()
 	if err != nil {
 		t.Fatal(err)

@@ -128,7 +128,7 @@ func TestForkHeal_OrphanEventSnapshot_AESGCMSealing(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	
+
 	coord.ProcessWelcomeIfWaiting(context.Background(), winnerState)
 
 	// Wait until the job status becomes CLEANED
@@ -185,8 +185,6 @@ func TestForkHeal_OrphanEventSnapshot_AESGCMSealing(t *testing.T) {
 	}
 }
 
-
-
 // TestForkHeal_Resume_AfterSwap verifies that restart at STATE_SWAPPED status skips External Join
 // and directly processes Replay and Cleanup phase.
 func TestForkHeal_Resume_AfterSwap(t *testing.T) {
@@ -229,18 +227,18 @@ func TestForkHeal_Resume_AfterSwap(t *testing.T) {
 
 	// 2. Persist job ở trạng thái STATE_SWAPPED
 	job := &ForkHealingJob{
-		JobID:             "job-swap-1",
-		GroupID:           groupID,
-		TraceID:           "trace-resume-swap-1",
-		Status:            "STATE_SWAPPED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       2,
-		WinningEpoch:      5,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      peerID("carol").String(),
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
+		JobID:           "job-swap-1",
+		GroupID:         groupID,
+		TraceID:         "trace-resume-swap-1",
+		Status:          "STATE_SWAPPED",
+		LosingBranchID:  "losing-branch-id",
+		WinningBranchID: "winning-branch-id",
+		LosingEpoch:     2,
+		WinningEpoch:    5,
+		WinningTreeHash: winnerTree,
+		WinnerPeerID:    peerID("carol").String(),
+		CreatedAtMs:     clk.Now().UnixMilli(),
+		UpdatedAtMs:     clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveForkHealingJob(job)
 
@@ -250,7 +248,7 @@ func TestForkHeal_Resume_AfterSwap(t *testing.T) {
 	sealed, nonce, _ := sealPayload(ownContent, storageKey)
 	h := sha256.Sum256(ownContent)
 	ts := coord.hlc.Now()
-	
+
 	_ = storage.SaveApplicationEvent(&ApplicationEvent{
 		EventID:          "event-1",
 		JobID:            "job-swap-1",
@@ -318,18 +316,18 @@ func TestForkHeal_ReplayIdempotency_PartialCrash(t *testing.T) {
 
 	// Ghi nhận job ở STATE_SWAPPED
 	job := &ForkHealingJob{
-		JobID:             "job-idemp-1",
-		GroupID:           groupID,
-		TraceID:           "trace-idemp-1",
-		Status:            "STATE_SWAPPED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       2,
-		WinningEpoch:      5,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      peerID("carol").String(),
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
+		JobID:           "job-idemp-1",
+		GroupID:         groupID,
+		TraceID:         "trace-idemp-1",
+		Status:          "STATE_SWAPPED",
+		LosingBranchID:  "losing-branch-id",
+		WinningBranchID: "winning-branch-id",
+		LosingEpoch:     2,
+		WinningEpoch:    5,
+		WinningTreeHash: winnerTree,
+		WinnerPeerID:    peerID("carol").String(),
+		CreatedAtMs:     clk.Now().UnixMilli(),
+		UpdatedAtMs:     clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveForkHealingJob(job)
 
@@ -466,7 +464,7 @@ func TestForkHeal_GossipAppendOnly_DuringFrozen(t *testing.T) {
 	otherContent := []byte("gossip while healing")
 	otherCipher, _, _ := mls.EncryptMessage(context.Background(), lState, otherContent)
 	otherPayload, _ := json.Marshal(ApplicationMsg{Ciphertext: otherCipher})
-	
+
 	env := Envelope{
 		Type:      MsgApplication,
 		GroupID:   groupID,
@@ -526,18 +524,18 @@ func TestForkHeal_DoNotReplayOthers(t *testing.T) {
 
 	// Ghi nhận job ở STATE_SWAPPED
 	job := &ForkHealingJob{
-		JobID:             "job-other-1",
-		GroupID:           groupID,
-		TraceID:           "trace-other-1",
-		Status:            "STATE_SWAPPED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       2,
-		WinningEpoch:      5,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      peerID("carol").String(),
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
+		JobID:           "job-other-1",
+		GroupID:         groupID,
+		TraceID:         "trace-other-1",
+		Status:          "STATE_SWAPPED",
+		LosingBranchID:  "losing-branch-id",
+		WinningBranchID: "winning-branch-id",
+		LosingEpoch:     2,
+		WinningEpoch:    5,
+		WinningTreeHash: winnerTree,
+		WinnerPeerID:    peerID("carol").String(),
+		CreatedAtMs:     clk.Now().UnixMilli(),
+		UpdatedAtMs:     clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveForkHealingJob(job)
 
@@ -604,18 +602,18 @@ func TestForkHeal_CrashBeforeBroadcast_OutboxRecovery(t *testing.T) {
 	coord.started = true
 
 	job := &ForkHealingJob{
-		JobID:             "job-outbox-1",
-		GroupID:           groupID,
-		TraceID:           "trace-outbox-1",
-		Status:            "STATE_SWAPPED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       2,
-		WinningEpoch:      5,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      peerID("carol").String(),
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
+		JobID:           "job-outbox-1",
+		GroupID:         groupID,
+		TraceID:         "trace-outbox-1",
+		Status:          "STATE_SWAPPED",
+		LosingBranchID:  "losing-branch-id",
+		WinningBranchID: "winning-branch-id",
+		LosingEpoch:     2,
+		WinningEpoch:    5,
+		WinningTreeHash: winnerTree,
+		WinnerPeerID:    peerID("carol").String(),
+		CreatedAtMs:     clk.Now().UnixMilli(),
+		UpdatedAtMs:     clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveForkHealingJob(job)
 
@@ -719,18 +717,18 @@ func TestForkHeal_Resume_BranchMismatch(t *testing.T) {
 	// Winning branch has epoch 5 and different tree hash
 	winnerState, winnerTree, _ := mls.CreateGroup(context.Background(), groupID, []byte("carol-signing-key"), 3)
 	job := &ForkHealingJob{
-		JobID:             "job-mismatch-1",
-		GroupID:           groupID,
-		TraceID:           "trace-mismatch-1",
-		Status:            "INITIATED",
-		LosingBranchID:    "losing-branch-id",
-		WinningBranchID:   "winning-branch-id",
-		LosingEpoch:       6,
-		WinningEpoch:      5,
-		WinningTreeHash:   winnerTree,
-		WinnerPeerID:      peerID("carol").String(),
-		CreatedAtMs:       clk.Now().UnixMilli(),
-		UpdatedAtMs:       clk.Now().UnixMilli(),
+		JobID:           "job-mismatch-1",
+		GroupID:         groupID,
+		TraceID:         "trace-mismatch-1",
+		Status:          "INITIATED",
+		LosingBranchID:  "losing-branch-id",
+		WinningBranchID: "winning-branch-id",
+		LosingEpoch:     6,
+		WinningEpoch:    5,
+		WinningTreeHash: winnerTree,
+		WinnerPeerID:    peerID("carol").String(),
+		CreatedAtMs:     clk.Now().UnixMilli(),
+		UpdatedAtMs:     clk.Now().UnixMilli(),
 	}
 	_ = storage.SaveForkHealingJob(job)
 

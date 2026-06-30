@@ -89,13 +89,13 @@ func setupCluster(t *testing.T, n int, groupID string) ([]*testNode, *FakeNetwor
 		signingKey := priv.Seed()
 
 		coord, err := NewCoordinator(CoordinatorOpts{
-			Config:    TestConfig(),
-			Transport: transport,
-			Clock:     clk,
-			MLS:       mls,
-			Storage:   storage,
-			LocalID:   id,
-			GroupID:   groupID,
+			Config:     TestConfig(),
+			Transport:  transport,
+			Clock:      clk,
+			MLS:        mls,
+			Storage:    storage,
+			LocalID:    id,
+			GroupID:    groupID,
 			SigningKey: signingKey,
 		})
 		if err != nil {
@@ -239,13 +239,13 @@ func setupClusterWithIDs(t *testing.T, ids []peer.ID, groupID string) ([]*testNo
 		signingKey := priv.Seed()
 
 		coord, err := NewCoordinator(CoordinatorOpts{
-			Config:    TestConfig(),
-			Transport: transport,
-			Clock:     clk,
-			MLS:       mls,
-			Storage:   storage,
-			LocalID:   id,
-			GroupID:   groupID,
+			Config:     TestConfig(),
+			Transport:  transport,
+			Clock:      clk,
+			MLS:        mls,
+			Storage:    storage,
+			LocalID:    id,
+			GroupID:    groupID,
 			SigningKey: signingKey,
 		})
 		if err != nil {

@@ -119,8 +119,9 @@ func benchmarkAddMember(t *testing.T, N int) time.Duration {
 
 	// Pre-populate group with N members at Epoch 10
 	prePopulateMockGroup(t, nodes, groupID, 10)
-	startAllNodes(t, nodes)
-	exchangeHeartbeats(nodes, network)
+	stopAll := startAllNodes(t, nodes)
+	defer stopAll()
+	exchangeHeartbeatsFast(nodes)
 
 	// Sibling node (Node 1) proposes adding a new member
 	targetPeer := peerID("invitee-target")
@@ -170,8 +171,9 @@ func benchmarkRemoveMember(t *testing.T, N int) time.Duration {
 
 	// Pre-populate group with N members at Epoch 10
 	prePopulateMockGroup(t, nodes, groupID, 10)
-	startAllNodes(t, nodes)
-	exchangeHeartbeats(nodes, network)
+	stopAll := startAllNodes(t, nodes)
+	defer stopAll()
+	exchangeHeartbeatsFast(nodes)
 
 	// Sibling node (Node 1) proposes removing Node 2
 	targetIdentity := []byte(nodes[2].id)
@@ -220,8 +222,9 @@ func benchmarkUpdateMember(t *testing.T, N int) time.Duration {
 
 	// Pre-populate group with N members at Epoch 10
 	prePopulateMockGroup(t, nodes, groupID, 10)
-	startAllNodes(t, nodes)
-	exchangeHeartbeats(nodes, network)
+	stopAll := startAllNodes(t, nodes)
+	defer stopAll()
+	exchangeHeartbeatsFast(nodes)
 
 	start := time.Now()
 
@@ -311,16 +314,32 @@ func prePopulateMockGroup(t *testing.T, nodes []*testNode, groupID string, epoch
 	return stateBytes
 }
 
-func startAllNodes(t *testing.T, nodes []*testNode) {
+func startAllNodes(t *testing.T, nodes []*testNode) func() {
 	ctx := context.Background()
 	for i, n := range nodes {
 		if err := n.coord.Start(ctx); err != nil {
 			t.Fatalf("Start[%d]: %v", i, err)
 		}
 	}
-	t.Cleanup(func() {
+	return func() {
 		for _, n := range nodes {
 			n.coord.Stop()
 		}
-	})
+	}
+}
+
+// exchangeHeartbeatsFast populates each node's ActiveView with all other peers
+// directly, bypassing the FakeNetwork. This avoids O(N²) JSON-serialized message
+// deliveries that make exchangeHeartbeats impractical for N > 500 in CI.
+// Uses Seed (O(N), no onChange callback) instead of ObservePeerAlive (which
+// triggers sortedMembersLocked O(N log N) + goroutine spawn per new peer).
+// Semantically equivalent: every node ends up with all peers in its ActiveView.
+func exchangeHeartbeatsFast(nodes []*testNode) {
+	pids := make([]peer.ID, 0, len(nodes))
+	for _, n := range nodes {
+		pids = append(pids, n.id)
+	}
+	for _, n := range nodes {
+		n.coord.activeView.Seed(pids)
+	}
 }

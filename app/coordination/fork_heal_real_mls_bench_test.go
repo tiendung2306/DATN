@@ -37,11 +37,11 @@ func benchConfig() *CoordinatorConfig {
 	cfg.BatchingDelay = 0 // Immediate commit — eliminates batching delay noise in healing measurement
 	cfg.HeartbeatInterval = 5 * time.Second
 	cfg.MLSOperationTimeout = 10 * time.Second // real Rust gRPC cần timeout lớn hơn
-	cfg.TokenHolderTimeout = 5 * time.Second // Production-like timeout
-	cfg.PeerDeadAfter = 100         // Prevent activeView eviction during long divergence advance
-	cfg.MaxBatchedProposals = 100   // Allow all 32 nodes × 2 proposals (Remove+Add) per ProposalJoin
-	cfg.MaxPastEpochsOverride = 200 // Allow ProposalJoin healing from deep divergence (D up to 100)
-	cfg.AnnounceInterval = 0        // Disable auto-announce; drive manually to control healing triggers
+	cfg.TokenHolderTimeout = 5 * time.Second   // Production-like timeout
+	cfg.PeerDeadAfter = 100                    // Prevent activeView eviction during long divergence advance
+	cfg.MaxBatchedProposals = 100              // Allow all 32 nodes × 2 proposals (Remove+Add) per ProposalJoin
+	cfg.MaxPastEpochsOverride = 200            // Allow ProposalJoin healing from deep divergence (D up to 100)
+	cfg.AnnounceInterval = 0                   // Disable auto-announce; drive manually to control healing triggers
 	return cfg
 }
 

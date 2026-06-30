@@ -216,6 +216,10 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 		for tick := 0; tick < maxTicks; tick++ {
 			network.DrainAll()
 			time.Sleep(10 * time.Millisecond)
+			network.DrainAll()
+			time.Sleep(20 * time.Millisecond)
+			network.DrainAll()
+			time.Sleep(10 * time.Millisecond)
 
 			// Check if all nodes reached consensus convergence
 			allSameEpoch := true
@@ -262,6 +266,11 @@ func TestIntegration_PartitionRecoverySweep(t *testing.T) {
 			fmt.Sprintf("%d", int(d.Seconds())),
 			fmt.Sprintf("%.1f", float64(simulatedRecoveryMs)),
 		})
+
+		// Stop coordinators to clean up goroutines
+		for _, n := range nodes {
+			n.coord.Stop()
+		}
 	}
 
 	writer.Flush()

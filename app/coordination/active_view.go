@@ -79,11 +79,15 @@ func (av *ActiveView) RecordHeartbeat(id peer.ID) bool {
 		return false
 	}
 	av.members[id] = &memberState{}
-	members := av.sortedMembersLocked()
+	onChange := av.onChange
+	var members []peer.ID
+	if onChange != nil {
+		members = av.sortedMembersLocked()
+	}
 	av.mu.Unlock()
 
-	if av.onChange != nil {
-		av.onChange(members)
+	if onChange != nil {
+		onChange(members)
 	}
 	return true
 }

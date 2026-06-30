@@ -50,16 +50,16 @@ func (t HLCTimestamp) IsZero() bool {
 type MessageType string
 
 const (
-	MsgProposal    MessageType = "proposal"
-	MsgCommit      MessageType = "commit"
-	MsgHeartbeat   MessageType = "heartbeat"
-	MsgAnnounce    MessageType = "announce"
+	MsgProposal           MessageType = "proposal"
+	MsgCommit             MessageType = "commit"
+	MsgHeartbeat          MessageType = "heartbeat"
+	MsgAnnounce           MessageType = "announce"
 	MsgEpochNotify        MessageType = "epoch_notify"
 	MsgApplication        MessageType = "application"
 	MsgApplicationBatched MessageType = "application_batched"
 	MsgDeliveryAck        MessageType = "delivery_ack"
-	MsgHistoryQuery        MessageType = "history_query"
-	MsgHistoryReply        MessageType = "history_reply"
+	MsgHistoryQuery       MessageType = "history_query"
+	MsgHistoryReply       MessageType = "history_reply"
 )
 
 // Envelope is the top-level wire format for all coordination messages.
@@ -361,7 +361,7 @@ type CoordState struct {
 	TokenHolder      peer.ID
 	LastCommitHash   []byte
 	LastCommitAt     time.Time
-	PendingProposals [][]byte // buffered MLS Proposal bytes
+	PendingProposals [][]byte          // buffered MLS Proposal bytes
 	HistoryChain     map[uint64][]byte // epoch → R(epoch), for cross-epoch query/reply
 }
 

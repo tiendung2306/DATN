@@ -22,6 +22,8 @@ backend/*.log
 app/*.exe
 app/*.test
 app/*.log
+app/.tmp_*/
+app/coordination/chaos_metrics.csv
 
 # Local runtime data — databases, bundles, backups, bootstrap info
 .local/
@@ -30,6 +32,7 @@ app/.local/
 
 # Rust
 crypto-engine/target/
+crypto-engine/external_join_bench.csv
 **/*.rs.bk
 
 # Node / Frontend
@@ -61,6 +64,9 @@ demo-control/frontend/wailsjs/
 app/frontend/package.json.md5
 demo-control/frontend/package.json.md5
 
+# Demo control binaries
+demo-control/*.exe
+
 # Temporary files
 tmp/
 *.tmp
@@ -68,3 +74,12 @@ tmp/
 .tmp-go-tmp/
 .wails-cache/
 .wails-bin
+
+# Root-level junk files
+refactor*.py
+test_fallback.go
+test_idem.go
+test_mls.go
+
+# Thesis build artifacts
+thesis_drafts/paper_project/*.log

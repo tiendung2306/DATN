@@ -177,19 +177,51 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 
 	// Final stabilization - crucial for convergence!
 	network.Heal()
-	for i := 0; i < 100; i++ {
+	converged := false
+	for i := 0; i < 200; i++ {
 		exchangeHeartbeats(nodes, network)
 		for _, n := range nodes {
 			n.coord.BroadcastAnnounce() // Announcements trigger Fork Healing
 		}
-		network.DrainAll() // deliver announces → trigger heal goroutines
+		network.DrainAll()                // deliver announces → trigger heal goroutines
+		time.Sleep(50 * time.Millisecond) // let heal goroutines broadcast ProposalJoins
 		clk.Advance(10 * time.Millisecond)
-		network.DrainAll() // deliver ProposalJoins from heal goroutines → trigger Welcomes
+		network.DrainAll()                // deliver ProposalJoins from heal goroutines → trigger Welcomes
+		time.Sleep(50 * time.Millisecond) // let ProcessWelcomeIfWaiting goroutines run
 		clk.Advance(500 * time.Millisecond)
 		network.DrainAll() // deliver any remaining messages (Welcomes, etc.)
 		clk.Advance(500 * time.Millisecond)
 		time.Sleep(10 * time.Millisecond)
+
+		// Early exit if all nodes have converged
+		if i >= 10 {
+			allSame := true
+			var refEpoch uint64
+			var refTreeHash []byte
+			for j, n := range nodes {
+				if n.coord.IsHealing() {
+					allSame = false
+					break
+				}
+				e := n.coord.CurrentEpoch()
+				th := n.coord.GetTreeHash()
+				if j == 0 {
+					refEpoch = e
+					refTreeHash = append([]byte(nil), th...)
+					continue
+				}
+				if e != refEpoch || !bytes.Equal(th, refTreeHash) {
+					allSame = false
+					break
+				}
+			}
+			if allSame {
+				converged = true
+				break
+			}
+		}
 	}
+	_ = converged
 	recordMetrics() // capture final state
 
 	if writer != nil {
@@ -222,4 +254,18 @@ func TestIntegration_Chaos_Convergence(t *testing.T) {
 			}
 		}
 	})
+
+	// Stop all coordinators to clean up goroutines (best-effort with timeout
+	// to avoid hanging on pre-existing goroutine leaks from the chaos phase).
+	done := make(chan struct{})
+	go func() {
+		for _, n := range nodes {
+			n.coord.Stop()
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+	}
 }

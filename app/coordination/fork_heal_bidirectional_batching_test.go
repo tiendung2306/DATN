@@ -23,7 +23,7 @@ func TestForkHeal_BidirectionalBatching_ThunderingHerd(t *testing.T) {
 		}
 	}
 	startAll(t, nodes)
-	
+
 	winner := nodes[0] // Token Holder
 	loser := nodes[1]  // Loser branch
 
@@ -41,7 +41,7 @@ func TestForkHeal_BidirectionalBatching_ThunderingHerd(t *testing.T) {
 
 	// Heal partition
 	network.Heal()
-	
+
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
 	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")
@@ -114,7 +114,7 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 		}
 	}
 	startAll(t, nodes)
-	
+
 	winner := nodes[0]
 	loser := nodes[1]
 
@@ -124,7 +124,7 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_, _ = winner.coord.SendMessage([]byte("winner message"))
 	}
-	
+
 	// Loser sends 3 messages
 	for i := 0; i < 3; i++ {
 		_, _ = loser.coord.SendMessage([]byte("loser message"))
@@ -133,7 +133,7 @@ func TestForkHeal_BidirectionalBatching_BidirectionalTrigger(t *testing.T) {
 	clk.Advance(100 * time.Millisecond)
 	time.Sleep(100 * time.Millisecond)
 	network.Heal()
-	
+
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
 	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")
@@ -212,7 +212,7 @@ func TestForkHeal_BidirectionalBatching_Idempotency(t *testing.T) {
 	nodes, _, _ := setupCluster(t, 2, "batching-idem-group")
 	createAndShareGroup(t, nodes)
 	startAll(t, nodes)
-	
+
 	sender := nodes[0]
 	receiver := nodes[1]
 
@@ -224,7 +224,7 @@ func TestForkHeal_BidirectionalBatching_Idempotency(t *testing.T) {
 	batchBytes, _ := json.Marshal(batch)
 
 	ciphertext, _, _ := sender.mls.EncryptMessage(ctx, sender.coord.groupState, batchBytes)
-	
+
 	batchMsg := BatchedApplicationMsg{Ciphertext: ciphertext}
 	payload, _ := json.Marshal(batchMsg)
 
@@ -264,9 +264,9 @@ func TestForkHeal_BidirectionalBatching_NonRepudiation(t *testing.T) {
 		},
 	}
 	batchBytes, _ := json.Marshal(batch)
-	
+
 	ciphertext, _, _ := attacker.mls.EncryptMessage(ctx, attacker.coord.groupState, batchBytes)
-	
+
 	batchMsg := BatchedApplicationMsg{Ciphertext: ciphertext}
 	payload, _ := json.Marshal(batchMsg)
 
@@ -298,7 +298,7 @@ func TestForkHeal_BidirectionalBatching_OfflineAuthorLimitation(t *testing.T) {
 		}
 	}
 	startAll(t, nodes)
-	
+
 	winner := nodes[0]
 	loser1 := nodes[1]
 	loser2 := nodes[2]
@@ -316,7 +316,7 @@ func TestForkHeal_BidirectionalBatching_OfflineAuthorLimitation(t *testing.T) {
 
 	// Heal partition
 	network.Heal()
-	
+
 	winner.coord.mu.Lock()
 	winner.coord.epoch++
 	winner.coord.lastCommitHash = []byte("zzz-winner-commit-hash")

@@ -115,25 +115,33 @@ func (g *testGrpcMLSEngine) CreateGroup(ctx context.Context, groupID string, sig
 		k = k[:32]
 	}
 	resp, err := g.client.CreateGroup(ctx, &mls_service.CreateGroupRequest{GroupId: groupID, SigningKey: k, MaxPastEpochs: maxPastEpochs})
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	return resp.GetGroupState(), resp.GetTreeHash(), nil
 }
 
 func (g *testGrpcMLSEngine) CreateProposal(ctx context.Context, groupState []byte, pType ProposalType, data []byte) (CreateProposalResult, error) {
 	resp, err := g.client.CreateProposal(ctx, &mls_service.CreateProposalRequest{GroupState: groupState, ProposalType: mls_service.MlsProposalType(pType), Data: data})
-	if err != nil { return CreateProposalResult{}, err }
+	if err != nil {
+		return CreateProposalResult{}, err
+	}
 	return CreateProposalResult{ProposalBytes: resp.GetProposalBytes(), ProposalRef: resp.GetProposalRef(), NewGroupState: resp.GetNewGroupState()}, nil
 }
 
 func (g *testGrpcMLSEngine) ProcessProposal(ctx context.Context, groupState []byte, proposalBytes []byte) (ProcessProposalResult, error) {
 	resp, err := g.client.ProcessProposal(ctx, &mls_service.ProcessProposalRequest{GroupState: groupState, ProposalBytes: proposalBytes})
-	if err != nil { return ProcessProposalResult{}, err }
+	if err != nil {
+		return ProcessProposalResult{}, err
+	}
 	return ProcessProposalResult{ProposalRef: resp.GetProposalRef(), ProposalType: resp.GetProposalType(), NewGroupState: resp.GetNewGroupState()}, nil
 }
 
 func (g *testGrpcMLSEngine) CreateCommit(ctx context.Context, groupState []byte, expectedProposalRefs [][]byte) (CreateCommitResult, error) {
 	resp, err := g.client.CreateCommit(ctx, &mls_service.CreateCommitRequest{GroupState: groupState, ExpectedProposalRefs: expectedProposalRefs})
-	if err != nil { return CreateCommitResult{}, err }
+	if err != nil {
+		return CreateCommitResult{}, err
+	}
 	return CreateCommitResult{
 		CommitBytes:           resp.GetCommitBytes(),
 		WelcomeBytes:          resp.GetWelcomeBytes(),
@@ -146,13 +154,17 @@ func (g *testGrpcMLSEngine) CreateCommit(ctx context.Context, groupState []byte,
 
 func (g *testGrpcMLSEngine) StageCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) (StageCommitResult, error) {
 	resp, err := g.client.StageCommit(ctx, &mls_service.StageCommitRequest{GroupState: groupState, CommitBytes: commitBytes, IncludedProposals: includedProposals})
-	if err != nil { return StageCommitResult{}, err }
+	if err != nil {
+		return StageCommitResult{}, err
+	}
 	return StageCommitResult{ProposalRefs: resp.GetProposalRefs()}, nil
 }
 
 func (g *testGrpcMLSEngine) ProcessCommit(ctx context.Context, groupState []byte, commitBytes []byte, includedProposals [][]byte) ([]byte, []byte, error) {
 	resp, err := g.client.ProcessCommit(ctx, &mls_service.ProcessCommitRequest{GroupState: groupState, CommitBytes: commitBytes, IncludedProposals: includedProposals})
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	return resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
@@ -162,7 +174,9 @@ func (g *testGrpcMLSEngine) ProcessWelcome(ctx context.Context, welcomeBytes, si
 		k = k[:32]
 	}
 	resp, err := g.client.ProcessWelcome(ctx, &mls_service.ProcessWelcomeRequest{WelcomeBytes: welcomeBytes, SigningKey: k, KeyPackageBundlePrivate: keyPackageBundlePrivate, MaxPastEpochs: maxPastEpochs})
-	if err != nil { return nil, nil, 0, err }
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	return resp.GetGroupState(), resp.GetTreeHash(), resp.GetEpoch(), nil
 }
 
@@ -172,43 +186,57 @@ func (g *testGrpcMLSEngine) GenerateKeyPackage(ctx context.Context, signingKey [
 		k = k[:32]
 	}
 	resp, err := g.client.GenerateKeyPackage(ctx, &mls_service.GenerateKeyPackageRequest{SigningKey: k})
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	return resp.GetKeyPackageBytes(), resp.GetKeyPackageBundlePrivate(), nil
 }
 
 func (g *testGrpcMLSEngine) AddMembers(ctx context.Context, groupState []byte, keyPackages [][]byte) ([]byte, []byte, []byte, []byte, error) {
 	resp, err := g.client.AddMembers(ctx, &mls_service.AddMembersRequest{GroupState: groupState, KeyPackages: keyPackages})
-	if err != nil { return nil, nil, nil, nil, err }
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	return resp.GetCommitBytes(), resp.GetWelcomeBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
 func (g *testGrpcMLSEngine) RemoveMembers(ctx context.Context, groupState []byte, targetIdentities [][]byte) ([]byte, []byte, []byte, error) {
 	resp, err := g.client.RemoveMembers(ctx, &mls_service.RemoveMembersRequest{GroupState: groupState, TargetIdentities: targetIdentities})
-	if err != nil { return nil, nil, nil, err }
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	return resp.GetCommitBytes(), resp.GetNewGroupState(), resp.GetNewTreeHash(), nil
 }
 
 func (g *testGrpcMLSEngine) HasMember(ctx context.Context, groupState []byte, identity []byte) (bool, error) {
 	resp, err := g.client.HasMember(ctx, &mls_service.HasMemberRequest{GroupState: groupState, Identity: identity})
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	return resp.GetIsMember(), nil
 }
 
 func (g *testGrpcMLSEngine) ListMemberIdentities(ctx context.Context, groupState []byte) ([][]byte, error) {
 	resp, err := g.client.ListMemberIdentities(ctx, &mls_service.ListMemberIdentitiesRequest{GroupState: groupState})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return resp.GetIdentities(), nil
 }
 
 func (g *testGrpcMLSEngine) EncryptMessage(ctx context.Context, groupState []byte, plaintext []byte) ([]byte, []byte, error) {
 	resp, err := g.client.EncryptMessage(ctx, &mls_service.EncryptMessageRequest{GroupState: groupState, Plaintext: plaintext})
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	return resp.GetCiphertext(), resp.GetNewGroupState(), nil
 }
 
 func (g *testGrpcMLSEngine) DecryptMessage(ctx context.Context, groupState []byte, ciphertext []byte) ([]byte, []byte, error) {
 	resp, err := g.client.DecryptMessage(ctx, &mls_service.DecryptMessageRequest{GroupState: groupState, Ciphertext: ciphertext})
-	if err != nil { return nil, nil, err }
+	if err != nil {
+		return nil, nil, err
+	}
 	return resp.GetPlaintext(), resp.GetNewGroupState(), nil
 }
 
@@ -218,18 +246,24 @@ func (g *testGrpcMLSEngine) ExternalJoin(ctx context.Context, groupInfo, signing
 		k = k[:32]
 	}
 	resp, err := g.client.ExternalJoin(ctx, &mls_service.ExternalJoinRequest{GroupInfo: groupInfo, SigningKey: k, MaxPastEpochs: maxPastEpochs})
-	if err != nil { return nil, nil, nil, err }
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	return resp.GetGroupState(), resp.GetCommitBytes(), resp.GetTreeHash(), nil
 }
 
 func (g *testGrpcMLSEngine) ExportGroupInfo(ctx context.Context, groupState []byte, withRatchetTree bool) ([]byte, error) {
 	resp, err := g.client.ExportGroupInfo(ctx, &mls_service.ExportGroupInfoRequest{GroupState: groupState, WithRatchetTree: withRatchetTree})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return resp.GetGroupInfo(), nil
 }
 
 func (g *testGrpcMLSEngine) ExportSecret(ctx context.Context, groupState []byte, label string, exporterContext []byte, length int) ([]byte, error) {
 	resp, err := g.client.ExportSecret(ctx, &mls_service.ExportSecretRequest{GroupState: groupState, Label: label, Context: exporterContext, Length: uint32(length)})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return resp.GetSecret(), nil
 }

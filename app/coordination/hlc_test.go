@@ -138,11 +138,11 @@ func TestHLC_CounterOverflowSleep(t *testing.T) {
 	clk := NewFakeClock(time.UnixMilli(1000))
 	h := NewHLC(clk, "node-A")
 
-	_ = h.Now() // Initialize clock: h.l = 1000, h.c = 0
+	_ = h.Now()      // Initialize clock: h.l = 1000, h.c = 0
 	h.c = 0xFFFFFFFE // Set counter to the overflow threshold
 
 	ts1 := h.Now() // This call sees h.c = 0xFFFFFFFE, triggers sleep/reset, and advances h.l to 1001, h.c = 0
-	
+
 	if ts1.Counter != 0 {
 		t.Errorf("counter should reset to 0 after overflow sleep recovery, got %d", ts1.Counter)
 	}

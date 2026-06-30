@@ -102,8 +102,8 @@ type CoordinatorConfig struct {
 type MLSRetentionMode string
 
 const (
-	RetentionStrictSecurity    MLSRetentionMode = "STRICT_SECURITY"
-	RetentionBalanced          MLSRetentionMode = "BALANCED"
+	RetentionStrictSecurity   MLSRetentionMode = "STRICT_SECURITY"
+	RetentionBalanced         MLSRetentionMode = "BALANCED"
 	RetentionHighAvailability MLSRetentionMode = "HIGH_AVAILABILITY"
 )
 

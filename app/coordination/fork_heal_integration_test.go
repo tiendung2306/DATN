@@ -190,4 +190,3 @@ func TestIntegration_ForkHeal_FailurePersistsFailedStep(t *testing.T) {
 		t.Fatal("expected audit rows for heal trace")
 	}
 }
-
