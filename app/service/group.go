@@ -1066,7 +1066,7 @@ func (r *Runtime) initCoordinationStackLocked() {
 	r.coordStorage = store.NewSQLiteCoordinationStorage(r.db)
 
 	if r.mlsClient != nil {
-		r.mlsEngine = sidecar.NewMLSEngine(r.mlsClient)
+		r.mlsEngine = sidecar.NewCachedMLSEngine(r.mlsClient)
 	}
 
 	r.coordinators = make(map[string]*coordination.Coordinator)

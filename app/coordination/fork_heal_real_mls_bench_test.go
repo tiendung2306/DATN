@@ -280,7 +280,7 @@ func BenchmarkForkHeal_EndToEndLatency(b *testing.B) {
 	}
 	defer conn.Close()
 
-	realEngine := newTestGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
+	realEngine := newTestCachedGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
 
 	for _, n := range sizes {
 		n := n
@@ -374,7 +374,7 @@ func BenchmarkForkHeal_ThunderingHerd(b *testing.B) {
 	}
 	defer conn.Close()
 
-	realEngine := newTestGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
+	realEngine := newTestCachedGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
 
 	for _, k := range kSizes {
 		k := k
@@ -515,7 +515,7 @@ func BenchmarkForkHeal_PartitionDivergence(b *testing.B) {
 	}
 	defer conn.Close()
 
-	realEngine := newTestGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
+	realEngine := newTestCachedGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
 
 	csvFile, err := os.Create(filepath.Join("..", "..", "evaluation", "data", "partition_divergence_metrics.csv"))
 	if err != nil {

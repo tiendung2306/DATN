@@ -11,6 +11,9 @@ import (
 
 	"app/adapter/store"
 
+	"database/sql"
+	"errors"
+
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
@@ -142,7 +145,7 @@ func (r *Runtime) upsertGroupMemberFromRosterEvidence(groupID, peerID, source st
 	}
 	if !reactivateLeft {
 		rec, err := database.GetGroupMember(groupID, peerID)
-		if err != nil {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if rec != nil && rec.Status == store.GroupMemberStatusLeft {
