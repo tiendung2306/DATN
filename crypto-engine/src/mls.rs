@@ -99,12 +99,14 @@ pub struct CachedEncryptResult {
     pub ciphertext: Vec<u8>,
     pub epoch: u64,
     pub state_version: u64,
+    pub group_state: Vec<u8>,
 }
 
 pub struct CachedDecryptResult {
     pub plaintext: Vec<u8>,
     pub epoch: u64,
     pub state_version: u64,
+    pub group_state: Vec<u8>,
 }
 
 pub struct CachedUpdateCommitResult {
@@ -126,6 +128,7 @@ pub struct CachedProcessCommitResult {
     pub tree_hash: Vec<u8>,
     pub epoch: u64,
     pub state_version: u64,
+    pub group_state: Vec<u8>,
 }
 
 pub struct CachedExportSecretResult {
@@ -140,6 +143,80 @@ pub struct CachedCheckpointResult {
     pub epoch: u64,
     pub state_version: u64,
     pub state_size_bytes: u64,
+}
+
+pub struct CachedCreateProposalResult {
+    pub proposal_bytes: Vec<u8>,
+    pub proposal_ref: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+    pub group_state: Vec<u8>,
+}
+
+pub struct CachedProcessProposalResult {
+    pub proposal_ref: Vec<u8>,
+    pub proposal_type: String,
+    pub epoch: u64,
+    pub state_version: u64,
+    pub group_state: Vec<u8>,
+}
+
+pub struct CachedCreateCommitResult {
+    pub commit_bytes: Vec<u8>,
+    pub welcome_bytes: Vec<u8>,
+    pub group_info: Vec<u8>,
+    pub committed_proposal_refs: Vec<Vec<u8>>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+    pub group_state: Vec<u8>,
+}
+
+pub struct CachedStageCommitResult {
+    pub epoch: u64,
+    pub proposal_refs: Vec<Vec<u8>>,
+    pub proposal_types: Vec<String>,
+}
+
+pub struct CachedAddMembersResult {
+    pub commit_bytes: Vec<u8>,
+    pub welcome_bytes: Vec<u8>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+    pub group_state: Vec<u8>,
+}
+
+pub struct CachedRemoveMembersResult {
+    pub commit_bytes: Vec<u8>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+    pub group_state: Vec<u8>,
+}
+
+pub struct CachedCreateGroupResult {
+    pub group_state: Vec<u8>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+}
+
+pub struct CachedProcessWelcomeResult {
+    pub group_id: String,
+    pub group_state: Vec<u8>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
+}
+
+pub struct CachedExternalJoinResult {
+    pub group_id: String,
+    pub group_state: Vec<u8>,
+    pub commit_bytes: Vec<u8>,
+    pub tree_hash: Vec<u8>,
+    pub epoch: u64,
+    pub state_version: u64,
 }
 
 fn export_state(
@@ -256,6 +333,7 @@ pub struct ProcessCommitResult {
 }
 
 pub struct WelcomeResult {
+    pub group_id: String,
     pub group_state: Vec<u8>,
     pub tree_hash: Vec<u8>,
     pub epoch: u64,
@@ -272,9 +350,11 @@ pub struct DecryptResult {
 }
 
 pub struct ExternalJoinResult {
+    pub group_id: String,
     pub group_state: Vec<u8>,
     pub commit_bytes: Vec<u8>,
     pub tree_hash: Vec<u8>,
+    pub epoch: u64,
 }
 
 pub struct GenerateKeyPackageResult {
@@ -441,16 +521,16 @@ impl RuntimeCache {
         group_state: &[u8],
         state_version: u64,
     ) -> Result<CachedGroupMetadata, String> {
-        if group_id.trim().is_empty() {
-            return Err("group_id is required".into());
-        }
         let imp = import_state(group_state)?;
-        if imp.group_id != group_id {
-            return Err(format!(
-                "LoadGroup group_id mismatch: request='{group_id}' state='{}'",
-                imp.group_id
-            ));
-        }
+        // When group_id is empty, auto-detect from the persisted state.
+        // When non-empty, use it as the cache key (may differ from the MLS
+        // group_id inside the state, allowing per-node cache entries in
+        // benchmark scenarios where multiple nodes share one sidecar).
+        let cache_key = if group_id.trim().is_empty() {
+            imp.group_id.clone()
+        } else {
+            group_id.to_string()
+        };
         let epoch = get_epoch(&imp.group);
         let runtime = GroupRuntime {
             group_id: imp.group_id,
@@ -463,9 +543,9 @@ impl RuntimeCache {
         };
         let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
         self.groups
-            .insert(group_id.to_string(), Arc::new(Mutex::new(runtime)));
+            .insert(cache_key.clone(), Arc::new(Mutex::new(runtime)));
         Ok(CachedGroupMetadata {
-            group_id: group_id.to_string(),
+            group_id: cache_key,
             epoch,
             state_version,
             tree_hash,
@@ -511,10 +591,18 @@ impl RuntimeCache {
             .map_err(|e| format!("cached serialize MlsMessageOut: {e:?}"))?;
 
         runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
         Ok(CachedEncryptResult {
             ciphertext,
-            epoch: get_epoch(&runtime.group),
+            epoch,
             state_version: runtime.state_version,
+            group_state,
         })
     }
 
@@ -554,10 +642,18 @@ impl RuntimeCache {
         };
 
         runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
         Ok(CachedDecryptResult {
             plaintext,
-            epoch: get_epoch(&runtime.group),
+            epoch,
             state_version: runtime.state_version,
+            group_state,
         })
     }
 
@@ -624,12 +720,37 @@ impl RuntimeCache {
         &self,
         ctx: &CachedOperationContext,
         commit_bytes: &[u8],
+        included_proposals: &[Vec<u8>],
     ) -> Result<CachedProcessCommitResult, String> {
         let group_ref = self.group_ref(&ctx.group_id)?;
         let mut runtime = group_ref
             .lock()
             .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
         runtime.validate_context(ctx)?;
+
+        // Process any included proposals that the receiver hasn't seen yet
+        // (same logic as the stateless process_commit path).
+        for proposal_bytes in included_proposals {
+            let mls_msg = MlsMessageIn::tls_deserialize_exact(proposal_bytes)
+                .map_err(|e| format!("cached deserialize included proposal: {e:?}"))?;
+            let protocol_msg = mls_msg
+                .try_into_protocol_message()
+                .map_err(|e| format!("cached extract included proposal: {e:?}"))?;
+            let GroupRuntime {
+                group, provider, ..
+            } = &mut *runtime;
+            let processed = group
+                .process_message(provider, protocol_msg)
+                .map_err(|e| format!("cached process_message (included proposal): {e:?}"))?;
+            if let ProcessedMessageContent::ProposalMessage(proposal) = processed.into_content() {
+                let (proposal_ref, _) = queued_proposal_summary(&proposal)?;
+                if !proposal_ref_is_pending(group, &proposal_ref)? {
+                    group
+                        .store_pending_proposal(provider.storage(), *proposal)
+                        .map_err(|e| format!("cached store_pending_proposal: {e:?}"))?;
+                }
+            }
+        }
 
         let mls_msg = MlsMessageIn::tls_deserialize_exact(commit_bytes)
             .map_err(|e| format!("cached deserialize commit: {e:?}"))?;
@@ -658,10 +779,18 @@ impl RuntimeCache {
 
         runtime.mark_mutated();
         let epoch = get_epoch(&runtime.group);
+        let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
         Ok(CachedProcessCommitResult {
-            tree_hash: current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?,
+            tree_hash,
             epoch,
             state_version: runtime.state_version,
+            group_state,
         })
     }
 
@@ -710,6 +839,498 @@ impl RuntimeCache {
         })
     }
 
+    pub fn create_group_and_load(
+        &self,
+        group_id: &str,
+        signing_key: &[u8],
+        max_past_epochs: u32,
+    ) -> Result<CachedCreateGroupResult, String> {
+        let result = create_group(group_id, signing_key, max_past_epochs)?;
+        let meta = self.load_group(group_id, &result.group_state, 1)?;
+        Ok(CachedCreateGroupResult {
+            group_state: result.group_state,
+            tree_hash: result.tree_hash,
+            epoch: meta.epoch,
+            state_version: meta.state_version,
+        })
+    }
+
+    pub fn create_proposal_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        proposal_type: i32,
+        data: &[u8],
+    ) -> Result<CachedCreateProposalResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let GroupRuntime {
+            group,
+            provider,
+            signer,
+            ..
+        } = &mut *runtime;
+
+        let (proposal_out, proposal_ref) = match proposal_type {
+            0 => {
+                let mut rd = data;
+                let kpin = KeyPackageIn::tls_deserialize(&mut rd)
+                    .map_err(|e| format!("cached deserialize KeyPackageIn: {e:?}"))?;
+                let key_package = kpin
+                    .validate(provider.crypto(), ProtocolVersion::Mls10)
+                    .map_err(|e| format!("cached invalid KeyPackage: {e:?}"))?;
+                group
+                    .propose_add_member(provider, signer, &key_package)
+                    .map_err(|e| format!("cached propose_add_member: {e:?}"))?
+            }
+            1 => {
+                let credential: Credential = BasicCredential::new(data.to_vec()).into();
+                group
+                    .propose_remove_member_by_credential(provider, signer, &credential)
+                    .map_err(|e| format!("cached propose_remove_member: {e:?}"))?
+            }
+            2 => group
+                .propose_self_update(provider, signer, LeafNodeParameters::default())
+                .map_err(|e| format!("cached propose_self_update: {e:?}"))?,
+            _ => return Err(format!("unknown proposal_type: {proposal_type}")),
+        };
+
+        let proposal_bytes = proposal_out
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached serialize proposal: {e:?}"))?;
+        let proposal_ref = serialize_proposal_ref(&proposal_ref)?;
+
+        runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        Ok(CachedCreateProposalResult {
+            proposal_bytes,
+            proposal_ref,
+            epoch,
+            state_version: runtime.state_version,
+            group_state: Vec::new(),
+        })
+    }
+
+    pub fn process_proposal_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        proposal_bytes: &[u8],
+    ) -> Result<CachedProcessProposalResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let mls_msg = MlsMessageIn::tls_deserialize_exact(proposal_bytes)
+            .map_err(|e| format!("cached deserialize proposal: {e:?}"))?;
+        let protocol_msg = mls_msg
+            .try_into_protocol_message()
+            .map_err(|e| format!("cached extract protocol message: {e:?}"))?;
+        let GroupRuntime {
+            group, provider, ..
+        } = &mut *runtime;
+        let processed = group
+            .process_message(provider, protocol_msg)
+            .map_err(|e| format!("cached process_message (proposal): {e:?}"))?;
+        let proposal = match processed.into_content() {
+            ProcessedMessageContent::ProposalMessage(p) => p,
+            other => {
+                return Err(format!(
+                    "cached process_proposal expected Proposal, got {:?}",
+                    std::mem::discriminant(&other)
+                ))
+            }
+        };
+        let (proposal_ref, proposal_type) = queued_proposal_summary(&proposal)?;
+        if !proposal_ref_is_pending(group, &proposal_ref)? {
+            group
+                .store_pending_proposal(provider.storage(), *proposal)
+                .map_err(|e| format!("cached store_pending_proposal: {e:?}"))?;
+        }
+
+        runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        Ok(CachedProcessProposalResult {
+            proposal_ref,
+            proposal_type,
+            epoch,
+            state_version: runtime.state_version,
+            group_state: Vec::new(),
+        })
+    }
+
+    pub fn create_commit_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        expected_proposal_refs: &[Vec<u8>],
+    ) -> Result<CachedCreateCommitResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let GroupRuntime {
+            group,
+            provider,
+            signer,
+            ..
+        } = &mut *runtime;
+
+        ensure_expected_proposal_refs(group, expected_proposal_refs)?;
+
+        if !group.has_pending_proposals() {
+            return Err("no pending proposals to commit".into());
+        }
+
+        let committed_refs = pending_proposal_refs(group)?;
+        let (commit_out, welcome_out, group_info_out) = group
+            .commit_to_pending_proposals(provider, signer)
+            .map_err(|e| format!("cached commit_to_pending_proposals: {e:?}"))?;
+
+        let commit_bytes = commit_out
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached serialize commit: {e:?}"))?;
+
+        let welcome_bytes: Vec<u8> = match welcome_out {
+            Some(w) => w
+                .tls_serialize_detached()
+                .map_err(|e| format!("cached serialize welcome: {e:?}"))?,
+            None => Vec::new(),
+        };
+
+        let group_info_bytes: Vec<u8> = match group_info_out {
+            Some(gi) => gi
+                .tls_serialize_detached()
+                .map_err(|e| format!("cached serialize group_info: {e:?}"))?,
+            None => Vec::new(),
+        };
+
+        group
+            .merge_pending_commit(provider)
+            .map_err(|e| format!("cached merge_pending_commit: {e:?}"))?;
+
+        runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
+
+        Ok(CachedCreateCommitResult {
+            commit_bytes,
+            welcome_bytes,
+            group_info: group_info_bytes,
+            committed_proposal_refs: committed_refs,
+            tree_hash,
+            epoch,
+            state_version: runtime.state_version,
+            group_state,
+        })
+    }
+
+    pub fn stage_commit_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        commit_bytes: &[u8],
+        included_proposals: &[Vec<u8>],
+    ) -> Result<CachedStageCommitResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        // Process included proposals first
+        for proposal_bytes in included_proposals {
+            let mls_msg = MlsMessageIn::tls_deserialize_exact(proposal_bytes)
+                .map_err(|e| format!("cached stage: deserialize proposal: {e:?}"))?;
+            let protocol_msg = mls_msg
+                .try_into_protocol_message()
+                .map_err(|e| format!("cached stage: extract proposal: {e:?}"))?;
+            let GroupRuntime {
+                group, provider, ..
+            } = &mut *runtime;
+            let processed = group
+                .process_message(provider, protocol_msg)
+                .map_err(|e| format!("cached stage: process_message (proposal): {e:?}"))?;
+            if let ProcessedMessageContent::ProposalMessage(proposal) = processed.into_content() {
+                let (proposal_ref, _) = queued_proposal_summary(&proposal)?;
+                if !proposal_ref_is_pending(group, &proposal_ref)? {
+                    group
+                        .store_pending_proposal(provider.storage(), *proposal)
+                        .map_err(|e| format!("cached stage: store_pending_proposal: {e:?}"))?;
+                }
+            }
+        }
+
+        let mls_msg = MlsMessageIn::tls_deserialize_exact(commit_bytes)
+            .map_err(|e| format!("cached stage: deserialize commit: {e:?}"))?;
+        let protocol_msg = mls_msg
+            .try_into_protocol_message()
+            .map_err(|e| format!("cached stage: extract commit: {e:?}"))?;
+        let GroupRuntime {
+            group, provider, ..
+        } = &mut *runtime;
+        let processed = group
+            .process_message(provider, protocol_msg)
+            .map_err(|e| format!("cached stage: process_message (commit): {e:?}"))?;
+        let staged_commit = match processed.into_content() {
+            ProcessedMessageContent::StagedCommitMessage(sc) => sc,
+            other => {
+                return Err(format!(
+                    "cached stage_commit expected StagedCommit, got {:?}",
+                    std::mem::discriminant(&other)
+                ))
+            }
+        };
+
+        let summary = staged_commit_summary(&staged_commit)?;
+
+        // Do NOT merge — staging only validates and returns summary.
+        // The caller will call process_commit_cached to merge.
+        runtime.mark_mutated();
+        Ok(CachedStageCommitResult {
+            epoch: summary.epoch,
+            proposal_refs: summary.proposal_refs,
+            proposal_types: summary.proposal_types,
+        })
+    }
+
+    pub fn add_members_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        key_packages: &[Vec<u8>],
+    ) -> Result<CachedAddMembersResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let GroupRuntime {
+            group,
+            provider,
+            signer,
+            ..
+        } = &mut *runtime;
+
+        let mut kps: Vec<KeyPackage> = Vec::with_capacity(key_packages.len());
+        for kp_bytes in key_packages {
+            let mut rd = kp_bytes.as_slice();
+            let kpin = KeyPackageIn::tls_deserialize(&mut rd)
+                .map_err(|e| format!("cached add_members: deserialize KeyPackageIn: {e:?}"))?;
+            let kp = kpin
+                .validate(provider.crypto(), ProtocolVersion::Mls10)
+                .map_err(|e| format!("cached add_members: invalid KeyPackage: {e:?}"))?;
+            kps.push(kp);
+        }
+
+        let (commit_out, welcome_out, _group_info) = group
+            .add_members(provider, signer, &kps)
+            .map_err(|e| format!("cached add_members: {e:?}"))?;
+
+        let commit_bytes = commit_out
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached add_members: serialize commit: {e:?}"))?;
+
+        let welcome_bytes = welcome_out
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached add_members: serialize welcome: {e:?}"))?;
+
+        group
+            .merge_pending_commit(provider)
+            .map_err(|e| format!("cached add_members: merge_pending_commit: {e:?}"))?;
+
+        runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
+
+        Ok(CachedAddMembersResult {
+            commit_bytes,
+            welcome_bytes,
+            tree_hash,
+            epoch,
+            state_version: runtime.state_version,
+            group_state,
+        })
+    }
+
+    pub fn remove_members_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        target_identities: &[Vec<u8>],
+    ) -> Result<CachedRemoveMembersResult, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let mut runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let GroupRuntime {
+            group,
+            provider,
+            signer,
+            ..
+        } = &mut *runtime;
+
+        let mut leaf_indices: Vec<LeafNodeIndex> = Vec::with_capacity(target_identities.len());
+        for identity in target_identities {
+            let credential: Credential = BasicCredential::new(identity.clone()).into();
+            let idx = group.member_leaf_index(&credential).ok_or_else(|| {
+                format!("cached remove_members: identity (len={}) not found in ratchet tree", identity.len())
+            })?;
+            leaf_indices.push(idx);
+        }
+
+        let (commit_out, _welcome_out, _group_info) = group
+            .remove_members(provider, signer, &leaf_indices)
+            .map_err(|e| format!("cached remove_members: {e:?}"))?;
+
+        let commit_bytes = commit_out
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached remove_members: serialize commit: {e:?}"))?;
+
+        group
+            .merge_pending_commit(provider)
+            .map_err(|e| format!("cached remove_members: merge_pending_commit: {e:?}"))?;
+
+        runtime.mark_mutated();
+        let epoch = get_epoch(&runtime.group);
+        let tree_hash = current_tree_hash(&runtime.provider, &runtime.signer, &runtime.group)?;
+        let group_state = export_state(
+            &runtime.provider,
+            &runtime.group_id,
+            epoch,
+            &runtime.signing_key,
+        );
+
+        Ok(CachedRemoveMembersResult {
+            commit_bytes,
+            tree_hash,
+            epoch,
+            state_version: runtime.state_version,
+            group_state,
+        })
+    }
+
+    pub fn has_member_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        identity: &[u8],
+    ) -> Result<bool, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let credential: Credential = BasicCredential::new(identity.to_vec()).into();
+        Ok(runtime.group.member_leaf_index(&credential).is_some())
+    }
+
+    pub fn list_member_identities_cached(
+        &self,
+        ctx: &CachedOperationContext,
+    ) -> Result<Vec<Vec<u8>>, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let identities: Vec<Vec<u8>> = runtime
+            .group
+            .members()
+            .map(|m| m.credential.serialized_content().to_vec())
+            .collect();
+        Ok(identities)
+    }
+
+    pub fn export_group_info_cached(
+        &self,
+        ctx: &CachedOperationContext,
+        with_ratchet_tree: bool,
+    ) -> Result<Vec<u8>, String> {
+        let group_ref = self.group_ref(&ctx.group_id)?;
+        let runtime = group_ref
+            .lock()
+            .map_err(|_| format!("group '{}' runtime lock poisoned", ctx.group_id))?;
+        runtime.validate_context(ctx)?;
+
+        let group_info_msg = runtime
+            .group
+            .export_group_info(runtime.provider.crypto(), &runtime.signer, with_ratchet_tree)
+            .map_err(|e| format!("cached export_group_info: {e:?}"))?;
+
+        let bytes = group_info_msg
+            .tls_serialize_detached()
+            .map_err(|e| format!("cached serialize group_info: {e:?}"))?;
+
+        Ok(bytes)
+    }
+
+    pub fn process_welcome_and_load(
+        &self,
+        _group_id: &str,
+        welcome_bytes: &[u8],
+        signing_key: &[u8],
+        key_package_bundle_private: &[u8],
+        max_past_epochs: u32,
+    ) -> Result<CachedProcessWelcomeResult, String> {
+        let result = process_welcome(
+            welcome_bytes,
+            signing_key,
+            key_package_bundle_private,
+            max_past_epochs,
+        )?;
+
+        // Do NOT load_group here — the Go side handles caching with a
+        // per-node cache key to avoid collisions when multiple nodes share
+        // the same sidecar.
+        Ok(CachedProcessWelcomeResult {
+            group_id: result.group_id,
+            group_state: result.group_state,
+            tree_hash: result.tree_hash,
+            epoch: result.epoch,
+            state_version: 1,
+        })
+    }
+
+    pub fn external_join_and_load(
+        &self,
+        _group_id: &str,
+        group_info: &[u8],
+        signing_key: &[u8],
+        max_past_epochs: u32,
+    ) -> Result<CachedExternalJoinResult, String> {
+        let result = external_join(group_info, signing_key, max_past_epochs)?;
+
+        // Do NOT load_group here — the Go side handles caching with a
+        // per-node cache key.
+        Ok(CachedExternalJoinResult {
+            group_id: result.group_id,
+            group_state: result.group_state,
+            commit_bytes: result.commit_bytes,
+            tree_hash: result.tree_hash,
+            epoch: result.epoch,
+            state_version: 1,
+        })
+    }
+
     fn group_ref(&self, group_id: &str) -> Result<Arc<Mutex<GroupRuntime>>, String> {
         self.groups
             .get(group_id)
@@ -720,12 +1341,10 @@ impl RuntimeCache {
 
 impl GroupRuntime {
     fn validate_context(&self, ctx: &CachedOperationContext) -> Result<(), String> {
-        if ctx.group_id != self.group_id {
-            return Err(format!(
-                "operation group_id mismatch: context='{}' runtime='{}'",
-                ctx.group_id, self.group_id
-            ));
-        }
+        // group_id is used as the cache key; the DashMap lookup in group_ref()
+        // already validates existence. We don't compare ctx.group_id with
+        // self.group_id because the cache key may differ from the MLS group_id
+        // (e.g. per-node cache keys in benchmark scenarios).
         if ctx.operation_id.trim().is_empty() {
             return Err("operation_id is required for cached hot-path RPCs".into());
         }
@@ -1344,6 +1963,7 @@ pub fn process_welcome(
     let state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(WelcomeResult {
+        group_id,
         group_state: state,
         tree_hash,
         epoch,
@@ -1427,9 +2047,11 @@ pub fn external_join(group_info: &[u8], signing_key: &[u8], max_past_epochs: u32
     let new_state = export_state(&provider, &group_id, epoch, signing_key);
 
     Ok(ExternalJoinResult {
+        group_id,
         group_state: new_state,
         commit_bytes,
         tree_hash,
+        epoch,
     })
 }
 

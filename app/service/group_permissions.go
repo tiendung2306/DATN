@@ -155,7 +155,7 @@ func (r *Runtime) isActiveGroupAuthorizedPeer(groupID, peerID string) (bool, err
 		}
 		return db.GetGroupMember(groupID, peerID)
 	}()
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
 	if rec != nil && rec.Status == store.GroupMemberStatusActive && isAdminRole(rec.Role) {

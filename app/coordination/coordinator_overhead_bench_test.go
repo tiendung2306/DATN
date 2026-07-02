@@ -66,7 +66,7 @@ func TestIntegration_CoordinatorOverhead(t *testing.T) {
 	}
 	defer conn.Close()
 
-	realEngine := newTestGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
+	realEngine := newTestCachedGrpcMLSEngine(mls_service.NewMLSCryptoServiceClient(conn))
 
 	for _, n := range realSizes {
 		t.Logf("--- Real MLS AddMember N=%d ---", n)

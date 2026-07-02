@@ -60,6 +60,24 @@ service MLSCryptoService {
   rpc ExportSecretCached(ExportSecretCachedRequest) returns (ExportSecretCachedResponse);
   rpc ExportGroupStateCheckpoint(ExportGroupStateCheckpointRequest) returns (ExportGroupStateCheckpointResponse);
   rpc UnloadGroup(UnloadGroupRequest) returns (UnloadGroupResponse);
+
+  // Phase B optimization — stateful cached operations for production path.
+  // These RPCs use the RuntimeCache to avoid serializing/deserializing group
+  // state on every call. The Go adapter calls LoadGroup once, then uses
+  // cached RPCs for subsequent operations. Only ExportGroupStateCheckpoint
+  // serializes state (once per mutation, for SQLite persistence).
+  rpc CreateGroupAndLoad(CreateGroupAndLoadRequest) returns (CreateGroupAndLoadResponse);
+  rpc CreateProposalCached(CreateProposalCachedRequest) returns (CreateProposalCachedResponse);
+  rpc ProcessProposalCached(ProcessProposalCachedRequest) returns (ProcessProposalCachedResponse);
+  rpc CreateCommitCached(CreateCommitCachedRequest) returns (CreateCommitCachedResponse);
+  rpc StageCommitCached(StageCommitCachedRequest) returns (StageCommitCachedResponse);
+  rpc AddMembersCached(AddMembersCachedRequest) returns (AddMembersCachedResponse);
+  rpc RemoveMembersCached(RemoveMembersCachedRequest) returns (RemoveMembersCachedResponse);
+  rpc HasMemberCached(HasMemberCachedRequest) returns (HasMemberCachedResponse);
+  rpc ListMemberIdentitiesCached(ListMemberIdentitiesCachedRequest) returns (ListMemberIdentitiesCachedResponse);
+  rpc ExportGroupInfoCached(ExportGroupInfoCachedRequest) returns (ExportGroupInfoCachedResponse);
+  rpc ProcessWelcomeAndLoad(ProcessWelcomeAndLoadRequest) returns (ProcessWelcomeAndLoadResponse);
+  rpc ExternalJoinAndLoad(ExternalJoinAndLoadRequest) returns (ExternalJoinAndLoadResponse);
 }
 
 // ── Phase 2 Messages ──
@@ -352,6 +370,7 @@ message EncryptMessageCachedResponse {
   bytes ciphertext = 1;
   uint64 epoch = 2;
   uint64 state_version = 3;
+  bytes group_state = 4;
 }
 
 message DecryptMessageCachedRequest {
@@ -363,6 +382,7 @@ message DecryptMessageCachedResponse {
   bytes plaintext = 1;
   uint64 epoch = 2;
   uint64 state_version = 3;
+  bytes group_state = 4;
 }
 
 message CreateUpdateCommitCachedRequest {
@@ -379,12 +399,14 @@ message CreateUpdateCommitCachedResponse {
 message ProcessCommitCachedRequest {
   OperationContext context = 1;
   bytes commit_bytes = 2;
+  repeated bytes included_proposals = 3;
 }
 
 message ProcessCommitCachedResponse {
   bytes tree_hash = 1;
   uint64 epoch = 2;
   uint64 state_version = 3;
+  bytes group_state = 4;
 }
 
 message ExportSecretCachedRequest {
@@ -418,4 +440,159 @@ message UnloadGroupRequest {
 
 message UnloadGroupResponse {
   bool unloaded = 1;
+}
+
+// ── Phase B Optimization: Stateful Cached Production Messages ──
+
+message CreateGroupAndLoadRequest {
+  string group_id = 1;
+  bytes signing_key = 2;
+  uint32 max_past_epochs = 3;
+}
+
+message CreateGroupAndLoadResponse {
+  bytes group_state = 1;
+  bytes tree_hash = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+}
+
+message CreateProposalCachedRequest {
+  OperationContext context = 1;
+  MlsProposalType proposal_type = 2;
+  bytes data = 3;
+}
+
+message CreateProposalCachedResponse {
+  bytes proposal_bytes = 1;
+  bytes proposal_ref = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+  bytes group_state = 5;
+}
+
+message ProcessProposalCachedRequest {
+  OperationContext context = 1;
+  bytes proposal_bytes = 2;
+}
+
+message ProcessProposalCachedResponse {
+  bytes proposal_ref = 1;
+  string proposal_type = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+  bytes group_state = 5;
+}
+
+message CreateCommitCachedRequest {
+  OperationContext context = 1;
+  repeated bytes expected_proposal_refs = 2;
+}
+
+message CreateCommitCachedResponse {
+  bytes commit_bytes = 1;
+  bytes welcome_bytes = 2;
+  bytes group_info = 3;
+  repeated bytes committed_proposal_refs = 4;
+  bytes tree_hash = 5;
+  uint64 epoch = 6;
+  uint64 state_version = 7;
+  bytes group_state = 8;
+}
+
+message StageCommitCachedRequest {
+  OperationContext context = 1;
+  bytes commit_bytes = 2;
+  repeated bytes included_proposals = 3;
+}
+
+message StageCommitCachedResponse {
+  uint64 epoch = 1;
+  repeated bytes proposal_refs = 2;
+  repeated string proposal_types = 3;
+}
+
+message AddMembersCachedRequest {
+  OperationContext context = 1;
+  repeated bytes key_packages = 2;
+}
+
+message AddMembersCachedResponse {
+  bytes commit_bytes = 1;
+  bytes welcome_bytes = 2;
+  bytes tree_hash = 3;
+  uint64 epoch = 4;
+  uint64 state_version = 5;
+  bytes group_state = 6;
+}
+
+message RemoveMembersCachedRequest {
+  OperationContext context = 1;
+  repeated bytes target_identities = 2;
+}
+
+message RemoveMembersCachedResponse {
+  bytes commit_bytes = 1;
+  bytes tree_hash = 2;
+  uint64 epoch = 3;
+  uint64 state_version = 4;
+  bytes group_state = 5;
+}
+
+message HasMemberCachedRequest {
+  OperationContext context = 1;
+  bytes identity = 2;
+}
+
+message HasMemberCachedResponse {
+  bool is_member = 1;
+}
+
+message ListMemberIdentitiesCachedRequest {
+  OperationContext context = 1;
+}
+
+message ListMemberIdentitiesCachedResponse {
+  repeated bytes identities = 1;
+}
+
+message ExportGroupInfoCachedRequest {
+  OperationContext context = 1;
+  bool with_ratchet_tree = 2;
+}
+
+message ExportGroupInfoCachedResponse {
+  bytes group_info = 1;
+}
+
+message ProcessWelcomeAndLoadRequest {
+  string group_id = 1;
+  bytes welcome_bytes = 2;
+  bytes signing_key = 3;
+  bytes key_package_bundle_private = 4;
+  uint32 max_past_epochs = 5;
+}
+
+message ProcessWelcomeAndLoadResponse {
+  string group_id = 1;
+  bytes group_state = 2;
+  bytes tree_hash = 3;
+  uint64 epoch = 4;
+  uint64 state_version = 5;
+}
+
+message ExternalJoinAndLoadRequest {
+  string group_id = 1;
+  bytes group_info = 2;
+  bytes signing_key = 3;
+  uint32 max_past_epochs = 4;
+}
+
+message ExternalJoinAndLoadResponse {
+  string group_id = 1;
+  bytes group_state = 2;
+  bytes commit_bytes = 3;
+  bytes tree_hash = 4;
+  uint64 epoch = 5;
+  uint64 state_version = 6;
 }

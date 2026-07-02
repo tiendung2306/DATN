@@ -29,6 +29,15 @@ use mls_service::{
     ProcessProposalRequest, ProcessProposalResponse, ProcessWelcomeRequest, ProcessWelcomeResponse,
     RemoveMembersRequest, RemoveMembersResponse, StageCommitRequest, StageCommitResponse,
     UnloadGroupRequest, UnloadGroupResponse,
+    // Phase B cached production RPCs
+    CreateGroupAndLoadRequest, CreateGroupAndLoadResponse, CreateProposalCachedRequest,
+    CreateProposalCachedResponse, ProcessProposalCachedRequest, ProcessProposalCachedResponse,
+    CreateCommitCachedRequest, CreateCommitCachedResponse, StageCommitCachedRequest,
+    StageCommitCachedResponse, AddMembersCachedRequest, AddMembersCachedResponse,
+    RemoveMembersCachedRequest, RemoveMembersCachedResponse, HasMemberCachedRequest,
+    HasMemberCachedResponse, ListMemberIdentitiesCachedRequest, ListMemberIdentitiesCachedResponse,
+    ExportGroupInfoCachedRequest, ExportGroupInfoCachedResponse, ProcessWelcomeAndLoadRequest,
+    ProcessWelcomeAndLoadResponse, ExternalJoinAndLoadRequest, ExternalJoinAndLoadResponse,
 };
 
 #[derive(Parser, Debug)]
@@ -456,6 +465,7 @@ impl MlsCryptoService for MyMlsService {
                 ciphertext: result.ciphertext,
                 epoch: result.epoch,
                 state_version: result.state_version,
+                group_state: result.group_state,
             })),
             Err(e) => {
                 eprintln!("encrypt_message_cached error: {e}");
@@ -475,6 +485,7 @@ impl MlsCryptoService for MyMlsService {
                 plaintext: result.plaintext,
                 epoch: result.epoch,
                 state_version: result.state_version,
+                group_state: result.group_state,
             })),
             Err(e) => {
                 eprintln!("decrypt_message_cached error: {e}");
@@ -509,11 +520,12 @@ impl MlsCryptoService for MyMlsService {
     ) -> Result<Response<ProcessCommitCachedResponse>, Status> {
         let req = request.into_inner();
         let ctx = cached_context(req.context)?;
-        match self.cache.process_commit_cached(&ctx, &req.commit_bytes) {
+        match self.cache.process_commit_cached(&ctx, &req.commit_bytes, &req.included_proposals) {
             Ok(result) => Ok(Response::new(ProcessCommitCachedResponse {
                 tree_hash: result.tree_hash,
                 epoch: result.epoch,
                 state_version: result.state_version,
+                group_state: result.group_state,
             })),
             Err(e) => {
                 eprintln!("process_commit_cached error: {e}");
@@ -572,6 +584,275 @@ impl MlsCryptoService for MyMlsService {
         Ok(Response::new(UnloadGroupResponse {
             unloaded: self.cache.unload_group(&req.group_id),
         }))
+    }
+
+    // ── Phase B: Stateful cached production RPCs ──
+
+    async fn create_group_and_load(
+        &self,
+        request: Request<CreateGroupAndLoadRequest>,
+    ) -> Result<Response<CreateGroupAndLoadResponse>, Status> {
+        let req = request.into_inner();
+        match self
+            .cache
+            .create_group_and_load(&req.group_id, &req.signing_key, req.max_past_epochs)
+        {
+            Ok(result) => Ok(Response::new(CreateGroupAndLoadResponse {
+                group_state: result.group_state,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("create_group_and_load error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn create_proposal_cached(
+        &self,
+        request: Request<CreateProposalCachedRequest>,
+    ) -> Result<Response<CreateProposalCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .create_proposal_cached(&ctx, req.proposal_type, &req.data)
+        {
+            Ok(result) => Ok(Response::new(CreateProposalCachedResponse {
+                proposal_bytes: result.proposal_bytes,
+                proposal_ref: result.proposal_ref,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                group_state: result.group_state,
+            })),
+            Err(e) => {
+                eprintln!("create_proposal_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn process_proposal_cached(
+        &self,
+        request: Request<ProcessProposalCachedRequest>,
+    ) -> Result<Response<ProcessProposalCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .process_proposal_cached(&ctx, &req.proposal_bytes)
+        {
+            Ok(result) => Ok(Response::new(ProcessProposalCachedResponse {
+                proposal_ref: result.proposal_ref,
+                proposal_type: result.proposal_type,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                group_state: result.group_state,
+            })),
+            Err(e) => {
+                eprintln!("process_proposal_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn create_commit_cached(
+        &self,
+        request: Request<CreateCommitCachedRequest>,
+    ) -> Result<Response<CreateCommitCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .create_commit_cached(&ctx, &req.expected_proposal_refs)
+        {
+            Ok(result) => Ok(Response::new(CreateCommitCachedResponse {
+                commit_bytes: result.commit_bytes,
+                welcome_bytes: result.welcome_bytes,
+                group_info: result.group_info,
+                committed_proposal_refs: result.committed_proposal_refs,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                group_state: result.group_state,
+            })),
+            Err(e) => {
+                eprintln!("create_commit_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn stage_commit_cached(
+        &self,
+        request: Request<StageCommitCachedRequest>,
+    ) -> Result<Response<StageCommitCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .stage_commit_cached(&ctx, &req.commit_bytes, &req.included_proposals)
+        {
+            Ok(result) => Ok(Response::new(StageCommitCachedResponse {
+                epoch: result.epoch,
+                proposal_refs: result.proposal_refs,
+                proposal_types: result.proposal_types,
+            })),
+            Err(e) => {
+                eprintln!("stage_commit_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn add_members_cached(
+        &self,
+        request: Request<AddMembersCachedRequest>,
+    ) -> Result<Response<AddMembersCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.add_members_cached(&ctx, &req.key_packages) {
+            Ok(result) => Ok(Response::new(AddMembersCachedResponse {
+                commit_bytes: result.commit_bytes,
+                welcome_bytes: result.welcome_bytes,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                group_state: result.group_state,
+            })),
+            Err(e) => {
+                eprintln!("add_members_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn remove_members_cached(
+        &self,
+        request: Request<RemoveMembersCachedRequest>,
+    ) -> Result<Response<RemoveMembersCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .remove_members_cached(&ctx, &req.target_identities)
+        {
+            Ok(result) => Ok(Response::new(RemoveMembersCachedResponse {
+                commit_bytes: result.commit_bytes,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+                group_state: result.group_state,
+            })),
+            Err(e) => {
+                eprintln!("remove_members_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn has_member_cached(
+        &self,
+        request: Request<HasMemberCachedRequest>,
+    ) -> Result<Response<HasMemberCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.has_member_cached(&ctx, &req.identity) {
+            Ok(is_member) => Ok(Response::new(HasMemberCachedResponse { is_member })),
+            Err(e) => {
+                eprintln!("has_member_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn list_member_identities_cached(
+        &self,
+        request: Request<ListMemberIdentitiesCachedRequest>,
+    ) -> Result<Response<ListMemberIdentitiesCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self.cache.list_member_identities_cached(&ctx) {
+            Ok(identities) => Ok(Response::new(ListMemberIdentitiesCachedResponse {
+                identities,
+            })),
+            Err(e) => {
+                eprintln!("list_member_identities_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn export_group_info_cached(
+        &self,
+        request: Request<ExportGroupInfoCachedRequest>,
+    ) -> Result<Response<ExportGroupInfoCachedResponse>, Status> {
+        let req = request.into_inner();
+        let ctx = cached_context(req.context)?;
+        match self
+            .cache
+            .export_group_info_cached(&ctx, req.with_ratchet_tree)
+        {
+            Ok(group_info) => Ok(Response::new(ExportGroupInfoCachedResponse { group_info })),
+            Err(e) => {
+                eprintln!("export_group_info_cached error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn process_welcome_and_load(
+        &self,
+        request: Request<ProcessWelcomeAndLoadRequest>,
+    ) -> Result<Response<ProcessWelcomeAndLoadResponse>, Status> {
+        let req = request.into_inner();
+        match self.cache.process_welcome_and_load(
+            &req.group_id,
+            &req.welcome_bytes,
+            &req.signing_key,
+            &req.key_package_bundle_private,
+            req.max_past_epochs,
+        ) {
+            Ok(result) => Ok(Response::new(ProcessWelcomeAndLoadResponse {
+                group_id: result.group_id,
+                group_state: result.group_state,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("process_welcome_and_load error: {e}");
+                Err(Status::internal(e))
+            }
+        }
+    }
+
+    async fn external_join_and_load(
+        &self,
+        request: Request<ExternalJoinAndLoadRequest>,
+    ) -> Result<Response<ExternalJoinAndLoadResponse>, Status> {
+        let req = request.into_inner();
+        match self.cache.external_join_and_load(
+            &req.group_id,
+            &req.group_info,
+            &req.signing_key,
+            req.max_past_epochs,
+        ) {
+            Ok(result) => Ok(Response::new(ExternalJoinAndLoadResponse {
+                group_id: result.group_id,
+                group_state: result.group_state,
+                commit_bytes: result.commit_bytes,
+                tree_hash: result.tree_hash,
+                epoch: result.epoch,
+                state_version: result.state_version,
+            })),
+            Err(e) => {
+                eprintln!("external_join_and_load error: {e}");
+                Err(Status::internal(e))
+            }
+        }
     }
 }
 
