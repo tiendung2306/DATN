@@ -1,0 +1,881 @@
+\documentclass[t, aspectratio=169]{beamer}
+\usepackage[utf8]{vietnam}
+\usepackage{amsthm,amsmath,amssymb,mathtools}
+\usepackage{lmodern}
+\usepackage{tikz}
+\usepackage{colortbl}
+\usepackage{soul}
+\usetikzlibrary{arrows.meta,positioning,shapes.multipart,fit,backgrounds}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+% --- CẤU HÌNH LỀ ---
+\def\slideContentLeftMargin{0.5cm}
+\def\slideContentRightMargin{1cm}
+\def\hustHeaderHeight{1cm}
+\def\slideContentBotMargin{3.5cm}
+
+\usepackage[blue, 169]{beamerthemeHUST}
+
+% Giảm cỡ chữ title/slide bìa cho cân đối hơn
+\makeatletter
+\renewcommand{\husttitlepage}{
+	{
+		\setbeamertemplate{background}{
+			\includegraphics[width=\paperwidth,height=\paperheight]{\hustbg{title}}
+			\drawHustPageNum
+		}
+		\begin{frame}[plain]
+			\begin{tikzpicture}[remember picture, overlay]
+				\node[
+				anchor=center,
+				xshift=\titlePageTitleX,
+				yshift=\titlePageTitleY,
+				text width=0.85\paperwidth,
+				]
+				at (current page.center)
+				{
+					{\hustTitleAlign \LARGE \bfseries \color{hustprimary} \MakeUppercase{\inserttitle} \par}
+					{\hustSubtitleAlign \large \bfseries \color{black!80} \insertsubtitle \par}
+					\vspace{0.3cm}
+					{\hustAuthorAlign
+						{\color{hustprimary} \normalsize \textbf{Người thực hiện:}} \\[5pt]
+						{\color{black} \insertauthor} \par
+					}
+					{\hustInstAlign
+						{\small \color{hustprimary} \bfseries \insertinstitute} \par
+						\vspace{0.2cm}
+					}
+				};
+			\end{tikzpicture}
+		\end{frame}
+	}
+}
+
+\renewcommand{\hustintropage}[1]{
+	{
+		\setbeamertemplate{background}{\includegraphics[width=\paperwidth,height=\paperheight]{\hustbg{intro}}}
+		\begin{frame}[plain]
+			\begin{tikzpicture}[remember picture, overlay]
+				\node[anchor=center, align=center] at (current page.center) {\huge \textcolor{white}{\textbf{#1}}};
+			\end{tikzpicture}
+		\end{frame}
+	}
+}
+
+\renewcommand{\hustsectionpage}[1]{
+	{
+		\setbeamertemplate{background}{\includegraphics[width=\paperwidth,height=\paperheight]{\hustbg{section}}}
+		\begin{frame}[plain]
+			\begin{tikzpicture}[remember picture, overlay]
+				\node[anchor=center, align=center] at (current page.center) {\huge \textcolor{white}{\textbf{#1}}};
+			\end{tikzpicture}
+		\end{frame}
+	}
+}
+\makeatother
+
+% Vị trí khối title ở trang bìa
+\renewcommand{\titlePageTitleX}{-0.5cm}
+\renewcommand{\titlePageTitleY}{-0.5cm}
+\renewcommand{\hustTitleAlign}{\alignLeft}
+\renewcommand{\hustSubtitleAlign}{\alignLeft}
+\renewcommand{\hustAuthorAlign}{\alignLeft}
+\renewcommand{\hustInstAlign}{\alignLeft}
+
+\title{NGHIÊN CỨU VÀ ỨNG DỤNG\\GIAO THỨC ĐIỀU PHỐI PHI TẬP TRUNG\\CHO MLS TRÊN MẠNG NGANG HÀNG}
+\subtitle{Đồ án tốt nghiệp}
+\author{\texorpdfstring{Lê Tiến Dũng -- 20224837}{Lê Tiến Dũng - 20224837}}
+\institute{Trường CNTT\&TT -- Đại học Bách khoa Hà Nội \\ \small Giảng viên hướng dẫn: TS. Đỗ Bá Lâm}
+\date{Hà Nội, 07/2026}
+
+% ============ TikZ styles dùng chung ============
+\tikzset{
+  box/.style={draw, rectangle, rounded corners=2pt, align=center, minimum height=0.85cm, inner sep=5pt, font=\small},
+  boxred/.style={box, draw=hustprimary, thick, fill=hustprimary!8},
+  boxblue/.style={box, draw=blue!50!black, thick, fill=blue!6},
+  boxgray/.style={box, draw=black!50, fill=black!4},
+  boxgreen/.style={box, draw=green!40!black, thick, fill=green!6},
+  smallbox/.style={box, minimum height=0.7cm, font=\footnotesize},
+  arr/.style={-{Latex[length=2mm]}, thick},
+}
+
+\begin{document}
+
+\husttitlepage
+
+\begin{frame}{Nội dung trình bày}
+	\tableofcontents
+\end{frame}
+
+\resetPageCount
+\showPageNumber
+
+\useStyleHustFull
+\useThinBar
+
+% =====================================================================
+\hustsectionpage{1. Giới thiệu bài toán}
+\section{Giới thiệu bài toán}
+% =====================================================================
+
+\begin{frame}[c]{1.1. Nền tảng: Giao thức MLS (RFC 9420)}
+	\begin{columns}[c]
+		\begin{column}{0.44\textwidth}
+			\begin{center}
+			\begin{tikzpicture}[scale=0.75, transform shape, node distance=0.35cm]
+				\node[boxblue, text width=3.4cm] (mls) {Giao thức MLS (RFC 9420)};
+				\node[smallbox, text width=2.1cm, below=1.15cm of mls, xshift=-2.6cm] (prop) {Proposal};
+				\node[smallbox, text width=2.1cm, below=1.15cm of mls] (commit) {Commit};
+				\node[smallbox, text width=2.1cm, below=1.15cm of mls, xshift=2.6cm] (wel) {Welcome};
+				\node[boxred, text width=3.4cm, below=0.55cm of commit] (epoch) {Epoch mới};
+				\node[boxgray, text width=3.4cm, below=0.5cm of epoch] (tree) {TreeKEM --- $O(\log N)$};
+				\draw[arr] (mls) -- (prop);
+				\draw[arr] (mls) -- (commit);
+				\draw[arr] (mls) -- (wel);
+				\draw[arr] (commit) -- (epoch);
+				\draw[arr] (epoch) -- (tree);
+			\end{tikzpicture}
+			\end{center}
+		\end{column}
+		\begin{column}{0.56\textwidth}
+			\small
+			\textbf{Epoch:} trạng thái nhóm sau mỗi Commit.
+			\vspace{0.3em}
+
+			\textbf{Commit:} gom Proposal $\to$ epoch mới. \alert{Không giao hoán}.
+			\vspace{0.3em}
+
+			\textbf{TreeKEM:} cập nhật khóa $O(\log N)$.
+			\vspace{0.3em}
+
+			\textbf{FS:} thành viên bị loại không đọc tin sau.
+			\vspace{0.3em}
+
+			\textbf{PCS:} tự phục hồi sau lộ khóa.
+			\vspace{0.3em}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{1.2. Vấn đề: MLS cần thứ tự tuyến tính, P2P không có}
+	\begin{alertblock}{}
+		\centering \small MLS cần \textbf{Delivery Service} tuần tự hóa Commit. P2P không có DS $\to$ \alert{phân nhánh trạng thái}.
+	\end{alertblock}
+	\vspace{0.3em}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\centering \footnotesize \textbf{MLS truyền thống (có DS)}
+			\begin{center}
+			\begin{tikzpicture}[node distance=0.3cm]
+				\node[boxblue] (a) {Alice};
+				\node[boxgray, right=1.1cm of a] (ds) {DS};
+				\node[boxgray, right=0.9cm of ds, text width=2.2cm] (b) {Bob, Carol, Dave};
+				\draw[arr] (a) -- node[above,font=\scriptsize]{Commit} (ds);
+				\draw[arr] (ds) -- node[above,font=\scriptsize]{order} (b);
+				\node[boxgreen, below=0.5cm of ds] (ok) {\footnotesize $E_1{\to}E_2{\to}E_3$ \\ Tất cả đồng bộ \checkmark};
+				\draw[arr] (ds) -- (ok);
+			\end{tikzpicture}
+			\end{center}
+		\end{column}
+		\begin{column}{0.52\textwidth}
+			\centering \footnotesize \textbf{MLS trên P2P (không DS)}
+			\begin{center}
+			\begin{tikzpicture}[node distance=0.3cm]
+				\node[boxblue] (a) {Alice};
+				\node[boxblue, below=0.5cm of a] (c) {Carol};
+				\node[boxgray, right=2.2cm of a] (gs1) {GossipSub};
+				\node[boxgray, right=2.2cm of c] (gs2) {GossipSub};
+				\node[boxgray, right=1cm of gs1] (bob) {Bob};
+				\node[boxgray, right=1cm of gs2] (dave) {Dave};
+				\draw[arr] (a) -- node[above, pos=0.5, font=\scriptsize]{Commit\_A(E)} (gs1);
+				\draw[arr] (gs1) -- (bob);
+				\draw[arr] (c) -- node[above, pos=0.5, font=\scriptsize]{Commit\_B(E)} (gs2);
+				\draw[arr] (gs2) -- (dave);
+				\node[boxred, below=0.5cm of gs2] (fork) {\footnotesize Cùng $E{+}1$, $TH_1 \neq TH_2$ \\ \alert{FORK!}};
+			\end{tikzpicture}
+			\end{center}
+		\end{column}
+	\end{columns}
+	\vspace{-0.8em}
+	\small
+	\begin{itemize}
+		\item \textbf{Một epoch = một Commit}
+	\end{itemize}
+\end{frame}
+
+\begin{frame}[c]{1.3. Khoảng trống nghiên cứu \& Mục tiêu}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\begin{block}{Khoảng trống}
+				\small
+				\begin{itemize}
+					\item \textbf{Raft/BFT:} $O(N^2)$, đóng băng khi mất quorum
+					\item \textbf{Blockchain:} độ trễ cao
+					\item \textbf{DMLS:} phức tạp, đánh đổi FS
+					\item \alert{Thiếu} cơ chế nhẹ, điều phối tốt, giữ bảo mật
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{4 Mục tiêu}
+				\small
+				\begin{enumerate}
+					\item Giảm commits đồng thời
+					\item Xử lý trên epoch tương thích
+					\item Phát hiện \& hàn gắn phân mảnh
+					\item Đảm bảo thứ tự hiển thị thông điệp ứng dụng
+				\end{enumerate}
+			\end{block}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{1.4. Đóng góp chính của đồ án}
+	\hspace{0.5em}
+	\begin{columns}[c]
+		\begin{column}{0.31\textwidth}
+			\begin{block}{\centering 1. Nghiên cứu}
+				\small
+				\begin{itemize}
+					\item 4 cơ chế điều phối
+					\item Không sửa lõi MLS
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.31\textwidth}
+			\begin{block}{\centering 2. Lý thuyết}
+				\small
+				\begin{itemize}
+				\setlength{\itemsep}{0pt}
+					\item 5 bất biến bảo toàn
+					\item \textbf{CAP/SMR:} chọn AP + Eventual Consistency
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.31\textwidth}
+			\begin{alertblock}{\centering 3. Ứng dụng}
+				\small
+				\begin{itemize}
+					\item Ứng dụng desktop hoàn chỉnh
+					\item Thực nghiệm
+				\end{itemize}
+			\end{alertblock}
+		\end{column}
+	\end{columns}
+	\vspace{1em}
+	\centering \small \textbf{Không sửa lõi MLS} --- giao thức điều phối bên ngoài RFC 9420
+\end{frame}
+
+% =====================================================================
+\hustsectionpage{2. Giao thức điều phối đề xuất}
+\section{Giao thức điều phối đề xuất}
+% =====================================================================
+
+\begin{frame}[c]{2.1. Cơ chế 1: Single-Writer + Cơ sở lý thuyết CAP/SMR}
+	\begin{alertblock}{Tại sao Single-Writer?}
+		\footnotesize
+		\begin{enumerate}
+		\setlength{\itemsep}{0pt}
+			\item Tiến hóa nhóm = \textbf{SMR}: mỗi Commit là một chuyển trạng thái
+			\item Commit \alert{không giao hoán}: thứ tự xử lý quyết định kết quả
+			\item \textbf{CAP}: P2P phân vùng $\Rightarrow$ chọn \textbf{AP + Eventual Consistency}; CP đóng băng, không phù hợp chat
+		\end{enumerate}
+	\end{alertblock}
+	\vspace{0.05em}
+	\begin{columns}[c]
+		\begin{column}{0.57\textwidth}
+			\begin{block}{Bầu chọn Token Holder xác định}
+				\scriptsize
+				\begin{gather*}
+				\text{Eligible}(E) = \text{Members}(E) \cap \text{ActiveView}(E) \setminus \text{Susp}(E) \\[-0.3em]
+				\text{TokenHolder}(E) = \argmin_{\mathclap{n \in \text{Eligible}(E)}} H(\text{group\_id} \Vert E \Vert n)
+				\end{gather*}
+				\vspace{-0.2em}
+			\centering\scriptsize Cùng đầu vào $\to$ cùng kết quả \;|\; $O(N)$ cục bộ
+			\end{block}
+		\end{column}
+		\begin{column}{0.38\textwidth}
+		\scriptsize
+		\begin{itemize}
+		\setlength{\itemsep}{0pt}
+			\item \textbf{Proposal:} mọi thành viên tạo
+			\item \textbf{Commit:} chỉ Token Holder gom/phát
+			\item \textbf{Failover:} ngoại tuyến $\to$ loại ActiveView (Adaptive Lease + $\varphi$-Accrual --- A)
+		\end{itemize}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{2.2. Cơ chế 2: Kiểm tra epoch --- Đơn điệu không giảm}
+	\begin{center}
+	\begin{tikzpicture}[node distance=0.4cm]
+		\node[boxgray, text width=4.2cm] (top) {So sánh $E_{msg}$ với $E_{local}$};
+		\node[boxred, below left=0.8cm and 0.3cm of top, text width=2.4cm] (lt) {$E_{msg} < E_{local}$ \\ \scriptsize\alert{Từ chối!}};
+		\node[boxgreen, below=0.8cm of top, text width=2.4cm] (eq) {$E_{msg} = E_{local}$ \\ \scriptsize Xử lý};
+		\node[boxblue, below right=0.8cm and 0.3cm of top, text width=2.8cm] (gt) {$E_{msg} > E_{local}$ \\ \scriptsize Đệm + Đồng bộ / Fork Healing};
+		\draw[arr] (top) -- (lt);
+		\draw[arr] (top) -- (eq);
+		\draw[arr] (top) -- (gt);
+	\end{tikzpicture}
+	\end{center}
+	\vspace{0.2em}
+	\small
+	\begin{itemize}
+	\setlength{\itemsep}{0pt}
+		\item \textbf{Bất biến:} epoch cục bộ chỉ tăng hoặc giữ nguyên: $E_i(t{+}1) \geq E_i(t)$
+		\item Thông điệp tương lai $\to$ đệm $\to$ kiểm tra tiền tố lịch sử (HistoryHash)
+	\end{itemize}
+\end{frame}
+
+\begin{frame}[c]{2.3. Cơ chế 3: Fork Detection --- Phân biệt chậm vs phân nhánh}
+	\begin{columns}[c]
+		\begin{column}{0.45\textwidth}
+			\small \textbf{History Hash}
+			\begin{gather*}
+			R(0) = r_0, \quad R(e) = H(R(e{-}1) \Vert C(e)) \\
+			\text{\scriptsize $R(E)$ tóm tắt chuỗi Commit } 1{\to}E
+			\end{gather*}
+			\vspace{0.3em}
+			\small
+			\begin{itemize}
+				\item $R_B(E_A) = R_A(E_A)$ $\Rightarrow$ A chỉ chậm $\to$ catch up
+				\item $R_B(E_A) \neq R_A(E_A)$ $\Rightarrow$ \alert{FORK thật $\to$ Healing}
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.53\textwidth}
+			\begin{center}
+			\begin{tikzpicture}[scale=0.85, every node/.style={font=\footnotesize}]
+				\coordinate (ref) at (1,0);
+				\draw[thick] (0,0) -- (5,0) node[right]{Nhánh B};
+				\foreach \x/\lab in {0/1,1/2,2/3,3/4,4/5} \node at (\x,0.3) {\lab};
+				\draw[thick] (0,-0.7) -- (2,-0.7);
+				\draw[thick, hustprimary] (2,-0.7) -- (2.1,-0.55) (2,-0.7) -- (2.1,-0.85);
+				\node[hustprimary] at (2.3,-0.7) {$\times$};
+				\node at (1,-1.1) {Nhánh A};
+				\draw[arr] (2,-0.35) -- (2,-0.05);
+				\node[boxgreen, below=1.4cm of ref, scale=0.85] (yes) {$R_A(5){=}R_B(5)$? \\ YES: chỉ chậm};
+				\node[boxred, right=0.2cm of yes, scale=0.85] (no) {NO: Fork thật};
+			\end{tikzpicture}
+			\end{center}
+		\end{column}
+	\end{columns}
+	\vspace{0.4em}
+	\begin{block}{Hội tụ cần 3 điều kiện}
+		\footnotesize (i) cùng epoch $E$, (ii) cùng TreeHash, (iii) cùng HistoryHash $R(E)$.
+	\end{block}
+\end{frame}
+
+\begin{frame}[c]{2.4. Fork Healing --- Hàn gắn phân nhánh}
+	\small \textbf{5 bước}
+	\begin{enumerate}
+		\footnotesize
+		\setlength{\itemsep}{0pt}
+		\item Chọn nhánh thắng
+		\item Nút thua hủy MLS cũ, tạo KeyPackage
+		\item External Proposal (Add)
+		\item 1 Commit + Welcome
+		\item Autonomous Replay
+	\end{enumerate}
+	\vspace{0.1em}
+	\begin{center}
+	\begin{tikzpicture}[node distance=0.15cm, every node/.style={font=\scriptsize}]
+		\node[boxred, text width=1.6cm] (lose) {Nhánh thua};
+		\node[boxgray, right=0.4cm of lose, text width=2cm] (ext) {External Proposal (Add)};
+		\node[boxgreen, right=0.4cm of ext, text width=1.6cm] (one) {1 Commit};
+		\node[boxblue, right=0.4cm of one, text width=1.6cm] (uni) {Nhánh thống nhất};
+		\draw[arr] (lose) -- (ext);
+		\draw[arr] (ext) -- (one);
+		\draw[arr] (one) -- (uni);
+	\end{tikzpicture}
+	\end{center}
+	\vspace{-3.0em}
+	\begin{columns}[c]
+		\begin{column}{0.33\textwidth}
+			\begin{alertblock}{}
+				\scriptsize $K$ nút heal $\to$ 1 Commit ($O(1)$)
+			\end{alertblock}
+		\end{column}
+		\begin{column}{0.31\textwidth}
+			\begin{alertblock}{}
+				\scriptsize \alert{\st{Tự Commit}} $\to$ $O(K^2)$
+			\end{alertblock}
+		\end{column}
+		\begin{column}{0.29\textwidth}
+			\begin{block}{}
+				\scriptsize Crypto-shredding: hủy khóa cũ, giữ FS
+			\end{block}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{2.5. Cơ chế 4: HLC --- Thứ tự hiển thị cho tin nhắn ứng dụng}
+	\begin{columns}[c]
+		\begin{column}{0.47\textwidth}
+			\small \textbf{Vấn đề: Thứ tự hiển thị}
+			\begin{itemize}
+				\small
+				\item \textbf{2 loại tin:} Control (Proposal/Commit) vs Application (chat)
+				\item \textbf{Có DS:} DS cấp timestamp
+				\item \textbf{P2P:} clock drift $\to$ không tin physical clock
+			\end{itemize}
+		\end{column}
+		\begin{column}{0.49\textwidth}
+			\small \textbf{Giải pháp: Hybrid Logical Clock}
+			\begin{alertblock}{}
+				\small
+				$HLC = (L, C, \text{NodeID})$ \\[0.2em]
+				\texttt{HLC\_Now():} \\
+				\quad $L' = \max(L_{local}, L_{physical})$ \\
+				\quad if $L'{=}L_{local}$: $C{+}{+}$ else $C{=}0$ \\
+				\quad return $(L', C, \text{NodeID})$
+			\end{alertblock}
+			\vspace{0.2em}
+		\small
+		$\bullet$ \textbf{Áp dụng:} application message\\
+		$\bullet$ \textbf{Đảm bảo:} happens-before + total order mỗi nút
+		\end{column}
+	\end{columns}
+	\vspace{0.3em}
+	\begin{block}{}
+		\small \textbf{Tách 2 thứ tự:} mật mã (epoch, Commit) $\neq$ hiển thị (HLC)
+	\end{block}
+\end{frame}
+
+% =====================================================================
+\hustsectionpage{3. Phân tích lý thuyết}
+\section{Phân tích lý thuyết}
+% =====================================================================
+
+\begin{frame}[c]{3.1. 5 bất biến lý thuyết được bảo toàn}
+	\footnotesize
+	\begin{center}
+	\begin{tabular}{|p{4.1cm}|p{3.3cm}|p{3.6cm}|}
+		\hline
+		\rowcolor{hustprimary!85}\textcolor{white}{\textbf{Bất biến}} & \textcolor{white}{\textbf{Cơ chế bảo toàn}} & \textcolor{white}{\textbf{Ý nghĩa}} \\
+		\hline
+		Epoch cục bộ chỉ tăng hoặc giữ nguyên & Kiểm tra epoch & Không kéo trạng thái lùi \\
+		\hline
+		Một Token Holder trong cùng ActiveView & Single-Writer & Giảm concurrent commits \\
+		\hline
+		Phân nhánh được nhận biết sau đối chiếu & History hash $R(E)$ & Phân biệt chậm vs fork \\
+		\hline
+		Không gộp trực tiếp trạng thái đã tách & External Proposal & Hội tụ trong mô hình MLS \\
+		\hline
+		HLC không quyết định Commit & Tách 2 loại ordering & Không trộn crypto vs display \\
+		\hline
+	\end{tabular}
+	\end{center}
+\end{frame}
+
+% =====================================================================
+\hustsectionpage{4. Triển khai \& Thực nghiệm}
+\section{Triển khai \& Thực nghiệm}
+% =====================================================================
+
+\begin{frame}[c]{4.1. Kiến trúc hai tầng + Stateless Sidecar}
+	\begin{center}
+	\begin{tikzpicture}[node distance=0.5cm, every node/.style={font=\small}]
+		\node[boxblue, text width=12cm, minimum height=1.2cm] (fe) {\textbf{FRONTEND --- React + TypeScript}\\Shadcn UI $\cdot$ Tailwind CSS $\cdot$ Zustand $\cdot$ Wails Bindings};
+		\node[boxgreen, below=0.5cm of fe, text width=12cm, minimum height=1.2cm] (go) {\textbf{TẦNG ĐIỀU PHỐI (Go) --- Hexagonal Architecture}\\Single-Writer $\cdot$ Kiểm tra epoch $\cdot$ Fork Healing $\cdot$ HLC\\\scriptsize adapter/p2p (libp2p+GossipSub) $\cdot$ adapter/store (SQLite mã hóa)};
+		\node[boxred, below=0.5cm of go, text width=12cm, minimum height=1.2cm] (rust) {\textbf{TẦNG MLS (Rust / OpenMLS) --- Stateless Sidecar}\\Proposal $\cdot$ Commit $\cdot$ Welcome $\cdot$ TreeKEM $\cdot$ FS $\cdot$ PCS\\\scriptsize Không biết Single-Writer hay epoch --- chỉ biến đổi mật mã hợp lệ};
+		\draw[arr] (fe) -- node[right, xshift=2mm, font=\footnotesize]{Wails Bindings} (go);
+		\draw[arr] (go) -- node[right, xshift=2mm, font=\footnotesize]{gRPC (stateless) --- adapter/sidecar} (rust);
+	\end{tikzpicture}
+	\end{center}
+\end{frame}
+
+\begin{frame}[c]{4.2. Ứng dụng desktop: Luồng người dùng hoàn chỉnh}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\centering
+			\includegraphics[width=0.48\textwidth,height=1.8cm,keepaspectratio]{app_03_admin_issue_bundle_admin.png}\\
+			{\footnotesize \textbf{1. Onboarding \& Bundle}}\\
+			{\scriptsize Thiết bị tự sinh khóa $\to$ QTV duyệt, cấp Bundle}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\centering
+			\includegraphics[width=0.48\textwidth,height=1.8cm,keepaspectratio]{app_05_group_chat_alice.png}\\
+			{\footnotesize \textbf{2. Group Chat đồng bộ}}\\
+			{\scriptsize Tin nhắn mã hóa MLS, hiển thị đồng bộ}
+		\end{column}
+	\end{columns}
+	\vspace{0.1em}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\centering
+			\includegraphics[width=0.48\textwidth,height=1.8cm,keepaspectratio]{app_06_group_management_alice.png}\\
+			{\footnotesize \textbf{3. Quản trị nhóm}}\\
+			{\scriptsize Xem thành viên, vai trò. Mỗi thao tác kích hoạt Proposal/Commit}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\centering
+			\includegraphics[width=0.48\textwidth,height=1.8cm,keepaspectratio]{app_13_file_chat.png}\\
+			{\footnotesize \textbf{4. Chia sẻ tệp mã hóa}}\\
+			{\scriptsize MLS exporter $\to$ AES-256-GCM. Khóa không truyền mạng}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{4.3. RQ1 + RQ2: Single-Writer giảm xung đột + Chaos test hội tụ}
+	\begin{columns}[t]
+		\begin{column}{0.48\textwidth}
+			\centering
+			\footnotesize \textbf{RQ1:} Single-Writer có giảm xung đột?\\[0.2em]
+			\includegraphics[width=0.95\textwidth,height=4.0cm,keepaspectratio]{concurrency_batching.png}\\
+			{\scriptsize
+			\textbf{Xử lý ngay:} tỷ lệ thành công $1.00 \to 0.33$\\
+			\textbf{Single-Writer:} tỷ lệ \textbf{1.00}, Commit $=1$}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\centering
+			\footnotesize \textbf{RQ2:} Hệ thống có hội tụ sau phân vùng?\\[0.2em]
+			\includegraphics[width=0.95\textwidth,height=4.0cm,keepaspectratio]{chaos_convergence.png}\\
+			{\scriptsize
+			5 nút, phân vùng lặp 600ms\\
+			\textbf{Hội tụ cùng epoch + tree hash}\\
+			\textbf{Không cần Delivery Service}}
+		\end{column}
+	\end{columns}
+	\vspace{0.2em}
+	{\scriptsize \centering \textit{Cách đo: 5 nodes, mỗi node đề xuất 10 proposal; Single-Writer gom batch $\to$ 1 commit; Chaos test tạo partition 600ms lặp 5 lần.}\par}
+\end{frame}
+
+\begin{frame}[c]{4.4. RQ3: Benchmark mật mã --- MLS $O(\log N)$ vs mã hóa từng cặp $O(N)$}
+	{\scriptsize \centering \textit{Cách đo: tạo nhóm N thành viên, đo thời gian mã hóa 1 tin nhắn (1024 byte) cho N recipients, lặp 100 lần lấy median.}\par}
+	\vspace{0.1em}
+	\begin{center}
+		\includegraphics[width=0.90\textwidth,height=4.5cm,keepaspectratio]{Evaluation_MLS_Scalability_O_logN.png}
+	\end{center}
+	\vspace{0.1em}
+	\footnotesize
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\centering
+			\textbf{4096 thành viên:}\\
+			MLS \textbf{78.95 ms} vs từng cặp \textbf{955.18 ms} --- chênh 12$\times$
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\centering
+			\textbf{Tail latency (p99):}\\
+			MLS \textbf{110.85 ms} vs từng cặp \textbf{1081.72 ms}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[fragile,c]{4.5. RQ4: Khả năng mở rộng --- thao tác thành viên 5--1000 nút}
+	\vspace{0.3em}
+	\begin{columns}[c]
+		\begin{column}{0.42\textwidth}
+			\begin{block}{Cách đo}
+				\scriptsize
+				Tạo sẵn nhóm gồm N nút. \textbf{1 nút} đề xuất Add/Remove/Update. Đo \alert{tổng thời gian xử lý của toàn bộ N nút} để tất cả cùng tiến lên epoch tiếp theo.\\[0.3em]
+				\alert{Không tính độ trễ mạng.}\\[0.3em]
+				Số trong bảng = chi phí tổng toàn mạng.
+			\end{block}
+			\vspace{0.5em}
+			\begin{block}{Nhận xét}
+				\scriptsize
+				VD: 1000 nút, Add: \textbf{2237 ms} tổng $\div$ 1000 $\approx$ \textbf{2,2 ms}/node\\[0.2em]
+			\end{block}
+		\end{column}
+		\begin{column}{0.55\textwidth}
+			\centering
+			\scriptsize
+			\renewcommand{\arraystretch}{1.1}
+			\setlength{\tabcolsep}{8pt}
+			\begin{tabular}{|r|r|r|r|}
+				\hline
+				\textbf{N} & \textbf{Thêm (ms)} & \textbf{Xóa (ms)} & \textbf{Cập nhật (ms)} \\
+				\hline
+				5 & 0,00 & 0,52 & 0,00 \\
+				\hline
+				10 & 0,53 & 1,05 & 0,52 \\
+				\hline
+				50 & 6,19 & 7,26 & 6,59 \\
+				\hline
+				100 & 24,53 & 23,53 & 24,67 \\
+				\hline
+				250 & 130,47 & 129,70 & 128,83 \\
+				\hline
+				500 & 527,36 & 531,18 & 517,97 \\
+				\hline
+				750 & 1265,50 & 1169,21 & 1188,41 \\
+				\hline
+				1000 & 2237,29 & 2194,79 & 2146,94 \\
+				\hline
+			\end{tabular}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[fragile,c]{4.6. RQ5: Phục hồi phân nhánh + Chi phí điều phối + Forward Secrecy}
+	{\scriptsize \textit{Cách đo RQ5a: tạo partition sâu D epoch, external join + replay; đo thời gian hội tụ, chuẩn hóa theo KB group state. RQ5b: so sánh thời gian điều phối vs tổng. RQ5c: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
+	\vspace{0.1em}
+	\begin{columns}[c]
+		\begin{column}{0.55\textwidth}
+			\centering
+			\footnotesize \textbf{RQ5a:} Healing $O(1)$ theo độ sâu phân kỳ?\\[0.2em]
+			\includegraphics[width=0.95\textwidth,height=4.0cm,keepaspectratio]{partition_divergence_normalized.png}\\
+			{\scriptsize ms/KB giảm 1,62 $\to$ 0,65\\
+			$\Rightarrow$ giao thức $O(1)$, chi phí tăng do serialize group state}
+		\end{column}
+		\begin{column}{0.43\textwidth}
+			\footnotesize \textbf{RQ5b:} Coordinator overhead\\[0.2em]
+			\centering
+			{\scriptsize
+			\renewcommand{\arraystretch}{1.1}
+			\setlength{\tabcolsep}{7pt}
+			\begin{tabular}{|r|r|r|r|}
+				\hline
+				\textbf{N} & \textbf{DP (ms)} & \textbf{Tổng (ms)} & \textbf{\%} \\
+				\hline
+				16 & 1,58 & 39,73 & 3,97 \\
+				\hline
+				32 & 3,08 & 115,43 & 2,67 \\
+				\hline
+				64 & 11,30 & 650,70 & 1,74 \\
+				\hline
+			\end{tabular}}
+			\\[0.2em]
+			{\scriptsize $\Rightarrow$ Giảm dần, luôn $<4\%$}
+			\vspace{0.3em}
+			\begin{block}{}
+				\footnotesize
+				\textbf{RQ5c:} Forward Secrecy --- thành viên bị loại không giải mã epoch mới \checkmark
+			\end{block}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+% =====================================================================
+\hustsectionpage{5. Kết luận}
+\section{Kết luận}
+% =====================================================================
+
+\begin{frame}[c]{5.1. Kết luận \& Hướng phát triển}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\begin{block}{Đóng góp}
+				\small
+				\begin{itemize}
+					\item 4 cơ chế điều phối, không sửa lõi MLS
+					\item Fork Healing: $K$ nút $\to$ 1 Commit
+					\item 5 bất biến lý thuyết
+					\item Desktop app + 4 use case
+				\end{itemize}
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{alertblock}{Giới hạn}
+				\small
+				\begin{itemize}
+					\item Chưa formal verification
+					\item Thực nghiệm mạng giả lập
+					\item Group state truyền toàn bộ
+				\end{itemize}
+			\end{alertblock}
+			\begin{block}{Hướng phát triển}
+				\small
+				\begin{itemize}
+					\item Formal verification, multi-machine
+					\item Tối ưu delta state Go$\leftrightarrow$Rust
+				\end{itemize}
+			\end{block}
+		\end{column}
+	\end{columns}
+	\vspace{0.8em}
+	\centering \textbf{\color{hustprimary} Em xin cảm ơn và mong nhận câu hỏi từ quý thầy cô}
+\end{frame}
+
+% =====================================================================
+% TRANG LIÊN HỆ
+% =====================================================================
+\hustcontactpage{\hfill THÔNG TIN LIÊN HỆ \hfill }{
+	\textbf{Sinh viên thực hiện:} Lê Tiến Dũng -- 20224837 \\
+	\textbf{Người hướng dẫn:} TS. Đỗ Bá Lâm \\
+	\vspace{0.5cm}
+
+	\begin{itemize}
+		\item \textbf{Email:} \href{mailto:dung.lt224837@sis.hust.edu.vn}{dung.lt224837@sis.hust.edu.vn}
+		\item \textbf{Trường:} CNTT\&TT -- Đại học Bách khoa Hà Nội
+	\end{itemize}
+
+	\vspace{1cm}
+	\textit{Xin chân thành cảm ơn Hội đồng đã lắng nghe!}
+}
+
+% =====================================================================
+% TÀI LIỆU THAM KHẢO
+% =====================================================================
+\useStyleLogoOnly
+\setbeamertemplate{bibliography item}[text]
+
+\begin{frame}[allowframebreaks]{Tài liệu tham khảo}
+	\footnotesize
+	\begin{thebibliography}{99}
+
+		\bibitem{rfc9420}
+		R. Barnes, B. Beurdouche, R. Robert, J. Millican, E. Omara, and K. Cohn-Gordon,
+		\emph{The Messaging Layer Security (MLS) Protocol}, RFC 9420, IETF, Jul. 2023.
+
+		\bibitem{rfc9750}
+		B. Beurdouche, E. Rescorla, E. Omara, S. Inguva, and A. Duric,
+		\emph{The Messaging Layer Security (MLS) Architecture}, RFC 9750, IETF, Apr. 2025.
+
+		\bibitem{alwen2023fork}
+		J. Alwen, M. Mularczyk, and Y. Tselekounis,
+		``Fork-Resilient Continuous Group Key Agreement,''
+		in \emph{Advances in Cryptology -- CRYPTO 2023}, Springer, pp. 396--429, 2023.
+
+		\bibitem{kohbrok2025dmls}
+		K. Kohbrok, \emph{Decentralized Messaging Layer Security},
+		Internet-Draft draft-kohbrok-mls-dmls-03, IETF, Oct. 2025.
+
+		\bibitem{schneider1990smr}
+		F. B. Schneider,
+		``Implementing Fault-Tolerant Services Using the State Machine Approach: A Tutorial,''
+		\emph{ACM Computing Surveys}, vol. 22, no. 4, pp. 299--319, 1990.
+
+		\bibitem{gilbert2002brewers}
+		S. Gilbert and N. Lynch,
+		``Brewer's Conjecture and the Feasibility of Consistent, Available, Partition-Tolerant Web Services,''
+		\emph{ACM SIGACT News}, vol. 33, no. 2, pp. 51--59, 2002.
+
+		\bibitem{vogels2008eventual}
+		W. Vogels, ``Eventually Consistent,'' \emph{ACM Queue}, vol. 6, no. 6, pp. 14--19, 2008.
+
+		\bibitem{ongaro2014raft}
+		D. Ongaro and J. Ousterhout,
+		``In Search of an Understandable Consensus Algorithm,''
+		in \emph{2014 USENIX Annual Technical Conference (USENIX ATC 14)}, pp. 305--319, 2014.
+
+		\bibitem{castro1999pbft}
+		M. Castro and B. Liskov,
+		``Practical Byzantine Fault Tolerance,''
+		in \emph{3rd Symposium on Operating Systems Design and Implementation (OSDI 99)}, pp. 173--186, 1999.
+
+		\bibitem{kulkarni2014hlc}
+		S. S. Kulkarni, M. Demirbas, D. Madeppa, B. Avva, and M. Leone,
+		``Logical Physical Clocks and Consistent Snapshots in Globally Distributed Databases,''
+		in \emph{OPODIS 2014}, LNCS vol. 8878, Springer, pp. 17--32, 2014.
+
+		\bibitem{localfirst2019}
+		M. Kleppmann, A. Wiggins, P. van Hardenberg, and M. McGranaghan,
+		``Local-first software: You own your data, in spite of the cloud,''
+		in \emph{Proc. ACM SIGPLAN Onward! 2019}, 2019.
+
+		\bibitem{vyzovitis2020gossipsub}
+		D. Vyzovitis, Y. Napora, D. McCormick, D. Dias, and Y. Psaras,
+		``GossipSub: Attack-Resilient Message Propagation in the Filecoin and ETH2.0 Networks,''
+		arXiv:2007.02754, 2020.
+
+		\bibitem{openmls2026doc}
+		OpenMLS Project, \emph{OpenMLS --- A Rust Implementation of the Messaging Layer Security (MLS) Protocol}, 2026. \url{https://openmls.tech/}
+
+		\bibitem{wails2026doc}
+		Wails Project, \emph{Wails --- Build Desktop Applications using Go \& Web Technologies}, 2026. \url{https://wails.io/}
+
+	\end{thebibliography}
+\end{frame}
+
+% =====================================================================
+% PHỤ LỤC
+% =====================================================================
+
+\begin{frame}[c]{Phụ lục A. Failover an toàn trong Single-Writer}
+	\begin{columns}[c]
+		\begin{column}{0.48\textwidth}
+			\begin{alertblock}{Vấn đề}
+				\small
+				Timeout cố định 4s dễ khiến nút suspend nhầm Token Holder khi GossipSub jitter, gây fork ngay cả khi mạng vẫn liên thông.
+			\end{alertblock}
+			\vspace{0.2em}
+			\begin{block}{Adaptive Epoch Lease}
+				\small
+				\begin{gather*}
+				L(E) = W_{batch} + \widehat{C}_{commit} + 2\widehat{RTT}_{p95}
+				\end{gather*}
+				\footnotesize
+				Lease tính từ thời gian gom Proposal, tạo Commit và độ trễ p95 của mạng --- thay thế timeout cố định.
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{$\varphi$-Accrual Failure Detector}
+				\small
+				\begin{gather*}
+				\varphi(t) = -\log_{10}\bigl(1 - F_{HB}(t - t_{last})\bigr)
+				\end{gather*}
+				\footnotesize
+				$\varphi = 1$: 10\% còn sống (chậm) \newline
+				$\varphi = 8$: $10^{-8}$ còn sống (chết)
+			\end{block}
+			\vspace{0.2em}
+			\begin{alertblock}{Điều kiện suspend}
+				\small
+				\begin{gather*}
+				\text{Suspend}(H) \iff L_{node}(E) \text{ hết} \;\wedge\; \varphi > 8
+				\end{gather*}
+				\footnotesize
+				Chỉ suspend khi lease hết \textbf{và} xác suất holder chết cực cao.
+			\end{alertblock}
+		\end{column}
+	\end{columns}
+\end{frame}
+
+\begin{frame}[c]{Phụ lục B. Số liệu bổ sung: Healing và Coordinator overhead}
+	\footnotesize
+	\begin{columns}[t]
+		\begin{column}{0.47\textwidth}
+			\centering
+			\textbf{Thời gian healing theo độ sâu phân kỳ}\\[0.2em]
+			\scriptsize
+			\renewcommand{\arraystretch}{0.85}
+			\resizebox{0.92\textwidth}{!}{%
+			\begin{tabular}{|r|r|r|r|}
+				\hline
+				\textbf{$D$} & \textbf{Healing (ms)} & \textbf{State (KB)} & \textbf{ms/KB} \\
+				\hline
+				5 & 728 & 449 & 1,62 \\
+				\hline
+				10 & 1039 & 762 & 1,36 \\
+				\hline
+				20 & 1155 & 1381 & 0,84 \\
+				\hline
+				50 & 2098 & 3240 & 0,65 \\
+				\hline
+			\end{tabular}}
+		\end{column}
+		\begin{column}{0.47\textwidth}
+			\centering
+			\textbf{Chi phí điều phối tuyệt đối}\\[0.2em]
+			\scriptsize
+			\renewcommand{\arraystretch}{0.85}
+			\resizebox{0.92\textwidth}{!}{%
+			\begin{tabular}{|r|r|r|r|}
+				\hline
+				\textbf{N} & \textbf{Điều phối (ms)} & \textbf{Tổng (ms)} & \textbf{Tỷ trọng (\%)} \\
+				\hline
+				16 & 1,58 & 39,73 & 3,97 \\
+				\hline
+				32 & 3,08 & 115,43 & 2,67 \\
+				\hline
+				64 & 11,30 & 650,70 & 1,74 \\
+				\hline
+				128 & 35,55 & --- & --- \\
+				\hline
+				256 & 134,86 & --- & --- \\
+				\hline
+				512 & 539,69 & --- & --- \\
+				\hline
+				1000 & 2204,85 & --- & --- \\
+				\hline
+			\end{tabular}}
+		\end{column}
+	\end{columns}
+	\vspace{0.2em}
+	{\scriptsize Số liệu chi tiết để trả lời câu hỏi về số tuyệt đối khi cần.}
+\end{frame}
+
+\hustthankyou
+
+\end{document}

@@ -1,0 +1,33 @@
+Total slides: 31
+Slide     Width  Height   Left   Right    Top   Bottom Status              
+slide_all-01.png    945     532      8       1      0        2 L,R,T,B             
+slide_all-02.png    945     532     52     561     58        2 B                   
+slide_all-03.png    945     532      0       1      0        2 L,R,T,B             
+slide_all-04.png    945     532     14     115    102       86 OK                  
+slide_all-05.png    945     532     12      15     82       24 OK                  
+slide_all-06.png    945     532     52      21    144       96 OK                  
+slide_all-07.png    945     532     48      19    184       98 OK                  
+slide_all-08.png    945     532      0       1      0        2 L,R,T,B             
+slide_all-09.png    945     532     42      17    108       34 OK                  
+slide_all-10.png    945     532     42     157     90       62 OK                  
+slide_all-11.png    945     532      2      61     44       36 L                   
+slide_all-12.png    945     532      0      27     56       34 L                   
+slide_all-13.png    945     532      0      21     54       50 L                   
+slide_all-14.png    945     532      0       1      0        2 L,R,T,B             
+slide_all-15.png    945     532     60      89     86       80 OK                  
+slide_all-16.png    945     532      0       1      0        2 L,R,T,B             
+slide_all-17.png    945     532     58      89     72       54 OK                  
+slide_all-18.png    945     532     34      19     42       22 OK                  
+slide_all-19.png    945     532      8      37     48       20 L                   
+slide_all-20.png    945     532     16      45     64       20 OK                  
+slide_all-21.png    945     532      4      13    114       58 L                   
+slide_all-22.png    945     532     42      15     64       54 OK                  
+slide_all-23.png    945     532      0       1      0        2 L,R,T,B             
+slide_all-24.png    945     532     52      77    110       82 OK                  
+slide_all-25.png    945     532      0      23      0        2 L,T,B               
+slide_all-26.png    945     532 no dark content
+slide_all-27.png    945     532 no dark content
+slide_all-28.png    945     532 no dark content
+slide_all-29.png    945     532      6      23    104       16 L                   
+slide_all-30.png    945     532      0      29    118      134 L                   
+slide_all-31.png    945     532      0     567      0        2 L,T,B               

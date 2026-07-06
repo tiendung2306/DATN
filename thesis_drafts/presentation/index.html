@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Đồ án tốt nghiệp — Lê Tiến Dũng</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/white.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #1a3a6b;
+    --accent-light: #2d5a9e;
+    --accent-bg: #eef3fa;
+    --danger: #c0392b;
+    --danger-bg: #fdf0ee;
+    --success: #1a7a4c;
+    --warn: #b8860b;
+    --gray: #555;
+    --light-gray: #999;
+    --border: #ddd;
+  }
+  .reveal {
+    font-family: 'Inter', sans-serif;
+    font-size: 26px;
+    font-weight: 400;
+    color: #222;
+  }
+  .reveal h1, .reveal h2, .reveal h3, .reveal h4 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .reveal h2 {
+    font-size: 1.1em;
+    margin-bottom: 0.4em;
+    border-bottom: 2px solid var(--accent);
+    padding-bottom: 0.2em;
+  }
+  .reveal h3 {
+    font-size: 0.85em;
+    color: var(--gray);
+  }
+  .reveal section {
+    text-align: left;
+  }
+  .reveal .slides section.cover {
+    text-align: center;
+  }
+  .reveal ul, .reveal ol {
+    margin-left: 0.5em;
+  }
+  .reveal li {
+    margin-bottom: 0.3em;
+  }
+  .reveal strong {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .reveal code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.8em;
+    background: #f4f4f4;
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+  .reveal pre {
+    font-size: 0.65em;
+    line-height: 1.3;
+  }
+  .reveal pre code {
+    background: #f8f8f8;
+    padding: 0.5em;
+    border-radius: 5px;
+    display: block;
+    color: #333;
+  }
+  .reveal table {
+    font-size: 0.7em;
+    margin: 0.5em auto;
+    border-collapse: collapse;
+  }
+  .reveal table th {
+    background: var(--accent);
+    color: #fff;
+    padding: 0.4em 0.8em;
+    text-align: left;
+  }
+  .reveal table td {
+    padding: 0.35em 0.8em;
+    border: 1px solid var(--border);
+  }
+  .reveal table tr:nth-child(even) td {
+    background: #f8f9fa;
+  }
+  .reveal blockquote {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-bg);
+    padding: 0.5em 1em;
+    margin: 0.5em 0;
+    font-style: normal;
+    font-size: 0.85em;
+    color: #333;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .reveal .alert-box {
+    border: 2px solid var(--danger);
+    background: var(--danger-bg);
+    padding: 0.6em 1em;
+    border-radius: 5px;
+    font-size: 0.82em;
+    margin: 0.5em 0;
+  }
+  .reveal .highlight-red {
+    color: var(--danger);
+    font-weight: 600;
+  }
+  .reveal .highlight-green {
+    color: var(--success);
+    font-weight: 600;
+  }
+  .reveal .small {
+    font-size: 0.65em;
+    color: var(--gray);
+  }
+  .reveal .tiny {
+    font-size: 0.55em;
+    color: var(--light-gray);
+  }
+  .reveal .two-col {
+    display: flex;
+    gap: 1.5em;
+  }
+  .reveal .two-col > div {
+    flex: 1;
+  }
+  .reveal .three-col {
+    display: flex;
+    gap: 1em;
+  }
+  .reveal .three-col > div {
+    flex: 1;
+  }
+  .reveal .diagram-box {
+    background: #f8f9fa;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.8em;
+    font-family: 'Consolas', monospace;
+    font-size: 0.6em;
+    line-height: 1.4;
+    white-space: pre;
+    color: #333;
+    overflow: hidden;
+  }
+  .reveal .arch-box {
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.5em 0.8em;
+    text-align: center;
+    font-size: 0.7em;
+  }
+  .reveal .arch-box.rust {
+    border-color: #b7410e;
+    color: #b7410e;
+  }
+  .reveal .arch-box.go {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .reveal .arch-box.frontend {
+    border-color: var(--gray);
+    color: var(--gray);
+  }
+  .reveal .arch-arrow {
+    text-align: center;
+    font-size: 1.2em;
+    color: var(--accent);
+    margin: 0.1em 0;
+  }
+  .reveal .usecase-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 0.6em;
+  }
+  .reveal .usecase-card {
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.4em;
+    text-align: center;
+    font-size: 0.55em;
+  }
+  .reveal .usecase-card img {
+    width: 100%;
+    max-height: 180px;
+    object-fit: cover;
+    border-radius: 3px;
+    margin-bottom: 0.3em;
+  }
+  .reveal .usecase-card h4 {
+    font-size: 1.1em;
+    margin: 0.2em 0;
+    color: var(--accent);
+  }
+  .reveal .usecase-card p {
+    font-size: 0.9em;
+    color: var(--gray);
+    margin: 0;
+  }
+  .reveal .img-container {
+    text-align: center;
+  }
+  .reveal .img-container img {
+    max-height: 400px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+  }
+  .reveal .img-container.small img {
+    max-height: 280px;
+  }
+  .reveal .img-caption {
+    font-size: 0.55em;
+    color: var(--gray);
+    margin-top: 0.3em;
+  }
+  .reveal .slide-number {
+    position: fixed;
+    bottom: 10px;
+    right: 15px;
+    font-size: 0.5em;
+    color: var(--light-gray);
+  }
+  .reveal .formula {
+    font-family: 'Consolas', monospace;
+    font-size: 0.7em;
+    background: #f4f4f4;
+    padding: 0.5em;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .reveal .badge {
+    display: inline-block;
+    padding: 0.1em 0.5em;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: 600;
+  }
+  .reveal .badge-red { background: var(--danger-bg); color: var(--danger); }
+  .reveal .badge-green { background: #e8f5e9; color: var(--success); }
+  .reveal .badge-blue { background: var(--accent-bg); color: var(--accent); }
+  .reveal .footer-note {
+    position: absolute;
+    bottom: 0.5em;
+    left: 1em;
+    font-size: 0.45em;
+    color: var(--light-gray);
+  }
+  .reveal .cover-title {
+    font-size: 1.3em;
+    font-weight: 700;
+    color: var(--accent);
+    line-height: 1.3;
+    margin: 0.3em 0;
+  }
+  .reveal .cover-subtitle {
+    font-size: 0.7em;
+    color: var(--gray);
+    margin: 0.5em 0;
+  }
+  .reveal .cover-info {
+    font-size: 0.6em;
+    color: var(--gray);
+    margin-top: 1em;
+  }
+  .reveal .flow-step {
+    background: var(--accent-bg);
+    border-left: 3px solid var(--accent);
+    padding: 0.3em 0.6em;
+    margin: 0.3em 0;
+    font-size: 0.7em;
+    border-radius: 0 4px 4px 0;
+  }
+  .reveal .flow-step b {
+    color: var(--accent);
+  }
+  .reveal .epoch-diagram {
+    font-family: 'Consolas', monospace;
+    font-size: 0.55em;
+    line-height: 1.5;
+    color: #333;
+    background: #f8f9fa;
+    padding: 0.6em;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ==================== SLIDE 1 — TITLE ==================== -->
+<section class="cover">
+  <div class="cover-title">NGHIÊN CỨU VÀ ỨNG DỤNG<br>GIAO THỨC ĐIỀU PHỐI PHI TẬP TRUNG<br>CHO MLS TRÊN MẠNG NGANG HÀNG</div>
+  <div class="cover-subtitle">Đồ án tốt nghiệp</div>
+  <div class="cover-info">
+    <p><strong>Lê Tiến Dũng</strong> — dung.lt224837@sis.hust.edu.vn</p>
+    <p>Giảng viên hướng dẫn: <strong>TS. Đỗ Bá Lâm</strong></p>
+    <p>Trường CNTT&amp;TT — Đại học Bách khoa Hà Nội</p>
+    <p style="margin-top:0.8em">Hà Nội, 06/2026</p>
+  </div>
+  <aside class="notes">Kính thưa quý thầy cô, em tên là Lê Tiến Dũng. Em xin trình bày đồ án tốt nghiệp với đề tài nghiên cứu và ứng dụng giao thức điều phối phi tập trung cho MLS trên mạng ngang hàng, dưới sự hướng dẫn của thầy Đỗ Bá Lâm.</aside>
+</section>
+
+<!-- ==================== SLIDE 2 — MLS FOUNDATION ==================== -->
+<section>
+  <h2>Nền tảng: Giao thức MLS (RFC 9420)</h2>
+  <div class="two-col">
+    <div>
+      <div class="diagram-box">       Giao thức MLS (RFC 9420)
+              │
+  ┌──────────┼──────────┐
+  ▼          ▼          ▼
+Proposal   Commit     Welcome
+(đề nghị   (thực hiện  (thông tin
+thành viên) thay đổi +  gia nhập)
+            sinh khóa)
+              │
+              ▼
+         Epoch mới
+    (bí mật chung mới)
+              │
+              ▼
+    TreeKEM — O(log N)</div>
+    </div>
+    <div>
+      <p style="font-size:0.7em;margin:0.2em 0"><strong>Epoch:</strong> Phiên bản trạng thái nhóm. Mỗi Commit tạo epoch mới với bí mật chung mới</p>
+      <p style="font-size:0.7em;margin:0.2em 0"><strong>Commit:</strong> Gom Proposal → tạo epoch mới. <span class="highlight-red">Không giao hoán</span> — thứ tự thay đổi kết quả</p>
+      <p style="font-size:0.7em;margin:0.2em 0"><strong>TreeKEM:</strong> Cây nhị phân, cập nhật khóa O(log N)</p>
+      <p style="font-size:0.7em;margin:0.2em 0"><strong>Forward Secrecy:</strong> Thành viên bị loại không giải mã tin epoch sau</p>
+      <p style="font-size:0.7em;margin:0.2em 0"><strong>Post-Compromise Security:</strong> Tự phục hồi sau lộ khóa</p>
+      <p style="font-size:0.65em;margin:0.4em 0 0 0;color:var(--gray)"><em>Đang dùng trong Signal, WhatsApp, Cisco Webex</em></p>
+    </div>
+  </div>
+  <aside class="notes">MLS, chuẩn hóa trong RFC 9420, là giao thức mã hóa đầu cuối cho truyền thông nhóm, đang dùng trong Signal, WhatsApp, Cisco Webex. Mỗi Commit tạo epoch mới với bộ bí mật chung mới. TreeKEM cho phép cập nhật khóa với độ phức tạp O(log N). Forward Secrecy đảm bảo thành viên bị loại không giải mã được tin epoch sau. Post-Compromise Security cho phép tự phục hồi sau lộ khóa.</aside>
+</section>
+
+<!-- ==================== SLIDE 3 — PROBLEM ==================== -->
+<section>
+  <h2>Vấn đề: MLS yêu cầu thứ tự tuyến tính, P2P không cung cấp</h2>
+  <div class="alert-box" style="font-size:0.75em;margin-bottom:0.5em">
+    <strong>MLS giả định có Delivery Service (DS) trung tâm</strong> tuần tự hóa Commit. P2P không có DS → bài toán phân nhánh trạng thái mật mã.
+  </div>
+  <div class="two-col">
+    <div>
+      <h3>MLS truyền thống (có DS)</h3>
+      <div class="diagram-box">[Alice] ─Commit──→ [DS] ─order──→ [Bob]
+                                   └──────────→ [Carol]
+                                   └──────────→ [Dave]
+
+  DS sắp thứ tự: E1→E2→E3
+  → Tất cả đồng bộ ✓</div>
+    </div>
+    <div>
+      <h3>MLS trên P2P (không DS)</h3>
+      <div class="diagram-box">[Alice] ─Commit_A(E)──→ GossipSub ─→ [Bob]
+[Carol] ─Commit_B(E)──→ GossipSub ─→ [Dave]
+
+  Bob nhận A, Dave nhận B
+  → Cùng epoch E+1
+  → Tree hash: TH₁ ≠ TH₂
+  → <span class="highlight-red">FORK!</span></div>
+    </div>
+  </div>
+  <ul style="font-size:0.7em;margin-top:0.5em">
+    <li>MLS yêu cầu DS tuần tự hóa Commit → đảm bảo <strong>một epoch chỉ có một Commit</strong></li>
+    <li>P2P không có thực thể trung tâm → <span class="highlight-red">rẽ nhánh trạng thái mật mã</span> — cùng epoch nhưng tree hash, khóa khác nhau → không thể giải mã thông điệp của nhau</li>
+  </ul>
+  <aside class="notes">Khi không còn Delivery Service, Alice và Carol cùng Commit ở cùng epoch. Bob nhận Commit của Alice trước, Dave nhận Commit của Carol trước. Hai nút cùng mang nhãn epoch E+1 nhưng có tree hash và khóa khác nhau — không thể giải mã thông điệp của nhau. Đây là bài toán cốt lõi đồ án giải quyết.</aside>
+</section>
+
+<!-- ==================== SLIDE 4 — GAP & OBJECTIVES ==================== -->
+<section>
+  <h2>Khoảng trống nghiên cứu &amp; Mục tiêu</h2>
+  <div class="two-col">
+    <div>
+      <h3>Khoảng trống</h3>
+      <ul style="font-size:0.7em">
+        <li><strong>Raft/BFT:</strong> O(N²) truyền thông, đóng băng khi mất quorum</li>
+        <li><strong>Blockchain:</strong> độ trễ tạo khối quá cao</li>
+        <li><strong>DMLS</strong> (Internet-Draft): tăng phức tạp, đánh đổi Forward Secrecy</li>
+        <li><span class="highlight-red">→ Thiếu</span> cơ chế điều phối nhẹ, chịu phân vùng, giữ bảo mật MLS</li>
+      </ul>
+    </div>
+    <div>
+      <h3>4 Mục tiêu</h3>
+      <ol style="font-size:0.7em">
+        <li>Giảm concurrent commits khi mạng liên thông</li>
+        <li>Buộc xử lý trên epoch tương thích</li>
+        <li>Phát hiện &amp; hàn gắn phân nhánh sau phân vùng</li>
+        <li>Thứ tự hiển thị ổn định cho tin nhắn</li>
+      </ol>
+    </div>
+  </div>
+  <aside class="notes">Đồng thuận truyền thống quá nặng, blockchain độ trễ cao, DMLS còn ở mức draft. Đồ án hướng tới cơ chế nhẹ, chịu phân vùng, không sửa lõi MLS.</aside>
+</section>
+
+<!-- ==================== SLIDE 5 — KEY CONTRIBUTIONS ==================== -->
+<section>
+  <h2>Đóng góp chính của đồ án</h2>
+  <div style="display:flex;flex-direction:column;gap:0.5em;margin-top:0.3em">
+    <div class="flow-step" style="font-size:0.75em">
+      <b>1. Thiết kế giao thức điều phối phi tập trung</b> — 4 cơ chế: Single-Writer,
+      Kiểm tra epoch, Fork Detection &amp; Healing, HLC. <strong>Không sửa lõi MLS</strong>
+    </div>
+    <div class="flow-step" style="font-size:0.75em">
+      <b>2. Phân tích lý thuyết</b> — 5 bất biến bảo toàn: epoch đơn điệu, Token Holder
+      duy nhất, phát hiện fork, không gộp trạng thái đã tách, tách 2 loại ordering
+    </div>
+    <div class="flow-step" style="font-size:0.75em">
+      <b>3. Triển khai ứng dụng desktop hoàn chỉnh</b> — Go + Rust + Wails, kiến trúc
+      stateless sidecar, hexagonal. <strong>4 use case thực tế + đánh giá thực nghiệm</strong>
+    </div>
+  </div>
+  <p class="small" style="margin-top:0.5em;text-align:center">3 đóng góp tương ứng: Nghiên cứu → Lý thuyết → Ứng dụng</p>
+  <aside class="notes">Đồ án có 3 đóng góp chính. Thứ nhất, thiết kế giao thức điều phối 4 cơ chế không sửa lõi MLS. Thứ hai, phân tích lý thuyết 5 bất biến bảo toàn. Thứ ba, triển khai ứng dụng desktop hoàn chỉnh với 4 use case thực tế và đánh giá thực nghiệm. Ba đóng góp này tương ứng với ba phần trình bày tiếp theo.</aside>
+</section>
+
+<!-- ==================== SLIDE 6 — SINGLE WRITER ================= -->
+<section>
+  <h2>Cơ chế 1: Single-Writer — Một Token Holder mỗi epoch</h2>
+  <div class="two-col">
+    <div>
+      <div class="diagram-box">Eligible(E) = Members(E) ∩ ActiveView(E)
+                        \ Suspended(E)
+
+TokenHolder(E) = argmin  H(group_id ∥ E ∥ n)
+                       n ∈ Eligible(E)
+
+→ Cùng đầu vào → Cùng kết quả
+→ Không cần bỏ phiếu mạng
+→ Chi phí: O(N) cục bộ</div>
+      <p class="small" style="margin-top:0.3em">SHA-256 trên (group_id ∥ epoch ∥ peerID) → chọn nút có hash nhỏ nhất</p>
+    </div>
+    <div>
+      <ul style="font-size:0.7em">
+        <li><strong>Proposal:</strong> Mọi thành viên đều được tạo</li>
+        <li><strong>Commit:</strong> Chỉ Token Holder được gom và phát</li>
+        <li><strong>Bầu chọn xác định:</strong> Không cần vòng mạng</li>
+        <li><strong>Failover:</strong> Token Holder ngoại tuyến → loại khỏi ActiveView → tự tính lại</li>
+      </ul>
+      <div style="text-align:center;margin-top:0.5em;font-size:0.6em">
+        <span class="badge badge-blue">Proposal (xanh)</span> →
+        <span class="badge badge-red">Commit (đỏ)</span>
+      </div>
+    </div>
+  </div>
+  <blockquote style="font-size:0.6em;margin-top:0.4em">
+    <strong>Cơ sở lý thuyết:</strong> Tiến hóa trạng thái nhóm là bài toán State Machine Replication, chịu ràng buộc CAP. Đồ án chọn <strong>AP + Eventual Consistency</strong> (ưu tiên khả dụng khi phân vùng) thay vì CP như Raft/BFT — phù hợp với đặc tính P2P.
+  </blockquote>
+  <aside class="notes">Mỗi epoch chỉ có một Token Holder được quyền Commit. Bầu chọn bằng SHA-256 — hoàn toàn xác định, không cần bỏ phiếu mạng. Chi phí O(N) cục bộ. Khi Token Holder rơi mạng, nút loại nó khỏi ActiveView và tính lại. Về mặt lý thuyết, đây là bài toán State Machine Replication chịu ràng buộc của định lý CAP — đồ án chọn hướng AP kết hợp Eventual Consistency thay vì Consistency mạnh như Raft hay BFT, vì mô hình CP sẽ làm hệ thống đóng băng mỗi khi phân vùng mạng xảy ra, không phù hợp với ứng dụng nhắn tin P2P.</aside>
+</section>
+
+<!-- ==================== SLIDE 7 — EPOCH CHECK ==================== -->
+<section>
+  <h2>Cơ chế 2: Kiểm tra epoch — Đơn điệu không giảm</h2>
+  <div style="text-align:center">
+    <div class="diagram-box" style="display:inline-block;text-align:center;font-size:0.7em">
+              env.epoch so với localEpoch
+                      │
+           ┌──────────┼──────────┐
+           ▼          ▼          ▼
+      &lt; local     = local     &gt; local
+           │          │          │
+      <span class="highlight-red">Từ chối!</span>  <span class="highlight-green">Xử lý</span>    <span style="color:var(--warn)">Đệm lại +
+      (stale)   bình thường  Đồng bộ / Fork Healing</span>
+    </div>
+  </div>
+  <ul style="font-size:0.7em;margin-top:0.4em">
+    <li><strong>Bất biến:</strong> <code>E_i(t+1) ≥ E_i(t)</code> — epoch chỉ giữ nguyên hoặc tăng</li>
+    <li>Thông điệp tương lai → đệm → kiểm tra tiền tố lịch sử → phân biệt chậm vs fork</li>
+  </ul>
+  <aside class="notes">Cơ chế thứ hai: so sánh epoch trước khi chuyển xuống MLS. Thông điệp cũ bị từ chối — epoch không bao giờ lùi. Thông điệp tương lai được đệm, nút kiểm tra xem mình chỉ đang chậm hay đã fork.</aside>
+</section>
+
+<!-- ==================== SLIDE 8 — FORK DETECTION ==================== -->
+<section>
+  <h2>Cơ chế 3: Fork Detection — Phân biệt chậm vs phân nhánh</h2>
+  <div class="two-col">
+    <div>
+      <div class="diagram-box">History Hash:
+  R(0) = r₀
+  R(e) = H(R(e-1) ∥ C(e))
+
+  R(E) tóm tắt TOÀN BỘ
+  chuỗi Commit từ epoch 1→E
+
+R_B(E_A) = R_A(E_A)
+  → A chỉ chậm → catch up
+
+R_B(E_A) ≠ R_A(E_A)
+  → <span class="highlight-red">FORK thật → Healing</span></div>
+    </div>
+    <div>
+      <div class="epoch-diagram">
+Epoch:  1   2   3   4   5   6   7
+        │   │   │   │   │   │   │
+Nhánh A:━━━━━━━━━━━━━╳   │   │
+                    │   │   │
+Nhánh B:━━━━━━━━━━━━┴━━━┴━━━┴──→
+
+R_A(5) = R_B(5)?
+ → YES: A chỉ chậm → catch up
+ → NO:  Fork thật → Healing
+      </div>
+    </div>
+  </div>
+  <blockquote style="font-size:0.6em;margin-top:0.3em">
+    <strong>Định nghĩa hội tụ (formal):</strong> Nhóm hội tụ tại epoch E ⟺ mọi nút cùng thỏa 3 điều kiện: (i) cùng epoch E, (ii) cùng TreeHash, (iii) cùng HistoryHash R(E). Chỉ cùng epoch (i) là chưa đủ — vẫn có thể đang ở 2 nhánh khác nhau.
+  </blockquote>
+  <aside class="notes">Mỗi nút duy trì history hash R(E) — băm lũy tiến toàn bộ chuỗi Commit. Nếu R trùng tại cùng epoch, nút chỉ chậm. Nếu khác, phân nhánh thật sự đã xảy ra. Đồ án phát biểu định nghĩa hình thức về hội tụ trạng thái: phải thỏa đồng thời ba điều kiện — cùng epoch, cùng tree hash, cùng history hash. Nếu chỉ cùng epoch mà tree hash hoặc history hash khác nhau, hai nút vẫn đang ở hai nhánh phân kỳ, chưa được xem là hội tụ.</aside>
+</section>
+
+<!-- ==================== SLIDE 9 — FORK HEALING ==================== -->
+<section>
+  <h2>Cơ chế 3 (tt): Fork Healing — Hàn gắn phân nhánh</h2>
+  <div class="flow-step"><b>Bước 1:</b> Chọn nhánh thắng — <code>W(B) = (C_active, E, H_commit)</code> — ưu tiên nhánh nhiều thành viên hơn</div>
+  <div class="flow-step"><b>Bước 2:</b> Nút thua — Hủy trạng thái MLS cũ, tạo KeyPackage mới</div>
+  <div class="flow-step"><b>Bước 3:</b> Gửi External Proposal (Add) qua GossipSub</div>
+  <div class="flow-step"><b>Bước 4:</b> Token Holder gom tất cả vào <strong>1 Commit duy nhất</strong> (Remove lá cũ + Add lá mới) → Sinh Welcome</div>
+  <div class="flow-step"><b>Bước 5:</b> Nút thua ProcessWelcome → Khôi phục → Autonomous Replay (tự mã hóa lại tin của chính mình)</div>
+  <div style="margin-top:0.6em;display:flex;gap:0.5em;flex-wrap:wrap">
+    <span class="badge badge-red">External Proposal: K nút heal → 1 Commit — O(1)</span>
+    <span class="badge badge-red" style="text-decoration:line-through;opacity:0.6">Tự Commit riêng: K nút → O(K²) do cạnh tranh</span>
+    <span class="badge badge-green">Crypto-shredding: khóa cũ bị hủy, FS bảo toàn</span>
+  </div>
+  <p class="small" style="margin-top:0.4em"><strong>Backward Secrecy sau heal:</strong> nút gia nhập lại không có khóa lịch sử nhánh thắng → chỉ tự mã hóa lại tin <em>của chính mình</em> (Autonomous Replay), không đại diện cho người khác — giữ đúng ranh giới thẩm quyền MLS</p>
+  <aside class="notes">Đây là đóng góp quan trọng nhất. Nút thua hủy trạng thái cũ, gửi External Proposal. Token Holder gom tất cả vào một Commit duy nhất — dù K nút cần heal, chỉ tạo đúng một Commit, chi phí O(1). Nếu để mỗi nút tự tạo Commit riêng, K Commits sẽ cạnh tranh, K-1 lần bị từ chối và phải thử lại, chi phí O(K bình phương) — đây là lý do vì sao dùng External Proposal quan trọng. Ngoài ra, sau khi heal, nút gia nhập lại nhánh thắng không có khóa của các epoch cũ trong thời gian phân vùng — đây là giới hạn Backward Secrecy. Đồ án xử lý bằng Autonomous Replay: mỗi nút chỉ tự mã hóa lại tin nhắn của chính mình, không được đại diện cho người khác, giữ đúng ranh giới thẩm quyền của MLS. Crypto-shredding đảm bảo khóa cũ bị hủy, Forward Secrecy bảo toàn.</aside>
+</section>
+
+<!-- ==================== SLIDE 10 — HLC ==================== -->
+<section>
+  <h2>Cơ chế 4: HLC — Thứ tự hiển thị cho tin nhắn ứng dụng</h2>
+  <div class="two-col">
+    <div>
+      <h3>Vấn đề: Thứ tự hiển thị</h3>
+      <ul style="font-size:0.65em">
+        <li><strong>MLS có 2 loại thông điệp:</strong>
+          <ul style="font-size:0.9em;margin-top:0.2em">
+            <li><strong>Control message</strong> — Proposal, Commit: thay đổi khóa nhóm, chuyển epoch</li>
+            <li><strong>Application message</strong> — tin nhắn chat: nội dung mã hóa</li>
+          </ul>
+        </li>
+        <li><strong>Có DS:</strong> DS gắn timestamp, quyết định thứ tự hiển thị</li>
+        <li><strong>P2P:</strong> không DS, đồng hồ máy không khớp (clock drift) → <span class="highlight-red">không tin được physical clock</span></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Giải pháp: Hybrid Logical Clock</h3>
+      <div class="diagram-box" style="font-size:0.6em">HLC = (L, C, NodeID)
+
+  L: logical timestamp (đơn điệu)
+  C: counter (phân biệt sự kiện cùng L)
+  NodeID: phá vỡ hòa (tie-breaker)
+
+  HLC_Now():
+    L' = max(L_local, L_physical)
+    if L' == L_local: C++
+    else: C = 0
+    return (L', C, NodeID)</div>
+      <ul style="font-size:0.6em;margin-top:0.3em">
+        <li>Chỉ áp dụng cho <strong>application message</strong></li>
+        <li><strong>Không</strong> áp dụng cho Control message — Commit dùng epoch ordering</li>
+        <li>Đảm bảo: happens-before + total order mỗi nút</li>
+      </ul>
+    </div>
+  </div>
+  <blockquote style="font-size:0.65em;margin-top:0.3em">
+    <strong>Tách biệt 2 loại ordering:</strong> Thứ tự mật mã (epoch, Commit) ≠ Thứ tự hiển thị (HLC). HLC không bao giờ quyết định Commit.
+  </blockquote>
+  <aside class="notes">MLS chia thông điệp thành 2 loại: control message (Proposal, Commit) thay đổi khóa nhóm và chuyển epoch, và application message (tin nhắn chat) mang nội dung mã hóa. Khi có Delivery Service, DS gắn timestamp và quyết định thứ tự hiển thị. Trong P2P, không có DS và đồng hồ giữa các máy không khớp do clock drift — không thể tin physical clock. Giải pháp: Hybrid Logical Clock, kết hợp logical timestamp và physical clock, đảm bảo happens-before và total order. Quan trọng: HLC chỉ áp dụng cho application message — control message vẫn dùng epoch ordering. Hai loại ordering hoàn toàn tách biệt: HLC không bao giờ quyết định Commit.</aside>
+</section>
+
+<!-- ==================== SLIDE 11 — INVARIANTS ==================== -->
+<section>
+  <h2>5 bất biến lý thuyết được bảo toàn</h2>
+  <table style="font-size:0.65em">
+    <thead>
+      <tr><th>Bất biến</th><th>Cơ chế bảo toàn</th><th>Ý nghĩa</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Epoch cục bộ chỉ tăng hoặc giữ nguyên</td><td>Kiểm tra epoch</td><td>Không kéo trạng thái lùi</td></tr>
+      <tr><td>Một Token Holder trong cùng ActiveView</td><td>Single-Writer</td><td>Giảm concurrent commits</td></tr>
+      <tr><td>Phân nhánh được nhận biết sau đối chiếu</td><td>History hash R(E)</td><td>Phân biệt chậm vs fork</td></tr>
+      <tr><td>Không gộp trực tiếp trạng thái đã tách</td><td>External Proposal</td><td>Hội tụ trong mô hình MLS</td></tr>
+      <tr><td>HLC không quyết định Commit</td><td>Tách 2 loại ordering</td><td>Không trộn crypto vs display</td></tr>
+    </tbody>
+  </table>
+  <p class="small" style="margin-top:0.5em">Phân tích trong phạm vi giả định: nút tuân thủ giao thức, MLS xử lý đúng. Chưa có kiểm chứng hình thức → hướng phát triển</p>
+  <aside class="notes">Năm bất biến được phân tích. Quan trọng nhất: epoch chỉ tăng, Token Holder duy nhất trong cùng ActiveView, và không bao giờ gộp trực tiếp trạng thái đã tách. Bất biến thứ 5: HLC chỉ sắp xếp hiển thị, không quyết định Commit. Phân tích mới ở mức lập luận, chưa có kiểm chứng hình thức.</aside>
+</section>
+
+<!-- ==================== SLIDE 12 — SOFTWARE ARCHITECTURE ==================== -->
+<section>
+  <h2>Triển khai: Kiến trúc hai tầng + Stateless Sidecar</h2>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:0.15em;font-size:0.6em">
+    <div class="arch-box frontend" style="width:85%">
+      <strong>FRONTEND — React + TypeScript</strong><br>
+      Shadcn UI • Tailwind CSS • Zustand • Wails Bindings → runtimeClient.ts
+    </div>
+    <div class="arch-arrow" style="font-size:0.8em">│ Wails Bindings</div>
+    <div class="arch-box go" style="width:85%">
+      <strong>TẦNG ĐIỀU PHỐI (Go) — Hexagonal Architecture</strong><br>
+      <span style="font-size:0.85em">Single-Writer • Kiểm tra epoch • Fork Healing • HLC</span><br>
+      <span style="font-size:0.8em">adapter/p2p (libp2p+GossipSub) • adapter/store (SQLite mã hóa)</span>
+    </div>
+    <div class="arch-arrow" style="font-size:0.8em">│ gRPC (stateless) — adapter/sidecar</div>
+    <div class="arch-box rust" style="width:85%">
+      <strong>TẦNG MLS (Rust / OpenMLS) — Stateless Sidecar</strong><br>
+      <span style="font-size:0.85em">Proposal • Commit • Welcome • TreeKEM • FS • PCS</span><br>
+      <span style="font-size:0.8em;color:#999">KHÔNG biết Single-Writer hay epoch — chỉ biến đổi mật mã hợp lệ</span>
+    </div>
+  </div>
+  <div class="two-col" style="margin-top:0.4em">
+    <div>
+      <blockquote style="font-size:0.65em">
+        <strong>Nguyên tắc ranh giới:</strong> Điều phối quyết định <em>ai</em> Commit, <em>khi nào</em>. MLS chỉ thực hiện <em>biến đổi mật mã</em>. Không sửa RFC 9420.
+      </blockquote>
+    </div>
+    <div style="display:flex;gap:0.4em;flex-wrap:wrap;align-items:center">
+      <span class="badge badge-blue">Stateless Sidecar</span>
+      <span class="badge badge-blue">Hexagonal</span>
+      <span class="badge badge-blue">Local-first</span>
+      <span class="badge badge-blue">Invitation Token</span>
+    </div>
+  </div>
+  <aside class="notes">Về kĩ nghệ phần mềm, đồ án áp dụng kiến trúc hai tầng tách biệt. Tầng điều phối bằng Go xử lý ordering, election, fork healing — theo hexagonal architecture với ba adapter: p2p, sidecar, store. Tầng MLS bằng Rust/OpenMLS hoàn toàn stateless — Go tải trạng thái từ SQLite, gửi qua gRPC, Rust tính toán mật mã, trả kết quả, Go lưu lại. Nguyên tắc ranh giới: Rust không biết gì về Single-Writer hay epoch check — chỉ thực hiện biến đổi mật mã hợp lệ. Điều này giữ nguyên bảo đảm bảo mật của MLS. Không có server — mọi dữ liệu lưu cục bộ mã hóa. Bảo mật enforce ở mức kiến trúc: invitation token, single active device, private key không truyền mạng.</aside>
+</section>
+
+<!-- ==================== SLIDE 13 — DESKTOP APP ==================== -->
+<section>
+  <h2>Ứng dụng desktop: Luồng người dùng hoàn chỉnh</h2>
+  <div class="usecase-grid">
+    <div class="usecase-card" style="position:relative">
+      <div style="position:absolute;top:2px;left:4px;font-size:1.4em;font-weight:700;color:var(--accent);opacity:0.3">1</div>
+      <img src="../paper_project/Hinh/app_demo/app_03_admin_issue_bundle_admin.png" alt="Onboarding">
+      <h4>Onboarding &amp; Bundle</h4>
+      <p>Thiết bị tự sinh khóa → Quản trị viên duyệt, cấp Bundle → Vào mạng</p>
+    </div>
+    <div class="usecase-card" style="position:relative">
+      <div style="position:absolute;top:2px;left:4px;font-size:1.4em;font-weight:700;color:var(--accent);opacity:0.3">2</div>
+      <img src="../paper_project/Hinh/app_demo/app_05_group_chat_alice.png" alt="Group Chat">
+      <h4>Group Chat đồng bộ</h4>
+      <p>Tin nhắn mã hóa MLS, hiển thị đồng bộ nhiều thiết bị</p>
+    </div>
+    <div class="usecase-card" style="position:relative">
+      <div style="position:absolute;top:2px;left:4px;font-size:1.4em;font-weight:700;color:var(--accent);opacity:0.3">3</div>
+      <img src="../paper_project/Hinh/app_demo/app_06_group_management_alice.png" alt="Group Management">
+      <h4>Quản trị nhóm</h4>
+      <p>Xem thành viên, vai trò. Mỗi thao tác kích hoạt Proposal/Commit</p>
+    </div>
+    <div class="usecase-card" style="position:relative">
+      <div style="position:absolute;top:2px;left:4px;font-size:1.4em;font-weight:700;color:var(--accent);opacity:0.3">4</div>
+      <img src="../paper_project/Hinh/app_demo/app_13_file_chat.png" alt="File Sharing">
+      <h4>Chia sẻ tệp mã hóa</h4>
+      <p>MLS exporter → AES-256-GCM. Kéo qua libp2p stream. Khóa không truyền mạng</p>
+    </div>
+  </div>
+  <p class="small" style="text-align:center;margin-top:0.3em">Onboarding → Chat → Quản trị → File sharing — một luồng hoàn chỉnh, không máy chủ trung tâm</p>
+  <aside class="notes">Ứng dụng desktop triển khai một luồng người dùng hoàn chỉnh. Bước 1, Onboarding: thiết bị tự sinh khóa, quản trị viên cấp bundle — không máy chủ trung tâm. Bước 2, Group Chat: tin nhắn mã hóa MLS, hiển thị đồng bộ trên nhiều thiết bị. Bước 3, Quản trị nhóm: mỗi thao tác kích hoạt Proposal và Commit. Bước 4, File sharing: dùng MLS exporter dẫn xuất khóa AES-256-GCM, tệp chia phần mã hóa, kéo qua libp2p stream — khóa không bao giờ truyền mạng.</aside>
+</section>
+
+<!-- ==================== SLIDE 14 — EXPERIMENT 1 ==================== -->
+<section>
+  <h2>Thực nghiệm: Single-Writer + Chaos test hội tụ</h2>
+  <p class="small" style="margin-bottom:0.3em"><strong>RQ1:</strong> Single-Writer có giảm xung đột? &nbsp; <strong>RQ2:</strong> Hệ thống có hội tụ sau phân vùng?</p>
+  <div class="two-col">
+    <div>
+      <div class="img-container small">
+        <img src="../paper_project/Hinh/chuong5/concurrency_batching.png" alt="Concurrency batching">
+      </div>
+      <p class="small" style="margin-top:0.3em"><strong>Xử lý ngay:</strong> tỷ lệ thành công 1.00 → 0.33 (5 nút)<br>
+      <strong>Gom theo lô (Single-Writer):</strong> tỷ lệ <span class="highlight-green">1.00</span> mọi mức, Commit luôn = 1</p>
+    </div>
+    <div>
+      <div class="img-container small">
+        <img src="../paper_project/Hinh/chuong5/chaos_convergence.png" alt="Chaos convergence">
+      </div>
+      <p class="small" style="margin-top:0.3em">5 nút, phân vùng lặp 600ms<br>
+      <span class="highlight-green">Hội tụ cùng epoch + cùng tree hash</span> khi mạng nối lại<br>
+      <strong>Không cần Delivery Service</strong></p>
+    </div>
+  </div>
+  <aside class="notes">Gom theo lô giữ tỷ lệ thành công 1.00 ở mọi mức đồng thời. Chaos test: 5 nút bị phân vùng lặp lại, vẫn phân kỳ tạm thời, nhưng khi mạng nối lại, tất cả hội tụ về cùng epoch và cùng tree hash — không cần Delivery Service.</aside>
+</section>
+
+<!-- ==================== SLIDE 15 — EXPERIMENT 2 ==================== -->
+<section>
+  <h2>Benchmark mật mã + Chi phí điều phối + Forward Secrecy</h2>
+  <p class="small" style="margin-bottom:0.3em"><strong>RQ3:</strong> Chi phí mật mã + điều phối? &nbsp; <strong>RQ4:</strong> Forward Secrecy có bị phá vỡ?</p>
+  <div class="three-col">
+    <div>
+      <div class="img-container small">
+        <img src="../../evaluation/plots/Evaluation_MLS_Scalability_O_logN.png" alt="MLS scalability">
+      </div>
+      <p class="small" style="margin-top:0.2em">4096 thành viên:<br>MLS <strong>78.95ms</strong> vs từng cặp <strong>955.18ms</strong><br><span class="highlight-green">Chênh lệch 12×</span></p>
+    </div>
+    <div>
+      <div class="img-container small">
+        <img src="../paper_project/Hinh/chuong5/coordinator_overhead_real.png" alt="Coordinator overhead">
+      </div>
+      <p class="small" style="margin-top:0.2em">Tỷ trọng điều phối:<br><strong>&lt; 4%</strong> tổng chi phí cục bộ<br>Phần tốn thời gian nằm ở MLS</p>
+    </div>
+    <div>
+      <h3>Forward Secrecy (MLS thật)</h3>
+      <div class="diagram-box" style="font-size:0.65em">Alice → tạo nhóm
+Bob  → tham gia
+Alice → loại Bob
+Alice → gửi tin epoch mới
+Bob  → <span class="highlight-red">KHÔNG</span> giải mã ✓</div>
+      <p class="small" style="margin-top:0.2em">Test với <strong>MLS thật</strong><br>FS giữ nguyên, lớp điều phối không phá vỡ bảo mật</p>
+    </div>
+  </div>
+  <aside class="notes">Benchmark: 4096 thành viên, MLS 78ms vs 955ms từng cặp — chênh lệch 12 lần. Chi phí điều phối dưới 4 phần trăm. Test Forward Secrecy với MLS thật xác nhận thành viên bị loại không giải mã được tin mới.</aside>
+</section>
+
+<!-- ==================== SLIDE 16 — CONCLUSION ==================== -->
+<section>
+  <h2>Kết luận &amp; Hướng phát triển</h2>
+  <div class="two-col" style="margin-top:0.3em">
+    <div>
+      <h3 style="color:var(--success)">Đóng góp</h3>
+      <ul style="font-size:0.65em">
+        <li>Giao thức điều phối 4 cơ chế, <strong>không sửa lõi MLS</strong></li>
+        <li>Fork Healing: K nút → <strong>1 Commit</strong> (O(1))</li>
+        <li>5 bất biến lý thuyết được phân tích</li>
+        <li>Ứng dụng desktop: stateless sidecar, hexagonal, 4 use case</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="color:var(--danger)">Giới hạn</h3>
+      <ul style="font-size:0.65em">
+        <li>Chưa có formal verification</li>
+        <li>Thực nghiệm chủ yếu mạng giả lập</li>
+        <li>Group state truyền toàn bộ qua gRPC</li>
+      </ul>
+      <h3 style="color:var(--accent)">Hướng phát triển</h3>
+      <ul style="font-size:0.65em">
+        <li>Formal verification • Multi-machine</li>
+        <li>Tối ưu snapshot/delta Go↔Rust</li>
+      </ul>
+    </div>
+  </div>
+  <p style="text-align:center;margin-top:0.8em;font-size:0.8em;color:var(--accent);font-weight:600">Em xin cảm ơn và mong nhận câu hỏi từ quý thầy cô</p>
+  <aside class="notes">Đóng góp: giao thức điều phối 4 cơ chế không sửa lõi MLS, fork healing gom K nút vào 1 Commit, 5 bất biến lý thuyết, ứng dụng desktop hoàn chỉnh. Giới hạn: chưa có kiểm chứng hình thức, thực nghiệm trên mạng giả lập, group state truyền toàn bộ. Hướng phát triển: formal verification, multi-machine, tối ưu snapshot/delta. Em xin cảm ơn và mong nhận câu hỏi từ quý thầy cô.</aside>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    controls: true,
+    progress: true,
+    center: false,
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    transitionSpeed: 'fast',
+    width: 1280,
+    height: 720,
+    margin: 0.08,
+    plugins: [RevealNotes]
+  });
+</script>
+</body>
+</html>

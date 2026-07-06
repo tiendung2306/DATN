@@ -1,0 +1,5 @@
+\beamer@sectionintoc {1}{Giới thiệu bài toán}{4}{0}{1}
+\beamer@sectionintoc {2}{Giao thức điều phối đề xuất}{9}{0}{2}
+\beamer@sectionintoc {3}{Phân tích lý thuyết}{15}{0}{3}
+\beamer@sectionintoc {4}{Triển khai \& Thực nghiệm}{17}{0}{4}
+\beamer@sectionintoc {5}{Kết luận}{24}{0}{5}

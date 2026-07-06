@@ -1,0 +1,641 @@
+NGHIÊN CỨU VÀ ỨNG DỤNG
+GIAO THỨC ĐIỀU PHỐI PHI TẬP TRUNG
+CHO MLS TRÊN MẠNG NGANG HÀNG
+Đồ án tốt nghiệp
+Người thực hiện:
+Lê Tiến Dũng – 20224837
+Trường CNTT&TT – Đại học Bách khoa Hà Nội
+Giảng viên hướng dẫn: TS. Đỗ Bá Lâm
+
+Nội dung trình bày
+
+1.
+
+Giới thiệu bài toán
+
+2.
+
+Giao thức điều phối đề xuất
+
+3.
+
+Phân tích lý thuyết
+
+4.
+
+Triển khai & Thực nghiệm
+
+5.
+
+Kết luận
+
+1. Giới thiệu bài toán
+
+1.1. Nền tảng: Giao thức MLS (RFC 9420)
+
+Giao thức MLS
+(RFC 9420)
+
+Epoch: trạng thái nhóm sau mỗi Commit.
+Commit: gom Proposal → epoch mới. Không giao
+hoán.
+
+Proposal
+
+Commit
+
+Welcome
+
+TreeKEM: cập nhật khóa O(log N).
+FS: thành viên bị loại không đọc tin sau.
+
+Epoch mới
+
+PCS: tự phục hồi sau lộ khóa.
+
+TreeKEM — O(log N)
+
+4
+
+1.2. Vấn đề: MLS cần thứ tự tuyến tính, P2P không có
+
+MLS cần Delivery Service tuần tự hóa Commit. P2P không có DS → phân nhánh trạng thái.
+MLS trên P2P (không DS)
+MLS truyền thống (có DS)
+
+Commit_A(E)
+
+Alice
+Alice
+
+Commit
+
+DS
+
+order
+
+Bob, Carol,
+Dave
+
+Commit_B(E)
+
+Carol
+
+GossipSub
+
+Bob
+
+GossipSub
+
+Dave
+
+E1 →E2 →E3
+
+Tất cả đồng bộ ✓
+
+Cùng E +1, TH1 ̸= TH2
+
+FORK!
+▶ Một epoch = một Commit
+5
+
+1.3. Khoảng trống nghiên cứu & Mục tiêu
+
+Khoảng trống
+▶ Raft/BFT: O(N 2 ), đóng băng khi mất
+quorum
+
+4 Mục tiêu
+1. Giảm commits đồng thời
+
+▶ Blockchain: độ trễ cao
+
+2. Xử lý trên epoch tương thích
+
+▶ DMLS: phức tạp, đánh đổi FS
+
+3. Phát hiện & hàn gắn phân mảnh
+
+▶ Thiếu cơ chế nhẹ, điều phối tốt, giữ bảo
+mật
+
+4. Đảm bảo thứ tự hiển thị thông điệp ứng
+dụng
+
+6
+
+1.4. Đóng góp chính của đồ án
+
+1. Nghiên cứu
+▶ 4 cơ chế điều phối
+▶ Không sửa lõi MLS
+
+2. Lý thuyết
+
+3. Ứng dụng
+
+▶ 5 bất biến bảo toàn
+▶ CAP/SMR: chọn AP
++ Eventual Consistency
+
+▶ Ứng dụng desktop hoàn
+chỉnh
+▶ Thực nghiệm
+
+Không sửa lõi MLS — giao thức điều phối bên ngoài RFC 9420
+
+7
+
+2. Giao thức điều phối đề xuất
+
+2.1. Cơ chế 1: Single-Writer + Cơ sở lý thuyết CAP/SMR
+
+Tại sao Single-Writer?
+1. Tiến hóa nhóm = SMR: mỗi Commit là một chuyển trạng thái
+2. Commit không giao hoán: thứ tự xử lý quyết định kết quả
+3. CAP: P2P phân vùng ⇒ chọn AP + Eventual Consistency; CP đóng băng, không phù
+hợp chat
+
+Bầu chọn Token Holder xác định
+Eligible(E ) = Members(E ) ∩ ActiveView(E ) \ Suspended(E )
+TokenHolder(E ) = arg min H(group_id∥E ∥n)
+n∈Eligible(E )
+
+Cùng đầu vào → cùng kết quả | O(N) cục bộ
+
+▶ Proposal: mọi thành viên tạo
+▶ Commit: chỉ Token Holder
+gom/phát
+▶ Failover: ngoại tuyến → loại khỏi
+ActiveView (Adaptive Lease +
+φ-Accrual — xem Phụ lục A)
+9
+
+2.2. Cơ chế 2: Kiểm tra epoch — Đơn điệu không giảm
+
+So sánh Emsg với Elocal
+
+Emsg < Elocal
+
+Emsg = Elocal
+
+Emsg > Elocal
+
+Từ chối!
+
+Xử lý
+
+Đệm + Đồng bộ
+/ Fork Healing
+
+▶ Bất biến: epoch cục bộ chỉ tăng hoặc giữ nguyên: Ei (t+1) ≥ Ei (t)
+▶ Thông điệp tương lai → đệm → kiểm tra tiền tố lịch sử (HistoryHash)
+
+10
+
+2.3. Cơ chế 3: Fork Detection — Phân biệt chậm vs phân nhánh
+History Hash
+R(0) = r0 ,
+
+R(e) = H(R(e−1)∥C (e))
+
+R(E ) tóm tắt chuỗi Commit 1→E
+
+1
+
+2
+
+3
+
+4
+
+5
+
+Nhánh B
+
+×
+Nhánh A
+
+▶ RB (EA ) = RA (EA ) ⇒ A chỉ chậm →
+catch up
+
+RA (5)=RB (5)?
+YES: chỉ chậm
+
+NO: Fork thật
+
+▶ RB (EA ) ̸= RA (EA ) ⇒ FORK thật →
+Healing
+
+Hội tụ cần 3 điều kiện
+(i) cùng epoch E , (ii) cùng TreeHash, (iii) cùng HistoryHash R(E ).
+
+11
+
+2.4. Fork Healing — Hàn gắn phân nhánh
+
+5 bước
+1. Chọn nhánh thắng
+2. Nút thua hủy MLS cũ, tạo KeyPackage
+3. External Proposal (Add)
+4. 1 Commit + Welcome
+5. Autonomous Replay
+
+Nhánh
+thua
+K nút heal → 1 Commit (O(1))
+
+External
+Proposal
+(Add)
+
+1 Commit
+
+Tự Commit → O(K 2 )
+
+Nhánh
+thống
+nhất
+Crypto-shredding: hủy khóa cũ,
+giữ FS
+
+12
+
+2.5. Cơ chế 4: HLC — Thứ tự hiển thị cho tin nhắn ứng dụng
+
+Giải pháp: Hybrid Logical Clock
+Vấn đề: Thứ tự hiển thị
+▶ 2 loại tin: Control (Proposal/Commit) vs
+Application (chat)
+▶ Có DS: DS cấp timestamp
+▶ P2P: clock drift → không tin physical
+clock
+
+HLC = (L, C , NodeID)
+HLC_Now():
+L′ = max(Llocal , Lphysical )
+if L′ =Llocal : C ++ else C =0
+return (L′ , C , NodeID)
+• Áp dụng: application message
+• Đảm bảo: happens-before + total order mỗi
+nút
+
+Tách 2 thứ tự: mật mã (epoch, Commit) ̸= hiển thị (HLC)
+
+13
+
+3. Phân tích lý thuyết
+
+3.1. 5 bất biến lý thuyết được bảo toàn
+
+Bất biến
+Epoch cục bộ chỉ tăng hoặc
+giữ nguyên
+Một Token Holder trong cùng
+ActiveView
+Phân nhánh được nhận biết
+sau đối chiếu
+Không gộp trực tiếp trạng thái
+đã tách
+HLC không quyết định Commit
+
+Cơ chế bảo toàn
+Kiểm tra epoch
+
+Ý nghĩa
+Không kéo trạng thái lùi
+
+Single-Writer
+
+Giảm concurrent commits
+
+History hash R(E )
+
+Phân biệt chậm vs fork
+
+External Proposal
+
+Hội tụ trong mô hình MLS
+
+Tách 2 loại ordering
+
+Không trộn crypto vs display
+
+15
+
+4. Triển khai & Thực nghiệm
+
+4.1. Kiến trúc hai tầng + Stateless Sidecar
+
+FRONTEND — React + TypeScript
+Shadcn UI · Tailwind CSS · Zustand · Wails Bindings
+Wails Bindings
+
+TẦNG ĐIỀU PHỐI (Go) — Hexagonal Architecture
+Single-Writer · Kiểm tra epoch · Fork Healing · HLC
+adapter/p2p (libp2p+GossipSub) · adapter/store (SQLite mã hóa)
+
+gRPC (stateless) — adapter/sidecar
+
+TẦNG MLS (Rust / OpenMLS) — Stateless Sidecar
+Proposal · Commit · Welcome · TreeKEM · FS · PCS
+Không biết Single-Writer hay epoch — chỉ biến đổi mật mã hợp lệ
+
+17
+
+4.2. Ứng dụng desktop: Luồng người dùng hoàn chỉnh
+
+1. Onboarding & Bundle
+
+2. Group Chat đồng bộ
+
+Thiết bị tự sinh khóa → QTV duyệt, cấp Bundle
+
+Tin nhắn mã hóa MLS, hiển thị đồng bộ
+
+3. Quản trị nhóm
+
+4. Chia sẻ tệp mã hóa
+
+Xem thành viên, vai trò. Mỗi thao tác kích hoạt
+
+MLS exporter → AES-256-GCM. Khóa không truyền
+
+Proposal/Commit
+
+mạng
+
+18
+
+4.3. Thực nghiệm: Single-Writer + Chaos test hội tụ
+
+RQ1: Single-Writer có giảm xung đột?
+
+RQ2: Hệ thống có hội tụ sau phân vùng?
+
+Xử lý ngay: tỷ lệ thành công 1.00 → 0.33
+Single-Writer: tỷ lệ 1.00, Commit = 1
+5 nút, phân vùng lặp 600ms
+Hội tụ cùng epoch + tree hash
+Không cần Delivery Service
+
+19
+
+4.4. Benchmark mật mã: MLS O(log N) vs mã hóa từng cặp O(N)
+
+4096 thành viên:
+MLS 78.95 ms vs từng cặp 955.18 ms — chênh
+12×
+
+Tail latency (p99):
+MLS 110.85 ms vs từng cặp 1081.72 ms
+
+20
+
+4.5. Khả năng mở rộng: thao tác thành viên 5–1000 nút
+RQ4a: Thời gian tổng cho toàn bộ cụm hội tụ?
+
+N
+5
+10
+50
+100
+250
+500
+750
+1000
+
+Thêm (ms)
+0,00
+0,53
+6,19
+24,53
+130,47
+527,36
+1265,50
+2237,29
+
+Xóa (ms)
+0,52
+1,05
+7,26
+23,53
+129,70
+531,18
+1169,21
+2194,79
+
+Cập nhật (ms)
+0,00
+0,52
+6,59
+24,67
+128,83
+517,97
+1188,41
+2146,94
+
+1000 nút: 2237 ms tổng ≈ 2,2 ms/node
+
+21
+
+4.6. Phục hồi phân nhánh O(1) + Chi phí điều phối + FS
+RQ4b: Healing O(1) theo độ sâu phân kỳ?
+
+Coordinator overhead: < 4% tổng chi phí
+cục bộ
+
+Forward Secrecy: thành viên bị loại không
+giải mã được epoch mới ✓
+ms/KB giảm 1,62 → 0,65
+⇒ giao thức O(1), chi phí tăng do serialize group state
+
+Giới hạn
+▶ Chưa formal verification
+
+Đóng góp
+▶ 4 cơ chế điều phối, không sửa lõi MLS
+▶ Fork Healing: K nút → 1 Commit
+▶ 5 bất biến lý thuyết
+▶ Desktop app + 4 use case
+
+▶ Thực nghiệm mạng giả lập
+▶ Group state truyền toàn bộ
+
+Hướng phát triển
+▶ Formal verification, multi-machine
+▶ Tối ưu delta state Go↔Rust
+
+Em xin cảm ơn và mong nhận câu hỏi từ quý thầy cô
+
+THÔNG TIN LIÊN HỆ
+Sinh viên thực hiện: Lê Tiến Dũng – 20224837
+Người hướng dẫn: TS. Đỗ Bá Lâm
+▶ Email: dung.lt224837@sis.hust.edu.vn
+▶ Trường: CNTT&TT – Đại học Bách khoa Hà Nội
+
+Xin chân thành cảm ơn Hội đồng đã lắng nghe!
+
+25
+
+Tài liệu tham khảo I
+[1]
+
+R. Barnes, B. Beurdouche, R. Robert, J. Millican, E. Omara, and K. Cohn-Gordon, The Messaging
+Layer Security (MLS) Protocol, RFC 9420, IETF, Jul. 2023.
+
+[2]
+
+B. Beurdouche, E. Rescorla, E. Omara, S. Inguva, and A. Duric, The Messaging Layer Security
+(MLS) Architecture, RFC 9750, IETF, Apr. 2025.
+
+[3]
+
+J. Alwen, M. Mularczyk, and Y. Tselekounis, “Fork-Resilient Continuous Group Key Agreement,” in
+Advances in Cryptology – CRYPTO 2023, Springer, pp. 396–429, 2023.
+
+[4]
+
+K. Kohbrok, Decentralized Messaging Layer Security, Internet-Draft draft-kohbrok-mls-dmls-03,
+IETF, Oct. 2025.
+
+[5]
+
+F. B. Schneider, “Implementing Fault-Tolerant Services Using the State Machine Approach: A
+Tutorial,” ACM Computing Surveys, vol. 22, no. 4, pp. 299–319, 1990.
+
+[6]
+
+S. Gilbert and N. Lynch, “Brewer’s Conjecture and the Feasibility of Consistent, Available,
+Partition-Tolerant Web Services,” ACM SIGACT News, vol. 33, no. 2, pp. 51–59, 2002.
+
+[7]
+
+W. Vogels, “Eventually Consistent,” ACM Queue, vol. 6, no. 6, pp. 14–19, 2008.
+
+26
+
+Tài liệu tham khảo II
+[8]
+
+D. Ongaro and J. Ousterhout, “In Search of an Understandable Consensus Algorithm,” in 2014
+USENIX Annual Technical Conference (USENIX ATC 14), pp. 305–319, 2014.
+
+[9]
+
+M. Castro and B. Liskov, “Practical Byzantine Fault Tolerance,” in 3rd Symposium on Operating
+Systems Design and Implementation (OSDI 99), pp. 173–186, 1999.
+
+[10] S. S. Kulkarni, M. Demirbas, D. Madeppa, B. Avva, and M. Leone, “Logical Physical Clocks and
+Consistent Snapshots in Globally Distributed Databases,” in OPODIS 2014, LNCS vol. 8878,
+Springer, pp. 17–32, 2014.
+[11] M. Kleppmann, A. Wiggins, P. van Hardenberg, and M. McGranaghan, “Local-first software: You
+own your data, in spite of the cloud,” in Proc. ACM SIGPLAN Onward! 2019, 2019.
+[12] D. Vyzovitis, Y. Napora, D. McCormick, D. Dias, and Y. Psaras, “GossipSub: Attack-Resilient
+Message Propagation in the Filecoin and ETH2.0 Networks,” arXiv:2007.02754, 2020.
+[13] OpenMLS Project, OpenMLS — A Rust Implementation of the Messaging Layer Security (MLS)
+Protocol, 2026. https://openmls.tech/
+
+27
+
+Tài liệu tham khảo III
+[14] Wails Project, Wails — Build Desktop Applications using Go & Web Technologies, 2026.
+https://wails.io/
+
+28
+
+Phụ lục A. Failover an toàn trong Single-Writer
+
+φ-Accrual Failure Detector
+Vấn đề
+Timeout cố định 4s dễ khiến nút suspend
+nhầm Token Holder khi GossipSub jitter, gây
+fork ngay cả khi mạng vẫn liên thông.
+
+Adaptive Epoch Lease
+
+(︁
+)︁
+φ(t) = − log10 1 − FHB (t − tlast )
+φ = 1: 10% còn sống (chậm)
+φ = 8: 10−8 còn sống (chết)
+
+Điều kiện suspend
+ˆ︁commit + 2RTT
+ˆ︁ p95
+L(E ) = Wbatch + C
+Lease tính từ thời gian gom Proposal, tạo Commit
+và độ trễ p95 của mạng — thay thế timeout cố
+định.
+
+Suspend(H) ⇐⇒ Lnode (E ) hết ∧ φ > 8
+Chỉ suspend khi lease hết và xác suất holder chết
+cực cao.
+
+29
+
+Thời gian healing theo độ sâu phân kỳ
+D (epoch)
+5
+10
+20
+50
+
+Healing (ms)
+728
+1039
+1155
+2098
+
+Group State (KB)
+449
+762
+1381
+3240
+
+ms/KB
+1,62
+1,36
+0,84
+0,65
+
+Số liệu chi tiết để trả lời câu hỏi về số tuyệt đối khi cần.
+
+Chi phí điều phối tuyệt đối
+N
+16
+32
+64
+128
+256
+512
+1000
+
+Điều phối (ms)
+1,58
+3,08
+11,30
+35,55
+134,86
+539,69
+2204,85
+
+Tổng (ms)
+39,73
+115,43
+650,70
+—
+—
+—
+—
+
+Tỷ trọng (%)
+3,97
+2,67
+1,74
+—
+—
+—
+—
+
+
