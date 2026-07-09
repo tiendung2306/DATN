@@ -2243,3 +2243,144 @@ func TestCoordinator_DurablePendingOperationLog_SatisfiedByOther(t *testing.T) {
 		t.Fatalf("expected status SATISFIED_BY_OTHER, got %s", op.Status)
 	}
 }
+
+// TestCoordinator_SeedHistoryAnchor_Persists verifies that the anchor received
+// during a Welcome join is written to coordination_state. Without this the node
+// would fall back to the genesis history hash after restart and either skip
+// catch-up sync or attempt a doomed external join of an existing member.
+func TestCoordinator_SeedHistoryAnchor_Persists(t *testing.T) {
+	network := NewFakeNetwork()
+	clk := NewFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	id := peerID("alice")
+	transport := network.AddNode(id)
+	mls := NewMockMLSEngine()
+	storage := NewMockStorage()
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	signingKey := priv.Seed()
+
+	coord, err := NewCoordinator(CoordinatorOpts{
+		Config:     TestConfig(),
+		Transport:  transport,
+		Clock:      clk,
+		MLS:        mls,
+		Storage:    storage,
+		LocalID:    id,
+		GroupID:    "seed-anchor-group",
+		SigningKey: signingKey,
+	})
+	if err != nil {
+		t.Fatalf("NewCoordinator: %v", err)
+	}
+
+	anchor := []byte("anchor-r1")
+	coord.SeedHistoryAnchor(1, anchor)
+
+	cs, err := storage.GetCoordState("seed-anchor-group")
+	if err != nil {
+		t.Fatalf("expected coord state saved: %v", err)
+	}
+	if len(cs.HistoryChain) == 0 {
+		t.Fatal("expected history chain to be persisted")
+	}
+	got, ok := cs.HistoryChain[1]
+	if !ok {
+		t.Fatal("expected history chain entry for epoch 1")
+	}
+	if !bytes.Equal(got, anchor) {
+		t.Fatalf("persisted anchor mismatch: got %x, want %x", got, anchor)
+	}
+}
+
+// TestCoordinator_SupersedeStaleMembershipOps_AllowsReAdd verifies that when a
+// REMOVE_MEMBER is committed for a target, the prior COMMITTED ADD_MEMBER
+// operation for that same target is marked SUPERSEDED and its IdempotencyKey
+// is released, so a subsequent AddMember is not silently blocked by the old
+// idempotency record.
+func TestCoordinator_SupersedeStaleMembershipOps_AllowsReAdd(t *testing.T) {
+	groupID := "grp-supersession-readd"
+	nodes, network, clk := setupCluster(t, 2, groupID)
+	createAndShareGroup(t, nodes)
+	startAll(t, nodes)
+	exchangeHeartbeats(nodes, network)
+
+	alice := nodes[0]
+	now := clk.Now()
+	targetID := peerID("readd-target")
+	targetIDStr := targetID.String()
+	addKey := "add_member_" + targetIDStr
+
+	// Step 1: simulate an old ADD_MEMBER for target that was already committed.
+	opAdd := &PendingOperation{
+		OperationID:    "op-add-readd-target",
+		GroupID:        groupID,
+		OpType:         "ADD_MEMBER",
+		Status:         "COMMITTED",
+		IdempotencyKey: &addKey,
+		TargetMemberID: &targetIDStr,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := alice.storage.SavePendingOperation(opAdd); err != nil {
+		t.Fatalf("save old ADD op: %v", err)
+	}
+
+	// Step 2: reconcile a commit that removes the target.
+	alice.coord.mu.Lock()
+	alice.coord.reconcileOperationsAfterCommitLocked(CommitMsg{
+		IncludedProposals: []ProposalMsg{
+			{
+				ProposalType: ProposalRemove,
+				OperationID:  "op-remove-readd-target",
+				TargetPeerID: targetIDStr,
+			},
+		},
+	})
+	alice.coord.mu.Unlock()
+
+	// Step 3: the old ADD op must be SUPERSEDED and key released.
+	op, err := alice.storage.GetPendingOperation("op-add-readd-target")
+	if err != nil {
+		t.Fatalf("get old ADD op: %v", err)
+	}
+	if op.Status != "SUPERSEDED" {
+		t.Fatalf("expected old ADD op SUPERSEDED, got %s", op.Status)
+	}
+	if op.IdempotencyKey != nil {
+		t.Fatalf("expected IdempotencyKey nil after supersession, got %q", *op.IdempotencyKey)
+	}
+
+	// Step 4: the token holder must be able to re-add the target without being
+	// blocked by the stale idempotency key.
+	var holder *testNode
+	for _, n := range nodes {
+		if n.coord.IsTokenHolder() {
+			holder = n
+			break
+		}
+	}
+	if holder == nil {
+		t.Fatal("failed to elect token holder")
+	}
+
+	res, err := holder.coord.AddMember(AddMemberRequest{
+		TargetPeerID:    targetID,
+		KeyPackageBytes: []byte("mock-kp-readd"),
+		OperationID:     "op-add-readd-target-second",
+		KeyPackageHash:  []byte("kphash-readd"),
+	})
+	if err != nil {
+		t.Fatalf("AddMember after remove: %v", err)
+	}
+	if res.Deferred {
+		t.Fatal("AddMember on token holder must not defer")
+	}
+	if len(res.Welcome) == 0 {
+		t.Fatal("AddMember must produce Welcome bytes")
+	}
+	if res.CommitEpoch != 1 {
+		t.Fatalf("CommitEpoch=%d want 1", res.CommitEpoch)
+	}
+}

@@ -1,12 +1,27 @@
-\frametitle{4.6. RQ5: Phục hồi phân nhánh + Chi phí điều phối + Forward Secrecy}\framesubtitle {\scriptsize \textit {Cách đo RQ5a: tạo partition sâu D epoch, external join + replay; đo thời gian hội tụ, chuẩn hóa theo KB group state. RQ5b: so sánh thời gian điều phối vs tổng. RQ5c: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
+\frametitle{RQ5: Phục hồi phân nhánh + Chi phí điều phối + Forward Secrecy}\framesubtitle {\scriptsize \textit {Cách đo RQ5a: tạo partition sâu D epoch, external join + replay; đo thời gian hội tụ, chuẩn hóa theo KB group state. RQ5b: so sánh thời gian điều phối vs tổng. RQ5c: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
 	\vspace{0.1em}
 	\begin{columns}[c]
 		\begin{column}{0.55\textwidth}
 			\centering
-			\footnotesize \textbf{RQ5a:} Healing $O(1)$ theo độ sâu phân kỳ?\\[0.2em]
-			\includegraphics[width=0.95\textwidth,height=4.0cm,keepaspectratio]{partition_divergence_normalized.png}\\
-			{\scriptsize ms/KB giảm 1,62 $\to$ 0,65\\
-			$\Rightarrow$ giao thức $O(1)$, chi phí tăng do serialize group state}
+			\footnotesize \textbf{RQ5a:} Fork healing \textbf{1 External Commit} cho mọi độ sâu $D$\\[0.2em]
+			\includegraphics[width=0.95\textwidth,height=2.7cm,keepaspectratio]{partition_divergence_normalized.png}\\[0.2em]
+			{\scriptsize
+			\renewcommand{\arraystretch}{1.0}
+			\setlength{\tabcolsep}{5pt}
+			\begin{tabular}{|r|r|r|r|}
+				\hline
+				\textbf{D} & \textbf{Thời gian (ms)} & \textbf{State (KB)} & \textbf{ms/KB} \\
+				\hline
+				5 & 728 & 449 & 1,62 \\
+				\hline
+				10 & 1039 & 762 & 1,36 \\
+				\hline
+				20 & 1155 & 1381 & 0,84 \\
+				\hline
+				50 & 2098 & 3240 & 0,65 \\
+				\hline
+			\end{tabular}}\\[0.2em]
+			{\scriptsize Nhánh sâu hơn thì group state lớn hơn, serialize nặng hơn nên tổng thời gian tăng. Nhưng ms/KB giảm cho thấy chi phí giao thức không phụ thuộc vào D, bản chất vẫn là $O(1)$.}
 		\end{column}
 		\begin{column}{0.43\textwidth}
 			\footnotesize \textbf{RQ5b:} Coordinator overhead\\[0.2em]

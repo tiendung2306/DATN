@@ -114,6 +114,33 @@ func fileNameAndExt(path string) (name string, ext string) {
 	return base, e
 }
 
+// sanitizeSuggestedFileName strips path separators and Windows reserved
+// characters from a sender-provided filename so it can be passed safely to
+// the native save dialog. Without this, cross-platform paths or characters
+// like < > : " / \ | ? * trigger the "The file name is not valid" error.
+func sanitizeSuggestedFileName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "downloaded-file"
+	}
+	for _, ch := range []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"} {
+		name = strings.ReplaceAll(name, ch, "_")
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if r >= 0 && r <= 31 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	name = strings.TrimSpace(b.String())
+	name = strings.Trim(name, ".")
+	if name == "" {
+		return "downloaded-file"
+	}
+	return name
+}
+
 func detectMimeType(path string) string {
 	ext := strings.TrimSpace(strings.ToLower(filepath.Ext(path)))
 	if ext != "" {
@@ -280,13 +307,9 @@ func (r *Runtime) DownloadGroupFile(groupID, fileID, senderPeerID, suggestedName
 	if groupID == "" || fileID == "" || senderPeerID == "" {
 		return "", fmt.Errorf("group_id, file_id, and sender_peer_id are required")
 	}
-	name := strings.TrimSpace(suggestedName)
-	if name == "" {
-		name = "downloaded-file"
-	}
+	name := sanitizeSuggestedFileName(suggestedName)
 
 	destPath, err := wailsRuntime.SaveFileDialog(r.appCtx(), wailsRuntime.SaveDialogOptions{
-		Title:           "Luu tep da giai ma",
 		DefaultFilename: name,
 		Filters: []wailsRuntime.FileFilter{
 			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
@@ -313,6 +336,57 @@ func openPathInOS(path string) error {
 	default:
 		return exec.Command("xdg-open", path).Start()
 	}
+}
+
+// openFileLocationInOS opens the file manager at the folder containing path.
+// On Windows it also selects the file; on macOS it reveals the file; on Linux
+// it opens the parent directory.
+func openFileLocationInOS(path string) error {
+	dir := filepath.Dir(path)
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("explorer", "/select,", path).Start()
+	case "darwin":
+		return exec.Command("open", "-R", path).Start()
+	default:
+		return exec.Command("xdg-open", dir).Start()
+	}
+}
+
+func (r *Runtime) resolveLocalFileTransferPath(groupID, fileID, fallbackPath string) (string, error) {
+	if r.db == nil {
+		if fallbackPath == "" {
+			return "", fmt.Errorf("database not initialized")
+		}
+		chosen := strings.TrimSpace(fallbackPath)
+		if _, err := os.Stat(chosen); err != nil {
+			return "", fmt.Errorf("ERR_FILE_MISSING_LOCAL: %w", err)
+		}
+		return chosen, nil
+	}
+	rec, err := r.db.GetFileTransfer(fileID)
+	if err != nil && !errors.Is(err, store.ErrFileTransferNotFound) {
+		return "", fmt.Errorf("lookup file transfer: %w", err)
+	}
+	var chosen string
+	if rec != nil && rec.GroupID == groupID {
+		switch rec.Direction {
+		case store.FileTransferDirectionOut:
+			chosen = strings.TrimSpace(rec.PlaintextPath)
+		case store.FileTransferDirectionIn:
+			chosen = strings.TrimSpace(rec.CiphertextDir)
+		}
+	}
+	if chosen == "" {
+		chosen = strings.TrimSpace(fallbackPath)
+	}
+	if chosen == "" {
+		return "", fmt.Errorf("ERR_FILE_NOT_AVAILABLE: file not available on this device")
+	}
+	if _, err := os.Stat(chosen); err != nil {
+		return "", fmt.Errorf("ERR_FILE_MISSING_LOCAL: %w", err)
+	}
+	return chosen, nil
 }
 
 func openFileTransferDestination(destPath string) (*os.File, func(*error, *bool), error) {
@@ -365,6 +439,50 @@ func (r *Runtime) OpenDownloadedFile(groupID, fileID, fallbackPath string) (stri
 		return "", fmt.Errorf("ERR_FILE_OPEN_FAILED: %w", err)
 	}
 	return chosen, nil
+}
+
+// OpenFileTransfer opens the local file associated with a file transfer,
+// whether this device sent it (original plaintext) or received it (decrypted
+// download). It falls back to the caller-provided path if the DB record has
+// no path stored.
+func (r *Runtime) OpenFileTransfer(groupID, fileID, fallbackPath string) (string, error) {
+	if err := r.ensureSessionActive(); err != nil {
+		return "", err
+	}
+	groupID = strings.TrimSpace(groupID)
+	fileID = strings.TrimSpace(fileID)
+	if groupID == "" || fileID == "" {
+		return "", fmt.Errorf("group_id and file_id are required")
+	}
+	chosen, err := r.resolveLocalFileTransferPath(groupID, fileID, fallbackPath)
+	if err != nil {
+		return "", err
+	}
+	if err := openPathInOS(chosen); err != nil {
+		return "", fmt.Errorf("ERR_FILE_OPEN_FAILED: %w", err)
+	}
+	return chosen, nil
+}
+
+// OpenFileTransferLocation opens the file manager at the folder containing
+// the local file for a transfer. Works for both sent and received files.
+func (r *Runtime) OpenFileTransferLocation(groupID, fileID, fallbackPath string) (string, error) {
+	if err := r.ensureSessionActive(); err != nil {
+		return "", err
+	}
+	groupID = strings.TrimSpace(groupID)
+	fileID = strings.TrimSpace(fileID)
+	if groupID == "" || fileID == "" {
+		return "", fmt.Errorf("group_id and file_id are required")
+	}
+	chosen, err := r.resolveLocalFileTransferPath(groupID, fileID, fallbackPath)
+	if err != nil {
+		return "", err
+	}
+	if err := openFileLocationInOS(chosen); err != nil {
+		return "", fmt.Errorf("ERR_FILE_OPEN_FAILED: %w", err)
+	}
+	return filepath.Dir(chosen), nil
 }
 
 // PrepareOutgoingFileTransfer hashes the file (streaming), derives MLS exporter secrets with
@@ -503,6 +621,7 @@ func (r *Runtime) PrepareOutgoingFileTransfer(groupID string, sourcePath string)
 		ExportEpoch:     exportEpoch,
 		SenderPeerID:    senderPeer,
 		CiphertextDir:   outDir,
+		PlaintextPath:   sourcePath,
 		State:           store.FileTransferStateReady,
 	}
 	if err := r.db.UpsertFileTransfer(rec); err != nil {

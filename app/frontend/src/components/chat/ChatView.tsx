@@ -28,7 +28,8 @@ interface ChatViewProps {
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
   onDownloadFile: (messageId: string) => void
-  onOpenDownloadedFile: (messageId: string) => void
+  onOpenFile: (messageId: string) => void
+  onOpenFileLocation: (messageId: string) => void
   fileTransferStateByMessage: Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>
   fileLocalPathByMessage: Record<string, string>
   onToggleDetails: () => void
@@ -55,7 +56,8 @@ export default function ChatView({
   onRetry,
   onRemoveFailed,
   onDownloadFile,
-  onOpenDownloadedFile,
+  onOpenFile,
+  onOpenFileLocation,
   fileTransferStateByMessage,
   fileLocalPathByMessage,
   onToggleDetails,
@@ -316,7 +318,8 @@ export default function ChatView({
               onRetry={onRetry}
               onRemoveFailed={onRemoveFailed}
               onDownloadFile={onDownloadFile}
-              onOpenDownloadedFile={onOpenDownloadedFile}
+              onOpenFile={onOpenFile}
+              onOpenFileLocation={onOpenFileLocation}
               fileTransferStateByMessage={fileTransferStateByMessage}
               fileLocalPathByMessage={fileLocalPathByMessage}
               fileActionDisabled={attachingFile || sending}

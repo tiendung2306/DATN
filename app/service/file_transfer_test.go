@@ -28,6 +28,28 @@ func TestOpenFileTransferDestination_RemovesPartialFileOnFailure(t *testing.T) {
 	}
 }
 
+func TestSanitizeSuggestedFileName(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"report.pdf", "report.pdf"},
+		{"  bad:file<name>.txt  ", "bad_file_name_.txt"},
+		{"path/to/file.png", "path_to_file.png"},
+		{"windows\\name.docx", "windows_name.docx"},
+		{"file\x00with\x1fctrl", "filewithctrl"},
+		{"", "downloaded-file"},
+		{"   ", "downloaded-file"},
+		{"...", "downloaded-file"},
+	}
+	for _, c := range cases {
+		got := sanitizeSuggestedFileName(c.in)
+		if got != c.want {
+			t.Errorf("sanitizeSuggestedFileName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestOpenFileTransferDestination_PreservesCompletedFile(t *testing.T) {
 	t.Parallel()
 

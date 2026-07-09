@@ -17,7 +17,8 @@ interface MessageListProps {
   onRetry: (messageId: string) => void
   onRemoveFailed: (messageId: string) => void
   onDownloadFile?: (messageId: string) => void
-  onOpenDownloadedFile?: (messageId: string) => void
+  onOpenFile?: (messageId: string) => void
+  onOpenFileLocation?: (messageId: string) => void
   fileTransferStateByMessage?: Record<string, 'idle' | 'downloading' | 'completed' | 'failed'>
   fileLocalPathByMessage?: Record<string, string>
   fileActionDisabled?: boolean
@@ -44,7 +45,8 @@ export default function MessageList({
   onRetry,
   onRemoveFailed,
   onDownloadFile,
-  onOpenDownloadedFile,
+  onOpenFile,
+  onOpenFileLocation,
   fileTransferStateByMessage = {},
   fileLocalPathByMessage = {},
   fileActionDisabled = false,
@@ -148,7 +150,7 @@ export default function MessageList({
                 )}
               >
                 <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {file ? renderMentionedBody(parsed.body || `Đã chia sẻ tệp: ${file.name}`) : renderMentionedBody(message.content)}
+                  {file ? renderMentionedBody(parsed.body || 'Đã chia sẻ tệp') : renderMentionedBody(message.content)}
                 </p>
                 {file ? (
                   <FileAttachmentCard
@@ -157,7 +159,8 @@ export default function MessageList({
                     state={fileTransferStateByMessage[message.id] ?? 'idle'}
                     localPath={fileLocalPathByMessage[message.id]}
                     onDownload={onDownloadFile ? () => onDownloadFile(message.id) : undefined}
-                    onOpenFile={onOpenDownloadedFile ? () => onOpenDownloadedFile(message.id) : undefined}
+                    onOpenFile={onOpenFile ? () => onOpenFile(message.id) : undefined}
+                    onOpenFileLocation={onOpenFileLocation ? () => onOpenFileLocation(message.id) : undefined}
                     disabled={fileActionDisabled}
                   />
                 ) : null}

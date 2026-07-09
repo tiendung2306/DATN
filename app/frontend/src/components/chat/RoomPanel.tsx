@@ -158,7 +158,6 @@ export default function RoomPanel({
     const requestId = ++diagRequestSeq.current
     const groupID = activeGroupId
     setLoadingDiag(true)
-    resetDiagnosticsView()
     try {
       const snap = await runtimeClient.getDiagnosticsSnapshot()
       if (diagRequestSeq.current !== requestId || groupID !== activeGroupId) return
@@ -186,6 +185,7 @@ export default function RoomPanel({
 
   useEffect(() => {
     if (activeTab === 'diagnostics' && activeGroupId) {
+      resetDiagnosticsView()
       void loadGroupDiagData()
       
       const interval = setInterval(() => {

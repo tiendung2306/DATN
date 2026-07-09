@@ -3,6 +3,7 @@ package coordination
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -76,6 +77,13 @@ func (c *Coordinator) SeedHistoryAnchor(epoch uint64, anchorHistoryHash []byte) 
 	c.historyChain[epoch] = copyBytes(anchorHistoryHash)
 	c.historyHash = copyBytes(anchorHistoryHash)
 	c.epoch = epoch
+	// Persist the anchor so restarts do not fall back to the genesis hash at
+	// this epoch. A missing anchor makes the node think it is on a different
+	// branch and either skips catch-up or attempts a doomed external join.
+	if err := c.persistCoordStateLocked(); err != nil {
+		slog.Warn("SeedHistoryAnchor: failed to persist history anchor",
+			"group", c.groupID, "epoch", epoch, "error", err)
+	}
 }
 
 // GetOperationalMode returns the current operational mode of the coordinator.

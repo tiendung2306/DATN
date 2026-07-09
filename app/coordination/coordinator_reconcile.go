@@ -52,6 +52,13 @@ func (c *Coordinator) reconcileOperationsAfterCommitLocked(commit CommitMsg) {
 		}
 	}
 
+	// Supersede stale membership operations: when an ADD/REMOVE membership
+	// operation commits for a target, all prior opposite-type membership
+	// operations for that same target become logically invalid. Mark them
+	// SUPERSEDED and release their IdempotencyKey so future re-add or
+	// re-remove attempts are not blocked by stale history.
+	c.supersedeStaleMembershipOpsLocked(commit)
+
 	// M5: Convert unapplied pending application envelopes to ORPHANED_OWN
 	storageKey := deriveStorageKey(c.signingKey)
 	pendingEnvs, err := c.storage.GetPendingEnvelopes(c.groupID, 1000)
@@ -104,6 +111,91 @@ func (c *Coordinator) reconcileOperationsAfterCommitLocked(commit CommitMsg) {
 				}
 			}
 		}
+	}
+}
+
+func (c *Coordinator) supersedeStaleMembershipOpsLocked(commit CommitMsg) {
+	type targetAction struct {
+		addCommitted    bool
+		removeCommitted bool
+	}
+	affected := make(map[string]*targetAction)
+	committedOpIDs := make(map[string]bool)
+
+	for _, d := range commit.AddDeliveries {
+		if d.TargetPeerID == "" {
+			continue
+		}
+		if affected[d.TargetPeerID] == nil {
+			affected[d.TargetPeerID] = &targetAction{}
+		}
+		affected[d.TargetPeerID].addCommitted = true
+		committedOpIDs[d.OperationID] = true
+	}
+
+	for _, p := range commit.IncludedProposals {
+		if p.ProposalType == ProposalRemove && p.TargetPeerID != "" {
+			if affected[p.TargetPeerID] == nil {
+				affected[p.TargetPeerID] = &targetAction{}
+			}
+			affected[p.TargetPeerID].removeCommitted = true
+			committedOpIDs[p.OperationID] = true
+		}
+	}
+
+	if len(affected) == 0 {
+		return
+	}
+
+	ops, err := c.storage.ListPendingOperations(c.groupID)
+	if err != nil {
+		slog.Error("Failed to list pending operations for supersession", "group", c.groupID, "error", err)
+		return
+	}
+
+	for _, op := range ops {
+		if op.Status != "COMMITTED" && op.Status != "SATISFIED_BY_OTHER" {
+			continue
+		}
+		if op.TargetMemberID == nil || *op.TargetMemberID == "" {
+			continue
+		}
+		// Never supersede operations that are part of the current commit itself.
+		if committedOpIDs[op.OperationID] {
+			continue
+		}
+
+		info, ok := affected[*op.TargetMemberID]
+		if !ok {
+			continue
+		}
+
+		shouldSupersede := false
+		if info.removeCommitted && op.OpType == "ADD_MEMBER" {
+			shouldSupersede = true
+		}
+		if info.addCommitted && op.OpType == "REMOVE_MEMBER" {
+			shouldSupersede = true
+		}
+
+		if !shouldSupersede {
+			continue
+		}
+
+		op.Status = "SUPERSEDED"
+		op.IdempotencyKey = nil
+		op.UpdatedAt = c.clock.Now()
+		if err := c.storage.SavePendingOperation(op); err != nil {
+			slog.Warn("Failed to save superseded pending operation", "group", c.groupID, "opID", op.OperationID, "error", err)
+		}
+		c.emitPendingOperationAuditLocked(PendingOperationAuditSummary{
+			GroupID:      c.groupID,
+			OperationID:  op.OperationID,
+			OpType:       op.OpType,
+			TargetPeerID: derefString(op.TargetMemberID),
+			Stage:        "superseded",
+			CurrentEpoch: c.epoch,
+		})
 	}
 }
 

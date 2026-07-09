@@ -1027,6 +1027,7 @@ pub fn create_group(group_id: &str, signing_key: &[u8], max_past_epochs: u32) ->
         .use_ratchet_tree_extension(true)
         .ciphersuite(CIPHERSUITE)
         .max_past_epochs(max_past_epochs as usize)
+        .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
         .build();
 
     let group = MlsGroup::new_with_group_id(
@@ -1329,6 +1330,7 @@ pub fn process_welcome(
     let join_config = MlsGroupJoinConfig::builder()
         .use_ratchet_tree_extension(true)
         .max_past_epochs(max_past_epochs as usize)
+        .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
         .build();
 
     let staged = StagedWelcome::new_from_welcome(&provider, &join_config, welcome, None)
@@ -1405,6 +1407,7 @@ pub fn external_join(group_info: &[u8], signing_key: &[u8], max_past_epochs: u32
             MlsGroupJoinConfig::builder()
                 .use_ratchet_tree_extension(true)
                 .max_past_epochs(max_past_epochs as usize)
+                .wire_format_policy(PURE_PLAINTEXT_WIRE_FORMAT_POLICY)
                 .build(),
         )
         .build_group(&provider, verifiable_group_info, credential_with_key)

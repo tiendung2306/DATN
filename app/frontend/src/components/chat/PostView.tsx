@@ -207,11 +207,23 @@ export default function PostView({
     const key = attachmentStateKey(messageId, file.file_id)
     const fallbackPath = filePathByKey[key] ?? ''
     try {
-      const openedPath = await runtimeClient.openDownloadedFile(activeGroupId, file.file_id, fallbackPath)
+      const openedPath = await runtimeClient.openFileTransfer(activeGroupId, file.file_id, fallbackPath)
       if (openedPath) {
         setFileStateByKey((prev) => ({ ...prev, [key]: 'completed' }))
         setFilePathByKey((prev) => ({ ...prev, [key]: openedPath }))
       }
+    } catch (err) {
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
+    }
+  }
+
+  const handleOpenFileLocation = async (messageId: string, file: FileAttachment) => {
+    if (!activeGroupId) return
+    const key = attachmentStateKey(messageId, file.file_id)
+    const fallbackPath = filePathByKey[key] ?? ''
+    try {
+      await runtimeClient.openFileTransferLocation(activeGroupId, file.file_id, fallbackPath)
     } catch (err) {
       const mapped = formatOutboundSendError(err)
       useToastStore.getState().pushToast({ title: mapped.title, description: mapped.description, variant: mapped.variant })
@@ -345,6 +357,7 @@ export default function PostView({
                   }}
                   onDownloadFile={handleDownloadFile}
                   onOpenFile={handleOpenFile}
+                  onOpenFileLocation={handleOpenFileLocation}
                   fileStateByKey={fileStateByKey}
                   fileLocalPathByKey={filePathByKey}
                 />

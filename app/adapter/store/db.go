@@ -469,6 +469,7 @@ func (d *Database) createTables() error {
 			export_epoch      INTEGER NOT NULL,
 			sender_peer_id    TEXT    NOT NULL DEFAULT '',
 			ciphertext_dir    TEXT    NOT NULL,
+			plaintext_path    TEXT    NOT NULL DEFAULT '',
 			state             TEXT    NOT NULL,
 			created_at        INTEGER NOT NULL,
 			updated_at        INTEGER NOT NULL
@@ -788,6 +789,9 @@ func (d *Database) createTables() error {
 	// Empty string ("") means we have not yet observed the peer's verified
 	// pubkey (legacy rows, or directory rebuilt before handshake completes).
 	if err := d.ensureColumnExists("peer_directory", "public_key_hex", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := d.ensureColumnExists("file_transfers", "plaintext_path", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	for _, col := range []struct {

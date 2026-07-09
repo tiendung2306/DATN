@@ -83,7 +83,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
     handleSendMessage,
     handleSendFile,
     handleDownloadFile,
-    handleOpenDownloadedFile,
+    handleOpenFile,
+    handleOpenFileLocation,
     handleRetryMessage,
     handleRemoveFailed,
   } = useChatActions({ activeGroupId, localPeerId, refreshGroups, setActiveGroupId })
@@ -170,7 +171,8 @@ export default function MainChatModuleScreen({ isAdmin }: MainChatModuleScreenPr
             onRetry={handleRetryMessage}
             onRemoveFailed={handleRemoveFailed}
             onDownloadFile={handleDownloadFile}
-            onOpenDownloadedFile={handleOpenDownloadedFile}
+            onOpenFile={handleOpenFile}
+            onOpenFileLocation={handleOpenFileLocation}
             fileTransferStateByMessage={fileTransferStateByMessage}
             fileLocalPathByMessage={fileLocalPathByMessage}
             detailsOpen={detailsOpen}

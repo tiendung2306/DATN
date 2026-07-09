@@ -271,7 +271,7 @@ export function useChatActions({
     }
   }
 
-  const handleOpenDownloadedFile = async (messageId: string) => {
+  const handleOpenFile = async (messageId: string) => {
     if (!activeGroupId) return
     const messages = messagesByGroup[activeGroupId] ?? []
     const target = messages.find((m) => m.id === messageId)
@@ -281,11 +281,32 @@ export function useChatActions({
     if (!file) return
     const fallbackPath = fileLocalPathByMessage[messageId] ?? ''
     try {
-      const openedPath = await runtimeClient.openDownloadedFile(activeGroupId, file.file_id, fallbackPath)
+      const openedPath = await runtimeClient.openFileTransfer(activeGroupId, file.file_id, fallbackPath)
       if (openedPath) {
         setFileTransferStateByMessage((prev) => ({ ...prev, [messageId]: 'completed' }))
         setFileLocalPathByMessage((prev) => ({ ...prev, [messageId]: openedPath }))
       }
+    } catch (err) {
+      const mapped = formatOutboundSendError(err)
+      useToastStore.getState().pushToast({
+        title: mapped.title,
+        description: mapped.description,
+        variant: mapped.variant,
+      })
+    }
+  }
+
+  const handleOpenFileLocation = async (messageId: string) => {
+    if (!activeGroupId) return
+    const messages = messagesByGroup[activeGroupId] ?? []
+    const target = messages.find((m) => m.id === messageId)
+    if (!target) return
+    const parsed = parseMessageContent(target.content)
+    const file = parsed.file ?? parsed.attachments?.[0]
+    if (!file) return
+    const fallbackPath = fileLocalPathByMessage[messageId] ?? ''
+    try {
+      await runtimeClient.openFileTransferLocation(activeGroupId, file.file_id, fallbackPath)
     } catch (err) {
       const mapped = formatOutboundSendError(err)
       useToastStore.getState().pushToast({
@@ -311,6 +332,7 @@ export function useChatActions({
     handleRemoveFailed,
     handleSendFile,
     handleDownloadFile,
-    handleOpenDownloadedFile,
+    handleOpenFile,
+    handleOpenFileLocation,
   }
 }

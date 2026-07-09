@@ -1,4 +1,4 @@
-import { Archive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, File as FileIcon, Download, Loader2, CheckCircle2, Shield } from 'lucide-react'
+import { Archive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, File as FileIcon, Download, Loader2, CheckCircle2, ExternalLink, FolderOpen, Shield } from 'lucide-react'
 import { Button } from '../ui/button'
 import { FileAttachment, fileIconByMimeOrExt, formatFileSize, formatMimeType } from '../../lib/chatModel'
 
@@ -9,6 +9,7 @@ interface FileAttachmentCardProps {
   localPath?: string
   onDownload?: () => void
   onOpenFile?: () => void
+  onOpenFileLocation?: () => void
   disabled?: boolean
 }
 
@@ -40,11 +41,14 @@ export default function FileAttachmentCard({
   localPath,
   onDownload,
   onOpenFile,
+  onOpenFileLocation,
   disabled,
 }: FileAttachmentCardProps) {
   const iconType = fileIconByMimeOrExt(file)
   const canDownload = !isMine && Boolean(onDownload)
-  const shortHash = file.sha256.length > 8 ? `${file.sha256.slice(0, 8)}...` : file.sha256
+
+  const canOpenFile = Boolean(onOpenFile) && (isMine || state === 'completed')
+  const canOpenFolder = Boolean(onOpenFileLocation) && (isMine || state === 'completed')
 
   return (
     <div className="mt-2 w-full max-w-[320px] rounded-xl border border-slate-700/70 bg-slate-900/70 p-3 backdrop-blur-[1px]">
@@ -53,13 +57,27 @@ export default function FileAttachmentCard({
           <IconForType type={iconType} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-slate-100" title={file.name}>{file.name}</p>
+          <button
+            type="button"
+            onClick={canOpenFile ? onOpenFile : undefined}
+            disabled={!canOpenFile || disabled}
+            className={`group flex items-center gap-1.5 truncate text-sm font-medium text-left ${
+              canOpenFile
+                ? 'cursor-pointer text-slate-100 hover:text-emerald-300 hover:underline'
+                : 'text-slate-100'
+            }`}
+            title={file.name}
+          >
+            <span className="truncate">{file.name}</span>
+            {canOpenFile && (
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+            )}
+          </button>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
             <span className="font-medium text-slate-300">{formatFileSize(file.size)}</span>
             <span className="h-3 w-px bg-slate-700" />
             <span>{formatMimeType(file.mime_type)}</span>
           </div>
-          <p className="mt-1 truncate text-[10px] text-slate-500" title={file.sha256}>Hash: {shortHash}</p>
         </div>
       </div>
 
@@ -75,15 +93,16 @@ export default function FileAttachmentCard({
           {state === 'failed' ? (
             <p className="text-[10px] text-rose-300">Tải thất bại</p>
           ) : null}
-          {!isMine && onOpenFile && state === 'completed' ? (
+          {canOpenFolder ? (
             <Button
               size="xs"
               variant="ghost"
               className="h-6 px-2 text-[11px] text-slate-200"
-              onClick={onOpenFile}
+              onClick={onOpenFileLocation}
               disabled={disabled}
             >
-              Mở file
+              <FolderOpen className="mr-1 h-3 w-3" />
+              Mở thư mục
             </Button>
           ) : null}
           {canDownload ? (
@@ -111,9 +130,9 @@ export default function FileAttachmentCard({
                 </>
               )}
             </Button>
-          ) : (
+          ) : !isMine ? (
             <span className="text-[10px] text-slate-500">Chờ tải xuống</span>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

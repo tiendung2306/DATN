@@ -20,7 +20,7 @@ slide_all-17.png    945     532     58      89     72       54 OK
 slide_all-18.png    945     532     34      19     42       22 OK                  
 slide_all-19.png    945     532      8      37     48       20 L                   
 slide_all-20.png    945     532     16      45     64       20 OK                  
-slide_all-21.png    945     532      4      13    114       58 L                   
+slide_all-21.png    945     532      4      13    116       74 L                   
 slide_all-22.png    945     532     42      15     64       54 OK                  
 slide_all-23.png    945     532      0       1      0        2 L,R,T,B             
 slide_all-24.png    945     532     52      77    110       82 OK                  
@@ -29,5 +29,5 @@ slide_all-26.png    945     532 no dark content
 slide_all-27.png    945     532 no dark content
 slide_all-28.png    945     532 no dark content
 slide_all-29.png    945     532      6      23    104       16 L                   
-slide_all-30.png    945     532      0      29    118      134 L                   
+slide_all-30.png    945     532     24      11    104      114 R                   
 slide_all-31.png    945     532      0     567      0        2 L,T,B               

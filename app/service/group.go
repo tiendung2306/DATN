@@ -1156,6 +1156,18 @@ func (r *Runtime) loadExistingGroupsLocked() {
 				"group", rec.GroupID, "error", err)
 			continue
 		}
+		// Repair history anchor for groups restored from older DBs that did
+		// not persist coordination_state. The anchor in stored_welcomes lets the
+		// node recognize the correct branch on restart instead of defaulting to
+		// the genesis hash at a non-zero epoch.
+		if cs, csErr := r.coordStorage.GetCoordState(rec.GroupID); csErr != nil || cs == nil || len(cs.HistoryChain) == 0 {
+			localPeerID := r.node.Host.ID().String()
+			if r.db != nil {
+				if _, _, _, _, anchorEpoch, anchorHash, swErr := r.db.GetStoredWelcome(localPeerID, rec.GroupID); swErr == nil && anchorEpoch > 0 && len(anchorHash) > 0 {
+					coord.SeedHistoryAnchor(anchorEpoch, anchorHash)
+				}
+			}
+		}
 		if err := coord.Start(r.ctx); err != nil {
 			slog.Warn("Failed to start coordinator for existing group",
 				"group", rec.GroupID, "error", err)

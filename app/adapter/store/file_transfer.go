@@ -30,6 +30,7 @@ type FileTransferRecord struct {
 	ExportEpoch     uint64
 	SenderPeerID    string
 	CiphertextDir   string
+	PlaintextPath   string
 	State           string
 	CreatedAt       int64
 	UpdatedAt       int64
@@ -56,8 +57,8 @@ func (d *Database) UpsertFileTransfer(rec *FileTransferRecord) error {
 		INSERT INTO file_transfers (
 			file_id, group_id, direction, plaintext_sha256, plaintext_size,
 			chunk_size, chunk_count, export_epoch, sender_peer_id, ciphertext_dir,
-			state, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			plaintext_path, state, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(file_id) DO UPDATE SET
 			group_id = excluded.group_id,
 			direction = excluded.direction,
@@ -68,6 +69,7 @@ func (d *Database) UpsertFileTransfer(rec *FileTransferRecord) error {
 			export_epoch = excluded.export_epoch,
 			sender_peer_id = excluded.sender_peer_id,
 			ciphertext_dir = excluded.ciphertext_dir,
+			plaintext_path = excluded.plaintext_path,
 			state = excluded.state,
 			updated_at = excluded.updated_at
 	`,
@@ -81,6 +83,7 @@ func (d *Database) UpsertFileTransfer(rec *FileTransferRecord) error {
 		rec.ExportEpoch,
 		rec.SenderPeerID,
 		rec.CiphertextDir,
+		rec.PlaintextPath,
 		rec.State,
 		rec.CreatedAt,
 		rec.UpdatedAt,
@@ -96,7 +99,7 @@ func (d *Database) GetFileTransfer(fileID string) (*FileTransferRecord, error) {
 	row := d.Conn.QueryRow(`
 		SELECT file_id, group_id, direction, plaintext_sha256, plaintext_size,
 		       chunk_size, chunk_count, export_epoch, sender_peer_id, ciphertext_dir,
-		       state, created_at, updated_at
+		       plaintext_path, state, created_at, updated_at
 		FROM file_transfers WHERE file_id = ?
 	`, fileID)
 	var rec FileTransferRecord
@@ -112,6 +115,7 @@ func (d *Database) GetFileTransfer(fileID string) (*FileTransferRecord, error) {
 		&rec.ExportEpoch,
 		&rec.SenderPeerID,
 		&rec.CiphertextDir,
+		&rec.PlaintextPath,
 		&rec.State,
 		&rec.CreatedAt,
 		&rec.UpdatedAt,
