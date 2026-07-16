@@ -1,11 +1,23 @@
 \documentclass[../DoAn.tex]{subfiles}
 \begin{document}
-Nếu trong nội dung chính không đủ không gian cho các use case khác (ngoài các use case nghiệp vụ chính) thì đặc tả thêm cho các use case đó ở đây.
 
-\section{Đặc tả use case ``Thống kê tình hình mượn sách''}
-\ldots
+\section{Hàm trọng số nhánh và quy tắc chọn nhánh thắng}
 
-\section{Đặc tả use case ``Đăng ký làm thẻ mượn''}
-\ldots
+Khi hệ thống phát hiện phân nhánh, việc chọn nhánh tiếp tục dựa trên một hàm trọng số xác định. Mỗi nhánh $B$ được gắn với trọng số:
+
+\begin{equation}
+\label{eq:branch_weight_appendix}
+W(B) = \left(C_{active}(B),\ E(B),\ H_{commit}(B)\right)
+\end{equation}
+
+Trong đó:
+
+\begin{itemize}
+    \item $C_{active}(B)$: số thành viên đang hoạt động quan sát được trên nhánh $B$.
+    \item $E(B)$: epoch hiện tại của nhánh $B$.
+    \item $H_{commit}(B)$: giá trị băm của Commit gần nhất gắn với nhánh $B$.
+\end{itemize}
+
+Hai nhánh được so sánh theo thứ tự từ điển trên ba thành phần. Nhánh có $C_{active}$ lớn hơn được ưu tiên trước; nếu bằng nhau, nhánh có epoch cao hơn được ưu tiên; nếu vẫn bằng nhau, giá trị băm Commit dùng để phân biệt. Quy tắc này đảm bảo mọi nút quan sát cùng một tập nhánh sẽ đi đến cùng một quyết định.
 
 \end{document}

@@ -236,7 +236,7 @@
 		\hline
 		Chịu phân vùng & Kém (đóng băng nếu $<\frac{N}{2}$) & Tốt & \textbf{Rất tốt (phân vùng nhỏ vẫn hoạt động)} \\
 		\hline
-		Chi phí tạo Commit & $O(N)$ -- $O(N^2)$ & Nặng (phát sóng khối) & \textbf{$O(1)$ --- 1 Token Holder} \\
+		Chi phí mạng tạo Commit & $O(N)$ -- $O(N^2)$ & Nặng (phát sóng khối) & \textbf{$O(1)$ --- 1 người phát Commit} \\
 		\hline
 		Độ trễ & Phụ thuộc RTT mạng & Rất cao (sinh khối) & \textbf{Ngay lập tức (cục bộ)} \\
 		\hline
@@ -296,7 +296,7 @@
 	\vspace{0.05em}
 	\begin{columns}[c]
 		\begin{column}{0.57\textwidth}
-			\begin{block}{Bầu chọn Token Holder xác định}
+			\begin{block}{Bầu chọn người Commit xác định}
 				\scriptsize
 				\begin{gather*}
 				\text{Eligible}(E) = \text{Members}(E) \cap \text{ActiveView}(E) \setminus \text{Susp}(E) \\[0.4em]
@@ -365,7 +365,7 @@
 				\node[hustprimary] at (2.3,-0.7) {$\times$};
 				\node at (1,-1.1) {Nhánh A};
 				\draw[arr] (2,-0.35) -- (2,-0.05);
-				\node[boxgreen, below=1.4cm of ref, scale=0.85] (yes) {$R_A(5){=}R_B(5)$? \\ YES: chỉ chậm};
+				\node[boxgreen, below=1.4cm of ref, scale=0.85] (yes) {$R_A(3){=}R_B(3)$? \\ YES: chỉ chậm};
 				\node[boxred, right=0.2cm of yes, scale=0.85] (no) {NO: Fork thật};
 			\end{tikzpicture}
 			\end{center}
@@ -385,7 +385,7 @@
 				\footnotesize
 				\begin{enumerate}
 				\setlength{\itemsep}{3pt}
-					\item Chọn nhánh thắng theo quy tắc xác định
+					\item Chọn nhánh thắng theo hàm trọng số (Phụ lục~B)
 					\item Nút thua: hủy MLS cũ, tạo KeyPackage mới
 					\item Gửi External Proposal (Add) lên nhánh thắng
 					\item Nhánh thắng tạo \textbf{1 Commit + Welcome}
@@ -400,8 +400,6 @@
 				\setlength{\itemsep}{3pt}
 					\item \textbf{1 Commit} hàn gắn toàn bộ $K$ nút lệch nhánh
 					\item Tránh mỗi nút tự commit riêng lẻ $\to$ $O(K^2)$ commits
-					\item Crypto-shredding: hủy khóa nhánh thua, giữ FS/PCS
-					\item Autonomous replay: chỉ re-send tin của chính mình
 				\end{itemize}
 			\end{alertblock}
 		\end{column}
@@ -458,7 +456,7 @@
 \section{Triển khai \& Thực nghiệm}
 % =====================================================================
 
-\begin{frame}[c]{Kiến trúc hai tầng + Stateless Sidecar}
+\begin{frame}[c]{Kiến trúc ba tầng}
 	\begin{center}
 	\begin{tikzpicture}[node distance=0.5cm, every node/.style={font=\small}]
 		\node[boxblue, text width=12cm, minimum height=1.2cm] (fe) {\textbf{FRONTEND --- React + TypeScript}\\Shadcn UI $\cdot$ Tailwind CSS $\cdot$ Zustand $\cdot$ Wails Bindings};
@@ -542,7 +540,7 @@
 \begin{frame}[c]{RQ3: Benchmark mật mã — MLS vs mã hóa từng cặp}
 	\vspace{-0.5em}
 	\begin{center}
-		{\scriptsize \textit{Tạo nhóm 10--1000 thành viên; mã hóa tin nhắn 1 KB gửi toàn bộ nhóm; lặp 100 lần, lấy thời gian trung vị.}}
+		{\scriptsize \textit{Tạo nhóm 16--4096 thành viên; mã hóa tin nhắn 1 KB gửi toàn bộ nhóm; lặp 100 lần, lấy thời gian trung vị.}}
 	\end{center}
 	\vspace{0.8em}
 	\begin{center}
@@ -615,38 +613,16 @@
 	\end{columns}
 \end{frame}
 
-\begin{frame}[fragile,c]{RQ5: Phục hồi phân nhánh + Chi phí điều phối + Forward Secrecy}
-	{\scriptsize \textit{Cách đo RQ5a: tạo partition sâu D epoch, external join + replay; đo thời gian hội tụ, chuẩn hóa theo KB group state. RQ5b: so sánh thời gian điều phối vs tổng. RQ5c: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
-	\vspace{0.1em}
+\begin{frame}[fragile,c]{RQ5: Chi phí điều phối + Forward Secrecy}
+	{\scriptsize \textit{RQ5a: so sánh thời gian điều phối vs tổng. RQ5b: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
+	\vspace{0.3em}
 	\begin{columns}[c]
-		\begin{column}{0.55\textwidth}
-			\centering
-			\footnotesize \textbf{RQ5a:} Fork healing \textbf{1 External Commit} cho mọi độ sâu $D$\\[0.2em]
-			\includegraphics[width=0.95\textwidth,height=2.7cm,keepaspectratio]{partition_divergence_normalized.png}\\[0.2em]
-			{\scriptsize
-			\renewcommand{\arraystretch}{1.0}
-			\setlength{\tabcolsep}{5pt}
-			\begin{tabular}{|r|r|r|r|}
-				\hline
-				\textbf{D} & \textbf{Thời gian (ms)} & \textbf{State (KB)} & \textbf{ms/KB} \\
-				\hline
-				5 & 728 & 449 & 1,62 \\
-				\hline
-				10 & 1039 & 762 & 1,36 \\
-				\hline
-				20 & 1155 & 1381 & 0,84 \\
-				\hline
-				50 & 2098 & 3240 & 0,65 \\
-				\hline
-			\end{tabular}}\\[0.2em]
-			{\scriptsize Nhánh sâu hơn thì group state lớn hơn, serialize nặng hơn nên tổng thời gian tăng. Nhưng ms/KB giảm cho thấy chi phí giao thức không phụ thuộc vào D, bản chất vẫn là $O(1)$.}
-		\end{column}
-		\begin{column}{0.43\textwidth}
-			\footnotesize \textbf{RQ5b:} Coordinator overhead\\[0.2em]
+		\begin{column}{0.48\textwidth}
+			\footnotesize \textbf{RQ5a:} Coordinator overhead\\[0.3em]
 			\centering
 			{\scriptsize
-			\renewcommand{\arraystretch}{1.1}
-			\setlength{\tabcolsep}{7pt}
+			\renewcommand{\arraystretch}{1.2}
+			\setlength{\tabcolsep}{8pt}
 			\begin{tabular}{|r|r|r|r|}
 				\hline
 				\textbf{N} & \textbf{DP (ms)} & \textbf{Tổng (ms)} & \textbf{\%} \\
@@ -658,12 +634,14 @@
 				64 & 11,30 & 650,70 & 1,74 \\
 				\hline
 			\end{tabular}}
-			\\[0.2em]
-			{\scriptsize $\Rightarrow$ Giảm dần, luôn $<4\%$}
-			\vspace{0.3em}
-			\begin{block}{}
+			\\[0.3em]
+			{\scriptsize $\Rightarrow$ Tỷ trọng giảm dần, luôn $<4\%$}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{RQ5b: Forward Secrecy}
 				\footnotesize
-				\textbf{RQ5c:} Forward Secrecy --- thành viên bị loại không giải mã epoch mới \checkmark
+				Thành viên bị loại \textbf{không} giải mã được tin nhắn ở epoch mới \checkmark\\[0.3em]
+				$\Rightarrow$ MLS giữ đầy đủ FS/PCS ngay trên P2P
 			\end{block}
 		\end{column}
 	\end{columns}
@@ -696,17 +674,15 @@
 					\setlength{\itemsep}{0.15em}
 					\item Chưa chứng minh formal
 					\item Thực nghiệm trên mạng giả lập
-					\item Group state truyền toàn bộ qua gRPC
 				\end{itemize}
 			\end{alertblock}
-			\vspace{0.2em}
+			\vspace{1em}
 			\begin{block}{Hướng phát triển}
 				\small
 				\begin{itemize}
 					\setlength{\itemsep}{0.2em}
 					\item Chứng minh formal giao thức
 					\item Thử nghiệm multi-node vật lý
-					\item Tối ưu giao tiếp Go$\leftrightarrow$Rust
 				\end{itemize}
 			\end{block}
 		\end{column}
@@ -817,7 +793,7 @@
 		\begin{column}{0.48\textwidth}
 			\begin{alertblock}{Vấn đề}
 				\small
-				Timeout cố định 4s dễ khiến nút suspend nhầm Token Holder khi GossipSub jitter, gây fork ngay cả khi mạng vẫn liên thông.
+				Timeout cố định dễ khiến nút suspend nhầm Token Holder khi GossipSub jitter, gây fork ngay cả khi mạng vẫn liên thông.
 			\end{alertblock}
 			\vspace{0.2em}
 			\begin{block}{Adaptive Epoch Lease}
@@ -852,7 +828,34 @@
 	\end{columns}
 \end{frame}
 
-\begin{frame}[c]{Phụ lục B. Số liệu bổ sung: Healing và Coordinator overhead}
+\begin{frame}[c]{Phụ lục B. Hàm trọng số nhánh}
+	\begin{columns}[c]
+		\begin{column}{0.50\textwidth}
+			\begin{block}{Công thức}
+				\centering
+				\begin{equation*}
+				W(B) = \left(C_{active}(B),\; E(B),\; H_{commit}(B)\right)
+				\end{equation*}
+			\end{block}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\footnotesize
+			\begin{itemize}
+				\setlength{\itemsep}{4pt}
+				\item $C_{active}(B)$: số thành viên đang hoạt động trên nhánh $B$
+				\item $E(B)$: epoch hiện tại của nhánh $B$
+				\item $H_{commit}(B)$: băm Commit gần nhất của nhánh $B$
+			\end{itemize}
+		\end{column}
+	\end{columns}
+	\vspace{0.4em}
+	\begin{alertblock}{Quy tắc so sánh}
+		\footnotesize
+		So sánh theo thứ tự từ điển: (1) $C_{active}$ lớn hơn thắng; (2) nếu bằng, epoch cao hơn thắng; (3) nếu vẫn bằng, $H_{commit}$ lớn hơn thắng. Mọi nút quan sát cùng tập nhánh $\to$ cùng quyết định.
+	\end{alertblock}
+\end{frame}
+
+\begin{frame}[c]{Phụ lục C. Số liệu bổ sung: Healing và Coordinator overhead}
 	\footnotesize
 	\begin{columns}[t]
 		\begin{column}{0.47\textwidth}

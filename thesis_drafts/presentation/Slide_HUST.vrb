@@ -1,34 +1,12 @@
-\frametitle{RQ5: Phục hồi phân nhánh + Chi phí điều phối + Forward Secrecy}\framesubtitle {\scriptsize \textit {Cách đo RQ5a: tạo partition sâu D epoch, external join + replay; đo thời gian hội tụ, chuẩn hóa theo KB group state. RQ5b: so sánh thời gian điều phối vs tổng. RQ5c: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
-	\vspace{0.1em}
+\frametitle{RQ5: Chi phí điều phối + Forward Secrecy}\framesubtitle {\scriptsize \textit {RQ5a: so sánh thời gian điều phối vs tổng. RQ5b: loại 1 thành viên, gửi tin epoch mới, kiểm tra giải mã.}}
+	\vspace{0.3em}
 	\begin{columns}[c]
-		\begin{column}{0.55\textwidth}
-			\centering
-			\footnotesize \textbf{RQ5a:} Fork healing \textbf{1 External Commit} cho mọi độ sâu $D$\\[0.2em]
-			\includegraphics[width=0.95\textwidth,height=2.7cm,keepaspectratio]{partition_divergence_normalized.png}\\[0.2em]
-			{\scriptsize
-			\renewcommand{\arraystretch}{1.0}
-			\setlength{\tabcolsep}{5pt}
-			\begin{tabular}{|r|r|r|r|}
-				\hline
-				\textbf{D} & \textbf{Thời gian (ms)} & \textbf{State (KB)} & \textbf{ms/KB} \\
-				\hline
-				5 & 728 & 449 & 1,62 \\
-				\hline
-				10 & 1039 & 762 & 1,36 \\
-				\hline
-				20 & 1155 & 1381 & 0,84 \\
-				\hline
-				50 & 2098 & 3240 & 0,65 \\
-				\hline
-			\end{tabular}}\\[0.2em]
-			{\scriptsize Nhánh sâu hơn thì group state lớn hơn, serialize nặng hơn nên tổng thời gian tăng. Nhưng ms/KB giảm cho thấy chi phí giao thức không phụ thuộc vào D, bản chất vẫn là $O(1)$.}
-		\end{column}
-		\begin{column}{0.43\textwidth}
-			\footnotesize \textbf{RQ5b:} Coordinator overhead\\[0.2em]
+		\begin{column}{0.48\textwidth}
+			\footnotesize \textbf{RQ5a:} Coordinator overhead\\[0.3em]
 			\centering
 			{\scriptsize
-			\renewcommand{\arraystretch}{1.1}
-			\setlength{\tabcolsep}{7pt}
+			\renewcommand{\arraystretch}{1.2}
+			\setlength{\tabcolsep}{8pt}
 			\begin{tabular}{|r|r|r|r|}
 				\hline
 				\textbf{N} & \textbf{DP (ms)} & \textbf{Tổng (ms)} & \textbf{\%} \\
@@ -40,12 +18,14 @@
 				64 & 11,30 & 650,70 & 1,74 \\
 				\hline
 			\end{tabular}}
-			\\[0.2em]
-			{\scriptsize $\Rightarrow$ Giảm dần, luôn $<4\%$}
-			\vspace{0.3em}
-			\begin{block}{}
+			\\[0.3em]
+			{\scriptsize $\Rightarrow$ Tỷ trọng giảm dần, luôn $<4\%$}
+		\end{column}
+		\begin{column}{0.48\textwidth}
+			\begin{block}{RQ5b: Forward Secrecy}
 				\footnotesize
-				\textbf{RQ5c:} Forward Secrecy --- thành viên bị loại không giải mã epoch mới \checkmark
+				Thành viên bị loại \textbf{không} giải mã được tin nhắn ở epoch mới \checkmark\\[0.3em]
+				$\Rightarrow$ MLS giữ đầy đủ FS/PCS ngay trên P2P
 			\end{block}
 		\end{column}
 	\end{columns}

@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  8 JUL 2026 17:12
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.5) (preloaded format=pdflatex 2026.6.8)  14 JUL 2026 18:36
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1548,12 +1548,6 @@ Underfull \hbox (badness 10000) in paragraph at lines 249--249
 []|\T5/lmss/m/n/9 N°ng (ph¡t sâng
  []
 
-
-Underfull \hbox (badness 10000) in paragraph at lines 249--249
-[]|$\T5/lmss/m/sl/9 O\OT1/lmss/m/n/9 (\T5/lmss/m/n/9 1\OT1/lmss/m/n/9 )$ \T5/lm
-ss/bx/n/9 --- 1 To-ken
- []
-
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
@@ -1606,13 +1600,13 @@ put line 378.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 421.
+put line 419.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [13
 
 ]
 LaTeX Font Info:    Trying to load font information for T5+lmtt on input line 4
-54.
+52.
 
 (C:\Users\tiendung2306\AppData\Local\Programs\MiKTeX\tex/latex/lm\t5lmtt.fd
 File: t5lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
@@ -1620,7 +1614,7 @@ File: t5lmtt.fd 2015/05/01 v1.6.1 Font defs for Latin Modern
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 454.
+put line 452.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
 
 [14
@@ -1629,7 +1623,7 @@ put line 454.
 File: images/hust-blue-169-section.png Graphic file (type png)
 <use images/hust-blue-169-section.png>
 Package pdftex.def Info: images/hust-blue-169-section.png  used on input line 4
-57.
+55.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [15
 
@@ -1637,7 +1631,7 @@ Package pdftex.def Info: images/hust-blue-169-section.png  used on input line 4
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 471.
+put line 469.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [16
 
@@ -1646,18 +1640,18 @@ put line 471.
 File: images/app_03_admin_issue_bundle_admin.png Graphic file (type png)
 <use images/app_03_admin_issue_bundle_admin.png>
 Package pdftex.def Info: images/app_03_admin_issue_bundle_admin.png  used on in
-put line 494.
+put line 492.
 (pdftex.def)             Requested size: 192.04022pt x 120.02513pt.
 <images/app_06_group_management_alice.png, id=143, 963.6pt x 602.25pt>
 File: images/app_06_group_management_alice.png Graphic file (type png)
 <use images/app_06_group_management_alice.png>
 Package pdftex.def Info: images/app_06_group_management_alice.png  used on inpu
-t line 494.
+t line 492.
 (pdftex.def)             Requested size: 192.04022pt x 120.02513pt.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 494.
+put line 492.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [17
 
@@ -1667,17 +1661,17 @@ nt_alice.png>]
 File: images/app_05_group_chat_alice.png Graphic file (type png)
 <use images/app_05_group_chat_alice.png>
 Package pdftex.def Info: images/app_05_group_chat_alice.png  used on input line
- 517.
+ 515.
 (pdftex.def)             Requested size: 192.04597pt x 120.2559pt.
 <images/app_13_file_chat.png, id=152, 954.56625pt x 597.73312pt>
 File: images/app_13_file_chat.png Graphic file (type png)
 <use images/app_13_file_chat.png>
-Package pdftex.def Info: images/app_13_file_chat.png  used on input line 517.
+Package pdftex.def Info: images/app_13_file_chat.png  used on input line 515.
 (pdftex.def)             Requested size: 192.04597pt x 120.2559pt.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 517.
+put line 515.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [18
 
@@ -1685,18 +1679,18 @@ put line 517.
 <images/concurrency_batching.png, id=160, 1145.2386pt x 518.1759pt>
 File: images/concurrency_batching.png Graphic file (type png)
 <use images/concurrency_batching.png>
-Package pdftex.def Info: images/concurrency_batching.png  used on input line 54
-0.
+Package pdftex.def Info: images/concurrency_batching.png  used on input line 53
+8.
 (pdftex.def)             Requested size: 188.11742pt x 85.1158pt.
 <images/chaos_convergence.png, id=161, 945.2916pt x 537.6888pt>
 File: images/chaos_convergence.png Graphic file (type png)
 <use images/chaos_convergence.png>
-Package pdftex.def Info: images/chaos_convergence.png  used on input line 540.
+Package pdftex.def Info: images/chaos_convergence.png  used on input line 538.
 (pdftex.def)             Requested size: 188.1174pt x 107.00256pt.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 540.
+put line 538.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [19
 
@@ -1704,7 +1698,7 @@ put line 540.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 570.
+put line 568.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [20
 
@@ -1715,59 +1709,53 @@ put line 570.
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 616.
+put line 614.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [21
 
 ]
 \openout4 = `Slide_HUST.vrb'.
 
- (Slide_HUST.vrb
-<images/partition_divergence_normalized.png, id=180, 505.89pt x 325.215pt>
-File: images/partition_divergence_normalized.png Graphic file (type png)
-<use images/partition_divergence_normalized.png>
-Package pdftex.def Info: images/partition_divergence_normalized.png  used on in
-put line 7.
-(pdftex.def)             Requested size: 119.5017pt x 76.82253pt.
-)
+ (Slide_HUST.vrb)
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 670.
+put line 648.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [22
 
- <./images/partition_divergence_normalized.png>]
+]
 File: images/hust-blue-169-section.png Graphic file (type png)
 <use images/hust-blue-169-section.png>
 Package pdftex.def Info: images/hust-blue-169-section.png  used on input line 6
-73.
+51.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
- [23
+
+[23
 
 ]
 File: images/hust-blue-169-content-hust-full.png Graphic file (type png)
 <use images/hust-blue-169-content-hust-full.png>
 Package pdftex.def Info: images/hust-blue-169-content-hust-full.png  used on in
-put line 718.
+put line 694.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [24
 
 ]
-<images/hust-blue-169-end-empty.png, id=197, 963.6pt x 542.025pt>
+<images/hust-blue-169-end-empty.png, id=195, 963.6pt x 542.025pt>
 File: images/hust-blue-169-end-empty.png Graphic file (type png)
 <use images/hust-blue-169-end-empty.png>
 Package pdftex.def Info: images/hust-blue-169-end-empty.png  used on input line
- 735.
+ 711.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [25
 
  <./images/hust-blue-169-end-empty.png>]
-<images/hust-blue-169-content-logo.png, id=206, 963.6pt x 542.025pt>
+<images/hust-blue-169-content-logo.png, id=204, 963.6pt x 542.025pt>
 File: images/hust-blue-169-content-logo.png Graphic file (type png)
 <use images/hust-blue-169-content-logo.png>
 Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
-ine 809.
+ine 785.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [26
 
@@ -1775,7 +1763,7 @@ ine 809.
 File: images/hust-blue-169-content-logo.png Graphic file (type png)
 <use images/hust-blue-169-content-logo.png>
 Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
-ine 809.
+ine 785.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [27
 
@@ -1784,44 +1772,51 @@ ine 809.
 File: images/hust-blue-169-content-logo.png Graphic file (type png)
 <use images/hust-blue-169-content-logo.png>
 Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
-ine 809.
+ine 785.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
  [28
 
 
 ]
 LaTeX Font Info:    External font `lmex10' loaded for size
-(Font)              <12> on input line 853.
+(Font)              <12> on input line 829.
 LaTeX Font Info:    Font shape `T5/lmss/m/it' in size <12> not available
-(Font)              Font shape `T5/lmss/m/sl' tried instead on input line 853.
+(Font)              Font shape `T5/lmss/m/sl' tried instead on input line 829.
 File: images/hust-blue-169-content-logo.png Graphic file (type png)
 <use images/hust-blue-169-content-logo.png>
 Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
-ine 853.
+ine 829.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
-
-[29
+ [29
 
 {C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/lm/lm-math
 ex.enc}]
-Overfull \hbox (0.59595pt too wide) in paragraph at lines 906--906
+File: images/hust-blue-169-content-logo.png Graphic file (type png)
+<use images/hust-blue-169-content-logo.png>
+Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
+ine 856.
+(pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
+ [30
+
+]
+Overfull \hbox (0.59595pt too wide) in paragraph at lines 909--909
  [][] 
  []
 
 File: images/hust-blue-169-content-logo.png Graphic file (type png)
 <use images/hust-blue-169-content-logo.png>
 Package pdftex.def Info: images/hust-blue-169-content-logo.png  used on input l
-ine 906.
+ine 909.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
-[30
+[31
 
 ]
-<images/hust-blue-169-end.png, id=250, 963.6pt x 542.025pt>
+<images/hust-blue-169-end.png, id=254, 963.6pt x 542.025pt>
 File: images/hust-blue-169-end.png Graphic file (type png)
 <use images/hust-blue-169-end.png>
-Package pdftex.def Info: images/hust-blue-169-end.png  used on input line 908.
+Package pdftex.def Info: images/hust-blue-169-end.png  used on input line 911.
 (pdftex.def)             Requested size: 455.2446pt x 256.08334pt.
- [31
+ [32
 
  <./images/hust-blue-169-end.png>]
 \tf@nav=\write6
@@ -1842,13 +1837,13 @@ Package rerunfilecheck Info: File `Slide_HUST.out' has not changed.
 (rerunfilecheck)             Checksum: 9D4DCF92415094949372BE31B41A950E;652.
  ) 
 Here is how much of TeX's memory you used:
- 28470 strings out of 467509
- 575357 string characters out of 5405379
- 966199 words of memory out of 5000000
- 57021 multiletter control sequences out of 15000+600000
+ 28471 strings out of 467509
+ 575116 string characters out of 5405379
+ 966320 words of memory out of 5000000
+ 57020 multiletter control sequences out of 15000+600000
  803463 words of font info for 115 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 128i,18n,123p,416b,1181s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 128i,18n,123p,413b,1181s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/lm/lm
 ex10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/publi
 c/lm/lmmi10.pfb><C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type
@@ -1874,9 +1869,9 @@ ta/Local/Programs/MiKTeX/fonts/type1/public/lm/lmtt9.pfb><C:/Users/tiendung2306
 /AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/symbols/msam10.pfb><
 C:/Users/tiendung2306/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts
 /symbols/msbm10.pfb>
-Output written on Slide_HUST.pdf (31 pages, 2072101 bytes).
+Output written on Slide_HUST.pdf (32 pages, 2027537 bytes).
 PDF statistics:
- 378 PDF objects out of 1000 (max. 8388607)
- 81 named destinations out of 1000 (max. 500000)
- 145 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 381 PDF objects out of 1000 (max. 8388607)
+ 83 named destinations out of 1000 (max. 500000)
+ 140 words of extra memory for PDF output out of 10000 (max. 10000000)
 
